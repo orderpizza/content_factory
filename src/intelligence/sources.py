@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import json
 from urllib.parse import urljoin
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 from datetime import date, timedelta
 from typing import Protocol
@@ -117,7 +117,8 @@ class WikimediaPageviewSource:
     def collect(self) -> list[Observation]:
         day = date.today() - timedelta(days=1)
         url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m/%d}"
-        with urlopen(url, timeout=20) as response:
+        request = Request(url, headers={"User-Agent": "content-factory-poc/0.1 (local trend research)"})
+        with urlopen(request, timeout=20) as response:
             data = json.load(response)
         return [Observation(
             topic=item["article"].replace("_", " "), title=item["article"].replace("_", " "),
