@@ -22,6 +22,17 @@ class Trend:
 
 
 @dataclass
+class TrendCandidate:
+    topic: str
+    score: float
+    lifecycle_stage: str
+    score_breakdown: dict[str, float] = field(default_factory=dict)
+    supporting_sources: list[str] = field(default_factory=list)
+    first_seen_at: str | None = None
+    last_seen_at: str | None = None
+
+
+@dataclass
 class ContentJob:
     trend_id: int
     pipeline_id: str

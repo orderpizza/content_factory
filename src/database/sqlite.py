@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from common.models import ContentJob, ContentPackage, PostRecord, Trend
+from intelligence.sources import Observation
 
 
 SCHEMA = """
@@ -18,6 +19,22 @@ CREATE TABLE IF NOT EXISTS trends (
     score REAL NOT NULL DEFAULT 0,
     raw_data TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS trend_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_item_id TEXT,
+    url TEXT,
+    observed_at TEXT NOT NULL,
+    activity_value REAL NOT NULL,
+    baseline_value REAL NOT NULL,
+    raw_data TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_trend_observations_topic_time
+ON trend_observations(topic, observed_at);
 
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +110,14 @@ class Database:
         if row is None:
             raise KeyError(f"Trend {trend_id} was not found")
         return Trend(row["topic"], row["title"], row["source"], row["url"], row["observed_at"], row["score"], json.loads(row["raw_data"]), row["id"])
+
+    def save_observation(self, observation: Observation, observed_at: str) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO trend_observations (topic, title, source, source_item_id, url, observed_at, activity_value, baseline_value, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (observation.topic, observation.title, observation.source, observation.source_item_id, observation.url, observed_at, observation.current_volume, observation.baseline_volume, json.dumps(observation.raw_data or {})),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(

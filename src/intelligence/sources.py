@@ -5,6 +5,7 @@ import json
 from urllib.parse import urljoin
 from urllib.request import urlopen
 from xml.etree import ElementTree
+from datetime import date, timedelta
 from typing import Protocol
 
 
@@ -17,6 +18,7 @@ class Observation:
     baseline_volume: float
     url: str | None = None
     raw_data: dict[str, object] | None = None
+    source_item_id: str | None = None
 
 
 class TrendSource(Protocol):
@@ -102,3 +104,24 @@ class CombinedTrendSource:
         for source in self.sources:
             observations.extend(source.collect())
         return observations
+
+
+class WikimediaPageviewSource:
+    """Collect the previous day's most-viewed Wikipedia articles."""
+
+    def __init__(self, project: str = "en.wikipedia.org", limit: int = 50, base_url: str = "https://wikimedia.org/api/rest_v1"):
+        self.project = project
+        self.limit = limit
+        self.base_url = base_url.rstrip("/")
+
+    def collect(self) -> list[Observation]:
+        day = date.today() - timedelta(days=1)
+        url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m/%d}"
+        with urlopen(url, timeout=20) as response:
+            data = json.load(response)
+        return [Observation(
+            topic=item["article"].replace("_", " "), title=item["article"].replace("_", " "),
+            source="wikimedia", current_volume=float(item.get("views", 0)), baseline_volume=0.0,
+            url=f"https://{self.project}/wiki/{item['article']}",
+            source_item_id=str(item.get("article")), raw_data={"rank": rank, "views": item.get("views", 0)},
+        ) for rank, item in enumerate(data.get("items", [])[0].get("articles", [])[: self.limit], start=1)]
