@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS topic_snapshots (
 CREATE INDEX IF NOT EXISTS idx_topic_snapshots_topic_time
 ON topic_snapshots(topic, observed_at);
 
+CREATE TABLE IF NOT EXISTS source_health (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    attempts INTEGER NOT NULL,
+    error TEXT
+);
+
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     trend_id INTEGER NOT NULL REFERENCES trends(id),
@@ -150,6 +159,14 @@ class Database:
     def snapshot_topics(self) -> list[str]:
         rows = self.connection.execute("SELECT DISTINCT topic FROM topic_snapshots ORDER BY topic").fetchall()
         return [row["topic"] for row in rows]
+
+    def save_source_health(self, source: str, checked_at: str, success: bool, attempts: int, error: str | None = None) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO source_health (source, checked_at, success, attempts, error) VALUES (?, ?, ?, ?, ?)",
+            (source, checked_at, int(success), attempts, error),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(

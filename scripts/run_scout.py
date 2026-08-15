@@ -1,6 +1,7 @@
 """Collect one deterministic trend snapshot for local observation."""
 
 import os
+import time
 
 from common.models import utc_now
 from database.sqlite import Database
@@ -20,13 +21,23 @@ def main() -> None:
     try:
         observations = []
         for source in sources:
-            try:
-                for observation in source.collect():
-                    database.save_observation(observation, observed_at)
-                    observations.append(observation)
-                    collected += 1
-            except Exception as error:  # A broken feed must not stop other sources.
-                failures.append(f"{source.__class__.__name__}: {error}")
+            source_name = source.__class__.__name__
+            max_attempts = int(os.getenv("CONTENT_FACTORY_SOURCE_RETRIES", "3"))
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    source_observations = source.collect()
+                    database.save_source_health(source_name, observed_at, True, attempt)
+                    for observation in source_observations:
+                        database.save_observation(observation, observed_at)
+                        observations.append(observation)
+                        collected += 1
+                    break
+                except Exception as error:  # A broken source must not stop other sources.
+                    if attempt == max_attempts:
+                        database.save_source_health(source_name, observed_at, False, attempt, str(error))
+                        failures.append(f"{source_name}: {error}")
+                    else:
+                        time.sleep(min(2 ** (attempt - 1), 8))
         print(f"Scout run: {observed_at}")
         snapshots = build_snapshots(observations, observed_at)
         for snapshot in snapshots:
