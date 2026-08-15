@@ -115,11 +115,20 @@ class WikimediaPageviewSource:
         self.base_url = base_url.rstrip("/")
 
     def collect(self) -> list[Observation]:
-        day = date.today() - timedelta(days=2)
-        url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m}/all-days"
-        request = Request(url, headers={"User-Agent": "content-factory-poc/0.1 (local trend research)"})
-        with urlopen(request, timeout=20) as response:
-            data = json.load(response)
+        data = None
+        for offset in range(0, 12):
+            day = date.today() - timedelta(days=30 * offset)
+            url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m}/all-days"
+            request = Request(url, headers={"User-Agent": "content-factory-poc/0.1 (local trend research)"})
+            try:
+                with urlopen(request, timeout=20) as response:
+                    data = json.load(response)
+                break
+            except Exception:
+                if offset == 11:
+                    raise
+        if data is None:
+            return []
         return [Observation(
             topic=item["article"].replace("_", " "), title=item["article"].replace("_", " "),
             source="wikimedia", current_volume=float(item.get("views", 0)), baseline_volume=0.0,
