@@ -1,6 +1,8 @@
 """Queue and publication-history rules for the POC posting agent."""
 
 from datetime import datetime, timedelta, timezone
+import json
+from urllib.request import Request, urlopen
 
 from common.models import PostRecord, utc_now
 from database.sqlite import Database
@@ -36,6 +38,7 @@ class PostingAgent:
         )
         self.database.connection.commit()
 
+
     def _duplicate_exists(self, post: PostRecord) -> bool:
         row = self.database.connection.execute(
             "SELECT 1 FROM posts WHERE content_id = ? AND platform = ? AND account = ?",
@@ -65,3 +68,26 @@ class PostingAgent:
     def _parse_time(value: str) -> datetime:
         parsed = datetime.fromisoformat(value)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+class BlueskyPublisher:
+    """Publish text posts through Bluesky using an app password."""
+
+    def __init__(self, handle: str, app_password: str, service_url: str = "https://bsky.social"):
+        self.handle = handle
+        self.app_password = app_password
+        self.service_url = service_url.rstrip("/")
+
+    def publish(self, text: str) -> str:
+        session = self._request("com.atproto.server.createSession", {"identifier": self.handle, "password": self.app_password})
+        record = {"$type": "app.bsky.feed.post", "text": text, "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+        response = self._request("com.atproto.repo.createRecord", {"repo": session["did"], "collection": "app.bsky.feed.post", "record": record}, session["accessJwt"])
+        return response["uri"]
+
+    def _request(self, endpoint: str, payload: dict, token: str | None = None) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = Request(f"{self.service_url}/xrpc/{endpoint}", data=json.dumps(payload).encode(), headers=headers, method="POST")
+        with urlopen(request, timeout=20) as response:
+            return json.load(response)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from common.models import ContentPackage, ContentJob, PostRecord, Trend
 from database.sqlite import Database
-from posting.agent import PostingAgent
+from posting.agent import BlueskyPublisher, PostingAgent
 
 
 class PostingAgentTests(unittest.TestCase):
@@ -45,3 +45,17 @@ class PostingAgentTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             agent.queue(PostRecord(second_content, "test", "local"))
+
+    def test_bluesky_publisher_uses_session_token(self):
+        publisher = BlueskyPublisher("example.bsky.social", "app-password", "https://example.test")
+        calls = []
+
+        def fake_request(endpoint, payload, token=None):
+            calls.append((endpoint, payload, token))
+            if endpoint.endswith("createSession"):
+                return {"did": "did:example:1", "accessJwt": "jwt"}
+            return {"uri": "at://did:example:1/app.bsky.feed.post/1"}
+
+        publisher._request = fake_request
+        self.assertEqual(publisher.publish("Hello from the POC"), "at://did:example:1/app.bsky.feed.post/1")
+        self.assertEqual(calls[1][2], "jwt")
