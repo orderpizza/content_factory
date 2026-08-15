@@ -6,6 +6,7 @@ import time
 from common.models import utc_now
 from database.sqlite import Database
 from intelligence.aggregation import build_snapshots
+from intelligence.reporting import ranked_candidates
 from intelligence.sources import HackerNewsSource, RssSource, WikimediaPageviewSource
 
 
@@ -42,6 +43,8 @@ def main() -> None:
         snapshots = build_snapshots(observations, observed_at)
         for snapshot in snapshots:
             database.save_topic_snapshot(snapshot)
+        for candidate in ranked_candidates(database, limit=100):
+            database.upsert_candidate(candidate, observed_at)
         print(f"Observations saved: {collected}")
         print(f"Topic snapshots saved: {len(snapshots)}")
         if failures:

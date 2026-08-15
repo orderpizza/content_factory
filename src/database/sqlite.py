@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS source_health (
     error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS trend_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL UNIQUE,
+    score REAL NOT NULL,
+    lifecycle_stage TEXT NOT NULL,
+    score_breakdown TEXT NOT NULL DEFAULT '{}',
+    supporting_sources TEXT NOT NULL DEFAULT '[]',
+    first_seen_at TEXT,
+    last_seen_at TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    evaluated_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     trend_id INTEGER NOT NULL REFERENCES trends(id),
@@ -167,6 +181,28 @@ class Database:
         )
         self.connection.commit()
         return int(cursor.lastrowid)
+
+    def upsert_candidate(self, candidate, updated_at: str) -> int:
+        self.connection.execute(
+            """INSERT INTO trend_candidates
+            (topic, score, lifecycle_stage, score_breakdown, supporting_sources, first_seen_at, last_seen_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(topic) DO UPDATE SET score=excluded.score, lifecycle_stage=excluded.lifecycle_stage,
+            score_breakdown=excluded.score_breakdown, supporting_sources=excluded.supporting_sources,
+            first_seen_at=excluded.first_seen_at, last_seen_at=excluded.last_seen_at, updated_at=excluded.updated_at""",
+            (candidate.topic, candidate.score, candidate.lifecycle_stage, json.dumps(candidate.score_breakdown), json.dumps(candidate.supporting_sources), candidate.first_seen_at, candidate.last_seen_at, updated_at),
+        )
+        self.connection.commit()
+        row = self.connection.execute("SELECT id FROM trend_candidates WHERE topic = ?", (candidate.topic,)).fetchone()
+        return int(row["id"])
+
+    def cleanup_before(self, cutoff: str) -> dict[str, int]:
+        counts = {}
+        for table, column in (("trend_observations", "observed_at"), ("topic_snapshots", "observed_at"), ("source_health", "checked_at")):
+            cursor = self.connection.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+            counts[table] = cursor.rowcount
+        self.connection.commit()
+        return counts
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(
