@@ -19,3 +19,12 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(snapshots[0].activity, 5)
         self.assertEqual(snapshots[0].source_count, 2)
         self.assertEqual(snapshots[0].sources, ["rss", "wikimedia"])
+
+    def test_clusters_related_headlines(self):
+        snapshots = build_snapshots([
+            Observation("Earthquake strikes Indonesia", "One", "rss", 2, 0),
+            Observation("Strong earthquake reported Indonesia", "Two", "wikimedia", 3, 0),
+        ], "2026-01-01T00:00:00+00:00")
+
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0].source_count, 2)
