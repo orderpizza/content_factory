@@ -17,6 +17,7 @@ class RssSourceTests(unittest.TestCase):
             observations = RssSource("https://example.test/feed").collect()
 
         self.assertEqual(observations[0].topic, "News topic")
+        self.assertEqual(observations[0].source, "rss_example.test")
         self.assertEqual(observations[0].url, "https://example.test/news")
 
     def test_combines_sources(self):

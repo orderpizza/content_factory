@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import json
-from urllib.parse import urljoin
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 from datetime import date, timedelta
@@ -74,7 +74,7 @@ class RssSource:
             link = self._link(entry)
             if title:
                 observations.append(Observation(
-                    topic=title, title=title, source="rss", current_volume=1.0,
+                    topic=title, title=title, source=f"rss_{urlparse(self.feed_url).netloc}", current_volume=1.0,
                     baseline_volume=0.0, url=link,
                 ))
         return observations
@@ -115,8 +115,8 @@ class WikimediaPageviewSource:
         self.base_url = base_url.rstrip("/")
 
     def collect(self) -> list[Observation]:
-        day = date.today() - timedelta(days=1)
-        url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m/%d}"
+        day = date.today() - timedelta(days=2)
+        url = f"{self.base_url}/metrics/pageviews/top/{self.project}/all-access/{day:%Y/%m}/all-days"
         request = Request(url, headers={"User-Agent": "content-factory-poc/0.1 (local trend research)"})
         with urlopen(request, timeout=20) as response:
             data = json.load(response)
