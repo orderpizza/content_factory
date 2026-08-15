@@ -1,0 +1,119 @@
+"""Small SQLite persistence layer for the POC state."""
+
+import json
+import sqlite3
+from pathlib import Path
+
+from common.models import ContentJob, ContentPackage, PostRecord, Trend
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS trends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL,
+    url TEXT,
+    observed_at TEXT NOT NULL,
+    score REAL NOT NULL DEFAULT 0,
+    raw_data TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS content_jobs (
+    job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trend_id INTEGER NOT NULL REFERENCES trends(id),
+    pipeline_id TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    angle TEXT NOT NULL,
+    audience TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    key_points TEXT NOT NULL DEFAULT '[]',
+    sources TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS content_packages (
+    content_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL REFERENCES content_jobs(job_id),
+    pipeline_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    caption TEXT NOT NULL,
+    visual_spec TEXT NOT NULL DEFAULT '{}',
+    assets TEXT NOT NULL DEFAULT '[]',
+    sources TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_id INTEGER NOT NULL REFERENCES content_packages(content_id),
+    platform TEXT NOT NULL,
+    account TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    scheduled_at TEXT,
+    published_at TEXT,
+    external_post_id TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(content_id, platform, account)
+);
+"""
+
+
+class Database:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(self.path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA foreign_keys = ON")
+
+    def initialize(self) -> None:
+        self.connection.executescript(SCHEMA)
+        self.connection.commit()
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def save_trend(self, trend: Trend) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO trends (topic, title, source, url, observed_at, score, raw_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (trend.topic, trend.title, trend.source, trend.url, trend.observed_at, trend.score, json.dumps(trend.raw_data)),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def get_trend(self, trend_id: int) -> Trend:
+        row = self.connection.execute("SELECT * FROM trends WHERE id = ?", (trend_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Trend {trend_id} was not found")
+        return Trend(row["topic"], row["title"], row["source"], row["url"], row["observed_at"], row["score"], json.loads(row["raw_data"]), row["id"])
+
+    def save_content_job(self, job: ContentJob) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO content_jobs (trend_id, pipeline_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (job.trend_id, job.pipeline_id, job.topic, job.angle, job.audience, job.objective, json.dumps(job.key_points), json.dumps(job.sources), job.priority, job.status, job.created_at, job.updated_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def save_content_package(self, package: ContentPackage) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO content_packages (job_id, pipeline_id, title, body, caption, visual_spec, assets, sources, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (package.job_id, package.pipeline_id, package.title, package.body, package.caption, json.dumps(package.visual_spec), json.dumps(package.assets), json.dumps(package.sources), package.created_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def queue_post(self, post: PostRecord) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO posts (content_id, platform, account, status, scheduled_at, published_at, external_post_id, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (post.content_id, post.platform, post.account, post.status, post.scheduled_at, post.published_at, post.external_post_id, post.error, post.created_at, post.updated_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
