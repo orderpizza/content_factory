@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from common.models import ContentJob, ContentPackage, PostRecord, Trend
+from common.models import ContentJob, ContentPackage, PostRecord, TopicSnapshot, Trend
 from intelligence.sources import Observation
 
 
@@ -35,6 +35,19 @@ CREATE TABLE IF NOT EXISTS trend_observations (
 
 CREATE INDEX IF NOT EXISTS idx_trend_observations_topic_time
 ON trend_observations(topic, observed_at);
+
+CREATE TABLE IF NOT EXISTS topic_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    activity REAL NOT NULL,
+    source_count INTEGER NOT NULL,
+    mention_count INTEGER NOT NULL,
+    sources TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_snapshots_topic_time
+ON topic_snapshots(topic, observed_at);
 
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,6 +131,21 @@ class Database:
         )
         self.connection.commit()
         return int(cursor.lastrowid)
+
+    def save_topic_snapshot(self, snapshot: TopicSnapshot) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO topic_snapshots (topic, observed_at, activity, source_count, mention_count, sources) VALUES (?, ?, ?, ?, ?, ?)",
+            (snapshot.topic, snapshot.observed_at, snapshot.activity, snapshot.source_count, snapshot.mention_count, json.dumps(snapshot.sources)),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def topic_history(self, topic: str, limit: int = 20) -> list[TopicSnapshot]:
+        rows = self.connection.execute(
+            "SELECT topic, observed_at, activity, source_count, mention_count, sources FROM topic_snapshots WHERE topic = ? ORDER BY observed_at DESC LIMIT ?",
+            (topic, limit),
+        ).fetchall()
+        return [TopicSnapshot(row["topic"], row["observed_at"], row["activity"], row["source_count"], row["mention_count"], json.loads(row["sources"])) for row in reversed(rows)]
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(

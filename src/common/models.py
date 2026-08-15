@@ -33,6 +33,16 @@ class TrendCandidate:
 
 
 @dataclass
+class TopicSnapshot:
+    topic: str
+    observed_at: str
+    activity: float
+    source_count: int
+    mention_count: int
+    sources: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ContentJob:
     trend_id: int
     pipeline_id: str

@@ -1,16 +1,7 @@
 """Explainable historical scoring for emerging topics."""
 
-from dataclasses import dataclass
-
 from common.models import TrendCandidate
-
-
-@dataclass(frozen=True)
-class TopicSnapshot:
-    topic: str
-    source: str
-    activity: float
-    observed_at: str
+from common.models import TopicSnapshot
 
 
 class TrendScorer:
@@ -22,17 +13,18 @@ class TrendScorer:
         previous = ordered[-2].activity if len(ordered) > 1 else 0.0
         velocity = self._relative_change(current, previous)
         persistence = min(1.0, len(ordered) / 5.0)
-        source_count = len({snapshot.source for snapshot in ordered})
+        source_count = max(snapshot.source_count for snapshot in ordered)
         agreement = min(1.0, source_count / 3.0)
         unusual = min(1.0, velocity / 2.0) if velocity > 0 else 0.0
         score = (velocity * 0.30) + (persistence * 0.20) + (agreement * 0.20) + (unusual * 0.15)
         stage = self.lifecycle(velocity, persistence)
+        supporting_sources = sorted({source for snapshot in ordered for source in snapshot.sources})
         return TrendCandidate(
             topic=topic,
             score=round(score, 4),
             lifecycle_stage=stage,
             score_breakdown={"velocity": round(velocity, 4), "persistence": round(persistence, 4), "source_agreement": round(agreement, 4), "unusual_activity": round(unusual, 4)},
-            supporting_sources=sorted({snapshot.source for snapshot in ordered}),
+            supporting_sources=supporting_sources,
             first_seen_at=ordered[0].observed_at,
             last_seen_at=ordered[-1].observed_at,
         )

@@ -4,6 +4,7 @@ import os
 
 from common.models import utc_now
 from database.sqlite import Database
+from intelligence.aggregation import build_snapshots
 from intelligence.sources import HackerNewsSource, RssSource, WikimediaPageviewSource
 
 
@@ -17,15 +18,21 @@ def main() -> None:
     collected = 0
     failures = []
     try:
+        observations = []
         for source in sources:
             try:
                 for observation in source.collect():
                     database.save_observation(observation, observed_at)
+                    observations.append(observation)
                     collected += 1
             except Exception as error:  # A broken feed must not stop other sources.
                 failures.append(f"{source.__class__.__name__}: {error}")
         print(f"Scout run: {observed_at}")
+        snapshots = build_snapshots(observations, observed_at)
+        for snapshot in snapshots:
+            database.save_topic_snapshot(snapshot)
         print(f"Observations saved: {collected}")
+        print(f"Topic snapshots saved: {len(snapshots)}")
         if failures:
             print("Source failures:")
             for failure in failures:
