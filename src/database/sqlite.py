@@ -147,6 +147,10 @@ class Database:
         ).fetchall()
         return [TopicSnapshot(row["topic"], row["observed_at"], row["activity"], row["source_count"], row["mention_count"], json.loads(row["sources"])) for row in reversed(rows)]
 
+    def snapshot_topics(self) -> list[str]:
+        rows = self.connection.execute("SELECT DISTINCT topic FROM topic_snapshots ORDER BY topic").fetchall()
+        return [row["topic"] for row in rows]
+
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(
             "INSERT INTO content_jobs (trend_id, pipeline_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
