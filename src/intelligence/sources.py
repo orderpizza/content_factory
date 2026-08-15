@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 import json
+from urllib.parse import urljoin
 from urllib.request import urlopen
+from xml.etree import ElementTree
 from typing import Protocol
 
 
@@ -50,4 +52,51 @@ class HackerNewsSource:
                     current_volume=float(story.get("score", 0)), baseline_volume=0.0,
                     url=story.get("url"), raw_data={"id": story.get("id"), "score": story.get("score", 0)},
                 ))
+        return observations
+
+
+class RssSource:
+    """Collect recent entries from an RSS or Atom feed."""
+
+    def __init__(self, feed_url: str, limit: int = 20):
+        self.feed_url = feed_url
+        self.limit = limit
+
+    def collect(self) -> list[Observation]:
+        with urlopen(self.feed_url, timeout=15) as response:
+            root = ElementTree.fromstring(response.read())
+        entries = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+        observations = []
+        for entry in entries[: self.limit]:
+            title = self._text(entry, "title")
+            link = self._link(entry)
+            if title:
+                observations.append(Observation(
+                    topic=title, title=title, source="rss", current_volume=1.0,
+                    baseline_volume=0.0, url=link,
+                ))
+        return observations
+
+    @staticmethod
+    def _text(entry: ElementTree.Element, name: str) -> str:
+        node = entry.find(name) or entry.find(f"{{http://www.w3.org/2005/Atom}}{name}")
+        return (node.text or "").strip() if node is not None else ""
+
+    @staticmethod
+    def _link(entry: ElementTree.Element) -> str | None:
+        node = entry.find("link")
+        if node is not None and node.text:
+            return node.text.strip()
+        atom_node = entry.find("{http://www.w3.org/2005/Atom}link")
+        return atom_node.get("href") if atom_node is not None else None
+
+
+class CombinedTrendSource:
+    def __init__(self, sources: list[TrendSource]):
+        self.sources = sources
+
+    def collect(self) -> list[Observation]:
+        observations = []
+        for source in self.sources:
+            observations.extend(source.collect())
         return observations
