@@ -21,6 +21,7 @@ Trend Detection
 - GCP is used primarily for Gemini API calls.
 - SQLite is the POC database.
 - Prefer deterministic/local processing where practical.
+- Trend detection must remain LLM-free; Gemini belongs downstream in determination.
 - Keep component boundaries explicit.
 - Do not introduce unnecessary infrastructure.
 
@@ -81,9 +82,21 @@ One:
 - visual template
 - posting platform
 
-Multiple pipelines, sophisticated trend intelligence,
+ Multiple pipelines,
 advanced orchestration, multi-platform publishing, etc.
 are out of scope unless explicitly requested.
+
+## Detection Phase
+
+The current priority is completing and observing the deterministic detection
+layer before implementing Gemini determination. Preserve the distinction:
+
+- Detection: what is gaining attention?
+- Determination: what should we create and how might it be monetized?
+
+Treat clustering/classification and scoring as high-impact boundaries. Changes
+to either can change which candidates are consumed downstream and must include
+tests and documentation updates.
 
 ## Implementation Order
 

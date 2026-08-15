@@ -136,6 +136,16 @@ Examples:
 LLMs should be used where reasoning, interpretation, generation, or
 semantic understanding provides meaningful value.
 
+For the current POC, trend detection is intentionally LLM-free. A local Scout
+collects and measures external signals continuously. The downstream
+determination layer may use Gemini after the detection output has been observed
+and tuned.
+
+The business goal is monetized content. Detection measures attention and
+evidence; determination later evaluates content opportunity, audience, angle,
+pipeline, and possible monetization paths. A popular topic is not automatically
+a valuable business opportunity.
+
 ---
 
 ## 6. Scalability of the Concept

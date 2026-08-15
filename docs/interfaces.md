@@ -4,7 +4,8 @@ This file defines the contracts between components. Change these deliberately:
 they are the most important boundaries in the POC.
 
 ```text
-Trend
+TrendCandidate
+  -> Determination
   -> ContentJob
   -> ContentPackage
   -> PostRequest
@@ -14,25 +15,50 @@ Trend
 Exact Python models and SQLite columns can evolve during implementation, but
 the responsibilities below should remain stable.
 
-## Trend
+## Observation
 
-Produced by the trend detector.
+Produced by a source adapter and stored as raw detector evidence.
 
 Conceptual fields:
 
 ```text
-id
 topic
 title
 source
+source_item_id
 url
 observed_at
-score
+current_volume
+baseline_volume
 raw_data
 ```
 
-The trend detector owns collection, normalization, deduplication, and simple
-scoring. Downstream components should not depend on source-specific raw data.
+Source adapters must not call an LLM. They normalize external data into this
+contract.
+
+## TrendCandidate
+
+Produced by the deterministic Scout after historical analysis.
+
+Conceptual fields:
+
+```text
+topic
+score
+lifecycle_stage
+score_breakdown
+supporting_sources
+first_seen_at
+last_seen_at
+status
+cooldown_until
+```
+
+The candidate is the handoff boundary to determination. It must explain why it
+was ranked and retain enough evidence for downstream review. `NEW` means there
+is not enough history yet; `EMERGING` means a previously observed topic is
+showing strong positive growth. A candidate may be updated while cooldown
+prevents repeated downstream claims.
 
 ## ContentJob
 
@@ -154,6 +180,11 @@ The database must answer:
 
 At minimum, tests should cover:
 
+- Observation stored correctly.
+- TrendCandidate score and lifecycle calculated correctly.
+- Candidate cooldown and atomic claiming.
+- Source failure persisted without stopping other sources.
+- TrendCandidate accepted by a fake determination consumer without Gemini.
 - `Trend` stored correctly.
 - `Trend` to `ContentJob`.
 - `ContentJob` to pipeline execution.

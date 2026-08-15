@@ -83,3 +83,56 @@ responsibilities.
 Consequence: Pipelines produce finished content packages; the posting agent owns
 queueing, scheduling, duplicate protection, platform calls, and publication
 records.
+
+## 008 - Deterministic Detection Before LLM Determination
+
+Date: 2026-08-15
+
+Decision: Complete and observe the trend detection layer independently before
+implementing the Gemini determination workflow.
+
+Reason: Detection requires continuous historical measurement and tuning. Using
+LLMs during collection would add cost and make it harder to distinguish source
+signals from model interpretation.
+
+Consequence: The Scout produces explainable `TrendCandidate` records in SQLite.
+Determination consumes eligible candidates only after the detector contract and
+scoring behavior are stable.
+
+## 009 - Multi-Source Deterministic Scout
+
+Date: 2026-08-15
+
+Decision: Use source adapters for free Hacker News, RSS/Atom, and Wikimedia
+signals, with retries and persisted source health.
+
+Reason: No single source represents broad public attention, and the POC must
+remain free and local-first.
+
+Consequence: Source activity must be normalized before comparison. Additional
+sources can be added without changing downstream interfaces.
+
+## 010 - Candidates Are Observable State
+
+Date: 2026-08-15
+
+Decision: Persist ranked candidates, lifecycle, score breakdown, evidence, and
+cooldown state in SQLite. Provide a read-only live dashboard.
+
+Reason: The detector needs to be monitored and tuned over time, and downstream
+consumption must be separate from dashboard presentation.
+
+Consequence: The dashboard never controls the workflow. Determination reads
+structured candidate state directly from SQLite.
+
+## 011 - Monetization Is Downstream Opportunity Evaluation
+
+Date: 2026-08-15
+
+Decision: Keep raw trend measurement separate from monetization evaluation.
+
+Reason: A topic can be highly popular but commercially unsuitable, while a
+smaller trend may have a strong audience or product opportunity.
+
+Consequence: Detection reports attention and evidence. Determination later
+evaluates audience, angle, pipeline, and monetization path.

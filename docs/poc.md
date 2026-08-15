@@ -24,8 +24,8 @@ Trend Detection
 
 ## Scope
 
-- One trend detection implementation.
-- A small number of trend sources.
+- One deterministic Scout/detection implementation.
+- A small number of free trend sources.
 - One determination process.
 - One real content pipeline: `poc_pipeline`.
 - One deterministic visual template.
@@ -34,6 +34,32 @@ Trend Detection
 - SQLite database.
 - Mac Mini as the primary runtime.
 - Gemini API for determination and content generation where useful.
+
+The current work is intentionally paused before determination while the
+detection layer is completed and observed independently. The detector does not
+use Gemini or any other LLM API.
+
+Current detection sources:
+
+- Hacker News public API.
+- Configured RSS/Atom feeds.
+- Wikimedia pageview analytics.
+
+The detector runs as a scheduled local process, stores observation history and
+ranked candidates in SQLite, and exposes a read-only live dashboard for
+observability.
+
+## Detection Work Remaining Before Determination
+
+- Improve semantic clustering/classification as source coverage grows.
+- Expand source adapters while preserving the common observation contract.
+- Carefully revise scoring, baselines, and source weights using observed data.
+- Tune lifecycle thresholds from real multi-run history.
+- Add candidate cooldown and downstream claim behavior to operating policy.
+- Observe the Scout for several days on the Mac Mini.
+
+Clustering and scoring are high-impact because their output directly controls
+which candidates the downstream determination layer consumes.
 
 ## Success Criteria
 
@@ -64,7 +90,6 @@ The system must also be able to explain afterward:
 ## Out Of Scope
 
 - Multiple content pipelines.
-- Sophisticated trend intelligence.
 - Advanced trend prediction.
 - Complex machine-learning trend models.
 - Generic plugin architecture.
