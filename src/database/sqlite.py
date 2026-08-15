@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS trend_candidates (
     last_seen_at TEXT,
     status TEXT NOT NULL DEFAULT 'new',
     evaluated_at TEXT,
+    cooldown_until TEXT,
     updated_at TEXT NOT NULL
 );
 
@@ -128,6 +129,9 @@ class Database:
 
     def initialize(self) -> None:
         self.connection.executescript(SCHEMA)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(trend_candidates)").fetchall()}
+        if "cooldown_until" not in columns:
+            self.connection.execute("ALTER TABLE trend_candidates ADD COLUMN cooldown_until TEXT")
         self.connection.commit()
 
     def close(self) -> None:
@@ -195,6 +199,20 @@ class Database:
         self.connection.commit()
         row = self.connection.execute("SELECT id FROM trend_candidates WHERE topic = ?", (candidate.topic,)).fetchone()
         return int(row["id"])
+
+    def eligible_candidates(self, now: str, limit: int = 20):
+        rows = self.connection.execute(
+            "SELECT * FROM trend_candidates WHERE status IN ('new', 'active') AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY score DESC LIMIT ?",
+            (now, limit),
+        ).fetchall()
+        return rows
+
+    def set_candidate_cooldown(self, candidate_id: int, until: str, status: str = "active") -> None:
+        self.connection.execute(
+            "UPDATE trend_candidates SET status = ?, cooldown_until = ?, evaluated_at = ?, updated_at = ? WHERE id = ?",
+            (status, until, until, until, candidate_id),
+        )
+        self.connection.commit()
 
     def cleanup_before(self, cutoff: str) -> dict[str, int]:
         counts = {}
