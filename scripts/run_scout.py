@@ -7,13 +7,18 @@ from common.models import utc_now
 from database.sqlite import Database
 from intelligence.aggregation import build_snapshots
 from intelligence.reporting import ranked_candidates
-from intelligence.sources import HackerNewsSource, RssSource, WikimediaPageviewSource
+from intelligence.sources import HackerNewsSource, RedditSource, RssSource, WikimediaPageviewSource, YouTubeSource
 
 
 def main() -> None:
     sources = [HackerNewsSource(), WikimediaPageviewSource()]
     feed_urls = [value.strip() for value in os.getenv("CONTENT_FACTORY_RSS_FEEDS", "").split(",") if value.strip()]
     sources.extend(RssSource(url) for url in feed_urls)
+    reddit_subreddits = [value.strip() for value in os.getenv("REDDIT_SUBREDDITS", "").split(",") if value.strip()]
+    if reddit_subreddits and os.getenv("REDDIT_CLIENT_ID") and os.getenv("REDDIT_CLIENT_SECRET"):
+        sources.append(RedditSource(reddit_subreddits))
+    if os.getenv("YOUTUBE_API_KEY"):
+        sources.append(YouTubeSource(region=os.getenv("YOUTUBE_REGION", "US")))
     database = Database(os.getenv("CONTENT_FACTORY_DB_PATH", "data/content.db"))
     database.initialize()
     observed_at = utc_now()
