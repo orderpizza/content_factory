@@ -214,6 +214,14 @@ class Database:
         )
         self.connection.commit()
 
+    def claim_candidate(self, candidate_id: int, claimed_at: str, cooldown_until: str) -> bool:
+        cursor = self.connection.execute(
+            "UPDATE trend_candidates SET status = 'evaluating', evaluated_at = ?, cooldown_until = ?, updated_at = ? WHERE id = ? AND status IN ('new', 'active') AND (cooldown_until IS NULL OR cooldown_until <= ?)",
+            (claimed_at, cooldown_until, claimed_at, candidate_id, claimed_at),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
     def cleanup_before(self, cutoff: str) -> dict[str, int]:
         counts = {}
         for table, column in (("trend_observations", "observed_at"), ("topic_snapshots", "observed_at"), ("source_health", "checked_at")):

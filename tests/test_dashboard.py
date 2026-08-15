@@ -18,4 +18,5 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Ranked Candidates", html)
         self.assertIn("topic", html)
+        self.assertIn("Cooldown Until", html)
         self.assertNotIn("<form", html)
