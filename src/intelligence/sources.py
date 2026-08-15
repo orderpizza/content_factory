@@ -79,7 +79,9 @@ class RssSource:
 
     @staticmethod
     def _text(entry: ElementTree.Element, name: str) -> str:
-        node = entry.find(name) or entry.find(f"{{http://www.w3.org/2005/Atom}}{name}")
+        node = entry.find(name)
+        if node is None:
+            node = entry.find(f"{{http://www.w3.org/2005/Atom}}{name}")
         return (node.text or "").strip() if node is not None else ""
 
     @staticmethod
