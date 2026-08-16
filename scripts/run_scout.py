@@ -3,6 +3,10 @@
 import os
 import time
 import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.models import utc_now
 from database.sqlite import Database

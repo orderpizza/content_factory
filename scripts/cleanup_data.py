@@ -1,7 +1,11 @@
 """Archive and compact detector records older than the configured retention period."""
 
 import os
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from database.sqlite import Database
 
