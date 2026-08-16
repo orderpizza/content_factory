@@ -68,6 +68,11 @@ fresh candidates meeting `CONTENT_FACTORY_MINIMUM_TREND_SCORE` and fitting
 `CONTENT_FACTORY_TOP_N_CANDIDATES` are marked `pending_determination`.
 Determination consumes that shortlist rather than every scored topic.
 
+The detector creates a frozen `DeterminationRequest` containing the candidate,
+source evidence, trend history, and producing detection-run ID. Repeated
+selection of the same candidate does not create duplicate pending or claimed
+requests; a later request requires resolution and cooldown expiry.
+
 Topic clustering and classification are important unfinished areas. As source
 coverage grows, differently worded observations about the same event may
 otherwise appear as duplicate trends. The initial clustering is deterministic
@@ -83,6 +88,10 @@ hot-data period, detailed detector records are compressed into
 `data/archive/`; observation history is compacted into monthly topic/source
 summaries in `trend_history` before hot rows are removed. Content and
 publication records are not part of detector cleanup.
+
+Recent raw detail remains queryable, older detail is compressed into local
+archives, and monthly topic/source summaries remain in SQLite. Detection runs,
+handoff records, content jobs, and publication history are retained for audit.
 
 ### System Dashboard
 
@@ -100,9 +109,9 @@ with their owning components.
 
 ### Determination Layer
 
-Receives eligible `TrendCandidate` records after the detector has been observed
-and tuned. Gemini should be isolated behind a small client/service and used here
-for interpretation and content opportunity decisions.
+Receives persisted `DeterminationRequest` records after the detector has been
+observed and tuned. Gemini should be isolated behind a small client/service and
+used here for interpretation and content opportunity decisions.
 
 Determination produces a `ContentJob`. It must not call pipeline-specific Python
 functions directly.
@@ -143,6 +152,8 @@ Use SQLite for POC state. Initial tables should remain minimal:
 - `trend_observations`
 - `topic_snapshots`
 - `trend_candidates`
+- `detection_runs`
+- `determination_handoffs`
 - `source_health`
 - `content_jobs`
 - `content_packages`

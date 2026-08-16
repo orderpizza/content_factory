@@ -179,3 +179,22 @@ core sources. Reddit and YouTube are high-priority optional sources with
 adapters ready but disabled. Google Trends is very high priority but remains
 disabled until an approved access path is available. X and other platform
 sources are deferred.
+
+## 015 - Fixed Determination Handoff
+
+Decision: Detection hands determination a persisted `DeterminationRequest`, not
+a bare candidate or raw observation stream. The request freezes candidate
+metadata, source evidence, trend history, and the producing detection run ID.
+
+Reason: Gemini needs auditable context, and the input contract must remain
+stable while source adapters and scoring evolve.
+
+## 016 - Handoff Lifecycle and Duplicate Suppression
+
+Decision: Track handoff delivery state separately from candidate lifecycle.
+Suppress new active handoffs when the same candidate already has a pending or
+claimed request; permit a later request only after resolution and cooldown.
+
+Reason: A candidate can remain popular across many 30-minute Scout runs. That
+should update trend evidence without repeatedly submitting the same work to
+Gemini.

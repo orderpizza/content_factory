@@ -89,6 +89,32 @@ CREATE TABLE IF NOT EXISTS trend_candidates (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS detection_runs (
+    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    observations_collected INTEGER NOT NULL DEFAULT 0,
+    candidates_scored INTEGER NOT NULL DEFAULT 0,
+    candidates_selected INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS determination_handoffs (
+    handoff_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id INTEGER NOT NULL REFERENCES trend_candidates(id),
+    detection_run_id INTEGER NOT NULL REFERENCES detection_runs(run_id),
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    completed_at TEXT,
+    failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_determination_handoffs_status
+ON determination_handoffs(status, created_at);
+
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     trend_id INTEGER NOT NULL REFERENCES trends(id),
@@ -215,6 +241,53 @@ class Database:
         self.connection.commit()
         row = self.connection.execute("SELECT id FROM trend_candidates WHERE topic = ?", (candidate.topic,)).fetchone()
         return int(row["id"])
+
+    def start_detection_run(self, started_at: str) -> int:
+        cursor = self.connection.execute("INSERT INTO detection_runs (started_at) VALUES (?)", (started_at,))
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def finish_detection_run(self, run_id: int, completed_at: str, observations_collected: int, candidates_scored: int, candidates_selected: int, status: str = "completed", error: str | None = None) -> None:
+        self.connection.execute(
+            "UPDATE detection_runs SET completed_at = ?, observations_collected = ?, candidates_scored = ?, candidates_selected = ?, status = ?, error = ? WHERE run_id = ?",
+            (completed_at, observations_collected, candidates_scored, candidates_selected, status, error, run_id),
+        )
+        self.connection.commit()
+
+    def create_handoff_if_absent(self, candidate_id: int, detection_run_id: int, payload: dict, created_at: str) -> int | None:
+        active = self.connection.execute(
+            "SELECT handoff_id FROM determination_handoffs WHERE candidate_id = ? AND status IN ('pending', 'claimed') ORDER BY handoff_id DESC LIMIT 1",
+            (candidate_id,),
+        ).fetchone()
+        if active:
+            return None
+        cursor = self.connection.execute(
+            "INSERT INTO determination_handoffs (candidate_id, detection_run_id, payload_json, created_at) VALUES (?, ?, ?, ?)",
+            (candidate_id, detection_run_id, json.dumps(payload), created_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def pending_handoffs(self, limit: int = 20):
+        return self.connection.execute(
+            "SELECT * FROM determination_handoffs WHERE status = 'pending' ORDER BY created_at, handoff_id LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def claim_handoff(self, handoff_id: int, claimed_at: str) -> bool:
+        cursor = self.connection.execute(
+            "UPDATE determination_handoffs SET status = 'claimed', claimed_at = ? WHERE handoff_id = ? AND status = 'pending'",
+            (claimed_at, handoff_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
+    def complete_handoff(self, handoff_id: int, completed_at: str, status: str = "completed", failure_reason: str | None = None) -> None:
+        self.connection.execute(
+            "UPDATE determination_handoffs SET status = ?, completed_at = ?, failure_reason = ? WHERE handoff_id = ? AND status = 'claimed'",
+            (status, completed_at, failure_reason, handoff_id),
+        )
+        self.connection.commit()
 
     def eligible_candidates(self, now: str, limit: int = 20):
         rows = self.connection.execute(

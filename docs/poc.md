@@ -90,6 +90,10 @@ are implemented.
 - Store the full scored history for observability, but mark only a configured
   top-N shortlist that passes the minimum score as `pending_determination`.
   Initial defaults are top 5 and minimum score 0.25.
+- Create one frozen `DeterminationRequest` per eligible candidate, including
+  candidate metadata, source evidence, trend history, and the producing
+  detection run ID. Do not create a duplicate active request on every Scout
+  cycle.
 
 Clustering and scoring are high-impact because their output directly controls
 which candidates the downstream determination layer consumes.

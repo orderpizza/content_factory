@@ -3,6 +3,10 @@
 This file defines the contracts between components. Change these deliberately:
 they are the most important boundaries in the POC.
 
+The system dashboard is an observability consumer of these boundaries. It may
+compose reporting data from each component, but it does not create or mutate
+workflow state.
+
 ```text
 TrendCandidate
   -> Determination
@@ -64,6 +68,45 @@ The detector may persist many scored candidates, but its handoff output is a
 shortlist: candidates must pass the configured minimum score and rank within
 the configured top-N limit. Selected records are marked
 `pending_determination`, identifying the records for the determination worker.
+
+## DeterminationRequest
+
+This is the fixed handoff envelope from detection to determination. A new
+request is created only when the selected candidate has no active handoff and
+is not inside its downstream cooldown.
+
+Conceptual JSON shape:
+
+```json
+{
+  "handoff_id": "database-id-or-uuid",
+  "detection_run_id": "run-id",
+  "created_at": "timestamp",
+  "candidate": { "candidate_id": 123, "topic": "normalized topic", "score": 0.61, "lifecycle_stage": "EMERGING", "score_breakdown": {}, "supporting_sources": [], "first_seen_at": "timestamp", "last_seen_at": "timestamp" },
+  "evidence": [{ "source": "rss", "source_item_id": "item-id", "title": "source title", "url": "https://example.com/item", "observed_at": "timestamp", "activity_value": 100, "baseline_value": 40 }],
+  "history": [],
+  "status": "pending"
+}
+```
+
+The evidence and history payload is frozen when the handoff is created. It
+contains source metadata and trend measurements, not an assumed full copy of
+the source article. Handoff statuses are `pending`, `claimed`, `completed`,
+`rejected`, `failed`, and `cancelled`.
+
+Candidate status describes the evolving trend; handoff status describes whether
+a specific delivery was consumed. These are separate concepts.
+
+## DetectionRun
+
+Each scheduled Scout execution should be traceable through a run record:
+
+```text
+run_id, started_at, completed_at, observations_collected,
+candidates_scored, candidates_selected, status, error
+```
+
+Every `DeterminationRequest` references the run that produced it.
 
 ## ContentJob
 
@@ -181,6 +224,26 @@ The database must answer:
 - Was it successful?
 - Has this content already been posted?
 
+## Dashboard Reporting
+
+Each module should expose enough read-only reporting data for the system
+dashboard to show its state without importing private implementation details.
+Conceptual reporting areas are:
+
+```text
+SystemOverview
+DetectionReport
+DeterminationReport
+ProductionReport
+VisualReport
+PostingReport
+SystemHealthReport
+```
+
+These reports should summarize statuses, counts, recent activity, pending work,
+and failures. Exact report models can evolve during the POC, but the dashboard
+must remain an observer rather than a workflow controller.
+
 ## Boundary Tests
 
 At minimum, tests should cover:
@@ -188,6 +251,10 @@ At minimum, tests should cover:
 - Observation stored correctly.
 - TrendCandidate score and lifecycle calculated correctly.
 - Candidate cooldown and atomic claiming.
+- Selection creates at most one active handoff for the same candidate.
+- Handoff payload contains candidate, evidence, history, and detection run ID.
+- Handoff claim, completion, rejection, and failure states are persisted
+  independently of candidate state.
 - Source failure persisted without stopping other sources.
 - TrendCandidate accepted by a fake determination consumer without Gemini.
 - `Trend` stored correctly.
