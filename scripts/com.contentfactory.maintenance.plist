@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.contentfactory.maintenance</string>
+    <key>ProgramArguments</key><array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/YOUR_USERNAME/content_factory/scripts/cleanup_data.py</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/YOUR_USERNAME/content_factory</string>
+    <key>EnvironmentVariables</key><dict><key>PYTHONPATH</key><string>src</string></dict>
+    <key>StartCalendarInterval</key><dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>15</integer></dict>
+    <key>StandardOutPath</key><string>/Users/YOUR_USERNAME/content_factory/data/maintenance.log</string>
+    <key>StandardErrorPath</key><string>/Users/YOUR_USERNAME/content_factory/data/maintenance.error.log</string>
+</dict>
+</plist>

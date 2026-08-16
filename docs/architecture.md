@@ -78,6 +78,12 @@ The Scout is intended to run periodically on the Mac Mini. Source failures are
 retried and persisted as source-health records. The dashboard is read-only
 observability and is not a workflow control surface.
 
+Retention is handled by a separate maintenance process. After the configured
+hot-data period, detailed detector records are compressed into
+`data/archive/`; observation history is compacted into monthly topic/source
+summaries in `trend_history` before hot rows are removed. Content and
+publication records are not part of detector cleanup.
+
 ### System Dashboard
 
 The dashboard is a system-level observability component covering the complete

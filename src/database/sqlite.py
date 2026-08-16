@@ -2,6 +2,9 @@
 
 import json
 import sqlite3
+import gzip
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 from common.models import ContentJob, ContentPackage, PostRecord, TopicSnapshot, Trend
@@ -48,6 +51,19 @@ CREATE TABLE IF NOT EXISTS topic_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_topic_snapshots_topic_time
 ON topic_snapshots(topic, observed_at);
+
+CREATE TABLE IF NOT EXISTS trend_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observation_count INTEGER NOT NULL,
+    average_activity REAL NOT NULL,
+    maximum_activity REAL NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    UNIQUE(period_start, topic, source)
+);
 
 CREATE TABLE IF NOT EXISTS source_health (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,6 +253,49 @@ class Database:
         for table, column in (("trend_observations", "observed_at"), ("topic_snapshots", "observed_at"), ("source_health", "checked_at")):
             cursor = self.connection.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
             counts[table] = cursor.rowcount
+        self.connection.commit()
+        return counts
+
+    def archive_and_cleanup(self, cutoff: str, archive_directory: str | Path) -> dict[str, int]:
+        """Archive detailed detector records, summarize them, then remove hot data."""
+        archive_directory = Path(archive_directory)
+        archive_directory.mkdir(parents=True, exist_ok=True)
+        counts = {"trend_observations": 0, "topic_snapshots": 0, "source_health": 0}
+        tables = (
+            ("trend_observations", "observed_at"),
+            ("topic_snapshots", "observed_at"),
+            ("source_health", "checked_at"),
+        )
+        for table, time_column in tables:
+            rows = self.connection.execute(f"SELECT * FROM {table} WHERE {time_column} < ?", (cutoff,)).fetchall()
+            if not rows:
+                continue
+            rows_by_month = defaultdict(list)
+            for row in rows:
+                month = datetime.fromisoformat(row[time_column].replace("Z", "+00:00")).strftime("%Y-%m")
+                rows_by_month[month].append(row)
+            for month, month_rows in rows_by_month.items():
+                target = archive_directory / f"{table}-{month}.jsonl.gz"
+                with gzip.open(target, "at", encoding="utf-8") as handle:
+                    for row in month_rows:
+                        handle.write(json.dumps(dict(row), sort_keys=True) + "\n")
+            for row in rows:
+                if table == "trend_observations":
+                    period = row[time_column][:7]
+                    self.connection.execute(
+                        """INSERT INTO trend_history
+                        (period_start, topic, source, observation_count, average_activity, maximum_activity, first_seen_at, last_seen_at)
+                        VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+                        ON CONFLICT(period_start, topic, source) DO UPDATE SET
+                        observation_count = observation_count + 1,
+                        average_activity = ((average_activity * (observation_count - 1)) + excluded.average_activity) / observation_count,
+                        maximum_activity = MAX(maximum_activity, excluded.maximum_activity),
+                        first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
+                        last_seen_at = MAX(last_seen_at, excluded.last_seen_at)""",
+                        (period, row["topic"], row["source"], row["activity_value"], row["activity_value"], row[time_column], row[time_column]),
+                    )
+            self.connection.execute(f"DELETE FROM {table} WHERE {time_column} < ?", (cutoff,))
+            counts[table] = len(rows)
         self.connection.commit()
         return counts
 

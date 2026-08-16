@@ -34,6 +34,7 @@ Trend Detection
 - SQLite database.
 - Mac Mini as the primary runtime.
 - Gemini API for determination and content generation where useful.
+- One read-only system dashboard, initially focused on trend detection.
 
 The current work is intentionally paused before determination while the
 detection layer is completed and observed independently. The detector does not
@@ -71,7 +72,9 @@ path is available.
 
 The detector runs as a scheduled local process, stores observation history and
 ranked candidates in SQLite, and exposes a read-only live dashboard for
-observability.
+observability. This is the initial `Trend Detection` view of the system
+dashboard. Downstream views should be added as the corresponding POC modules
+are implemented.
 
 ## Detection Work Remaining Before Determination
 
@@ -81,6 +84,9 @@ observability.
 - Tune lifecycle thresholds from real multi-run history.
 - Add candidate cooldown and downstream claim behavior to operating policy.
 - Observe the Scout for several days on the Mac Mini.
+- Run retention maintenance separately: keep 90 days of detailed detector
+  data, archive older records as compressed JSONL, and preserve monthly
+  topic/source summaries for long-term history.
 - Store the full scored history for observability, but mark only a configured
   top-N shortlist that passes the minimum score as `pending_determination`.
   Initial defaults are top 5 and minimum score 0.25.
