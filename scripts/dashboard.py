@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from database.sqlite import Database
-from intelligence.dashboard import render_dashboard
+from dashboard import render_dashboard
 
 
 database = Database(os.getenv("CONTENT_FACTORY_DB_PATH", "data/content.db"))

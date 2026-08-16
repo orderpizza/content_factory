@@ -1,4 +1,4 @@
-"""Render a read-only operational dashboard from SQLite state."""
+"""Render the read-only system observability dashboard from SQLite state."""
 
 from html import escape
 
@@ -12,14 +12,14 @@ def render_dashboard(database) -> str:
 
     candidates = database.connection.execute("SELECT * FROM trend_candidates ORDER BY score DESC LIMIT 20").fetchall()
     health = database.connection.execute("SELECT * FROM source_health ORDER BY checked_at DESC LIMIT 20").fetchall()
-    observation_count = database.connection.execute("SELECT COUNT(*) AS count FROM trend_observations").fetchone()["count"]
-    snapshot_count = database.connection.execute("SELECT COUNT(*) AS count FROM topic_snapshots").fetchone()["count"]
+    observation_count = count("trend_observations")
+    snapshot_count = count("topic_snapshots")
     latest_run = database.connection.execute("SELECT MAX(checked_at) AS checked_at FROM source_health").fetchone()["checked_at"]
     pending_jobs = count("content_jobs", "status = 'pending'")
     module_rows = "".join(
         f"<tr><td>{name}</td><td>{status}</td><td>{detail}</td></tr>"
         for name, status, detail in (
-            ("Trend Detection", "ACTIVE", f"{count('trend_observations')} observations; {count('trend_candidates')} candidates"),
+            ("Trend Detection", "ACTIVE", f"{observation_count} observations; {count('trend_candidates')} candidates"),
             ("Determination", "READY", f"{pending_jobs} pending jobs"),
             ("Content Pipeline", "READY", f"{count('content_packages')} packages"),
             ("Posting", "READY", f"{count('posts')} post records"),

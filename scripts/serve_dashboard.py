@@ -4,7 +4,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from database.sqlite import Database
-from intelligence.dashboard import render_dashboard
+from dashboard import render_dashboard
 
 
 class DashboardHandler(BaseHTTPRequestHandler):

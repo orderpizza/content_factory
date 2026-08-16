@@ -4,7 +4,7 @@ from pathlib import Path
 
 from common.models import TrendCandidate
 from database.sqlite import Database
-from intelligence.dashboard import render_dashboard
+from dashboard import render_dashboard
 
 
 class DashboardTests(unittest.TestCase):

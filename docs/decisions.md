@@ -148,6 +148,21 @@ smaller trend may have a strong audience or product opportunity.
 Consequence: Detection reports attention and evidence. Determination later
 evaluates audience, angle, pipeline, and monetization path.
 
+## 014 - System-Level Read-Only Dashboard
+
+Date: 2026-08-16
+
+Decision: The dashboard is the system-level observability surface for the full
+Content Factory loop. The current trend dashboard becomes the `Trend Detection`
+view within it.
+
+Reason: The system needs one place to understand detection, determination,
+production, rendering, posting, and health as the POC grows.
+
+Consequence: Modules own their reporting data and status semantics. The
+dashboard composes read-only reports and must not absorb workflow logic or
+control execution during the POC.
+
 ## 012 - Staged Trend Source Expansion
 
 Date: 2026-08-16

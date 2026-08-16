@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer
 
 from common.models import TrendCandidate
 from database.sqlite import Database
-from intelligence.dashboard import render_dashboard
+from dashboard import render_dashboard
 
 
 class LiveDashboardTests(unittest.TestCase):
@@ -20,4 +20,3 @@ class LiveDashboardTests(unittest.TestCase):
 
         self.assertIn("http-equiv='refresh'", html)
         self.assertIn("content='15'", html)
-
