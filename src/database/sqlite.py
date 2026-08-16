@@ -202,10 +202,20 @@ class Database:
 
     def eligible_candidates(self, now: str, limit: int = 20):
         rows = self.connection.execute(
-            "SELECT * FROM trend_candidates WHERE status IN ('new', 'active') AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY score DESC LIMIT ?",
+            "SELECT * FROM trend_candidates WHERE status IN ('new', 'active', 'pending_determination') AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY score DESC LIMIT ?",
             (now, limit),
         ).fetchall()
         return rows
+
+    def mark_candidates_for_determination(self, topics: list[str], updated_at: str) -> None:
+        if not topics:
+            return
+        placeholders = ", ".join("?" for _ in topics)
+        self.connection.execute(
+            f"UPDATE trend_candidates SET status = 'pending_determination', updated_at = ? WHERE topic IN ({placeholders}) AND (cooldown_until IS NULL OR cooldown_until <= ?)",
+            (updated_at, *topics, updated_at),
+        )
+        self.connection.commit()
 
     def set_candidate_cooldown(self, candidate_id: int, until: str, status: str = "active") -> None:
         self.connection.execute(
@@ -216,7 +226,7 @@ class Database:
 
     def claim_candidate(self, candidate_id: int, claimed_at: str, cooldown_until: str) -> bool:
         cursor = self.connection.execute(
-            "UPDATE trend_candidates SET status = 'evaluating', evaluated_at = ?, cooldown_until = ?, updated_at = ? WHERE id = ? AND status IN ('new', 'active') AND (cooldown_until IS NULL OR cooldown_until <= ?)",
+            "UPDATE trend_candidates SET status = 'evaluating', evaluated_at = ?, cooldown_until = ?, updated_at = ? WHERE id = ? AND status IN ('new', 'active', 'pending_determination') AND (cooldown_until IS NULL OR cooldown_until <= ?)",
             (claimed_at, cooldown_until, claimed_at, candidate_id, claimed_at),
         )
         self.connection.commit()

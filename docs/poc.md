@@ -81,6 +81,9 @@ observability.
 - Tune lifecycle thresholds from real multi-run history.
 - Add candidate cooldown and downstream claim behavior to operating policy.
 - Observe the Scout for several days on the Mac Mini.
+- Store the full scored history for observability, but mark only a configured
+  top-N shortlist that passes the minimum score as `pending_determination`.
+  Initial defaults are top 5 and minimum score 0.25.
 
 Clustering and scoring are high-impact because their output directly controls
 which candidates the downstream determination layer consumes.

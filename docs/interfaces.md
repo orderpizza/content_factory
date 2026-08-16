@@ -60,6 +60,11 @@ is not enough history yet; `EMERGING` means a previously observed topic is
 showing strong positive growth. A candidate may be updated while cooldown
 prevents repeated downstream claims.
 
+The detector may persist many scored candidates, but its handoff output is a
+shortlist: candidates must pass the configured minimum score and rank within
+the configured top-N limit. Selected records are marked
+`pending_determination`, identifying the records for the determination worker.
+
 ## ContentJob
 
 Produced by the determination layer and consumed by the pipeline runner.

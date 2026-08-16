@@ -16,6 +16,11 @@ def ranked_candidates(database, minimum_score: float = 0.0, limit: int = 20):
     return sorted(candidates, key=lambda candidate: candidate.score, reverse=True)[:limit]
 
 
+def select_candidates(database, minimum_score: float = 0.0, top_n: int = 5):
+    """Return the small, score-qualified shortlist for determination."""
+    return ranked_candidates(database, minimum_score=minimum_score, limit=top_n)
+
+
 def format_report(candidates) -> str:
     if not candidates:
         return "No trend candidates available."

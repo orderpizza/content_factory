@@ -125,6 +125,17 @@ consumption must be separate from dashboard presentation.
 Consequence: The dashboard never controls the workflow. Determination reads
 structured candidate state directly from SQLite.
 
+## 013 - Detection Shortlist Boundary
+
+Decision: Preserve the complete scored candidate history in SQLite for
+observability, but pass only a configurable top-N shortlist that meets a
+minimum score threshold to determination. Selected candidates are marked
+`pending_determination`.
+
+Rationale: Gemini should evaluate a bounded set of promising candidates rather
+than every detected item as source coverage grows. The shortlist policy can be
+tuned without changing the TrendCandidate interface.
+
 ## 011 - Monetization Is Downstream Opportunity Evaluation
 
 Date: 2026-08-15

@@ -62,6 +62,12 @@ ranked candidates in SQLite. It uses historical baselines, velocity,
 acceleration, persistence, unusual activity, and source agreement. Every
 candidate should retain an explainable score breakdown and evidence sources.
 
+After scoring, the detector applies a downstream selection boundary. All scored
+candidates remain persisted for dashboard visibility and later tuning, but only
+fresh candidates meeting `CONTENT_FACTORY_MINIMUM_TREND_SCORE` and fitting
+`CONTENT_FACTORY_TOP_N_CANDIDATES` are marked `pending_determination`.
+Determination consumes that shortlist rather than every scored topic.
+
 Topic clustering and classification are important unfinished areas. As source
 coverage grows, differently worded observations about the same event may
 otherwise appear as duplicate trends. The initial clustering is deterministic
