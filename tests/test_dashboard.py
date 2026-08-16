@@ -16,6 +16,8 @@ class DashboardTests(unittest.TestCase):
             html = render_dashboard(database)
             database.close()
 
+        self.assertIn("System Overview", html)
+        self.assertIn("Trend Detection", html)
         self.assertIn("Ranked Candidates", html)
         self.assertIn("topic", html)
         self.assertIn("Cooldown Until", html)
