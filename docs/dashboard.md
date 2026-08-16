@@ -39,9 +39,9 @@ without restarting the dashboard. On the Mac Mini, load
 `scripts/com.contentfactory.dashboard.plist` with launchd alongside the Scout
 service so the dashboard starts at login and is restarted if it exits.
 
-The dashboard should consume reporting/read models or reporting services. It
-must not depend on private implementation details of individual modules or
-contain their business logic.
+The dashboard reads reporting data and workflow state from SQLite. It must not
+call module services, depend on private implementation details of individual
+modules, or contain their business logic.
 
 Each module owns the meaning of its own status and reporting data. The
 dashboard composes those module-level reports into a system-level view.

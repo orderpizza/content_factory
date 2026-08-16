@@ -92,6 +92,20 @@ It manages:
 - platform/account state
 - publishing failures
 
+### System Dashboard
+
+The system should provide one read-only dashboard for observing the complete
+content loop. Trend detection is one view within that dashboard, not a
+separate long-term dashboard product.
+
+The dashboard should eventually expose overall system activity and failures,
+trend evidence and candidates, determination decisions, content jobs, pipeline
+execution, visual assets, posting state, publication history, and system
+health.
+
+The dashboard observes module-owned state. It does not absorb workflow logic or
+become the control surface for the POC.
+
 ---
 
 ## 4. Local-First Philosophy

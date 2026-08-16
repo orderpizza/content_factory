@@ -23,6 +23,8 @@ Trend Detection
 - Prefer deterministic/local processing where practical.
 - Trend detection must remain LLM-free; Gemini belongs downstream in determination.
 - Keep component boundaries explicit.
+- Modules communicate through persisted SQLite state and handoff records; do
+  not introduce direct module-to-module calls for the POC.
 - Do not introduce unnecessary infrastructure.
 
 ## Source of Truth

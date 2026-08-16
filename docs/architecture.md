@@ -25,6 +25,11 @@ Trend Detector
   -> PostRecord
 ```
 
+The arrows represent persisted handoffs through SQLite, not direct calls
+between module implementations. SQLite is the common communication and state
+boundary for the POC. A module writes its output and status to the database;
+the next module discovers eligible work by reading the database.
+
 During the current development phase, the system intentionally stops after
 the detection output. The Scout runs independently and writes ranked
 `TrendCandidate` records to SQLite. Determination will consume those records
@@ -102,10 +107,10 @@ responsibility chain. The current trend dashboard is its first view, named
 Future views include Overview, Trend Detection, Determination, Content Jobs,
 Production, Visual Assets, Posting, and System Health.
 
-The dashboard consumes module-owned reporting/read models. It must not reach
-into private module implementation details or move business logic into the UI.
-It remains read-only during the POC; orchestration and workflow decisions stay
-with their owning components.
+The dashboard reads module-owned state and reporting data from SQLite. It must
+not call module services, reach into private implementation details, or move
+business logic into the UI. It remains read-only during the POC; orchestration
+and workflow decisions stay with their owning components.
 
 ### Determination Layer
 

@@ -3,9 +3,9 @@
 This file defines the contracts between components. Change these deliberately:
 they are the most important boundaries in the POC.
 
-The system dashboard is an observability consumer of these boundaries. It may
-compose reporting data from each component, but it does not create or mutate
-workflow state.
+The system dashboard is an observability consumer of these persisted
+boundaries. It reads SQLite state from each phase, but it does not call modules
+directly or create/mutate workflow state.
 
 ```text
 TrendCandidate
@@ -226,8 +226,9 @@ The database must answer:
 
 ## Dashboard Reporting
 
-Each module should expose enough read-only reporting data for the system
-dashboard to show its state without importing private implementation details.
+Each module should persist enough status and reporting data for the system
+dashboard to show its state without importing private implementation details or
+calling the module directly.
 Conceptual reporting areas are:
 
 ```text

@@ -60,6 +60,12 @@ The system is ultimately intended for monetized content, but monetization
 evaluation belongs in determination. Detection measures attention and evidence;
 it does not decide whether a topic is commercially useful.
 
+The dashboard is intended to become the system-level observability surface for
+the complete loop. The current trend dashboard is the first dashboard view:
+`Trend Detection`. As downstream modules are implemented, the dashboard should
+add read-only views for determination, content jobs, production, visual assets,
+posting, and system health. See [docs/dashboard.md](docs/dashboard.md).
+
 ## Development Order
 
 1. Repository structure, configuration, and SQLite.
