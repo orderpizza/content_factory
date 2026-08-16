@@ -48,8 +48,10 @@ The detector currently runs independently of Gemini. Its Scout collects free
 source signals, stores historical observations and snapshots in SQLite, ranks
 explainable `TrendCandidate` records, and exposes a read-only live dashboard.
 
-Current sources are Hacker News, configured RSS/Atom feeds, and Wikimedia
-pageviews. The detector is still being tuned before the determination/LLM phase
+Current enabled sources are Hacker News, configured RSS/Atom feeds, and
+Wikimedia pageviews. Reddit and YouTube adapters are present but disabled until
+credentials/access are configured. The complete source roadmap and status
+matrix is in [docs/poc.md](docs/poc.md). The detector is still being tuned before the determination/LLM phase
 begins. Important remaining work includes semantic clustering/classification,
 source expansion, and careful scoring revision because these directly control
 which candidates are consumed downstream.

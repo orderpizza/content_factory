@@ -136,3 +136,20 @@ smaller trend may have a strong audience or product opportunity.
 
 Consequence: Detection reports attention and evidence. Determination later
 evaluates audience, angle, pipeline, and monetization path.
+
+## 012 - Staged Trend Source Expansion
+
+Date: 2026-08-16
+
+Decision: Maintain a staged source roadmap rather than enabling every possible
+platform immediately.
+
+Reason: Sources differ in access approval, cost, rate limits, discovery quality,
+and commercial-use restrictions. The detector must remain reliable and free at
+the current POC stage.
+
+Consequence: Wikimedia, Hacker News, and configured RSS feeds are the current
+core sources. Reddit and YouTube are high-priority optional sources with
+adapters ready but disabled. Google Trends is very high priority but remains
+disabled until an approved access path is available. X and other platform
+sources are deferred.

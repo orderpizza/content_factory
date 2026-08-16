@@ -47,9 +47,15 @@ Scheduled Scout
 Discovers topics that appear to be gaining attention across independent
 signals. The detector is deterministic and must not consume LLM tokens.
 
-Current free sources are Hacker News, configured RSS/Atom feeds, and Wikimedia
-pageviews. New sources should implement the common source contract and convert
-their data into observations.
+Enabled sources are Hacker News, configured RSS/Atom feeds, and Wikimedia
+pageviews. Reddit and YouTube adapters are implemented but remain disabled
+until credentials/access are configured. Google Trends and other platform
+sources remain roadmap items. The complete source roadmap is maintained in
+`docs/poc.md`.
+
+New sources should implement the common source contract and convert their data
+into observations. A source being listed in the roadmap does not make it part
+of the active Scout configuration.
 
 The detector stores raw observations, topic snapshots, source health, and
 ranked candidates in SQLite. It uses historical baselines, velocity,

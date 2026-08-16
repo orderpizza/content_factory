@@ -45,6 +45,30 @@ Current detection sources:
 - Configured RSS/Atom feeds.
 - Wikimedia pageview analytics.
 
+## Trend Source Roadmap
+
+This matrix records the current source plan. “Enabled” means the source is
+available to the running Scout configuration. “Implemented” does not mean the
+source is active; Reddit and YouTube adapters exist but require credentials.
+
+| Source | Current status | Access | Cost | Priority |
+| --- | --- | --- | --- | --- |
+| Wikimedia | Enabled | Public API | Free | Core |
+| Hacker News | Enabled | Firebase/API | Free | Core |
+| NPR RSS | Enabled when configured | RSS | Free | Core |
+| Reddit | Not enabled; adapter ready | Reddit Data API approval/OAuth | TBD | High |
+| Google Trends | Not enabled | Trends data/API or other approved access | Potentially free | Very High |
+| YouTube | Not enabled; adapter ready | YouTube Data API v3 | Free within quota | Very High |
+| X | Not enabled | X API | Paid/usage-dependent | High, later |
+| Instagram | Not enabled | Meta APIs | Mostly free, limited discovery | Low |
+| Facebook | Not enabled | Meta Graph API | Mostly free, limited discovery | Low |
+| TikTok | Not enabled | TikTok APIs | Commercial trend access problematic | Low |
+
+This source roadmap is subject to access policies, terms of use, rate limits,
+and cost changes. Credentials must be kept in `.env` and never committed.
+Google Trends remains intentionally disabled until an approved, usable access
+path is available.
+
 The detector runs as a scheduled local process, stores observation history and
 ranked candidates in SQLite, and exposes a read-only live dashboard for
 observability.
