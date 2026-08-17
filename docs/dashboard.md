@@ -17,11 +17,14 @@ The dashboard should eventually contain these views:
 
 - **Overview** — current system state, recent activity, failures, and pending work.
 - **Trend Detection** — observations, topic snapshots, candidates, scores, and source health.
-- **Determination** — candidate evaluations and `ContentJob` decisions.
+- **Determination** — candidate evaluations, rejections, and explicit
+  `ContentJob` recipes.
 - **Content Jobs** — pending, running, completed, and failed jobs.
-- **Production** — pipeline runs and generated `ContentPackage` records.
+- **Production** — pipeline runs and generated platform-specific
+  `ContentPackage` records, including metadata-generation failures.
 - **Visual Assets** — rendered assets and rendering failures.
-- **Posting** — queue state, scheduled posts, publication results, and failures.
+- **Posting** — queue state, cadence-derived scheduled times, publication
+  attempts/results, and failures.
 - **System Health** — process runs, dependency failures, and database health.
 
 ## Boundary Rules

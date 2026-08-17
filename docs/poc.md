@@ -3,22 +3,22 @@
 ## Objective
 
 Prove that the system can automatically discover something interesting, decide
-what content to create from it, execute a predefined content workflow, render a
-visual asset, queue or publish the result, and preserve publication history.
+what content to create from it, execute a predefined content workflow, and
+render upload-ready visual assets, then publish through the Posting Agent.
 
 The POC must demonstrate this flow:
 
 ```text
 Trend Detection
   -> Trend Candidate
-  -> Determination
-  -> ContentJob
+  -> Determination Request and Decision
+  -> ContentJob (explicit production recipe)
   -> One Content Pipeline
-  -> Content Package
+  -> Platform-specific ContentPackage
   -> Visual Rendering
+  -> Ready ContentPackage
   -> Post Queue
   -> Posting Agent
-  -> Published Content
   -> Publication Record
 ```
 
@@ -27,18 +27,31 @@ Trend Detection
 - One deterministic Scout/detection implementation.
 - A small number of free trend sources.
 - One determination process.
-- One real content pipeline: `poc_pipeline`.
-- One deterministic visual template.
+- One current end-to-end content pipeline target: `o2_english_instagram`.
+- One fixed initial `o2_english` format: a 5–8-slide 1080×1920 idiom carousel.
+- One fixed deterministic visual profile with four slide-template variants.
 - One primary font/theme configuration.
-- One posting platform initially.
+- One accepted trend produces at most one `ContentJob` in the POC.
+- Posting Agent design and live platform integration are under work; they are
+  required to complete the current o2 English end-to-end target.
 - SQLite database.
 - Mac Mini as the primary runtime.
 - Gemini API for determination and content generation where useful.
 - One read-only system dashboard, initially focused on trend detection.
 
-The current work is intentionally paused before determination while the
-detection layer is completed and observed independently. The detector does not
-use Gemini or any other LLM API.
+The detector remains independently observable and does not use Gemini or any
+other LLM API. The production determination worker uses Gemini only after it
+receives a persisted detection handoff.
+
+Vertex Gemini access is isolated in one client shared by the determination and
+pipeline-owned generation boundaries. If local configuration or IAM access is
+unavailable, those workers fail clearly rather than fall back to hardcoded tags
+or hashtags.
+
+The active `o2_english_instagram` pipeline has a fixed idiom-carousel schema
+and four deterministic slide templates. Other English-education formats,
+including usage comparison, are future pipeline formats with their own
+contracts.
 
 Current detection sources:
 
@@ -100,19 +113,25 @@ which candidates the downstream determination layer consumes.
 
 ## Success Criteria
 
-The POC succeeds when the system can complete the loop with minimal or no manual
-intervention:
+The current POC succeeds when the system can complete the o2 English
+end-to-end loop with minimal manual intervention:
 
 1. A trend appears.
 2. The system detects and stores it.
 3. Gemini evaluates whether content should be created.
-4. A `ContentJob` is stored.
+4. The decision either rejects the trend or stores one explicit `ContentJob`
+   selecting the POC pipeline, target platform/account, format, audience, and
+   creative brief, including a high-level visual profile.
 5. The POC pipeline executes.
-6. A `ContentPackage` is generated.
-7. A visual asset is rendered.
-8. The content is queued for posting.
-9. The posting agent publishes or schedules it.
-10. A publication record is stored.
+6. A platform-specific `ContentPackage`, including its content, caption, and
+   Gemini-generated tags/hashtags, is generated. The pipeline may refine the
+   selected visual profile from its allowed choices; deterministic code resolves
+   the concrete visual template.
+7. Required visual assets are rendered and the package is recorded as ready for
+   posting.
+8. The Posting Agent queues it at its cadence-eligible time.
+9. The Posting Agent publishes it to the configured o2 English Instagram
+   account and stores a publication record.
 
 The system must also be able to explain afterward:
 
@@ -120,9 +139,8 @@ The system must also be able to explain afterward:
 - Which `ContentJob` was created.
 - Which pipeline ran.
 - What content was generated.
-- When it was queued.
-- When it was published.
-- What external platform post ID was recorded, if any.
+- Which caption, tags, and hashtags were generated and validated.
+- When it was queued and published, with the external post identifier.
 
 ## Out Of Scope
 
@@ -153,7 +171,7 @@ The system must also be able to explain afterward:
 4. `ContentJob` persistence.
 5. One POC pipeline.
 6. Visual renderer.
-7. Posting queue.
-8. Posting agent.
-9. End-to-end autonomous test.
-10. Observe failures and improve.
+7. Validate the content and visual-rendering path.
+8. Observe failures and improve.
+9. Complete the Posting Agent and verify one o2 English publication.
+10. Add other pipelines only after the o2 target is proven.

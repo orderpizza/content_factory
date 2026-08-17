@@ -117,8 +117,14 @@ ON determination_handoffs(status, created_at);
 
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trend_id INTEGER NOT NULL REFERENCES trends(id),
+    trend_id INTEGER REFERENCES trends(id),
+    determination_handoff_id INTEGER REFERENCES determination_handoffs(handoff_id),
+    candidate_id INTEGER REFERENCES trend_candidates(id),
     pipeline_id TEXT NOT NULL,
+    target_platform TEXT NOT NULL DEFAULT 'bluesky',
+    target_account TEXT NOT NULL DEFAULT 'default',
+    content_format TEXT NOT NULL DEFAULT 'text_card',
+    visual_profile_id TEXT NOT NULL DEFAULT 'default',
     topic TEXT NOT NULL,
     angle TEXT NOT NULL,
     audience TEXT NOT NULL,
@@ -131,22 +137,40 @@ CREATE TABLE IF NOT EXISTS content_jobs (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS determination_decisions (
+    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    handoff_id INTEGER NOT NULL UNIQUE REFERENCES determination_handoffs(handoff_id),
+    status TEXT NOT NULL,
+    recipe_json TEXT NOT NULL DEFAULT '{}',
+    reasoning TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS content_packages (
     content_id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id INTEGER NOT NULL REFERENCES content_jobs(job_id),
     pipeline_id TEXT NOT NULL,
+    platform TEXT NOT NULL DEFAULT 'bluesky',
+    account TEXT NOT NULL DEFAULT 'default',
+    content_format TEXT NOT NULL DEFAULT 'text_card',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     caption TEXT NOT NULL,
     visual_spec TEXT NOT NULL DEFAULT '{}',
     assets TEXT NOT NULL DEFAULT '[]',
     sources TEXT NOT NULL DEFAULT '[]',
+    tags TEXT NOT NULL DEFAULT '[]',
+    hashtags TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'awaiting_render',
+    metadata_status TEXT NOT NULL DEFAULT 'pending',
+    metadata_model TEXT,
     created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     content_id INTEGER NOT NULL REFERENCES content_packages(content_id),
+    pipeline_id TEXT NOT NULL DEFAULT 'poc_pipeline',
     platform TEXT NOT NULL,
     account TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued',
@@ -157,6 +181,15 @@ CREATE TABLE IF NOT EXISTS posts (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(content_id, platform, account)
+);
+
+CREATE TABLE IF NOT EXISTS posting_policies (
+    pipeline_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    account TEXT NOT NULL,
+    max_posts_per_day INTEGER NOT NULL,
+    min_post_interval_minutes INTEGER NOT NULL,
+    PRIMARY KEY (pipeline_id, platform, account)
 );
 """
 
@@ -171,10 +204,33 @@ class Database:
 
     def initialize(self) -> None:
         self.connection.executescript(SCHEMA)
-        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(trend_candidates)").fetchall()}
-        if "cooldown_until" not in columns:
-            self.connection.execute("ALTER TABLE trend_candidates ADD COLUMN cooldown_until TEXT")
+        self._ensure_columns("trend_candidates", {"cooldown_until": "TEXT"})
+        self._ensure_columns("content_jobs", {
+            "determination_handoff_id": "INTEGER",
+            "candidate_id": "INTEGER",
+            "target_platform": "TEXT NOT NULL DEFAULT 'bluesky'",
+            "target_account": "TEXT NOT NULL DEFAULT 'default'",
+            "content_format": "TEXT NOT NULL DEFAULT 'text_card'",
+            "visual_profile_id": "TEXT NOT NULL DEFAULT 'default'",
+        })
+        self._ensure_columns("content_packages", {
+            "platform": "TEXT NOT NULL DEFAULT 'bluesky'",
+            "account": "TEXT NOT NULL DEFAULT 'default'",
+            "content_format": "TEXT NOT NULL DEFAULT 'text_card'",
+            "tags": "TEXT NOT NULL DEFAULT '[]'",
+            "hashtags": "TEXT NOT NULL DEFAULT '[]'",
+            "status": "TEXT NOT NULL DEFAULT 'awaiting_render'",
+            "metadata_status": "TEXT NOT NULL DEFAULT 'pending'",
+            "metadata_model": "TEXT",
+        })
+        self._ensure_columns("posts", {"pipeline_id": "TEXT NOT NULL DEFAULT 'poc_pipeline'"})
         self.connection.commit()
+
+    def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
+        existing = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        for name, definition in columns.items():
+            if name not in existing:
+                self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def close(self) -> None:
         self.connection.close()
@@ -289,6 +345,14 @@ class Database:
         )
         self.connection.commit()
 
+    def save_determination_decision(self, handoff_id: int, status: str, recipe: dict, reasoning: str, created_at: str) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO determination_decisions (handoff_id, status, recipe_json, reasoning, created_at) VALUES (?, ?, ?, ?, ?)",
+            (handoff_id, status, json.dumps(recipe), reasoning, created_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
     def eligible_candidates(self, now: str, limit: int = 20):
         rows = self.connection.execute(
             "SELECT * FROM trend_candidates WHERE status IN ('new', 'active', 'pending_determination') AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY score DESC LIMIT ?",
@@ -374,24 +438,109 @@ class Database:
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(
-            "INSERT INTO content_jobs (trend_id, pipeline_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (job.trend_id, job.pipeline_id, job.topic, job.angle, job.audience, job.objective, json.dumps(job.key_points), json.dumps(job.sources), job.priority, job.status, job.created_at, job.updated_at),
+            "INSERT INTO content_jobs (trend_id, determination_handoff_id, candidate_id, pipeline_id, target_platform, target_account, content_format, visual_profile_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (job.trend_id, job.determination_handoff_id, job.candidate_id, job.pipeline_id, job.target_platform, job.target_account, job.content_format, job.visual_profile_id, job.topic, job.angle, job.audience, job.objective, json.dumps(job.key_points), json.dumps(job.sources), job.priority, job.status, job.created_at, job.updated_at),
         )
         self.connection.commit()
         return int(cursor.lastrowid)
+
+    def pending_content_jobs(self, limit: int = 20):
+        return self.connection.execute(
+            "SELECT * FROM content_jobs WHERE status = 'pending' ORDER BY priority DESC, created_at, job_id LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def packages_awaiting_render(self, limit: int = 20):
+        return self.connection.execute(
+            "SELECT * FROM content_packages WHERE status = 'awaiting_render' ORDER BY content_id LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def ready_packages_without_post(self, limit: int = 20):
+        return self.connection.execute(
+            """SELECT c.* FROM content_packages c
+            LEFT JOIN posts p ON p.content_id = c.content_id
+            WHERE c.status = 'ready_for_posting' AND p.id IS NULL
+            ORDER BY c.content_id LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+    def claim_content_job(self, job_id: int, claimed_at: str) -> bool:
+        cursor = self.connection.execute(
+            "UPDATE content_jobs SET status = 'running', updated_at = ? WHERE job_id = ? AND status = 'pending'",
+            (claimed_at, job_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
+    def finish_content_job(self, job_id: int, status: str, updated_at: str) -> None:
+        self.connection.execute(
+            "UPDATE content_jobs SET status = ?, updated_at = ? WHERE job_id = ? AND status = 'running'",
+            (status, updated_at, job_id),
+        )
+        self.connection.commit()
 
     def save_content_package(self, package: ContentPackage) -> int:
         cursor = self.connection.execute(
-            "INSERT INTO content_packages (job_id, pipeline_id, title, body, caption, visual_spec, assets, sources, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (package.job_id, package.pipeline_id, package.title, package.body, package.caption, json.dumps(package.visual_spec), json.dumps(package.assets), json.dumps(package.sources), package.created_at),
+            "INSERT INTO content_packages (job_id, pipeline_id, platform, account, content_format, title, body, caption, visual_spec, assets, sources, tags, hashtags, status, metadata_status, metadata_model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (package.job_id, package.pipeline_id, package.platform, package.account, package.content_format, package.title, package.body, package.caption, json.dumps(package.visual_spec), json.dumps(package.assets), json.dumps(package.sources), json.dumps(package.tags), json.dumps(package.hashtags), package.status, package.metadata_status, package.metadata_model, package.created_at),
         )
         self.connection.commit()
         return int(cursor.lastrowid)
 
+    def mark_package_rendered(self, content_id: int, asset_path: str) -> None:
+        self.mark_package_rendered_assets(content_id, [asset_path], required_asset_count=1)
+
+    def mark_package_rendered_assets(self, content_id: int, asset_paths: list[str], required_asset_count: int) -> None:
+        """Record rendered assets and make the package postable only when complete."""
+        if required_asset_count < 1:
+            raise ValueError("A renderable package must require at least one asset")
+        row = self.connection.execute("SELECT assets FROM content_packages WHERE content_id = ?", (content_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Content package {content_id} was not found")
+        assets = json.loads(row["assets"])
+        for asset_path in asset_paths:
+            if asset_path not in assets:
+                assets.append(asset_path)
+        status = "ready_for_posting" if len(assets) >= required_asset_count else "awaiting_render"
+        self.connection.execute(
+            "UPDATE content_packages SET assets = ?, status = ? WHERE content_id = ?",
+            (json.dumps(assets), status, content_id),
+        )
+        self.connection.commit()
+
+    def set_posting_policy(self, pipeline_id: str, platform: str, account: str, max_posts_per_day: int, min_post_interval_minutes: int) -> None:
+        self.connection.execute(
+            "INSERT INTO posting_policies (pipeline_id, platform, account, max_posts_per_day, min_post_interval_minutes) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(pipeline_id, platform, account) DO UPDATE SET max_posts_per_day = excluded.max_posts_per_day, min_post_interval_minutes = excluded.min_post_interval_minutes",
+            (pipeline_id, platform, account, max_posts_per_day, min_post_interval_minutes),
+        )
+        self.connection.commit()
+
+    def posting_policy(self, pipeline_id: str, platform: str, account: str):
+        return self.connection.execute(
+            "SELECT * FROM posting_policies WHERE pipeline_id = ? AND platform = ? AND account = ?",
+            (pipeline_id, platform, account),
+        ).fetchone()
+
+    def due_posts(self, now: str):
+        return self.connection.execute(
+            """SELECT p.*, c.pipeline_id AS package_pipeline_id, c.platform AS package_platform,
+            c.account AS package_account, c.content_format, c.caption, c.hashtags, c.assets,
+            c.status AS package_status
+            FROM posts p JOIN content_packages c ON c.content_id = p.content_id
+            WHERE p.status = 'scheduled' AND p.scheduled_at <= ?
+            ORDER BY p.scheduled_at, p.id""",
+            (now,),
+        ).fetchall()
+
     def queue_post(self, post: PostRecord) -> int:
+        package = self.connection.execute("SELECT pipeline_id FROM content_packages WHERE content_id = ?", (post.content_id,)).fetchone()
+        if package is None:
+            raise KeyError(f"Content package {post.content_id} was not found")
         cursor = self.connection.execute(
-            "INSERT INTO posts (content_id, platform, account, status, scheduled_at, published_at, external_post_id, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (post.content_id, post.platform, post.account, post.status, post.scheduled_at, post.published_at, post.external_post_id, post.error, post.created_at, post.updated_at),
+            "INSERT INTO posts (content_id, pipeline_id, platform, account, status, scheduled_at, published_at, external_post_id, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (post.content_id, package["pipeline_id"], post.platform, post.account, post.status, post.scheduled_at, post.published_at, post.external_post_id, post.error, post.created_at, post.updated_at),
         )
         self.connection.commit()
         return int(cursor.lastrowid)

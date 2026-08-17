@@ -2,6 +2,8 @@
 
 Record meaningful architectural decisions here. Keep entries short, dated, and
 oriented around choices that affect component boundaries or future work.
+Entries are immutable historical records. When a decision changes, add a new
+entry that supersedes it rather than rewriting the original.
 
 ## 001 - Local-First Runtime
 
@@ -53,7 +55,7 @@ Consequence: Determination must not directly call pipeline-specific functions.
 Date: 2026-08-15
 
 Decision: Implement only one real content pipeline for the POC:
-`poc_pipeline`.
+`o2_english_instagram`.
 
 Reason: The POC proves the loop, not a generalized pipeline platform.
 
@@ -198,3 +200,146 @@ claimed request; permit a later request only after resolution and cooldown.
 Reason: A candidate can remain popular across many 30-minute Scout runs. That
 should update trend evidence without repeatedly submitting the same work to
 Gemini.
+
+## 017 - Determination Selects a Platform-Specific Pipeline Recipe
+
+Date: 2026-08-16
+
+Decision: Determination evaluates a candidate against the available pipeline
+catalog and either rejects it or writes an explicit `ContentJob` recipe. The
+recipe selects pipeline, platform/account, format, audience, angle, objective,
+and source context.
+
+Reason: Determination owns the decision of whether and how a trend is consumed;
+the pipeline should receive an executable instruction rather than infer the
+channel or creative strategy.
+
+Consequence: One accepted trend creates at most one job in the POC. A future
+determination may create multiple jobs for one trend without moving content
+creation into determination.
+
+## 018 - Content Packages Are Platform-Specific and Pipeline-Owned
+
+Date: 2026-08-16
+
+Decision: A `ContentPackage` is the platform-specific result of its selected
+pipeline, including native content, asset or visual specifications, caption,
+and publishing metadata. Required visual rendering adds final assets before the
+package becomes ready for posting. It is not a platform-neutral intermediary.
+
+Reason: Format and platform constraints fundamentally shape creative quality.
+
+Consequence: Pipelines may use Gemini for generation and context-sensitive tags
+and hashtags, then deterministically validate metadata against platform policy.
+The Posting Agent does not alter creative content.
+
+## 019 - Shared Deterministic Posting Agent With Per-Channel Cadence
+
+Date: 2026-08-16
+
+Decision: Build one system-level Posting Agent that schedules and publishes
+ready packages according to persisted policy keyed by pipeline, platform, and
+account. It will not call an LLM.
+
+Reason: Scheduling, rate limits, duplicate prevention, retries, and publication
+history are operational responsibilities shared across content pipelines, while
+each channel needs its own frequency rules. The correct platform integration is
+still under design.
+
+Consequence: The current end-to-end target is one o2 English Instagram post.
+Human approval remains a future dashboard capability; the POC dashboard stays
+read-only. Other pipelines, including Bluesky, will use the same system-level
+posting boundary later.
+
+## 020 - Posting Is a Dashboard-Observable Module
+
+Date: 2026-08-16
+
+Decision: When posting is implemented, persist queue state, cadence-derived
+schedules, attempts, failures, and publication records in SQLite and report
+them in the system dashboard.
+
+Reason: The dashboard must observe the complete responsibility chain without
+controlling it.
+
+## 021 - Gemini Visual-Profile Selection and Pipeline-Owned Metadata
+
+Date: 2026-08-17
+
+Decision: Determination Gemini selects a high-level visual profile alongside
+the pipeline and content format. The selected pipeline's Gemini generation may
+refine that choice only from the pipeline's registered allowed profiles. The
+pipeline also generates platform-native captions, tags, and hashtags.
+
+Reason: Visual direction and metadata materially affect how a trend is consumed
+on a channel, but sending the full visual-template hierarchy to determination
+would overburden it and blur renderer responsibility.
+
+Consequence: The visual system resolves the concrete template and renderer
+settings deterministically. A future Posting Agent will use persisted captions
+and hashtags without changing them.
+
+## 022 - First Extracted Pipeline: O2 English Idiom Carousel
+
+Date: 2026-08-17
+
+Decision: Use the extracted visual and structured-content concepts in the
+`o2_english_instagram` Content Factory pipeline. Its first format is the fixed
+`instagram_idiom_carousel` profile `o2_english_idiom_carousel_v1`.
+
+Reason: A fixed idiom carousel provides a proven visual format, while the
+current system preserves its own persisted handoffs, deterministic rendering,
+and system-level responsibility boundaries.
+
+Consequence: The extracted pipeline receives a persisted `ContentJob`, emits a
+platform-specific `ContentPackage`, and uses four deterministic slide templates
+at 1080×1920. Future `o2_english` formats receive independent contracts rather
+than extending or weakening the fixed idiom schema.
+
+## 023 - One Isolated Vertex Gemini Client
+
+Date: 2026-08-17
+
+Decision: Route determination and pipeline-owned Gemini work through one
+`VertexGeminiClient`. It reads `GOOGLE_CLOUD_PROJECT`,
+`GOOGLE_CLOUD_LOCATION`, and `GEMINI_MODEL`; the historic `GEMINI_MDOEL` and
+`VERTEX_AI_MODEL` names are read only as temporary compatibility aliases.
+
+Reason: Gemini belongs in two distinct responsibility boundaries, but direct
+SDK calls scattered through workers would make credentials, structured output,
+and failures difficult to control.
+
+Consequence: The determination worker uses Gemini to select an available
+pipeline/profile and recipe. The pipeline uses Gemini for its structured
+content and tags/hashtags. Both fail visibly when Vertex configuration or IAM
+access is unavailable; neither has a deterministic creative fallback.
+
+## 024 - Instagram Carousel Posting Design Is Open
+
+Date: 2026-08-17
+
+Decision: Keep Instagram Graph API publication, public-media delivery, retry
+behavior, and account credential handling as open Posting Agent design work.
+
+Reason: The current o2 English end-to-end target needs a posting path, but the
+correct platform integration and operational behavior are not yet settled.
+
+Consequence: The o2 pipeline creates assets locally and stops at a ready
+`ContentPackage`. The Posting Agent design must remain system-level and must
+not move platform delivery into the pipeline or renderer.
+
+## 025 - Documentation Operating Model
+
+Date: 2026-08-17
+
+Decision: Use `docs/current.md` as the single operational status page,
+`architecture.md` for durable boundaries, `interfaces.md` for contracts,
+`roadmap.md` for milestone ordering, `runbooks/` for procedures, and this file
+for immutable dated decisions.
+
+Reason: Repeating current status in several narrative documents caused drift
+when scope and posting plans evolved.
+
+Consequence: Update `current.md` whenever active scope changes. Add a new
+decision for an architectural change; do not rewrite an older entry to conceal
+the earlier context.

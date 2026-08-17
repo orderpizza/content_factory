@@ -4,6 +4,7 @@ from html import escape
 from pathlib import Path
 
 from common.models import ContentPackage
+from database.sqlite import Database
 from visual.theme import THEME
 
 
@@ -43,4 +44,11 @@ h1 {{ font-size: 76px; line-height: 1.05; margin: 0 0 64px; }}
             await page.goto(html_path.resolve().as_uri())
             await page.screenshot(path=str(output_path), full_page=True)
             await browser.close()
+        return output_path
+
+    async def render_and_record_png(self, database: Database, package: ContentPackage, html_path: str | Path, output_path: str | Path) -> Path:
+        if package.content_id is None:
+            raise ValueError("A content package must be persisted before rendering")
+        output_path = await self.render_png(package, html_path, output_path)
+        database.mark_package_rendered(package.content_id, str(output_path))
         return output_path

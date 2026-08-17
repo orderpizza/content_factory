@@ -44,7 +44,7 @@ class TopicSnapshot:
 
 @dataclass
 class ContentJob:
-    trend_id: int
+    trend_id: int | None
     pipeline_id: str
     topic: str
     angle: str
@@ -57,6 +57,12 @@ class ContentJob:
     job_id: int | None = None
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+    determination_handoff_id: int | None = None
+    candidate_id: int | None = None
+    target_platform: str = "bluesky"
+    target_account: str = "default"
+    content_format: str = "text_card"
+    visual_profile_id: str = "default"
 
 
 @dataclass
@@ -71,6 +77,14 @@ class ContentPackage:
     sources: list[str] = field(default_factory=list)
     content_id: int | None = None
     created_at: str = field(default_factory=utc_now)
+    platform: str = "bluesky"
+    account: str = "default"
+    content_format: str = "text_card"
+    tags: list[str] = field(default_factory=list)
+    hashtags: list[str] = field(default_factory=list)
+    status: str = "awaiting_render"
+    metadata_status: str = "pending"
+    metadata_model: str | None = None
 
 
 @dataclass

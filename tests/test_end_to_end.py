@@ -10,6 +10,7 @@ from intelligence.sources import FixtureTrendSource, Observation
 from pipelines.poc.pipeline import PocPipeline
 from posting.agent import PostingAgent
 from visual.renderer import VisualRenderer
+from metadata_fakes import FakeMetadataGenerator
 
 
 class EndToEndTests(unittest.TestCase):
@@ -27,11 +28,12 @@ class EndToEndTests(unittest.TestCase):
                 self.assertIsNotNone(job)
                 job.job_id = database.save_content_job(job)
 
-                package = PocPipeline().run(job)
+                package = PocPipeline(FakeMetadataGenerator()).run(job)
                 package.content_id = database.save_content_package(package)
                 html_path = VisualRenderer().render_html(package, Path(directory) / "generated" / "card.html")
+                database.mark_package_rendered(package.content_id, str(html_path))
 
-                post_id = PostingAgent(database).queue(PostRecord(package.content_id, "test", "local"))
+                post_id = PostingAgent(database).queue(PostRecord(package.content_id, "bluesky", "default"))
                 PostingAgent(database).mark_published(post_id, "offline-post-1")
                 record = database.connection.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
 

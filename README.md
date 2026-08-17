@@ -12,73 +12,33 @@ Trend Detection
   -> One Content Pipeline
   -> Content Package
   -> Visual Rendering
+  -> Ready ContentPackage
   -> Post Queue
   -> Posting Agent
-  -> Published Content
   -> Publication Record
 ```
 
 This is intentionally a proof of concept, not the final production system.
 Keep implementation choices small, local, and easy to inspect.
 
-## Current POC Scope
+## Current Target
 
-- One trend detector.
-- One determination layer.
-- One predefined content pipeline.
-- One deterministic visual template.
-- One posting platform.
-- SQLite for state.
-- Mac Mini as the primary runtime.
-- Gemini API for LLM reasoning and generation where useful.
+The current target, implementation status, acceptance criteria, and deferred
+work live in [docs/current.md](docs/current.md). The immediate goal is one o2
+English Instagram end-to-end path; Content Factory will later support multiple
+platform-specific pipelines, including Bluesky.
 
 ## Source Of Truth
 
 Read these before making architectural or boundary changes:
 
-- [docs/vision.md](docs/vision.md)
+- [docs/current.md](docs/current.md) — current target and status
 - [docs/poc.md](docs/poc.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/interfaces.md](docs/interfaces.md)
 - [docs/decisions.md](docs/decisions.md)
-
-## Current Detection Phase
-
-The detector currently runs independently of Gemini. Its Scout collects free
-source signals, stores historical observations and snapshots in SQLite, ranks
-explainable `TrendCandidate` records, and exposes a read-only live dashboard.
-
-Current enabled sources are Hacker News, configured RSS/Atom feeds, and
-Wikimedia pageviews. Reddit and YouTube adapters are present but disabled until
-credentials/access are configured. The complete source roadmap and status
-matrix is in [docs/poc.md](docs/poc.md). The detector is still being tuned before the determination/LLM phase
-begins. Important remaining work includes semantic clustering/classification,
-source expansion, and careful scoring revision because these directly control
-which candidates are consumed downstream.
-
-The system is ultimately intended for monetized content, but monetization
-evaluation belongs in determination. Detection measures attention and evidence;
-it does not decide whether a topic is commercially useful.
-
-The dashboard is intended to become the system-level observability surface for
-the complete loop. The current trend dashboard is the first dashboard view:
-`Trend Detection`. As downstream modules are implemented, the dashboard should
-add read-only views for determination, content jobs, production, visual assets,
-posting, and system health. See [docs/dashboard.md](docs/dashboard.md).
-
-## Development Order
-
-1. Repository structure, configuration, and SQLite.
-2. Deterministic Scout and detection history.
-3. Detection clustering, classification, scoring, and observation.
-4. TrendCandidate to determination.
-5. ContentJob persistence.
-6. One POC pipeline.
-7. Visual renderer.
-8. Posting queue.
-9. Posting agent.
-10. End-to-end autonomous test.
-11. Observe failures and improve.
+- [docs/roadmap.md](docs/roadmap.md)
+- [docs/runbooks/](docs/runbooks/) — local operating procedures
 
 ## Non-Goals For The Initial POC
 

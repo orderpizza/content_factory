@@ -48,7 +48,8 @@ persistent, or otherwise valuable trends.
 
 ### Determination
 
-Interprets detected trends and determines:
+Interprets detected trends against the available pipeline catalog and decides
+whether, and exactly how, to consume each one. It determines:
 
 - whether the trend is worth pursuing
 - what content opportunity exists
@@ -56,9 +57,23 @@ Interprets detected trends and determines:
 - what angle should be taken
 - who the target audience is
 
+Its accepted output is an explicit, persisted production recipe (`ContentJob`),
+not a question for the pipeline to interpret. A future determination may create
+multiple jobs for one trend; the POC creates at most one.
+
 ### Content Pipelines
 
 Specialized, predefined workflows for producing particular types of content.
+
+Pipelines are intentionally platform- and format-specific. A pipeline creates
+the content, required asset or visual specifications, and platform-native
+metadata: for example, an Instagram static post, a short-form video, or a
+long-form article. Required visual rendering completes the upload-ready assets.
+Gemini may be used inside a pipeline for generation and context-sensitive
+captions, tags, and hashtags. It may also refine a high-level visual profile
+from the pipeline's allowed profiles. Deterministic validation still enforces
+platform limits and policy; deterministic template resolution selects the
+concrete background, typography, shapes, and other renderer settings.
 
 Examples may eventually include:
 
@@ -91,6 +106,11 @@ It manages:
 - publication history
 - platform/account state
 - publishing failures
+
+It is one shared, deterministic scheduler and publisher, not an LLM or content
+generation layer. Cadence and limits are configured per pipeline, platform, and
+account so completed content is queued for its next eligible publication time,
+rather than published immediately.
 
 ### System Dashboard
 

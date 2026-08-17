@@ -9,9 +9,10 @@ directly or create/mutate workflow state.
 
 ```text
 TrendCandidate
-  -> Determination
-  -> ContentJob
-  -> ContentPackage
+  -> DeterminationRequest
+  -> DeterminationDecision
+  -> ContentJob (recipe)
+  -> platform-specific ContentPackage
   -> PostRequest
   -> PostRecord
 ```
@@ -97,6 +98,45 @@ the source article. Handoff statuses are `pending`, `claimed`, `completed`,
 Candidate status describes the evolving trend; handoff status describes whether
 a specific delivery was consumed. These are separate concepts.
 
+## DeterminationDecision
+
+Produced from a `DeterminationRequest`. It records an explicit decision to
+either reject the candidate or consume it through one selected pipeline.
+
+Conceptual fields:
+
+```text
+handoff_id
+decision_status (accepted or rejected)
+pipeline_id
+target_platform
+target_account
+content_format
+visual_profile_id
+audience
+angle
+objective
+key_points
+reasoning
+created_at
+```
+
+An accepted decision produces one `ContentJob` in the POC. Determination has
+access to the available pipeline catalog in order to make this selection, but
+it does not create content or invoke the selected pipeline. The visual profile
+is a meaningful creative preset (for example, `explainer` or `quiz`), not a
+low-level template configuration.
+
+The first extracted capability is:
+
+```text
+pipeline_id: o2_english_instagram
+target_platform: instagram
+target_account: o2_english
+content_format: instagram_idiom_carousel
+visual_profile_id: o2_english_idiom_carousel_v1
+```
+
 ## DetectionRun
 
 Each scheduled Scout execution should be traceable through a run record:
@@ -117,7 +157,13 @@ Conceptual fields:
 ```text
 job_id
 trend_id
+candidate_id
+determination_handoff_id
 pipeline_id
+target_platform
+target_account
+content_format
+visual_profile_id
 topic
 angle
 audience
@@ -133,13 +179,23 @@ updated_at
 Rules:
 
 - Determination creates a `ContentJob`.
+- A job is an explicit recipe for one selected pipeline, not generated content.
+- A job retains its candidate and determination-handoff provenance when it was
+  created from the persisted production path.
+- Determination chooses `visual_profile_id` from the selected pipeline's
+  registered profiles. Pipeline Gemini may refine it only from the same allowed
+  set; deterministic code resolves the concrete template.
+- The POC creates at most one job for an accepted trend. Future determinations
+  may create multiple jobs for one trend.
 - Determination does not call pipeline functions directly.
 - `pipeline_id` exists even though the POC has only one real pipeline.
 - The pipeline runner loads pending jobs from SQLite.
 
 ## ContentPackage
 
-Produced by a content pipeline and consumed by visual rendering and posting.
+Produced by a selected content pipeline. It is the platform-specific content
+and native metadata, with required asset/visual specifications. It is consumed
+by visual rendering and, once all required assets are present, posting.
 
 Conceptual fields:
 
@@ -147,16 +203,42 @@ Conceptual fields:
 content_id
 job_id
 pipeline_id
+platform
+account
+content_format
 title
 body
 caption
+tags
+hashtags
 visual_spec
+resolved_template_id
 assets
 sources
+status
+metadata_status
+metadata_model
 created_at
 ```
 
-The posting agent should not need to know how the content was generated.
+The pipeline may use Gemini to generate platform-specific caption, tags, and
+hashtags from the job recipe and content. It persists the generated metadata
+and validates it deterministically against platform policy. Visual rendering
+adds required final assets before the package is marked ready for posting. The
+Posting Agent must not need to know how the content was
+generated or modify its creative metadata.
+
+Tags and hashtags are pipeline-owned channel metadata. The Posting Agent uses
+the persisted values exactly as supplied; it never generates or changes them.
+
+For `instagram_idiom_carousel`, `visual_spec` contains structured slides and
+their resolved template IDs. The fixed idiom contract permits 5–8 slides with
+the following types: `hook`, `explanation`, `use_case_monologue`, and
+`use_case_dialogue`. Other `o2_english` formats must define separate contracts.
+
+If Vertex configuration or access is unavailable, the metadata generation
+boundary fails visibly. It must not silently replace AI-generated tags or
+hashtags with hardcoded defaults.
 
 ## VisualSpec
 
@@ -173,11 +255,11 @@ theme
 format
 ```
 
-For the POC, visual rendering should be deterministic with one template, one
-theme, one primary font configuration, and standardized dimensions such as
-`1080x1350`.
+For the active o2 POC, visual rendering is deterministic: one named profile,
+four fixed slide templates, a neutral temporary palette, and `1080x1920`
+dimensions. A brand palette and visual matrix are future work.
 
-## PostRequest
+## PostRequest (Under Development)
 
 Produced when content enters the posting queue.
 
@@ -194,9 +276,10 @@ scheduled_at
 status
 ```
 
-The posting queue should support duplicate protection and basic scheduling.
+The posting queue must support duplicate protection and cadence-based
+scheduling. It must not publish immediately when a package is created.
 
-## PostRecord
+## PostRecord (Under Development)
 
 Produced and updated by the posting agent.
 
@@ -263,6 +346,5 @@ At minimum, tests should cover:
 - `ContentJob` to pipeline execution.
 - Pipeline to `ContentPackage`.
 - `ContentPackage` to visual asset.
-- `ContentPackage` to post queue.
-- Post queue duplicate protection.
-- Post queue to publication record.
+- AI-generated tags/hashtags stored in `ContentPackage` and deterministically
+  validated against the target platform policy.

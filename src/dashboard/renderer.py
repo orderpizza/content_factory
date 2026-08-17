@@ -53,6 +53,13 @@ def render_dashboard(database) -> str:
         ORDER BY h.created_at DESC, h.handoff_id DESC
         LIMIT 20
     """)
+    decisions = rows("""
+        SELECT d.*, h.candidate_id
+        FROM determination_decisions d
+        JOIN determination_handoffs h ON h.handoff_id = d.handoff_id
+        ORDER BY d.created_at DESC, d.decision_id DESC
+        LIMIT 20
+    """)
     jobs = rows("SELECT * FROM content_jobs ORDER BY updated_at DESC, job_id DESC LIMIT 20")
     packages = rows("SELECT * FROM content_packages ORDER BY created_at DESC, content_id DESC LIMIT 20")
     posts = rows("SELECT * FROM posts ORDER BY updated_at DESC, id DESC LIMIT 20")
@@ -149,6 +156,11 @@ def render_dashboard(database) -> str:
         lambda row: cell(row["created_at"]), lambda row: cell(row["completed_at"]),
         lambda row: cell(row["failure_reason"]),
     ], "No determination handoffs yet", 7)
+    decision_rows = table_rows(decisions, [
+        lambda row: str(row["decision_id"]), lambda row: str(row["handoff_id"]),
+        lambda row: cell(row["status"]), lambda row: json_cell(row["recipe_json"]),
+        lambda row: cell(row["reasoning"]), lambda row: cell(row["created_at"]),
+    ], "No determination decisions yet", 6)
     job_rows = table_rows(jobs, [
         lambda row: str(row["job_id"]), lambda row: cell(row["topic"]),
         lambda row: cell(row["pipeline_id"]), lambda row: str(row["priority"]),
@@ -157,8 +169,9 @@ def render_dashboard(database) -> str:
     package_rows = table_rows(packages, [
         lambda row: str(row["content_id"]), lambda row: str(row["job_id"]),
         lambda row: cell(row["pipeline_id"]), lambda row: cell(row["title"]),
+        lambda row: cell(row["status"]), lambda row: cell(row["metadata_status"]),
         lambda row: json_cell(row["assets"]), lambda row: cell(row["created_at"]),
-    ], "No content packages yet", 6)
+    ], "No content packages yet", 8)
     post_rows = table_rows(posts, [
         lambda row: str(row["id"]), lambda row: str(row["content_id"]),
         lambda row: cell(row["platform"]), lambda row: cell(row["account"]),
@@ -166,44 +179,73 @@ def render_dashboard(database) -> str:
         lambda row: cell(row["published_at"]), lambda row: cell(row["error"]),
     ], "No post records yet", 8)
 
+    def phase_card(name: str, status: str, detail: str, anchor: str) -> str:
+        return (
+            f"<a class='phase-card {status.lower()}' href='#{anchor}'>"
+            f"<span class='phase-name'>{cell(name)}</span>"
+            f"<span class='phase-status'>{cell(status)}</span>"
+            f"<span class='phase-detail'>{cell(detail)}</span></a>"
+        )
+
+    phase_cards = "".join([
+        phase_card("Detection", detection_state, detection_detail, "detection"),
+        phase_card("Determination", determination_state, determination_detail, "determination"),
+        phase_card("Content Job", pipeline_state, pipeline_detail, "content-jobs"),
+        phase_card("Visual", "NOT_STARTED", "No render records", "visual"),
+        phase_card("Posting", posting_state, posting_detail, "posting"),
+    ])
+
     return f"""<!doctype html>
 <html><head><meta charset='utf-8'><meta http-equiv='refresh' content='15'>
 <title>Content Factory Dashboard</title>
 <style>
-body{{font-family:Arial,sans-serif;max-width:1400px;margin:32px auto;padding:0 20px;color:#1f2933;background:#fafafa}}
-h1{{margin-bottom:8px}} h2{{margin-top:36px}} h3{{margin-top:26px}}
-table{{border-collapse:collapse;width:100%;margin:12px 0 26px;background:white}}
-th,td{{border-bottom:1px solid #ddd;text-align:left;padding:9px;vertical-align:top;font-size:14px}}
-th{{background:#eef2f5}} .empty{{color:#68737d;text-align:center}}
-.status{{font-weight:bold;letter-spacing:.03em}} .completed{{color:#147a3d}}
+body{{font-family:Arial,sans-serif;max-width:1500px;margin:0 auto;padding:0 28px 60px;color:#17212b;background:#f3f6f8}}
+header{{background:#17212b;color:white;margin:0 -28px 28px;padding:28px 28px 24px}}
+h1{{margin:0 0 8px;font-size:30px}} h2{{margin:38px 0 14px}} h3{{margin:24px 0 10px}}
+nav{{display:flex;gap:16px;flex-wrap:wrap;margin-top:20px}} nav a{{color:#c9d8e5;text-decoration:none;font-size:13px}}
+table{{border-collapse:collapse;width:100%;margin:12px 0 26px;background:white;box-shadow:0 1px 3px #d9e0e5}}
+th,td{{border-bottom:1px solid #e0e6eb;text-align:left;padding:10px;vertical-align:top;font-size:14px}}
+th{{background:#e8eef2;color:#40505c}} .empty{{color:#68737d;text-align:center}}
+.status,.phase-status{{font-weight:bold;letter-spacing:.03em}} .completed{{color:#147a3d}}
 .running{{color:#1769aa}} .waiting{{color:#9a6700}} .degraded,.failed{{color:#b42318}}
-.not_started{{color:#68737d}} .meta{{color:#68737d}} .summary{{display:flex;gap:12px;flex-wrap:wrap}}
-.card{{background:white;border:1px solid #d8dee4;padding:14px 18px;min-width:160px}}
-.number{{display:block;font-size:24px;font-weight:bold;margin-top:4px}}
+.not_started{{color:#68737d}} .meta{{color:#71808c}} .summary{{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:12px}}
+.metric{{background:white;border:1px solid #d8e1e7;border-radius:8px;padding:15px 16px;box-shadow:0 1px 3px #dfe6ea}}
+.number{{display:block;font-size:25px;font-weight:bold;margin-top:5px;color:#17212b}}
+.phase-flow{{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:18px 0 12px}}
+.phase-card{{display:flex;flex-direction:column;gap:8px;background:white;border:1px solid #d8e1e7;border-top:5px solid #9aa8b2;border-radius:8px;padding:16px;text-decoration:none;color:#17212b;min-height:112px;box-shadow:0 1px 3px #dfe6ea}}
+.phase-card.completed{{border-top-color:#2e9b5b}} .phase-card.running{{border-top-color:#3786bd}} .phase-card.waiting{{border-top-color:#d29a2e}} .phase-card.not_started{{border-top-color:#9aa8b2}}
+.phase-name{{font-size:14px;font-weight:bold}} .phase-status{{font-size:18px}} .phase-detail{{font-size:12px;color:#71808c;line-height:1.35}}
+.section{{scroll-margin-top:20px}} details{{margin:10px 0}} summary{{cursor:pointer;font-size:16px;font-weight:bold;color:#334e60}}
+@media(max-width:900px){{.summary{{grid-template-columns:repeat(3,1fr)}}.phase-flow{{grid-template-columns:repeat(2,1fr)}}}}
+@media(max-width:600px){{.summary{{grid-template-columns:repeat(2,1fr)}}.phase-flow{{grid-template-columns:1fr}}}}
 </style></head><body>
-<h1>Content Factory Dashboard</h1>
-<p class='meta'>Read-only SQLite observability | Latest source check: {cell(latest_source_check or 'not yet')} | Refresh: 15 seconds</p>
-<h2>System Overview</h2>
+<header><h1>Content Factory</h1>
+<div class='meta' style='color:#c9d8e5'>System observability · SQLite state · read-only · auto-refresh 15s</div>
+<nav><a href='#overview'>Overview</a><a href='#detection'>Detection</a><a href='#determination'>Determination</a><a href='#content-jobs'>Content</a><a href='#visual'>Visual</a><a href='#posting'>Posting</a></nav></header>
+<h2 id='overview'>System Overview</h2>
 <div class='summary'>
-<div class='card'>Observations<span class='number'>{count('trend_observations')}</span></div>
-<div class='card'>Candidates<span class='number'>{count('trend_candidates')}</span></div>
-<div class='card'>Handoffs<span class='number'>{count('determination_handoffs')}</span></div>
-<div class='card'>Content Jobs<span class='number'>{count('content_jobs')}</span></div>
-<div class='card'>Packages<span class='number'>{count('content_packages')}</span></div>
-<div class='card'>Posts<span class='number'>{count('posts')}</span></div>
+<div class='metric'>Observations<span class='number'>{count('trend_observations')}</span></div>
+<div class='metric'>Candidates<span class='number'>{count('trend_candidates')}</span></div>
+<div class='metric'>Handoffs<span class='number'>{count('determination_handoffs')}</span></div>
+<div class='metric'>Content Jobs<span class='number'>{count('content_jobs')}</span></div>
+<div class='metric'>Packages<span class='number'>{count('content_packages')}</span></div>
+<div class='metric'>Posts<span class='number'>{count('posts')}</span></div>
 </div>
+<div class='phase-flow'>{phase_cards}</div>
+<p class='meta'>Latest source check: {cell(latest_source_check or 'not yet')} · Click a phase to inspect its persisted details.</p>
 <table><tr><th>Phase</th><th>Status</th><th>Current State</th></tr>{module_rows}</table>
-<h2>Trend Detection</h2>
+<section id='detection' class='section'><h2>Trend Detection</h2>
 <p class='meta'>Latest detection run: {cell(latest_detection['run_id'] if latest_detection else 'not yet')}</p>
-<h3>Detection Runs</h3><table><tr><th>Run</th><th>Started</th><th>Completed</th><th>Status</th><th>Observations</th><th>Selected</th><th>Error</th></tr>{run_rows}</table>
-<h3>Ranked Candidates</h3><table><tr><th>Status</th><th>Stage</th><th>Topic</th><th>Score</th><th>Sources</th><th>Cooldown Until</th></tr>{candidate_rows}</table>
-<h3>Source Health</h3><table><tr><th>Source</th><th>Checked</th><th>Status</th><th>Attempts</th><th>Error</th></tr>{source_rows}</table>
-<h2>Determination</h2><p class='meta'>Status counts: {status_counts('determination_handoffs')}</p>
+<details open><summary>Detection Runs</summary><table><tr><th>Run</th><th>Started</th><th>Completed</th><th>Status</th><th>Observations</th><th>Selected</th><th>Error</th></tr>{run_rows}</table></details>
+<details open><summary>Ranked Candidates</summary><table><tr><th>Status</th><th>Stage</th><th>Topic</th><th>Score</th><th>Sources</th><th>Cooldown Until</th></tr>{candidate_rows}</table></details>
+<details><summary>Source Health</summary><table><tr><th>Source</th><th>Checked</th><th>Status</th><th>Attempts</th><th>Error</th></tr>{source_rows}</table></details></section>
+<section id='determination' class='section'><h2>Determination</h2><p class='meta'>Status counts: {status_counts('determination_handoffs')}</p>
 <table><tr><th>Handoff</th><th>Topic</th><th>Score</th><th>Status</th><th>Created</th><th>Completed</th><th>Failure</th></tr>{handoff_rows}</table>
-<h2>Content Jobs</h2><p class='meta'>Status counts: {status_counts('content_jobs')}</p>
+<h3>Decisions</h3><table><tr><th>Decision</th><th>Handoff</th><th>Status</th><th>Recipe</th><th>Reasoning</th><th>Created</th></tr>{decision_rows}</table>
+ </section><section id='content-jobs' class='section'><h2>Content Production</h2><h3>Content Jobs</h3><p class='meta'>Status counts: {status_counts('content_jobs')}</p>
 <table><tr><th>Job</th><th>Topic</th><th>Pipeline</th><th>Priority</th><th>Status</th><th>Updated</th></tr>{job_rows}</table>
-<h2>Content Packages</h2><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Title</th><th>Assets</th><th>Created</th></tr>{package_rows}</table>
-<h2>Visual Rendering</h2><p class='meta'><span class='status not_started'>NOT_STARTED</span> — No visual render status records are persisted yet.</p>
-<h2>Posting</h2><p class='meta'>Status counts: {status_counts('posts')}</p>
+<h3>Content Packages</h3><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Title</th><th>Package</th><th>Metadata</th><th>Assets</th><th>Created</th></tr>{package_rows}</table></section>
+<section id='visual' class='section'><h2>Visual Rendering</h2><p class='meta'>Package readiness is persisted on each ContentPackage: awaiting render packages are not eligible for posting.</p></section>
+<section id='posting' class='section'><h2>Posting</h2><p class='meta'>Status counts: {status_counts('posts')}</p>
 <table><tr><th>Post</th><th>Content</th><th>Platform</th><th>Account</th><th>Status</th><th>Scheduled</th><th>Published</th><th>Error</th></tr>{post_rows}</table>
-</body></html>"""
+</section></body></html>"""

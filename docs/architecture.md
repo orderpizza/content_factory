@@ -3,8 +3,7 @@
 ## Runtime
 
 The Mac Mini is the primary runtime. It should run collection, detection,
-determination orchestration, pipeline execution, rendering, scheduling, posting,
-and SQLite storage.
+determination orchestration, pipeline execution, rendering, and SQLite storage.
 
 GCP is used primarily for Vertex AI Gemini API calls. Do not move the database,
 workers, scheduling, rendering, or queueing to GCP during the POC unless that is
@@ -14,12 +13,14 @@ explicitly requested.
 
 ```text
 Trend Detector
-  -> Determination Layer
-  -> ContentJob
+  -> DeterminationRequest
+  -> Determination Layer and Decision
+  -> ContentJob (recipe)
   -> Pipeline Runner
-  -> POC Pipeline
+  -> Selected Pipeline
   -> ContentPackage
   -> Visual Renderer
+  -> Ready ContentPackage
   -> Post Queue
   -> Posting Agent
   -> PostRecord
@@ -30,10 +31,9 @@ between module implementations. SQLite is the common communication and state
 boundary for the POC. A module writes its output and status to the database;
 the next module discovers eligible work by reading the database.
 
-During the current development phase, the system intentionally stops after
-the detection output. The Scout runs independently and writes ranked
-`TrendCandidate` records to SQLite. Determination will consume those records
-later; it is not part of the current detector validation loop.
+The detector remains independently observable and LLM-free. Its persisted
+handoffs feed determination. The current end-to-end target is one o2 English
+publication; the Posting Agent portion remains under design and implementation.
 
 ```text
 Scheduled Scout
@@ -114,12 +114,17 @@ and workflow decisions stay with their owning components.
 
 ### Determination Layer
 
-Receives persisted `DeterminationRequest` records after the detector has been
-observed and tuned. Gemini should be isolated behind a small client/service and
-used here for interpretation and content opportunity decisions.
+Receives persisted `DeterminationRequest` records. Gemini is isolated behind a
+small Vertex client and used here for interpretation and content opportunity
+decisions. It receives a
+small catalog of available pipeline capabilities so it can select the correct
+pipeline, target platform/account, format, audience, angle, objective, and
+high-level visual profile.
 
-Determination produces a `ContentJob`. It must not call pipeline-specific Python
-functions directly.
+It either rejects the candidate or produces one explicit `ContentJob` recipe in
+the POC. It must not call pipeline-specific Python functions directly. Future
+determinations may create multiple jobs for one trend, but that is outside the
+current POC scope.
 
 ### Pipeline Runner
 
@@ -128,26 +133,59 @@ Finds pending `ContentJob` records in SQLite and dispatches them by
 
 Do not introduce distributed queues or worker infrastructure.
 
-### POC Pipeline
+### `o2_english_instagram` Pipeline
 
-Consumes a `ContentJob` and produces a `ContentPackage`.
+Consumes a `ContentJob` and produces a platform-specific `ContentPackage`
+containing the content, native metadata, and required asset or visual
+specification.
 
-The pipeline owns how content is created. It does not need to know how the trend
-was detected.
+The pipeline owns how content is created and is platform- and format-specific.
+It creates the content, asset or visual specifications, caption, and metadata
+such as tags and hashtags. Gemini may be used here for creative generation and
+context-sensitive metadata; validation of syntax, length, duplicates, banned
+terms, and platform limits remains deterministic. The pipeline does not need to
+know how the trend was detected.
+
+The first extracted `o2_english` format is
+`instagram_idiom_carousel` with profile
+`o2_english_idiom_carousel_v1`. It has a fixed 5–8-slide idiom teaching
+contract, a 1080×1920 Instagram rendering target, and four registered slide
+templates (hook, explanation, monologue use case, and dialogue use case).
+The pipeline Gemini boundary creates structured slide copy, caption, tags, and
+hashtags. It cannot replace invalid or unavailable Gemini metadata with a
+deterministic fallback.
+
+The determination-selected visual profile constrains the pipeline. Pipeline
+Gemini may refine that profile only from the pipeline's registered allowed
+profiles. It must not invent a template ID or renderer configuration.
 
 ### Visual Renderer
 
 Consumes a visual specification from a `ContentPackage` and creates image assets
-deterministically using HTML/CSS and Playwright.
+deterministically using HTML/CSS and Playwright. It persists the rendered asset
+references on the package; a package becomes ready for future posting only after
+all required assets have been rendered.
+
+The visual system deterministically resolves the concrete template from the
+pipeline/profile/format. It owns fonts, backgrounds, shapes, characters, and
+other low-level renderer settings; Gemini does not select these directly.
 
 Do not use AI image generation by default.
 
-### Posting Agent
+### Posting Agent (Under Development)
 
-Consumes finished content, applies duplicate and scheduling rules, publishes or
-schedules the content, and records publication history.
+The Posting Agent will consume finished platform-specific content, apply
+duplicate and scheduling rules, publish it, and record publication history. It
+will not use an LLM, generate captions or tags, or modify captions, hashtags,
+or visual selections.
 
-The posting agent is separate from the content pipeline.
+It is a system-level shared service separate from content pipelines. Its queue
+state, attempts, failures, and publication records belong in SQLite for the
+read-only dashboard.
+
+The platform adapter, public-media strategy, retry policy, and Instagram Graph
+API flow remain unresolved. They must be designed as a posting-layer concern,
+never added to the `o2_english` pipeline or visual renderer.
 
 ## Storage
 
@@ -159,10 +197,12 @@ Use SQLite for POC state. Initial tables should remain minimal:
 - `trend_candidates`
 - `detection_runs`
 - `determination_handoffs`
+- `determination_decisions`
 - `source_health`
 - `content_jobs`
 - `content_packages`
-- `posts`
+
+Posting-specific persistence evolves with the Posting Agent implementation.
 
 Trend candidates have lifecycle/status fields and cooldown state so a topic can
 continue updating without being repeatedly sent downstream.

@@ -1,114 +1,39 @@
-# AGENTS.md
+# Content Factory Instructions
 
-## Project
+## Project Rules
 
-This is a local-first automated content factory POC.
+- This is a local-first automated content-factory POC. Mac Mini is the primary
+  runtime, SQLite is the POC state store, and GCP is used for Vertex Gemini.
+- Preserve persisted SQLite handoffs. Do not introduce direct module-to-module
+  calls, distributed queues, or unnecessary infrastructure.
+- Keep detection deterministic and LLM-free. Gemini belongs in determination
+  and pipeline-owned generation only.
+- Respect the responsibility chain:
+  `Trend Detector -> Determination -> ContentJob -> Pipeline -> ContentPackage
+  -> Visual Renderer -> Posting Agent -> PostRecord`.
+- Pipelines are platform- and format-specific. `ContentJob` is a recipe;
+  `ContentPackage` is the actual platform-specific content and metadata.
+- Posting never generates or changes captions, tags, hashtags, or visual
+  content. Its design is currently under development.
+- The dashboard is read-only. Never put workflow controls in it without an
+  explicit decision.
+- Keep secrets out of the repository. Isolate external API access behind small
+  services or adapters.
 
-The POC goal is to prove:
+## How To Start Work
 
-Trend Detection
-→ Determination
-→ ContentJob
-→ One Content Pipeline
-→ Visual Rendering
-→ Posting Agent
+1. Read `docs/current.md` first.
+2. Read `docs/architecture.md` for responsibility boundaries and
+   `docs/interfaces.md` before changing a handoff or model.
+3. Read `docs/roadmap.md` for scope and `docs/decisions.md` for prior decisions.
+4. Update `docs/current.md` when the current target, status, acceptance criteria,
+   or explicitly deferred work changes.
 
-## Core Rules
+## Development Rules
 
-- Keep the POC simple.
-- Do not implement future architecture prematurely.
-- Mac Mini is the primary runtime.
-- GCP is used primarily for Gemini API calls.
-- SQLite is the POC database.
-- Prefer deterministic/local processing where practical.
-- Trend detection must remain LLM-free; Gemini belongs downstream in determination.
-- Keep component boundaries explicit.
-- Modules communicate through persisted SQLite state and handoff records; do
-  not introduce direct module-to-module calls for the POC.
-- Do not introduce unnecessary infrastructure.
-
-## Source of Truth
-
-Before making significant architectural changes, consult:
-
-- `docs/vision.md`
-- `docs/poc.md`
-- `docs/architecture.md`
-- `docs/interfaces.md`
-- `docs/decisions.md`
-
-Keep these documents synchronized with significant architectural decisions.
-
-## Architecture Boundaries
-
-The system is organized around this responsibility chain:
-
-```text
-Trend Detector
-  -> Determination
-  -> ContentJob
-  -> Pipeline
-  -> ContentPackage
-  -> Visual Renderer
-  -> Posting Agent
-  -> PostRecord
-```
-
-- Trend detection answers: what is happening?
-- Determination answers: what should we create?
-- The pipeline answers: how do we create it?
-- The visual system answers: how do we render it?
-- The posting agent answers: when and where should we publish it?
-
-Do not let one layer absorb another layer's responsibility.
-
-## Development
-
-- Follow existing project conventions.
-- Write tests for important component boundaries.
-- Do not modify unrelated code.
-- Keep external API access isolated.
-- Never commit secrets.
-- Prefer explicit data models at component boundaries.
-- Keep state in SQLite.
-- Make failures visible through logs and persisted status fields.
-- Use deterministic/local processing when practical.
-- Use Gemini behind a small client/service; do not scatter direct API calls.
-
-## Current POC Scope
-
-One:
-- trend detector
-- determination layer
-- content pipeline
-- visual template
-- posting platform
-
- Multiple pipelines,
-advanced orchestration, multi-platform publishing, etc.
-are out of scope unless explicitly requested.
-
-## Detection Phase
-
-The current priority is completing and observing the deterministic detection
-layer before implementing Gemini determination. Preserve the distinction:
-
-- Detection: what is gaining attention?
-- Determination: what should we create and how might it be monetized?
-
-Treat clustering/classification and scoring as high-impact boundaries. Changes
-to either can change which candidates are consumed downstream and must include
-tests and documentation updates.
-
-## Implementation Order
-
-1. Repository structure, configuration, and SQLite.
-2. Trend collector/detector.
-3. Trend to determination.
-4. ContentJob persistence.
-5. One POC pipeline.
-6. Visual renderer.
-7. Posting queue.
-8. Posting agent.
-9. End-to-end autonomous test.
-10. Observe failures and improve.
+- Use explicit models and persisted statuses at component boundaries.
+- Add or update boundary tests for meaningful behavior changes.
+- Run `py scripts/run_tests.py` and `py scripts/check_docs.py` before handoff.
+- Document a new architectural choice as a new dated entry in
+  `docs/decisions.md`; do not rewrite an earlier decision to erase history.
+- Do not modify unrelated dirty-worktree files.

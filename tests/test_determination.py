@@ -1,6 +1,10 @@
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
-from common.models import Trend
+from common.models import Trend, TrendCandidate
+from database.sqlite import Database
 from determination.service import DeterminationService
 
 
@@ -29,3 +33,26 @@ class DeterminationTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.service.determine(trend)
+
+    def test_claimed_handoff_becomes_persisted_recipe_and_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "content.db")
+            database.initialize()
+            run_id = database.start_detection_run("2026-01-01T00:00:00+00:00")
+            candidate_id = database.upsert_candidate(TrendCandidate("topic", 0.8, "EMERGING"), "2026-01-01T00:00:00+00:00")
+            handoff_id = database.create_handoff_if_absent(candidate_id, run_id, {
+                "candidate": {"candidate_id": candidate_id, "topic": "topic", "score": 0.8},
+                "evidence": [{"url": "https://example.test/topic"}],
+            }, "2026-01-01T00:00:00+00:00")
+
+            job = self.service.consume_next_handoff(database)
+            decision = database.connection.execute("SELECT * FROM determination_decisions WHERE handoff_id = ?", (handoff_id,)).fetchone()
+            handoff = database.connection.execute("SELECT status FROM determination_handoffs WHERE handoff_id = ?", (handoff_id,)).fetchone()
+            database.close()
+
+        self.assertEqual(job.pipeline_id, "poc_pipeline")
+        self.assertEqual(job.target_platform, "bluesky")
+        self.assertEqual(job.determination_handoff_id, handoff_id)
+        self.assertEqual(decision["status"], "accepted")
+        self.assertEqual(json.loads(decision["recipe_json"])["content_format"], "text_card")
+        self.assertEqual(handoff["status"], "completed")

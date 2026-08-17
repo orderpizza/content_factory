@@ -2,25 +2,46 @@
 
 from datetime import datetime, timedelta, timezone
 import json
+from typing import Mapping, Protocol
 from urllib.request import Request, urlopen
 
 from common.models import PostRecord, utc_now
 from database.sqlite import Database
 
 
+class PackagePublisher(Protocol):
+    """Platform adapter that publishes one ready, persisted content package."""
+
+    def publish_package(self, package: Mapping[str, object]) -> str:
+        """Return the platform's external post identifier."""
+
+
 class PostingAgent:
+    """Deterministically schedule and publish ready platform packages."""
+
     def __init__(self, database: Database, max_posts_per_day: int = 3, min_post_interval_minutes: int = 60):
         self.database = database
         self.max_posts_per_day = max_posts_per_day
         self.min_post_interval = timedelta(minutes=min_post_interval_minutes)
 
-    def queue(self, post: PostRecord) -> int:
+    def queue(self, post: PostRecord, now: datetime | None = None) -> int:
+        package = self.database.connection.execute(
+            "SELECT pipeline_id, platform, account, status FROM content_packages WHERE content_id = ?",
+            (post.content_id,),
+        ).fetchone()
+        if package is None:
+            raise KeyError(f"Content package {post.content_id} was not found")
+        if package["status"] != "ready_for_posting":
+            raise ValueError("Content package is not ready for posting")
+        if post.platform != package["platform"] or post.account != package["account"]:
+            raise ValueError("Post destination must match the content package destination")
         if self._duplicate_exists(post):
             raise ValueError("This content is already queued for this platform/account")
-        if self._daily_limit_reached(post):
-            raise ValueError("Daily posting limit reached")
-        if self._interval_too_short(post):
-            raise ValueError("Minimum posting interval has not elapsed")
+        now = now or datetime.now(timezone.utc)
+        scheduled_at = self._next_eligible_time(package["pipeline_id"], post.platform, post.account, now)
+        post.status = "scheduled"
+        post.scheduled_at = scheduled_at.isoformat()
+        post.updated_at = utc_now()
         return self.database.queue_post(post)
 
     def mark_published(self, post_id: int, external_post_id: str, published_at: str | None = None) -> None:
@@ -38,6 +59,43 @@ class PostingAgent:
         )
         self.database.connection.commit()
 
+    def queue_ready_packages(self, now: datetime | None = None) -> int:
+        """Move every completed, unqueued package into its cadence-derived slot."""
+        queued = 0
+        for package in self.database.ready_packages_without_post():
+            self.queue(
+                PostRecord(package["content_id"], package["platform"], package["account"]),
+                now=now,
+            )
+            queued += 1
+        return queued
+
+    def publish_due(self, publishers, now: datetime | None = None) -> int:
+        """Publish due posts through platform adapters.
+
+        A single legacy text publisher remains accepted for the existing Bluesky
+        POC. New adapters receive the persisted package row and own their
+        platform-specific upload protocol.
+        """
+        now = now or datetime.now(timezone.utc)
+        published = 0
+        for post in self.database.due_posts(now.isoformat()):
+            try:
+                publisher = publishers.get(post["platform"]) if isinstance(publishers, Mapping) else publishers
+                if publisher is None:
+                    raise RuntimeError(f"No publisher is configured for platform: {post['platform']}")
+                if hasattr(publisher, "publish_package"):
+                    external_post_id = publisher.publish_package(post)
+                else:
+                    hashtags = json.loads(post["hashtags"])
+                    text = " ".join(part for part in [post["caption"], *hashtags] if part).strip()
+                    external_post_id = publisher.publish(text)
+                self.mark_published(post["id"], external_post_id, now.isoformat())
+                published += 1
+            except Exception as error:
+                self.mark_failed(post["id"], str(error))
+        return published
+
 
     def _duplicate_exists(self, post: PostRecord) -> bool:
         row = self.database.connection.execute(
@@ -46,23 +104,22 @@ class PostingAgent:
         ).fetchone()
         return row is not None
 
-    def _recent_posts(self, post: PostRecord) -> list[str]:
+    def _recent_posts(self, pipeline_id: str, platform: str, account: str) -> list[str]:
         rows = self.database.connection.execute(
-            "SELECT COALESCE(published_at, scheduled_at, created_at) AS timestamp FROM posts WHERE platform = ? AND account = ? AND status IN ('queued', 'scheduled', 'published') ORDER BY timestamp DESC",
-            (post.platform, post.account),
+            "SELECT COALESCE(published_at, scheduled_at, created_at) AS timestamp FROM posts WHERE pipeline_id = ? AND platform = ? AND account = ? AND status IN ('scheduled', 'published') ORDER BY timestamp",
+            (pipeline_id, platform, account),
         ).fetchall()
         return [row["timestamp"] for row in rows]
 
-    def _daily_limit_reached(self, post: PostRecord) -> bool:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=1)
-        recent = [timestamp for timestamp in self._recent_posts(post) if self._parse_time(timestamp) >= cutoff]
-        return len(recent) >= self.max_posts_per_day
-
-    def _interval_too_short(self, post: PostRecord) -> bool:
-        timestamps = self._recent_posts(post)
-        if not timestamps:
-            return False
-        return datetime.now(timezone.utc) - self._parse_time(timestamps[0]) < self.min_post_interval
+    def _next_eligible_time(self, pipeline_id: str, platform: str, account: str, now: datetime) -> datetime:
+        policy = self.database.posting_policy(pipeline_id, platform, account)
+        daily_limit = int(policy["max_posts_per_day"]) if policy else self.max_posts_per_day
+        interval = timedelta(minutes=int(policy["min_post_interval_minutes"]) if policy else int(self.min_post_interval.total_seconds() // 60))
+        timestamps = [self._parse_time(value) for value in self._recent_posts(pipeline_id, platform, account)]
+        scheduled = max(now, timestamps[-1] + interval) if timestamps else now
+        while len([timestamp for timestamp in timestamps if scheduled - timedelta(days=1) < timestamp <= scheduled]) >= daily_limit:
+            scheduled = min(timestamp for timestamp in timestamps if scheduled - timedelta(days=1) < timestamp <= scheduled) + timedelta(days=1)
+        return scheduled
 
     @staticmethod
     def _parse_time(value: str) -> datetime:

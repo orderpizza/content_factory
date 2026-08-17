@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: content-factory
+Version: 0.1.0
+Summary: Local-first automated content factory proof of concept
+Requires-Python: >=3.10
+Requires-Dist: google-genai>=1.0.0
+Requires-Dist: playwright<1.60.0,>=1.48.0
+Requires-Dist: boto3>=1.34.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"

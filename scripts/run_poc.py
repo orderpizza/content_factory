@@ -1,4 +1,4 @@
-"""Run the offline POC loop against a fixture trend."""
+"""Run an offline fixture demonstration, not the persisted production path."""
 
 from pathlib import Path
 import sys
