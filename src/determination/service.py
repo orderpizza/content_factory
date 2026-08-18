@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from typing import Protocol
 
-from common.gemini import VertexGeminiClient
+from common.gemini import VertexGeminiClient, estimated_cost_usd
 from common.models import ContentJob, Trend, utc_now
 from database.sqlite import Database
 
@@ -136,9 +136,24 @@ class DeterminationService:
             return None
 
         payload = json.loads(handoff["payload_json"])
+        existing_decision = database.connection.execute(
+            "SELECT decision_id FROM determination_decisions WHERE handoff_id = ?",
+            (handoff["handoff_id"],),
+        ).fetchone()
+        if existing_decision:
+            database.complete_handoff(handoff["handoff_id"], utc_now())
+            return None
         candidate = payload["candidate"]
         decision = self.evaluate_candidate(candidate, payload.get("evidence", []))
         completed_at = utc_now()
+        client = getattr(self.evaluator, "client", None)
+        usage = getattr(client, "last_usage", None)
+        if usage is not None:
+            database.record_api_usage(
+                "determination", handoff["handoff_id"], usage.model,
+                usage.input_tokens, usage.output_tokens, usage.total_tokens,
+                estimated_cost_usd(usage), completed_at,
+            )
         database.save_determination_decision(
             handoff["handoff_id"],
             "accepted" if decision.should_create else "rejected",

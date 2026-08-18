@@ -2,7 +2,7 @@ import unittest
 
 from common.models import ContentJob
 from determination.service import GeminiCandidateEvaluator, POC_PIPELINE_CATALOG
-from pipelines.o2_english.content import GeminiIdiomContentGenerator
+from pipelines.o2_english.content import GeminiIdiomContentGenerator, GeminiIdiomMetadataGenerator
 
 
 class FakeGeminiClient:
@@ -37,8 +37,8 @@ class GeminiBoundaryTests(unittest.TestCase):
         self.assertEqual(result.pipeline.pipeline_id, "o2_english_instagram")
         self.assertEqual(client.calls[0][2], 0.2)
 
-    def test_o2_generator_requires_valid_generated_hashtags(self):
-        client = FakeGeminiClient({
+    def test_o2_generation_separates_validated_content_and_metadata(self):
+        content_client = FakeGeminiClient({
             "teaching_target": "break the ice",
             "slides": [
                 {"slide_type": "hook", "text": "Break the ice"},
@@ -47,14 +47,16 @@ class GeminiBoundaryTests(unittest.TestCase):
                 {"slide_type": "use_case_dialogue", "messages": ["The room feels quiet.", "I will break the ice."]},
                 {"slide_type": "use_case_monologue", "text": "A friendly question can break the ice."},
             ],
+        })
+        metadata_client = FakeGeminiClient({
             "caption": "Learn a useful idiom for starting conversations.",
             "tags": ["English idiom", "conversation"],
-            "hashtags": ["#EnglishLearning", "#EnglishIdioms"],
+            "hashtags": ["#EnglishLearning", "#EnglishIdioms", "#EnglishPractice"],
         })
         job = ContentJob(1, "o2_english_instagram", "break the ice", "teach it", "learners", "educate",
                          target_platform="instagram", target_account="o2_english",
                          content_format="instagram_idiom_carousel", visual_profile_id="o2_english_idiom_carousel_v1")
-        content = GeminiIdiomContentGenerator(client).generate(job)
-        self.assertEqual(content.model, "test-gemini")
-        self.assertEqual(content.hashtags[0], "#EnglishLearning")
-
+        draft = GeminiIdiomContentGenerator(content_client).generate(job)
+        metadata = GeminiIdiomMetadataGenerator(metadata_client).generate(draft, job)
+        self.assertEqual(draft.model, "test-gemini")
+        self.assertEqual(metadata.hashtags[0], "#EnglishLearning")

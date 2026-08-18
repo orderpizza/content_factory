@@ -191,6 +191,18 @@ CREATE TABLE IF NOT EXISTS posting_policies (
     min_post_interval_minutes INTEGER NOT NULL,
     PRIMARY KEY (pipeline_id, platform, account)
 );
+
+CREATE TABLE IF NOT EXISTS api_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase TEXT NOT NULL,
+    entity_id INTEGER,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    estimated_cost_usd REAL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -234,6 +246,16 @@ class Database:
 
     def close(self) -> None:
         self.connection.close()
+
+    def record_api_usage(self, phase: str, entity_id: int | None, model: str,
+                         input_tokens: int, output_tokens: int, total_tokens: int,
+                         estimated_cost_usd: float | None, created_at: str) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO api_usage (phase, entity_id, model, input_tokens, output_tokens, total_tokens, estimated_cost_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (phase, entity_id, model, input_tokens, output_tokens, total_tokens, estimated_cost_usd, created_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
 
     def save_trend(self, trend: Trend) -> int:
         cursor = self.connection.execute(

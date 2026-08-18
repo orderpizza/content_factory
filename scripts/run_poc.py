@@ -30,6 +30,7 @@ def main() -> None:
         job.job_id = database.save_content_job(job)
         package = PocPipeline().run(job)
         package.content_id = database.save_content_package(package)
+        # Offline fixture: marks ready after HTML only. Production renders all PNGs first.
         html_path = VisualRenderer().render_html(package, Path("generated/poc-card.html"))
         post_id = PostingAgent(database).queue(PostRecord(package.content_id, "test", "local"))
         PostingAgent(database).mark_published(post_id, f"offline-{post_id}")

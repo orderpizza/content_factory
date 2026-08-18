@@ -63,6 +63,11 @@ def render_dashboard(database) -> str:
     jobs = rows("SELECT * FROM content_jobs ORDER BY updated_at DESC, job_id DESC LIMIT 20")
     packages = rows("SELECT * FROM content_packages ORDER BY created_at DESC, content_id DESC LIMIT 20")
     posts = rows("SELECT * FROM posts ORDER BY updated_at DESC, id DESC LIMIT 20")
+    awaiting_render = rows("SELECT * FROM content_packages WHERE status = 'awaiting_render' ORDER BY created_at DESC, content_id DESC LIMIT 20")
+    recently_rendered = rows("SELECT * FROM content_packages WHERE status = 'ready_for_posting' ORDER BY created_at DESC, content_id DESC LIMIT 15")
+    observations = rows("SELECT * FROM trend_observations ORDER BY observed_at DESC, id DESC LIMIT 30")
+    snapshots = rows("SELECT * FROM topic_snapshots ORDER BY observed_at DESC, id DESC LIMIT 30")
+    posting_policies = rows("SELECT * FROM posting_policies ORDER BY pipeline_id, platform, account")
 
     def status_counts(table: str) -> str:
         values = rows(f"SELECT status, COUNT(*) AS count FROM {table} GROUP BY status ORDER BY status")
@@ -107,6 +112,15 @@ def render_dashboard(database) -> str:
             return "DEGRADED", f"{failed} failed job(s)"
         return "COMPLETED", f"{len(packages)} content package(s) generated"
 
+    def visual_status() -> tuple[str, str]:
+        awaiting = count("content_packages", "status = 'awaiting_render'")
+        rendered = count("content_packages", "status = 'ready_for_posting'")
+        if not awaiting and not rendered:
+            return "NOT_STARTED", "No packages to render"
+        if awaiting:
+            return "WAITING", f"{awaiting} package(s) awaiting render"
+        return "COMPLETED", f"{rendered} package(s) rendered"
+
     def posting_status() -> tuple[str, str]:
         if not posts:
             return "NOT_STARTED", "No post records recorded"
@@ -122,6 +136,7 @@ def render_dashboard(database) -> str:
     detection_state, detection_detail = detection_status()
     determination_state, determination_detail = determination_status()
     pipeline_state, pipeline_detail = pipeline_status()
+    visual_state, visual_detail = visual_status()
     posting_state, posting_detail = posting_status()
     module_rows = "".join(
         f"<tr><td>{cell(name)}</td><td><span class='status {status.lower()}'>{cell(status)}</span></td><td>{cell(detail)}</td></tr>"
@@ -129,16 +144,16 @@ def render_dashboard(database) -> str:
             ("Trend Detection", detection_state, detection_detail),
             ("Determination", determination_state, determination_detail),
             ("Content Pipeline", pipeline_state, pipeline_detail),
-            ("Visual Rendering", "NOT_STARTED", "No visual render records recorded"),
+            ("Visual Rendering", visual_state, visual_detail),
             ("Posting", posting_state, posting_detail),
         )
     )
 
     candidate_rows = table_rows(candidates, [
         lambda row: cell(row["status"]), lambda row: cell(row["lifecycle_stage"]),
-        lambda row: cell(row["topic"]), lambda row: f"{row['score']:.2f}",
+        lambda row: cell(row["topic"]), lambda row: f"{row['score']:.2f}", lambda row: json_cell(row["score_breakdown"]),
         lambda row: json_cell(row["supporting_sources"]), lambda row: cell(row["cooldown_until"]),
-    ], "No candidates yet", 6)
+    ], "No candidates yet", 7)
     source_rows = table_rows(source_health, [
         lambda row: cell(row["source"]), lambda row: cell(row["checked_at"]),
         lambda row: "OK" if row["success"] else "FAILED", lambda row: str(row["attempts"]),
@@ -162,22 +177,42 @@ def render_dashboard(database) -> str:
         lambda row: cell(row["reasoning"]), lambda row: cell(row["created_at"]),
     ], "No determination decisions yet", 6)
     job_rows = table_rows(jobs, [
-        lambda row: str(row["job_id"]), lambda row: cell(row["topic"]),
-        lambda row: cell(row["pipeline_id"]), lambda row: str(row["priority"]),
+        lambda row: str(row["job_id"]), lambda row: cell(row["topic"]), lambda row: cell(row["pipeline_id"]),
+        lambda row: cell(row["target_platform"]), lambda row: cell(row["target_account"]), lambda row: cell(row["content_format"]), lambda row: str(row["priority"]),
         lambda row: cell(row["status"]), lambda row: cell(row["updated_at"]),
-    ], "No content jobs yet", 6)
+    ], "No content jobs yet", 9)
     package_rows = table_rows(packages, [
-        lambda row: str(row["content_id"]), lambda row: str(row["job_id"]),
-        lambda row: cell(row["pipeline_id"]), lambda row: cell(row["title"]),
+        lambda row: str(row["content_id"]), lambda row: str(row["job_id"]), lambda row: cell(row["pipeline_id"]),
+        lambda row: cell(row["platform"]), lambda row: cell(row["account"]), lambda row: cell(row["content_format"]), lambda row: cell(row["title"]),
         lambda row: cell(row["status"]), lambda row: cell(row["metadata_status"]),
         lambda row: json_cell(row["assets"]), lambda row: cell(row["created_at"]),
-    ], "No content packages yet", 8)
+    ], "No content packages yet", 11)
     post_rows = table_rows(posts, [
         lambda row: str(row["id"]), lambda row: str(row["content_id"]),
         lambda row: cell(row["platform"]), lambda row: cell(row["account"]),
         lambda row: cell(row["status"]), lambda row: cell(row["scheduled_at"]),
-        lambda row: cell(row["published_at"]), lambda row: cell(row["error"]),
-    ], "No post records yet", 8)
+        lambda row: cell(row["published_at"]), lambda row: cell(row["external_post_id"]), lambda row: cell(row["error"]),
+    ], "No post records yet", 9)
+    awaiting_render_rows = table_rows(awaiting_render, [
+        lambda row: str(row["content_id"]), lambda row: str(row["job_id"]), lambda row: cell(row["pipeline_id"]),
+        lambda row: cell(row["title"]), lambda row: cell(row["created_at"]),
+    ], "No packages awaiting render", 5)
+    rendered_rows = table_rows(recently_rendered, [
+        lambda row: str(row["content_id"]), lambda row: cell(row["pipeline_id"]), lambda row: cell(row["title"]),
+        lambda row: str(len(json.loads(row["assets"]))), lambda row: cell(row["created_at"]),
+    ], "No rendered packages", 5)
+    observation_rows = table_rows(observations, [
+        lambda row: cell(row["topic"]), lambda row: cell(row["source"]), lambda row: str(row["activity_value"]),
+        lambda row: str(row["baseline_value"]), lambda row: cell(row["observed_at"]),
+    ], "No observations yet", 5)
+    snapshot_rows = table_rows(snapshots, [
+        lambda row: cell(row["topic"]), lambda row: str(row["activity"]), lambda row: str(row["source_count"]),
+        lambda row: str(row["mention_count"]), lambda row: cell(row["observed_at"]),
+    ], "No topic snapshots yet", 5)
+    policy_rows = table_rows(posting_policies, [
+        lambda row: cell(row["pipeline_id"]), lambda row: cell(row["platform"]), lambda row: cell(row["account"]),
+        lambda row: str(row["max_posts_per_day"]), lambda row: str(row["min_post_interval_minutes"]),
+    ], "No posting policies configured.", 5)
 
     def phase_card(name: str, status: str, detail: str, anchor: str) -> str:
         return (
@@ -191,7 +226,7 @@ def render_dashboard(database) -> str:
         phase_card("Detection", detection_state, detection_detail, "detection"),
         phase_card("Determination", determination_state, determination_detail, "determination"),
         phase_card("Content Job", pipeline_state, pipeline_detail, "content-jobs"),
-        phase_card("Visual", "NOT_STARTED", "No render records", "visual"),
+        phase_card("Visual", visual_state, visual_detail, "visual"),
         phase_card("Posting", posting_state, posting_detail, "posting"),
     ])
 
@@ -237,15 +272,20 @@ th{{background:#e8eef2;color:#40505c}} .empty{{color:#68737d;text-align:center}}
 <section id='detection' class='section'><h2>Trend Detection</h2>
 <p class='meta'>Latest detection run: {cell(latest_detection['run_id'] if latest_detection else 'not yet')}</p>
 <details open><summary>Detection Runs</summary><table><tr><th>Run</th><th>Started</th><th>Completed</th><th>Status</th><th>Observations</th><th>Selected</th><th>Error</th></tr>{run_rows}</table></details>
-<details open><summary>Ranked Candidates</summary><table><tr><th>Status</th><th>Stage</th><th>Topic</th><th>Score</th><th>Sources</th><th>Cooldown Until</th></tr>{candidate_rows}</table></details>
-<details><summary>Source Health</summary><table><tr><th>Source</th><th>Checked</th><th>Status</th><th>Attempts</th><th>Error</th></tr>{source_rows}</table></details></section>
+<details open><summary>Ranked Candidates</summary><table><tr><th>Status</th><th>Stage</th><th>Topic</th><th>Score</th><th>Score Breakdown</th><th>Sources</th><th>Cooldown Until</th></tr>{candidate_rows}</table></details>
+<details><summary>Source Health</summary><table><tr><th>Source</th><th>Checked</th><th>Status</th><th>Attempts</th><th>Error</th></tr>{source_rows}</table></details>
+<details><summary>Recent Observations</summary><table><tr><th>Topic</th><th>Source</th><th>Activity</th><th>Baseline</th><th>Observed</th></tr>{observation_rows}</table></details>
+<details><summary>Topic Snapshots</summary><table><tr><th>Topic</th><th>Activity</th><th>Sources</th><th>Mentions</th><th>Observed</th></tr>{snapshot_rows}</table></details></section>
 <section id='determination' class='section'><h2>Determination</h2><p class='meta'>Status counts: {status_counts('determination_handoffs')}</p>
 <table><tr><th>Handoff</th><th>Topic</th><th>Score</th><th>Status</th><th>Created</th><th>Completed</th><th>Failure</th></tr>{handoff_rows}</table>
 <h3>Decisions</h3><table><tr><th>Decision</th><th>Handoff</th><th>Status</th><th>Recipe</th><th>Reasoning</th><th>Created</th></tr>{decision_rows}</table>
  </section><section id='content-jobs' class='section'><h2>Content Production</h2><h3>Content Jobs</h3><p class='meta'>Status counts: {status_counts('content_jobs')}</p>
-<table><tr><th>Job</th><th>Topic</th><th>Pipeline</th><th>Priority</th><th>Status</th><th>Updated</th></tr>{job_rows}</table>
-<h3>Content Packages</h3><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Title</th><th>Package</th><th>Metadata</th><th>Assets</th><th>Created</th></tr>{package_rows}</table></section>
-<section id='visual' class='section'><h2>Visual Rendering</h2><p class='meta'>Package readiness is persisted on each ContentPackage: awaiting render packages are not eligible for posting.</p></section>
+<table><tr><th>Job</th><th>Topic</th><th>Pipeline</th><th>Platform</th><th>Account</th><th>Format</th><th>Priority</th><th>Status</th><th>Updated</th></tr>{job_rows}</table>
+<h3>Content Packages</h3><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Platform</th><th>Account</th><th>Format</th><th>Title</th><th>Package</th><th>Metadata</th><th>Assets</th><th>Created</th></tr>{package_rows}</table></section>
+<section id='visual' class='section'><h2>Visual Rendering</h2><p class='meta'>Package readiness is persisted on each ContentPackage: awaiting render packages are not eligible for posting.</p>
+<details open><summary>Awaiting Render</summary><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Title</th><th>Created</th></tr>{awaiting_render_rows}</table></details>
+<details><summary>Recently Rendered</summary><table><tr><th>Content</th><th>Pipeline</th><th>Title</th><th>Assets</th><th>Created</th></tr>{rendered_rows}</table></details></section>
 <section id='posting' class='section'><h2>Posting</h2><p class='meta'>Status counts: {status_counts('posts')}</p>
-<table><tr><th>Post</th><th>Content</th><th>Platform</th><th>Account</th><th>Status</th><th>Scheduled</th><th>Published</th><th>Error</th></tr>{post_rows}</table>
+<h3>Cadence Policies</h3><table><tr><th>Pipeline</th><th>Platform</th><th>Account</th><th>Daily Limit</th><th>Minimum Interval (minutes)</th></tr>{policy_rows}</table>
+<table><tr><th>Post</th><th>Content</th><th>Platform</th><th>Account</th><th>Status</th><th>Scheduled</th><th>Published</th><th>External Post ID</th><th>Error</th></tr>{post_rows}</table>
 </section></body></html>"""

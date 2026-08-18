@@ -8,6 +8,8 @@ Gemini is used only by determination and pipeline-owned generation.
 GOOGLE_CLOUD_PROJECT
 GOOGLE_CLOUD_LOCATION
 GEMINI_MODEL
+GEMINI_INPUT_COST_PER_MILLION_USD (optional)
+GEMINI_OUTPUT_COST_PER_MILLION_USD (optional)
 ```
 
 The local Python client uses Application Default Credentials (ADC). Check the
@@ -29,6 +31,10 @@ Run a minimal project request through the normal client configuration. A
 successful request verifies environment configuration, ADC, Vertex IAM, model
 availability, and network access. Do not put credentials or access tokens in
 logs, commits, or issue text.
+
+Set both optional per-million-token USD rate variables when estimated cost must
+be recorded. Token usage is always persisted; cost remains null until rates are
+configured for the selected model.
 
 If Vertex returns `aiplatform.endpoints.predict` permission denied, grant the
 ADC principal an appropriate Vertex AI prediction role for the configured

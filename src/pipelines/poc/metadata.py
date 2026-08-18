@@ -25,11 +25,13 @@ class GeminiMetadataGenerator:
 
     def __init__(self, client: VertexGeminiClient | None = None):
         self.client = client or VertexGeminiClient()
+        self.last_usage = None
 
     def generate(self, *, topic: str, body: str, audience: str, objective: str) -> GeneratedMetadata:
         prompt = """Generate metadata for a social-media content package. Return only JSON matching the schema.
 Recipe: """ + json.dumps({"topic": topic, "body": body, "audience": audience, "objective": objective})
         data = self.client.generate_json(prompt, _SCHEMA, temperature=0.45)
+        self.last_usage = getattr(self.client, "last_usage", None)
         hashtags = data["hashtags"]
         if not data["caption"].strip() or not hashtags or any(not value.startswith("#") for value in hashtags):
             raise ValueError("Gemini returned invalid social metadata")

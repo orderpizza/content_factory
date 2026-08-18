@@ -23,7 +23,7 @@ Bluesky.
 | --- | --- | --- |
 | Detection | Active | Deterministic, LLM-free, persisted SQLite handoffs. |
 | Determination | Active | Vertex Gemini selects consume/reject and a pipeline recipe. |
-| o2 English idiom pipeline | Active | Fixed 5–8-slide `instagram_idiom_carousel` contract. |
+| o2 English idiom pipeline | Active | Fixed 5–8-slide contract; slide content and metadata are separately generated and validated. |
 | Visual rendering | Active | Deterministic HTML/CSS + Playwright at 1080×1920. |
 | Posting Agent | Under development | Shared system component; platform delivery design is not settled. |
 | Dashboard | Active, read-only | Detection is the current implemented view; other views follow module maturity. |
@@ -35,6 +35,8 @@ Bluesky.
   `ContentJob` and never creates content.
 - The selected pipeline creates the platform-specific content, caption, tags,
   hashtags, and visual specification.
+- Gemini usage is recorded per successful determination and pipeline call for
+  cost observability; configured rates control the optional cost estimate.
 - The renderer creates deterministic assets only.
 - The Posting Agent will schedule and deliver ready packages; it will not alter
   creative metadata or assets.

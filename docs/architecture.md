@@ -155,6 +155,11 @@ The pipeline Gemini boundary creates structured slide copy, caption, tags, and
 hashtags. It cannot replace invalid or unavailable Gemini metadata with a
 deterministic fallback.
 
+For the idiom format, Gemini generates and validates the teaching slides first,
+then separately generates caption, tags, and hashtags from those validated
+slides. A transient metadata failure may retry metadata without re-generating
+the slide draft.
+
 The determination-selected visual profile constrains the pipeline. Pipeline
 Gemini may refine that profile only from the pipeline's registered allowed
 profiles. It must not invent a template ID or renderer configuration.
@@ -201,8 +206,14 @@ Use SQLite for POC state. Initial tables should remain minimal:
 - `source_health`
 - `content_jobs`
 - `content_packages`
+- `api_usage`
 
 Posting-specific persistence evolves with the Posting Agent implementation.
+
+`api_usage` is an append-only observability ledger for external Gemini calls.
+It records phase, owning entity, model, token counts, optional configured cost
+estimate, and completion time. It is not an orchestration queue or a source of
+creative state.
 
 Trend candidates have lifecycle/status fields and cooldown state so a topic can
 continue updating without being repeatedly sent downstream.

@@ -49,6 +49,9 @@ async def render_and_record_idiom_carousel_png(
             page = await browser.new_page(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
             for index, html_file in enumerate(html_files, start=1):
                 target = png_directory / f"slide{index}.png"
+                if target.exists():
+                    png_files.append(target)
+                    continue
                 await page.goto(html_file.resolve().as_uri())
                 await page.screenshot(path=str(target), full_page=True)
                 png_files.append(target)

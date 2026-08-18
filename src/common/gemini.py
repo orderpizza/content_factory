@@ -2,6 +2,7 @@
 
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -10,13 +11,25 @@ class GeminiConfigurationError(RuntimeError):
 
 
 def configured_model() -> str:
-    """Return the configured model, accepting the historic misspelling temporarily."""
-    return (
-        os.getenv("GEMINI_MODEL")
-        or os.getenv("GEMINI_MDOEL")
-        or os.getenv("VERTEX_AI_MODEL")
-        or "gemini-2.5-flash"
-    )
+    """Return the configured model name."""
+    return os.getenv("GEMINI_MODEL") or os.getenv("VERTEX_AI_MODEL") or "gemini-2.5-flash"
+
+
+@dataclass(frozen=True)
+class GeminiUsage:
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    model: str
+
+
+def estimated_cost_usd(usage: GeminiUsage) -> float | None:
+    """Estimate cost from explicitly configured per-million-token rates."""
+    input_rate = os.getenv("GEMINI_INPUT_COST_PER_MILLION_USD")
+    output_rate = os.getenv("GEMINI_OUTPUT_COST_PER_MILLION_USD")
+    if input_rate is None or output_rate is None:
+        return None
+    return ((usage.input_tokens * float(input_rate)) + (usage.output_tokens * float(output_rate))) / 1_000_000
 
 
 class VertexGeminiClient:
@@ -26,6 +39,7 @@ class VertexGeminiClient:
         self.project = project or os.getenv("GOOGLE_CLOUD_PROJECT")
         self.location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.model = model or configured_model()
+        self.last_usage: GeminiUsage | None = None
         if not self.project:
             raise GeminiConfigurationError("GOOGLE_CLOUD_PROJECT must be configured for Vertex Gemini")
 
@@ -56,4 +70,11 @@ class VertexGeminiClient:
             raise RuntimeError("Vertex Gemini returned invalid JSON") from error
         if not isinstance(value, dict):
             raise RuntimeError("Vertex Gemini JSON response must be an object")
+        usage = response.usage_metadata
+        self.last_usage = GeminiUsage(
+            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
+            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            total_tokens=int(getattr(usage, "total_token_count", 0) or 0),
+            model=self.model,
+        )
         return value

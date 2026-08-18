@@ -240,6 +240,28 @@ If Vertex configuration or access is unavailable, the metadata generation
 boundary fails visibly. It must not silently replace AI-generated tags or
 hashtags with hardcoded defaults.
 
+For the o2 idiom format, the pipeline first persists only after both of these
+pipeline-owned Gemini results have passed independent validation: structured
+slide content, then native metadata derived from those slides. The metadata
+call can be retried without calling the content generator again.
+
+## ApiUsage
+
+Produced as an append-only observability record after a successful external
+Gemini call. It is associated with the handoff or content job that owns the
+call; it is not handed to the next workflow phase.
+
+```text
+phase
+entity_id
+model
+input_tokens
+output_tokens
+total_tokens
+estimated_cost_usd (optional)
+created_at
+```
+
 ## VisualSpec
 
 Contained within a `ContentPackage` and consumed by the visual renderer.
@@ -261,23 +283,7 @@ dimensions. A brand palette and visual matrix are future work.
 
 ## PostRequest (Under Development)
 
-Produced when content enters the posting queue.
-
-Conceptual fields:
-
-```text
-content_id
-platform
-account
-caption
-assets
-requested_at
-scheduled_at
-status
-```
-
-The posting queue must support duplicate protection and cadence-based
-scheduling. It must not publish immediately when a package is created.
+Merged into PostRecord. See PostRecord below.
 
 ## PostRecord (Under Development)
 

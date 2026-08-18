@@ -1,5 +1,5 @@
 from pipelines.poc.metadata import GeneratedMetadata
-from pipelines.o2_english.content import CarouselSlide, IdiomCarouselContent
+from pipelines.o2_english.content import CarouselSlide, IdiomCarouselDraft, IdiomCarouselMetadata
 
 
 class FakeMetadataGenerator:
@@ -14,7 +14,7 @@ class FakeMetadataGenerator:
 
 class FakeIdiomGenerator:
     def generate(self, job):
-        return IdiomCarouselContent(
+        return IdiomCarouselDraft(
             teaching_target="break the ice",
             slides=(
                 CarouselSlide("hook", "Break the ice before the meeting."),
@@ -23,8 +23,15 @@ class FakeIdiomGenerator:
                 CarouselSlide("use_case_dialogue", messages=("I broke the ice with a question.", "That made everyone relax.")),
                 CarouselSlide("use_case_monologue", "Her smile helped break the ice."),
             ),
+            model="fake-gemini",
+        )
+
+
+class FakeIdiomMetadataGenerator:
+    def generate(self, draft, job):
+        return IdiomCarouselMetadata(
             caption="Learn how to use break the ice in a conversation.",
             tags=("English learning", "idioms"),
-            hashtags=("#learnenglish", "#englishidioms"),
+            hashtags=("#learnenglish", "#englishidioms", "#englishpractice"),
             model="fake-gemini",
         )

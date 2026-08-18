@@ -51,6 +51,13 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(json.loads(row["assets"]), ["generated/card.png"])
         self.assertEqual(row["status"], "ready_for_posting")
 
+    def test_api_usage_is_persisted(self):
+        usage_id = self.database.record_api_usage(
+            "determination", 12, "gemini-test", 10, 5, 15, 0.001, "2026-08-18T00:00:00+00:00",
+        )
+        row = self.database.connection.execute("SELECT * FROM api_usage WHERE id = ?", (usage_id,)).fetchone()
+        self.assertEqual((row["phase"], row["total_tokens"], row["estimated_cost_usd"]), ("determination", 15, 0.001))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ class PocPipeline:
 
     def __init__(self, metadata_generator: MetadataGenerator | None = None):
         self.metadata_generator = metadata_generator or GeminiMetadataGenerator()
+        self.last_usage_events: list[tuple[str, object]] = []
 
     def run(self, job: ContentJob) -> ContentPackage:
         if job.pipeline_id != self.pipeline_id:
@@ -16,12 +17,16 @@ class PocPipeline:
 
         points = "\n".join(f"- {point}" for point in job.key_points)
         body = f"{job.angle}\n\n{points}" if points else job.angle
+        self.last_usage_events = []
         metadata = self.metadata_generator.generate(
             topic=job.topic,
             body=body,
             audience=job.audience,
             objective=job.objective,
         )
+        usage = getattr(self.metadata_generator, "last_usage", None)
+        if usage is not None:
+            self.last_usage_events.append(("pipeline_metadata", usage))
         self._validate_metadata(metadata.caption, metadata.tags, metadata.hashtags)
         return ContentPackage(
             job_id=job.job_id if job.job_id is not None else 0,

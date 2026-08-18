@@ -127,17 +127,6 @@ consumption must be separate from dashboard presentation.
 Consequence: The dashboard never controls the workflow. Determination reads
 structured candidate state directly from SQLite.
 
-## 013 - Detection Shortlist Boundary
-
-Decision: Preserve the complete scored candidate history in SQLite for
-observability, but pass only a configurable top-N shortlist that meets a
-minimum score threshold to determination. Selected candidates are marked
-`pending_determination`.
-
-Rationale: Gemini should evaluate a bounded set of promising candidates rather
-than every detected item as source coverage grows. The shortlist policy can be
-tuned without changing the TrendCandidate interface.
-
 ## 011 - Monetization Is Downstream Opportunity Evaluation
 
 Date: 2026-08-15
@@ -149,21 +138,6 @@ smaller trend may have a strong audience or product opportunity.
 
 Consequence: Detection reports attention and evidence. Determination later
 evaluates audience, angle, pipeline, and monetization path.
-
-## 014 - System-Level Read-Only Dashboard
-
-Date: 2026-08-16
-
-Decision: The dashboard is the system-level observability surface for the full
-Content Factory loop. The current trend dashboard becomes the `Trend Detection`
-view within it.
-
-Reason: The system needs one place to understand detection, determination,
-production, rendering, posting, and health as the POC grows.
-
-Consequence: Modules own their reporting data and status semantics. The
-dashboard composes read-only reports and must not absorb workflow logic or
-control execution during the POC.
 
 ## 012 - Staged Trend Source Expansion
 
@@ -181,6 +155,34 @@ core sources. Reddit and YouTube are high-priority optional sources with
 adapters ready but disabled. Google Trends is very high priority but remains
 disabled until an approved access path is available. X and other platform
 sources are deferred.
+
+## 013 - Detection Shortlist Boundary
+
+Date: 2026-08-16
+
+Decision: Preserve the complete scored candidate history in SQLite for
+observability, but pass only a configurable top-N shortlist that meets a
+minimum score threshold to determination. Selected candidates are marked
+`pending_determination`.
+
+Rationale: Gemini should evaluate a bounded set of promising candidates rather
+than every detected item as source coverage grows. The shortlist policy can be
+tuned without changing the TrendCandidate interface.
+
+## 014 - System-Level Read-Only Dashboard
+
+Date: 2026-08-16
+
+Decision: The dashboard is the system-level observability surface for the full
+Content Factory loop. The current trend dashboard becomes the `Trend Detection`
+view within it.
+
+Reason: The system needs one place to understand detection, determination,
+production, rendering, posting, and health as the POC grows.
+
+Consequence: Modules own their reporting data and status semantics. The
+dashboard composes read-only reports and must not absorb workflow logic or
+control execution during the POC.
 
 ## 015 - Fixed Determination Handoff
 
@@ -343,3 +345,22 @@ when scope and posting plans evolved.
 Consequence: Update `current.md` whenever active scope changes. Add a new
 decision for an architectural change; do not rewrite an older entry to conceal
 the earlier context.
+
+## 026 - Gemini Usage Ledger and Split O2 Metadata Generation
+
+Date: 2026-08-18
+
+Decision: Record successful Gemini usage in an append-only `api_usage` ledger
+outside the Gemini client, at the owning determination or pipeline boundary.
+For the o2 idiom pipeline, generate and validate slide content before making a
+separate Gemini call for caption, tags, and hashtags. A metadata retry reuses
+the validated slide draft.
+
+Reason: End-to-end cost needs phase and entity attribution, while metadata
+validation should not discard otherwise valid creative slide work.
+
+Consequence: `estimated_cost_usd` remains optional until configured pricing
+rates are supplied. Pipeline workers record content and metadata calls
+separately, and retry metadata without re-running slide generation. The
+historic model-variable compatibility described in decision 023 is superseded:
+only `GEMINI_MODEL` and `VERTEX_AI_MODEL` are supported.
