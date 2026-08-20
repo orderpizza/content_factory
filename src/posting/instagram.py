@@ -4,6 +4,9 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import tempfile
+import time
+from datetime import datetime, timezone
 from typing import Mapping, Protocol
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -61,7 +64,9 @@ class InstagramCarouselPublisher:
     """Upload completed carousel assets, create Graph containers, and publish."""
 
     def __init__(self, asset_store: PublicAssetStore | None = None, *, instagram_user_id: str | None = None,
-                 access_token: str | None = None, graph_api_version: str | None = None):
+                 access_token: str | None = None, graph_api_version: str | None = None,
+                 container_recorder=None, readiness_attempts: int = 5,
+                 readiness_interval_seconds: float = 5.0):
         self.asset_store = asset_store or R2PublicAssetStore()
         self.instagram_user_id = instagram_user_id or os.getenv("INSTAGRAM_USER_ID")
         self.access_token = access_token or os.getenv("INSTAGRAM_ACCESS_TOKEN")
@@ -69,6 +74,9 @@ class InstagramCarouselPublisher:
         if not self.instagram_user_id or not self.access_token:
             raise ValueError("INSTAGRAM_USER_ID and INSTAGRAM_ACCESS_TOKEN must be configured")
         self.base_url = f"https://graph.facebook.com/{self.graph_api_version}"
+        self.container_recorder = container_recorder
+        self.readiness_attempts = readiness_attempts
+        self.readiness_interval_seconds = readiness_interval_seconds
 
     def publish_package(self, package: Mapping[str, object]) -> str:
         if package["package_platform"] != "instagram" or package["package_account"] != "o2_english":
@@ -79,29 +87,77 @@ class InstagramCarouselPublisher:
         if not 2 <= len(assets) <= 10:
             raise ValueError("Instagram carousel requires two to ten rendered assets")
         keys: list[str] = []
-        try:
-            children = []
-            for asset in assets:
-                key, public_url = self.asset_store.upload(asset)
-                keys.append(key)
-                children.append(self._post(f"{self.instagram_user_id}/media", {
-                    "image_url": public_url, "is_carousel_item": "true",
+        with tempfile.TemporaryDirectory(prefix="content-factory-instagram-") as temporary_directory:
+            try:
+                children = []
+                for asset_index, asset in enumerate(assets):
+                    prepared = self._as_jpeg(asset, Path(temporary_directory), asset_index)
+                    key, public_url = self.asset_store.upload(str(prepared))
+                    keys.append(key)
+                    child = str(self._post(f"{self.instagram_user_id}/media", {
+                        "image_url": public_url, "is_carousel_item": "true",
+                    })["id"])
+                    children.append(child)
+                    self._record_container(child, "carousel_item", asset_index)
+                caption = _caption_with_hashtags(str(package["caption"]), json.loads(str(package["hashtags"])))
+                parent = str(self._post(f"{self.instagram_user_id}/media", {
+                    "media_type": "CAROUSEL", "children": ",".join(str(item) for item in children), "caption": caption,
                 })["id"])
-            caption = _caption_with_hashtags(str(package["caption"]), json.loads(str(package["hashtags"])))
-            parent = self._post(f"{self.instagram_user_id}/media", {
-                "media_type": "CAROUSEL", "children": ",".join(str(item) for item in children), "caption": caption,
-            })["id"]
-            return str(self._post(f"{self.instagram_user_id}/media_publish", {"creation_id": parent})["id"])
-        finally:
-            for key in keys:
-                try:
-                    self.asset_store.delete(key)
-                except Exception:
-                    pass
+                self._record_container(parent, "carousel", None)
+                self._wait_until_ready(parent)
+                external_post_id = str(self._post(f"{self.instagram_user_id}/media_publish", {"creation_id": parent})["id"])
+                return external_post_id
+            finally:
+                for key in keys:
+                    try:
+                        self.asset_store.delete(key)
+                    except Exception:
+                        pass
+
+    def _as_jpeg(self, asset: str, temporary_directory: Path, asset_index: int) -> Path:
+        source = Path(asset)
+        if not source.is_file():
+            raise FileNotFoundError(f"Rendered asset does not exist: {source}")
+        target = temporary_directory / f"slide-{asset_index + 1}.jpg"
+        try:
+            from PIL import Image
+        except ImportError as error:
+            raise RuntimeError("Instagram publishing requires Pillow to convert rendered PNG assets to JPEG") from error
+        with Image.open(source) as image:
+            image.convert("RGB").save(target, "JPEG", quality=95, optimize=True)
+        return target
+
+    def _wait_until_ready(self, container_id: str) -> None:
+        status = "unknown"
+        for attempt in range(self.readiness_attempts):
+            response = self._get(container_id, {"fields": "status_code"})
+            status = str(response.get("status_code", "unknown"))
+            self._record_container(container_id, "carousel", None, status.lower())
+            if status in {"FINISHED", "PUBLISHED"}:
+                return
+            if status in {"ERROR", "EXPIRED"}:
+                break
+            if attempt < self.readiness_attempts - 1:
+                time.sleep(self.readiness_interval_seconds)
+        raise RuntimeError(f"Instagram carousel container {container_id} is not ready: {status}")
+
+    def _record_container(self, container_id: str, container_type: str, asset_index: int | None,
+                          status: str = "created") -> None:
+        if self.container_recorder:
+            self.container_recorder(container_id, container_type, asset_index, status, datetime.now(timezone.utc).isoformat())
 
     def _post(self, route: str, values: dict[str, str]) -> dict:
         payload = {**values, "access_token": self.access_token}
         request = Request(f"{self.base_url}/{route}", data=urlencode(payload).encode(), method="POST")
+        try:
+            with urlopen(request, timeout=60) as response:
+                return json.load(response)
+        except Exception as error:
+            raise RuntimeError(f"Instagram Graph API request failed for {route}: {error}") from error
+
+    def _get(self, route: str, values: dict[str, str]) -> dict:
+        payload = urlencode({**values, "access_token": self.access_token})
+        request = Request(f"{self.base_url}/{route}?{payload}", method="GET")
         try:
             with urlopen(request, timeout=60) as response:
                 return json.load(response)

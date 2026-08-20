@@ -33,12 +33,16 @@ platform-specific pipelines, including Bluesky.
 Read these before making architectural or boundary changes:
 
 - [docs/current.md](docs/current.md) — current target and status
+- [docs/system-flow.md](docs/system-flow.md) — detailed system flow, handoffs, AI boundaries, and lifecycle states
 - [docs/poc.md](docs/poc.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/interfaces.md](docs/interfaces.md)
 - [docs/decisions.md](docs/decisions.md)
 - [docs/roadmap.md](docs/roadmap.md)
 - [docs/runbooks/](docs/runbooks/) — local operating procedures
+
+The controlled o2 Instagram integration path is documented in
+[docs/runbooks/local-runtime.md](docs/runbooks/local-runtime.md).
 
 ## Non-Goals For The Initial POC
 

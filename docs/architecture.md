@@ -177,20 +177,24 @@ other low-level renderer settings; Gemini does not select these directly.
 
 Do not use AI image generation by default.
 
-### Posting Agent (Under Development)
+### Posting Agent
 
-The Posting Agent will consume finished platform-specific content, apply
-duplicate and scheduling rules, publish it, and record publication history. It
-will not use an LLM, generate captions or tags, or modify captions, hashtags,
-or visual selections.
+The Posting Agent consumes finished platform-specific content, applies
+duplicate and scheduling rules, publishes it, and records publication history.
+It does not use an LLM, generate captions or tags, or modify captions,
+hashtags, or visual selections.
 
 It is a system-level shared service separate from content pipelines. Its queue
 state, attempts, failures, and publication records belong in SQLite for the
 read-only dashboard.
 
-The platform adapter, public-media strategy, retry policy, and Instagram Graph
-API flow remain unresolved. They must be designed as a posting-layer concern,
-never added to the `o2_english` pipeline or visual renderer.
+For the o2 POC, the Instagram adapter converts local rendered assets to JPEG,
+uploads them to a configured public HTTPS asset store, creates item and
+carousel containers through the Instagram Graph API, verifies the carousel
+container is ready, then publishes it. Container IDs, attempts, failures,
+retry scheduling, and the final external media ID are persisted in SQLite.
+The public asset store and Meta credentials are posting-layer configuration;
+they never belong to the `o2_english` pipeline or visual renderer.
 
 ## Storage
 

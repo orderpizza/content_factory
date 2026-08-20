@@ -281,13 +281,38 @@ For the active o2 POC, visual rendering is deterministic: one named profile,
 four fixed slide templates, a neutral temporary palette, and `1080x1920`
 dimensions. A brand palette and visual matrix are future work.
 
-## PostRequest (Under Development)
+## PostRequest
 
-Merged into PostRecord. See PostRecord below.
+The persisted `posts` row is the POC post request. It is created only for a
+ready `ContentPackage` and is the agent's idempotency boundary for one
+content/platform/account destination.
 
-## PostRecord (Under Development)
+Conceptual fields:
 
-Produced and updated by the posting agent.
+```text
+id
+content_id
+pipeline_id
+platform
+account
+status
+scheduled_at
+attempt_count
+last_attempt_at
+next_attempt_at
+error
+created_at
+updated_at
+```
+
+Statuses are `scheduled`, `publishing`, `retryable_failure`, `published`,
+`failed`, and `cancelled`. The POC retries transient delivery failures at a
+bounded, backoff-derived next attempt time. Configuration or package-contract
+errors are terminal failures.
+
+## PostRecord
+
+Produced and updated by the posting agent after an external publish succeeds.
 
 Conceptual fields:
 
@@ -312,6 +337,11 @@ The database must answer:
 - Where did we post it?
 - Was it successful?
 - Has this content already been posted?
+
+For Instagram carousel publication, `instagram_containers` records every
+item-container and parent-carousel container ID created for a post request.
+`post_attempts` records every delivery attempt and its outcome. These are
+operational audit records owned by the Posting Agent, not pipeline state.
 
 ## Dashboard Reporting
 

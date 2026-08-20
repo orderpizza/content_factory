@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 
 from posting.instagram import InstagramCarouselPublisher
 
@@ -27,6 +28,12 @@ class FakeInstagramPublisher(InstagramCarouselPublisher):
         self.requests.append((route, values))
         return {"id": str(len(self.requests))}
 
+    def _get(self, route, values):
+        return {"status_code": "FINISHED"}
+
+    def _as_jpeg(self, asset, temporary_directory, asset_index):
+        return Path(asset)
+
 
 class InstagramPublisherTests(unittest.TestCase):
     def test_publishes_a_ready_carousel_with_persisted_caption_and_hashtags(self):
@@ -42,4 +49,3 @@ class InstagramPublisherTests(unittest.TestCase):
         self.assertEqual(store.uploaded, ["slide1.png", "slide2.png"])
         self.assertEqual(store.deleted, ["key-1", "key-2"])
         self.assertEqual(publisher.requests[2][1]["caption"], "Learn an idiom #English #Idioms")
-

@@ -19,10 +19,13 @@ class PackagePublisher(Protocol):
 class PostingAgent:
     """Deterministically schedule and publish ready platform packages."""
 
-    def __init__(self, database: Database, max_posts_per_day: int = 3, min_post_interval_minutes: int = 60):
+    def __init__(self, database: Database, max_posts_per_day: int = 3, min_post_interval_minutes: int = 60,
+                 max_delivery_attempts: int = 3, retry_delay_minutes: int = 15):
         self.database = database
         self.max_posts_per_day = max_posts_per_day
         self.min_post_interval = timedelta(minutes=min_post_interval_minutes)
+        self.max_delivery_attempts = max_delivery_attempts
+        self.retry_delay = timedelta(minutes=retry_delay_minutes)
 
     def queue(self, post: PostRecord, now: datetime | None = None) -> int:
         package = self.database.connection.execute(
@@ -47,7 +50,7 @@ class PostingAgent:
     def mark_published(self, post_id: int, external_post_id: str, published_at: str | None = None) -> None:
         published_at = published_at or utc_now()
         self.database.connection.execute(
-            "UPDATE posts SET status = 'published', published_at = ?, external_post_id = ?, updated_at = ? WHERE id = ?",
+            "UPDATE posts SET status = 'published', published_at = ?, external_post_id = ?, error = NULL, next_attempt_at = NULL, updated_at = ? WHERE id = ?",
             (published_at, external_post_id, utc_now(), post_id),
         )
         self.database.connection.commit()
@@ -80,20 +83,38 @@ class PostingAgent:
         now = now or datetime.now(timezone.utc)
         published = 0
         for post in self.database.due_posts(now.isoformat()):
+            attempt_id = self.database.start_post_attempt(post["id"], now.isoformat())
             try:
                 publisher = publishers.get(post["platform"]) if isinstance(publishers, Mapping) else publishers
                 if publisher is None:
                     raise RuntimeError(f"No publisher is configured for platform: {post['platform']}")
                 if hasattr(publisher, "publish_package"):
+                    if hasattr(publisher, "container_recorder"):
+                        publisher.container_recorder = lambda container_id, container_type, asset_index, status, created_at: self.database.record_instagram_container(
+                            post["id"], container_id, container_type, status, created_at, asset_index
+                        )
                     external_post_id = publisher.publish_package(post)
                 else:
                     hashtags = json.loads(post["hashtags"])
                     text = " ".join(part for part in [post["caption"], *hashtags] if part).strip()
                     external_post_id = publisher.publish(text)
                 self.mark_published(post["id"], external_post_id, now.isoformat())
+                self.database.finish_post_attempt(attempt_id, "published", now.isoformat())
                 published += 1
             except Exception as error:
-                self.mark_failed(post["id"], str(error))
+                retryable = not isinstance(error, (KeyError, ValueError))
+                attempts = int(post["attempt_count"]) + 1
+                if retryable and attempts < self.max_delivery_attempts:
+                    next_attempt = now + self.retry_delay * (2 ** (attempts - 1))
+                    self.database.connection.execute(
+                        "UPDATE posts SET status = 'retryable_failure', error = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?",
+                        (str(error), next_attempt.isoformat(), utc_now(), post["id"]),
+                    )
+                    self.database.connection.commit()
+                    self.database.finish_post_attempt(attempt_id, "retryable_failure", now.isoformat(), str(error))
+                else:
+                    self.mark_failed(post["id"], str(error))
+                    self.database.finish_post_attempt(attempt_id, "failed", now.isoformat(), str(error))
         return published
 
 

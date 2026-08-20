@@ -25,7 +25,7 @@ Bluesky.
 | Determination | Active | Vertex Gemini selects consume/reject and a pipeline recipe. |
 | o2 English idiom pipeline | Active | Fixed 5–8-slide contract; slide content and metadata are separately generated and validated. |
 | Visual rendering | Active | Deterministic HTML/CSS + Playwright at 1080×1920. |
-| Posting Agent | Under development | Shared system component; platform delivery design is not settled. |
+| Posting Agent | Active (local POC) | SQLite-backed queue, attempts, retry state, Instagram carousel adapter, and auditable post records. Meta credentials and public-media storage are local configuration. |
 | Dashboard | Active, read-only | Detection is the current implemented view; other views follow module maturity. |
 
 ## Non-Negotiable Boundaries
@@ -38,7 +38,7 @@ Bluesky.
 - Gemini usage is recorded per successful determination and pipeline call for
   cost observability; configured rates control the optional cost estimate.
 - The renderer creates deterministic assets only.
-- The Posting Agent will schedule and deliver ready packages; it will not alter
+- The Posting Agent schedules and delivers ready packages; it does not alter
   creative metadata or assets.
 
 ## Acceptance Criteria For This Milestone
@@ -47,16 +47,17 @@ Bluesky.
 - The o2 pipeline produces schema-valid structured carousel content with
   Gemini-generated caption, tags, and hashtags.
 - All required 1080×1920 PNG assets are rendered and persisted on the package.
-- The Posting Agent design is finalized separately, then one o2 package can be
-  scheduled and published with an auditable `PostRecord`.
+- One rendered o2 package can be queued, delivered through the Instagram
+  adapter, and recorded as an auditable `PostRecord` once Meta credentials and
+  public HTTPS media storage are configured.
 
 ## Explicitly Deferred
 
 - Additional o2 English formats, visual-matrix composition, and brand palette.
 - Additional pipelines, including Bluesky implementation work.
 - Dashboard approvals and workflow controls.
-- Posting-platform implementation details until their system-level design is
-  accepted.
+- Live Meta app/account setup, token lifecycle, and production-grade public
+  media retention policy.
 
 ## Working Agreement For Codex Sessions
 

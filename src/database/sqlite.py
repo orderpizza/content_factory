@@ -178,9 +178,35 @@ CREATE TABLE IF NOT EXISTS posts (
     published_at TEXT,
     external_post_id TEXT,
     error TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TEXT,
+    next_attempt_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(content_id, platform, account)
+);
+
+CREATE TABLE IF NOT EXISTS post_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL REFERENCES posts(id),
+    attempt_number INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    error TEXT,
+    UNIQUE(post_id, attempt_number)
+);
+
+CREATE TABLE IF NOT EXISTS instagram_containers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL REFERENCES posts(id),
+    asset_index INTEGER,
+    container_id TEXT NOT NULL,
+    container_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_checked_at TEXT,
+    UNIQUE(post_id, container_id)
 );
 
 CREATE TABLE IF NOT EXISTS posting_policies (
@@ -235,7 +261,12 @@ class Database:
             "metadata_status": "TEXT NOT NULL DEFAULT 'pending'",
             "metadata_model": "TEXT",
         })
-        self._ensure_columns("posts", {"pipeline_id": "TEXT NOT NULL DEFAULT 'poc_pipeline'"})
+        self._ensure_columns("posts", {
+            "pipeline_id": "TEXT NOT NULL DEFAULT 'poc_pipeline'",
+            "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "last_attempt_at": "TEXT",
+            "next_attempt_at": "TEXT",
+        })
         self.connection.commit()
 
     def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
@@ -551,10 +582,55 @@ class Database:
             c.account AS package_account, c.content_format, c.caption, c.hashtags, c.assets,
             c.status AS package_status
             FROM posts p JOIN content_packages c ON c.content_id = p.content_id
-            WHERE p.status = 'scheduled' AND p.scheduled_at <= ?
+            WHERE (
+                p.status = 'scheduled' AND p.scheduled_at <= ?
+            ) OR (
+                p.status = 'retryable_failure' AND p.next_attempt_at <= ?
+            )
             ORDER BY p.scheduled_at, p.id""",
-            (now,),
+            (now, now),
         ).fetchall()
+
+    def start_post_attempt(self, post_id: int, started_at: str) -> int:
+        """Claim a due post and persist its next delivery attempt."""
+        row = self.connection.execute(
+            "SELECT attempt_count FROM posts WHERE id = ? AND status IN ('scheduled', 'retryable_failure')",
+            (post_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Post {post_id} is not available for publishing")
+        attempt_number = int(row["attempt_count"]) + 1
+        self.connection.execute(
+            "UPDATE posts SET status = 'publishing', attempt_count = ?, last_attempt_at = ?, updated_at = ? WHERE id = ?",
+            (attempt_number, started_at, started_at, post_id),
+        )
+        cursor = self.connection.execute(
+            "INSERT INTO post_attempts (post_id, attempt_number, started_at, status) VALUES (?, ?, ?, 'running')",
+            (post_id, attempt_number, started_at),
+        )
+        self.connection.commit()
+        return int(cursor.lastrowid)
+
+    def finish_post_attempt(self, attempt_id: int, status: str, completed_at: str, error: str | None = None) -> None:
+        self.connection.execute(
+            "UPDATE post_attempts SET status = ?, completed_at = ?, error = ? WHERE id = ?",
+            (status, completed_at, error, attempt_id),
+        )
+        self.connection.commit()
+
+    def record_instagram_container(self, post_id: int, container_id: str, container_type: str,
+                                   status: str, created_at: str, asset_index: int | None = None) -> None:
+        self.connection.execute(
+            """INSERT INTO instagram_containers
+            (post_id, asset_index, container_id, container_type, status, created_at, last_checked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(post_id, container_id) DO UPDATE SET
+            status = excluded.status,
+            last_checked_at = excluded.last_checked_at""",
+            (post_id, asset_index, container_id, container_type, status, created_at,
+             created_at if status != "created" else None),
+        )
+        self.connection.commit()
 
     def queue_post(self, post: PostRecord) -> int:
         package = self.connection.execute("SELECT pipeline_id FROM content_packages WHERE content_id = ?", (post.content_id,)).fetchone()

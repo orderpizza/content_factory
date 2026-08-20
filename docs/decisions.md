@@ -364,3 +364,24 @@ rates are supplied. Pipeline workers record content and metadata calls
 separately, and retry metadata without re-running slide generation. The
 historic model-variable compatibility described in decision 023 is superseded:
 only `GEMINI_MODEL` and `VERTEX_AI_MODEL` are supported.
+
+## 027 - Instagram Graph API Carousel Delivery for the O2 POC
+
+Date: 2026-08-20
+
+Decision: Use a Posting Agent-owned Instagram Graph API adapter for the first
+o2 English carousel publication. The adapter converts rendered assets to JPEG,
+stages them at configured public HTTPS URLs, creates item and carousel
+containers, verifies readiness, and publishes the parent container. SQLite
+persists one idempotent post request, delivery attempts, retry timing, Graph
+container IDs, and the final external post ID.
+
+Reason: Instagram fetches publish media from public URLs, while this POC's
+renderer writes assets locally. Delivery is operational work and must remain
+separate from content generation and rendering.
+
+Consequence: Meta credentials and public-asset-store credentials are local
+configuration only. The current R2 adapter is one implementation of the
+public-media boundary; replacement storage must preserve the same public-URL
+contract. Posting never changes pipeline-owned caption, tags, hashtags, or
+asset order.

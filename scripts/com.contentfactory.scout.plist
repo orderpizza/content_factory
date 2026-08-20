@@ -6,7 +6,7 @@
     <string>com.contentfactory.scout</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>/Users/YOUR_USERNAME/content_factory/.venv/bin/python</string>
         <string>/Users/YOUR_USERNAME/content_factory/scripts/run_scout.py</string>
     </array>
     <key>WorkingDirectory</key>

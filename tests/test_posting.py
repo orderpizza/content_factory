@@ -91,3 +91,46 @@ class PostingAgentTests(unittest.TestCase):
         row = self.database.connection.execute("SELECT status FROM posts WHERE id = ?", (post_id,)).fetchone()
         self.assertEqual(publisher.text, "Caption #Topic")
         self.assertEqual(row["status"], "published")
+
+    def test_transient_delivery_failure_is_persisted_for_retry(self):
+        agent = PostingAgent(self.database, retry_delay_minutes=15)
+        post_id = agent.queue(PostRecord(self.content_id, "test", "local"))
+
+        class FailingPublisher:
+            def publish(self, text):
+                raise RuntimeError("temporary outage")
+
+        self.assertEqual(agent.publish_due(FailingPublisher()), 0)
+        post = self.database.connection.execute("SELECT status, attempt_count, next_attempt_at FROM posts WHERE id = ?", (post_id,)).fetchone()
+        attempt = self.database.connection.execute("SELECT status, error FROM post_attempts WHERE post_id = ?", (post_id,)).fetchone()
+        self.assertEqual(post["status"], "retryable_failure")
+        self.assertEqual(post["attempt_count"], 1)
+        self.assertIsNotNone(post["next_attempt_at"])
+        self.assertEqual(attempt["status"], "retryable_failure")
+
+    def test_instagram_adapter_container_ids_are_persisted(self):
+        content_id = self.database.save_content_package(ContentPackage(
+            1, "o2_english_instagram", "Idiom", "Body", "Caption",
+            platform="instagram", account="o2_english",
+            content_format="instagram_idiom_carousel",
+        ))
+        self.database.mark_package_rendered_assets(content_id, ["slide-1.png", "slide-2.png"], required_asset_count=2)
+        post_id = PostingAgent(self.database).queue(PostRecord(content_id, "instagram", "o2_english"))
+
+        class Publisher:
+            container_recorder = None
+
+            def publish_package(self, package):
+                self.container_recorder("item-1", "carousel_item", 0, "created", "2026-08-20T00:00:00+00:00")
+                self.container_recorder("carousel-1", "carousel", None, "created", "2026-08-20T00:00:00+00:00")
+                return "instagram-media-1"
+
+        self.assertEqual(PostingAgent(self.database).publish_due({"instagram": Publisher()}), 1)
+        containers = self.database.connection.execute(
+            "SELECT container_id, container_type, asset_index FROM instagram_containers WHERE post_id = ? ORDER BY id",
+            (post_id,),
+        ).fetchall()
+        self.assertEqual(
+            [(row["container_id"], row["container_type"], row["asset_index"]) for row in containers],
+            [("item-1", "carousel_item", 0), ("carousel-1", "carousel", None)],
+        )
