@@ -385,3 +385,63 @@ configuration only. The current R2 adapter is one implementation of the
 public-media boundary; replacement storage must preserve the same public-URL
 contract. Posting never changes pipeline-owned caption, tags, hashtags, or
 asset order.
+
+## 028 - Postiz Is a Future Multi-Platform Delivery Candidate
+
+Date: 2026-08-24
+
+Decision: Evaluate Postiz as an optional, external publishing provider when
+the system expands beyond the first native Instagram path. If adopted, access
+it only through a Posting Agent adapter.
+
+Reason: Postiz provides connected-channel OAuth, platform-specific publishing,
+scheduling, and analytics across many social networks. Reimplementing each
+provider adapter would not advance Content Factory's primary value: creating
+and reviewing high-quality platform-specific content.
+
+Consequence: Content Factory remains the source of truth for ContentJobs,
+ContentPackages, human review decisions, and PostRecords. A Postiz adapter
+would submit only approved or explicitly scheduled packages and persist the
+Postiz and final-platform identifiers for audit. Postiz is not a current POC
+dependency, does not replace SQLite handoffs, and must be assessed for
+self-hosting operational cost and AGPL-3.0 licensing before adoption.
+
+## 029 - Do Not Adopt Postiz for the Local-First POC
+
+Date: 2026-08-24
+
+Decision: Supersede decision 028. Do not adopt Postiz Cloud or self-hosted
+Postiz as a Content Factory subsystem for the POC. Use it only as a product
+and workflow reference when designing human review and multi-platform posting.
+
+Reason: The POC must run on the Mac Mini with SQLite as its shared persisted
+state and limit external paid use to the existing GCP Gemini budget. Postiz
+Cloud is a paid service. Self-hosting would introduce PostgreSQL, Redis,
+Temporal, additional operational work, and AGPL-3.0 considerations that do not
+advance the current proof of one end-to-end o2 English path.
+
+Consequence: The Posting Agent continues to use small, platform-specific
+adapters behind its existing SQLite boundary. Add adapters only when a concrete
+target platform is in scope. Human ideation and review controls are native
+Content Factory work; they must not depend on Postiz.
+
+## 030 - Facebook Login Is the Active Instagram Authorization Boundary
+
+Date: 2026-08-24
+
+Decision: Use the existing Instagram API with Facebook Login configuration for
+the o2 POC. The target must be an Instagram Professional account linked to a
+Facebook Page administered by the authorizing Facebook user. At runtime, the
+Posting Agent receives only the numeric Instagram Professional Account ID and
+the linked Page access token.
+
+Reason: The implemented adapter calls `graph.facebook.com` and needs the
+Facebook Login permission model. It provides a supported, direct path to the
+one Instagram account in scope without adding a second publishing destination
+or a hosted OAuth subsystem.
+
+Consequence: A Facebook Page is an authorization bridge, not a content target;
+the agent does not cross-post to Facebook. The local smoke test may validate
+the token read-only, but `media_publish` is a real Instagram publication with
+no private/draft mode. App ID, app secret, token expiry tracking, and renewal
+remain explicitly deferred future operational work.

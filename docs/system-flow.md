@@ -124,6 +124,17 @@ is already resolved or inside cooldown.
 
 ## O2 Instagram Delivery Detail
 
+### Meta Authorization Relationship
+
+```text
+Facebook user identity -- administers --> Facebook Page -- linked to --> Instagram Professional account
+Meta developer app -- authorized Page access token --> graph.facebook.com -- publishes to --> Instagram account
+```
+
+The Facebook Page supplies the authorization relationship required by the
+current Facebook Login API configuration. It does not receive a duplicate
+Facebook post. The Instagram Professional account is the only delivery target.
+
 The Posting Agent accepts only a ready package whose destination matches its
 persisted platform/account. For the active target that is:
 
@@ -170,8 +181,14 @@ renderer.
 - Vertex Gemini configuration and IAM access are available for determination
   and pipeline generation.
 - Playwright browsers are installed for PNG rendering.
-- An o2 English Instagram Professional account, Meta app credentials, and
-  public media store credentials are configured locally for posting.
+- An o2 English Instagram Professional account is linked to an administered
+  Facebook Page. A Meta developer app has issued a Page access token with
+  `instagram_basic`, `instagram_content_publish`, `pages_show_list`, and
+  `pages_read_engagement` permissions. The numeric Instagram Professional
+  Account ID and Page token are configured locally.
+- R2 S3 credentials and an enabled public development URL are configured
+  locally for public-media staging. R2 is a transient relay, not the canonical
+  content library.
 - The Mac Mini is awake and the scheduled workers are running.
 
 For command-level operating instructions, see

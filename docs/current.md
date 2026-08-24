@@ -25,7 +25,7 @@ Bluesky.
 | Determination | Active | Vertex Gemini selects consume/reject and a pipeline recipe. |
 | o2 English idiom pipeline | Active | Fixed 5–8-slide contract; slide content and metadata are separately generated and validated. |
 | Visual rendering | Active | Deterministic HTML/CSS + Playwright at 1080×1920. |
-| Posting Agent | Active (local POC) | SQLite-backed queue, attempts, retry state, Instagram carousel adapter, and auditable post records. Meta credentials and public-media storage are local configuration. |
+| Posting Agent | Staged for live smoke test | SQLite-backed queue, attempts, retry state, Instagram carousel adapter, and auditable post records. R2 upload/public-read/cleanup and Meta read-only credential verification have passed; no live Instagram post has been authorized or made. |
 | Dashboard | Active, read-only | Detection is the current implemented view; other views follow module maturity. |
 
 ## Non-Negotiable Boundaries
@@ -56,8 +56,8 @@ Bluesky.
 - Additional o2 English formats, visual-matrix composition, and brand palette.
 - Additional pipelines, including Bluesky implementation work.
 - Dashboard approvals and workflow controls.
-- Live Meta app/account setup, token lifecycle, and production-grade public
-  media retention policy.
+- Meta token lifecycle/renewal and production-grade public-media retention
+  policy.
 
 ## Working Agreement For Codex Sessions
 

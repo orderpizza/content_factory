@@ -196,6 +196,22 @@ retry scheduling, and the final external media ID are persisted in SQLite.
 The public asset store and Meta credentials are posting-layer configuration;
 they never belong to the `o2_english` pipeline or visual renderer.
 
+The active adapter uses Meta's Instagram API with Facebook Login. The
+authorization relationship is deliberately separate from the content
+destination:
+
+```text
+Facebook user identity -> administers Facebook Page -> linked Instagram Professional account
+Meta developer app -> obtains Page access token -> graph.facebook.com -> Instagram publication
+```
+
+The Facebook Page is an authorization bridge, not a second publication target.
+`INSTAGRAM_USER_ID` is the linked Instagram Professional Account's numeric ID;
+`INSTAGRAM_ACCESS_TOKEN` is the Page access token. The Posting Agent publishes
+only to the specified Instagram account. App ID and app secret are not needed
+at delivery time because the local token has already been issued; they belong
+to a future token-renewal implementation.
+
 ## Storage
 
 Use SQLite for POC state. Initial tables should remain minimal:
