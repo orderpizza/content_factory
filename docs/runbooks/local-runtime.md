@@ -68,6 +68,24 @@ the token. A `media_publish` request creates a real Instagram post—there is no
 private or draft outcome for this carousel delivery path. Use the credential
 check before granting any live-publish authorization.
 
+## Live End-to-End Preconditions
+
+Before running the complete local path:
+
+- Initialize the SQLite database at the path used by every worker.
+- Configure Vertex Gemini credentials, project/location/model settings, and
+  local Application Default Credentials with the needed IAM access.
+- Install Playwright browser dependencies if the visual renderer uses its
+  browser-backed image path.
+- Configure the target platform and temporary-media staging credentials for the
+  selected pipeline. The active o2 requirements are in
+  [../pipelines/o2-english-instagram.md](../pipelines/o2-english-instagram.md).
+- Keep the Mac Mini awake enough for scheduled workers to run; turning the
+  display off is fine when the computer itself is prevented from sleeping.
+
+Start workers independently and inspect their persisted SQLite handoffs. The
+dashboard observes those handoffs but never drives the workflow.
+
 ## Dashboard
 
 ```sh

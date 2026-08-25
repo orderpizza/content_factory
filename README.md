@@ -37,12 +37,13 @@ Read these before making architectural or boundary changes:
 - [docs/poc.md](docs/poc.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/interfaces.md](docs/interfaces.md)
+- [docs/pipelines/](docs/pipelines/) — pipeline-specific contracts and delivery details
 - [docs/decisions.md](docs/decisions.md)
 - [docs/roadmap.md](docs/roadmap.md)
 - [docs/runbooks/](docs/runbooks/) — local operating procedures
 
-The controlled o2 Instagram integration path is documented in
-[docs/runbooks/local-runtime.md](docs/runbooks/local-runtime.md).
+The active o2 English Instagram contract is documented in
+[docs/pipelines/o2-english-instagram.md](docs/pipelines/o2-english-instagram.md).
 
 ## Non-Goals For The Initial POC
 

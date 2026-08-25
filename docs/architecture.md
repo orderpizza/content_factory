@@ -1,15 +1,9 @@
 # Architecture
 
-## Runtime
+## System Model
 
-The Mac Mini is the primary runtime. It should run collection, detection,
-determination orchestration, pipeline execution, rendering, and SQLite storage.
-
-GCP is used primarily for Vertex AI Gemini API calls. Do not move the database,
-workers, scheduling, rendering, or queueing to GCP during the POC unless that is
-explicitly requested.
-
-## Component Flow
+Content Factory is a set of independently observable components that exchange
+work through persisted SQLite handoffs:
 
 ```text
 Trend Detector
@@ -26,249 +20,107 @@ Trend Detector
   -> PostRecord
 ```
 
-The arrows represent persisted handoffs through SQLite, not direct calls
-between module implementations. SQLite is the common communication and state
-boundary for the POC. A module writes its output and status to the database;
-the next module discovers eligible work by reading the database.
-
-The detector remains independently observable and LLM-free. Its persisted
-handoffs feed determination. The current end-to-end target is one o2 English
-publication; the Posting Agent portion remains under design and implementation.
-
-```text
-Scheduled Scout
-  -> Source observations
-  -> Normalization and clustering
-  -> Historical snapshots
-  -> Deterministic scoring
-  -> TrendCandidates
-  -> SQLite and read-only dashboard
-```
+The arrows are persisted handoffs, never direct calls between module
+implementations. A writer stores its output and status; the next component
+discovers eligible work by reading SQLite. See [poc.md](poc.md) for active
+scope limits and operating simplifications.
 
 ## Components
 
 ### Trend Detector
 
-Discovers topics that appear to be gaining attention across independent
-signals. The detector is deterministic and must not consume LLM tokens.
+Discovers topics gaining attention across independent signals. It normalizes
+source observations, maintains history, calculates explainable deterministic
+scores, and writes candidates plus their evidence. It never calls an LLM.
 
-Enabled sources are Hacker News, configured RSS/Atom feeds, and Wikimedia
-pageviews. Reddit and YouTube adapters are implemented but remain disabled
-until credentials/access are configured. Google Trends and other platform
-sources remain roadmap items. The complete source roadmap is maintained in
-`docs/poc.md`.
+The detector creates a frozen `DeterminationRequest` containing candidate
+metadata, evidence, history, and the producing detection-run ID. Candidate
+lifecycle remains separate from handoff lifecycle: one candidate may continue
+to accumulate evidence while a particular handoff is resolved or cooling down.
 
-New sources should implement the common source contract and convert their data
-into observations. A source being listed in the roadmap does not make it part
-of the active Scout configuration.
-
-The detector stores raw observations, topic snapshots, source health, and
-ranked candidates in SQLite. It uses historical baselines, velocity,
-acceleration, persistence, unusual activity, and source agreement. Every
-candidate should retain an explainable score breakdown and evidence sources.
-
-After scoring, the detector applies a downstream selection boundary. All scored
-candidates remain persisted for dashboard visibility and later tuning, but only
-fresh candidates meeting `CONTENT_FACTORY_MINIMUM_TREND_SCORE` and fitting
-`CONTENT_FACTORY_TOP_N_CANDIDATES` are marked `pending_determination`.
-Determination consumes that shortlist rather than every scored topic.
-
-The detector creates a frozen `DeterminationRequest` containing the candidate,
-source evidence, trend history, and producing detection-run ID. Repeated
-selection of the same candidate does not create duplicate pending or claimed
-requests; a later request requires resolution and cooldown expiry.
-
-Topic clustering and classification are important unfinished areas. As source
-coverage grows, differently worded observations about the same event may
-otherwise appear as duplicate trends. The initial clustering is deterministic
-and conservative; local semantic methods may be evaluated later without
-moving clustering into the Gemini determination layer.
-
-The Scout is intended to run periodically on the Mac Mini. Source failures are
-retried and persisted as source-health records. The dashboard is read-only
-observability and is not a workflow control surface.
-
-Retention is handled by a separate maintenance process. After the configured
-hot-data period, detailed detector records are compressed into
-`data/archive/`; observation history is compacted into monthly topic/source
-summaries in `trend_history` before hot rows are removed. Content and
-publication records are not part of detector cleanup.
-
-Recent raw detail remains queryable, older detail is compressed into local
-archives, and monthly topic/source summaries remain in SQLite. Detection runs,
-handoff records, content jobs, and publication history are retained for audit.
-
-### System Dashboard
-
-The dashboard is a system-level observability component covering the complete
-responsibility chain. The current trend dashboard is its first view, named
-`Trend Detection`.
-
-Future views include Overview, Trend Detection, Determination, Content Jobs,
-Production, Visual Assets, Posting, and System Health.
-
-The dashboard reads module-owned state and reporting data from SQLite. It must
-not call module services, reach into private implementation details, or move
-business logic into the UI. It remains read-only during the POC; orchestration
-and workflow decisions stay with their owning components.
+Source adapters implement a common observation contract. Source-health records
+and failures are persisted so one unavailable source does not stop the rest of
+the detector. Source selection, scoring thresholds, clustering maturity, and
+retention policy are active POC concerns; see [poc.md](poc.md).
 
 ### Determination Layer
 
-Receives persisted `DeterminationRequest` records. Gemini is isolated behind a
-small Vertex client and used here for interpretation and content opportunity
-decisions. It receives a
-small catalog of available pipeline capabilities so it can select the correct
-pipeline, target platform/account, format, audience, angle, objective, and
-high-level visual profile.
+Consumes persisted `DeterminationRequest` records and decides whether to
+consume a candidate. An accepted decision creates an explicit `ContentJob`
+recipe selecting a registered pipeline, destination, format, audience, angle,
+objective, source context, and high-level visual profile.
 
-It either rejects the candidate or produces one explicit `ContentJob` recipe in
-the POC. It must not call pipeline-specific Python functions directly. Future
-determinations may create multiple jobs for one trend, but that is outside the
-current POC scope.
+Gemini belongs here for interpretation and opportunity decisions. Determination
+does not create content, select low-level renderer configuration, or invoke a
+pipeline directly.
 
 ### Pipeline Runner
 
-Finds pending `ContentJob` records in SQLite and dispatches them by
-`pipeline_id`. For the POC, this can be a simple polling loop.
+Discovers pending `ContentJob` records and dispatches each to the pipeline
+identified by `pipeline_id`. It is a boundary between generic orchestration and
+platform- and format-specific production.
 
-Do not introduce distributed queues or worker infrastructure.
+### Content Pipeline
 
-### `o2_english_instagram` Pipeline
+A pipeline consumes one `ContentJob` and creates a platform-specific
+`ContentPackage`. It owns creative content, native metadata, and the required
+asset or visual specification. Gemini may be used for creative generation and
+context-sensitive metadata; deterministic validation enforces syntax,
+uniqueness, policy, and platform constraints.
 
-Consumes a `ContentJob` and produces a platform-specific `ContentPackage`
-containing the content, native metadata, and required asset or visual
-specification.
-
-The pipeline owns how content is created and is platform- and format-specific.
-It creates the content, asset or visual specifications, caption, and metadata
-such as tags and hashtags. Gemini may be used here for creative generation and
-context-sensitive metadata; validation of syntax, length, duplicates, banned
-terms, and platform limits remains deterministic. The pipeline does not need to
-know how the trend was detected.
-
-The first extracted `o2_english` format is
-`instagram_idiom_carousel` with profile
-`o2_english_idiom_carousel_v1`. It has a fixed 5–8-slide idiom teaching
-contract, a 1080×1920 Instagram rendering target, and four registered slide
-templates (hook, explanation, monologue use case, and dialogue use case).
-The pipeline Gemini boundary creates structured slide copy, caption, tags, and
-hashtags. It cannot replace invalid or unavailable Gemini metadata with a
-deterministic fallback.
-
-For the idiom format, Gemini generates and validates the teaching slides first,
-then separately generates caption, tags, and hashtags from those validated
-slides. A transient metadata failure may retry metadata without re-generating
-the slide draft.
-
-The determination-selected visual profile constrains the pipeline. Pipeline
-Gemini may refine that profile only from the pipeline's registered allowed
-profiles. It must not invent a template ID or renderer configuration.
+A pipeline may refine a high-level visual profile only from its registered
+allowed profiles. It must not invent renderer configuration or change its
+selected destination.
 
 ### Visual Renderer
 
-Consumes a visual specification from a `ContentPackage` and creates image assets
-deterministically using HTML/CSS and Playwright. It persists the rendered asset
-references on the package; a package becomes ready for future posting only after
-all required assets have been rendered.
+Consumes a package visual specification and produces deterministic final
+assets. It owns low-level layout, template resolution, fonts, backgrounds,
+shapes, and other renderer settings. Rendering updates the persisted package;
+the package becomes ready for posting only after all required assets exist.
 
-The visual system deterministically resolves the concrete template from the
-pipeline/profile/format. It owns fonts, backgrounds, shapes, characters, and
-other low-level renderer settings; Gemini does not select these directly.
-
-Do not use AI image generation by default.
+The renderer does not generate creative metadata or use an LLM by default.
 
 ### Posting Agent
 
-The Posting Agent consumes finished platform-specific content, applies
-duplicate and scheduling rules, publishes it, and records publication history.
-It does not use an LLM, generate captions or tags, or modify captions,
-hashtags, or visual selections.
+Consumes ready packages, applies destination-specific scheduling, duplicate,
+and delivery rules, publishes through a platform adapter, and records
+publication history. It is a shared system service separate from pipelines.
 
-It is a system-level shared service separate from content pipelines. Its queue
-state, attempts, failures, and publication records belong in SQLite for the
-read-only dashboard.
+The Posting Agent never calls an LLM or generates or modifies captions, tags,
+hashtags, visual choices, or asset order. Queue state, attempts, failures,
+external delivery artifacts, and publication records are persisted for audit.
 
-For the o2 POC, the Instagram adapter converts local rendered assets to JPEG,
-uploads them to a configured public HTTPS asset store, creates item and
-carousel containers through the Instagram Graph API, verifies the carousel
-container is ready, then publishes it. Container IDs, attempts, failures,
-retry scheduling, and the final external media ID are persisted in SQLite.
-The public asset store and Meta credentials are posting-layer configuration;
-they never belong to the `o2_english` pipeline or visual renderer.
+### System Dashboard
 
-The active adapter uses Meta's Instagram API with Facebook Login. The
-authorization relationship is deliberately separate from the content
-destination:
+The dashboard is a system-level observability consumer. It reads
+module-owned SQLite state and reporting data to present detection,
+determination, production, rendering, posting, and health views. It does not
+call module services, depend on private implementation details, or create or
+mutate workflow state.
 
-```text
-Facebook user identity -> administers Facebook Page -> linked Instagram Professional account
-Meta developer app -> obtains Page access token -> graph.facebook.com -> Instagram publication
-```
+## Storage And Observability
 
-The Facebook Page is an authorization bridge, not a second publication target.
-`INSTAGRAM_USER_ID` is the linked Instagram Professional Account's numeric ID;
-`INSTAGRAM_ACCESS_TOKEN` is the Page access token. The Posting Agent publishes
-only to the specified Instagram account. App ID and app secret are not needed
-at delivery time because the local token has already been issued; they belong
-to a future token-renewal implementation.
+SQLite is the shared persisted state boundary. The core records include trends,
+observations, snapshots, candidates, detection runs, determination handoffs
+and decisions, content jobs and packages, posting records, and `api_usage`.
 
-## Storage
+`api_usage` is an append-only observability ledger for successful external LLM
+calls. It records phase, owning entity, model, token counts, an optional cost
+estimate, and completion time. It is not an orchestration queue or creative
+state.
 
-Use SQLite for POC state. Initial tables should remain minimal:
+Each component persists explicit statuses at its boundary. The dashboard and
+operators use those states to understand progress without reaching into another
+component's private implementation.
 
-- `trends`
-- `trend_observations`
-- `topic_snapshots`
-- `trend_candidates`
-- `detection_runs`
-- `determination_handoffs`
-- `determination_decisions`
-- `source_health`
-- `content_jobs`
-- `content_packages`
-- `api_usage`
+## Pipeline Documentation
 
-Posting-specific persistence evolves with the Posting Agent implementation.
+Each pipeline maintains its own contract, format specification, and delivery
+detail:
 
-`api_usage` is an append-only observability ledger for external Gemini calls.
-It records phase, owning entity, model, token counts, optional configured cost
-estimate, and completion time. It is not an orchestration queue or a source of
-creative state.
+- [o2 English Instagram](pipelines/o2-english-instagram.md) — implementation
+  contract and delivery specification
 
-Trend candidates have lifecycle/status fields and cooldown state so a topic can
-continue updating without being repeatedly sent downstream.
-
-Add tables only when needed to complete the POC loop.
-
-## Suggested Repository Shape
-
-```text
-content_factory/
-  AGENTS.md
-  README.md
-  .env.example
-  .gitignore
-  docs/
-    vision.md
-    poc.md
-    architecture.md
-    interfaces.md
-    decisions.md
-  src/
-    intelligence/
-    determination/
-    pipelines/
-      poc/
-    visual/
-    posting/
-    dashboard/
-    database/
-    common/
-  tests/
-  scripts/
-  generated/
-  data/
-    content.db
-```
-
-Do not create folders for future pipelines until they are actually implemented.
+Future pipeline documents should follow the same structure rather than adding
+format rules to this system document.

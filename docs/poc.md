@@ -2,68 +2,57 @@
 
 ## Objective
 
-Prove that the system can automatically discover something interesting, decide
-what content to create from it, execute a predefined content workflow, and
-render upload-ready visual assets, then publish through the Posting Agent.
+Prove one inspectable autonomous loop: discover an interesting signal, decide whether to create content, persist an explicit recipe, execute one pipeline, render assets, and publish through the Posting Agent.
 
-The POC must demonstrate this flow:
+The permanent system responsibilities and handoff design are documented in [architecture.md](architecture.md), [interfaces.md](interfaces.md), and [system-flow.md](system-flow.md). This document records temporary scope limits and shortcuts.
 
-```text
-Trend Detection
-  -> Trend Candidate
-  -> Determination Request and Decision
-  -> ContentJob (explicit production recipe)
-  -> One Content Pipeline
-  -> Platform-specific ContentPackage
-  -> Visual Rendering
-  -> Ready ContentPackage
-  -> Post Queue
-  -> Posting Agent
-  -> Publication Record
-```
+## Active POC Constraints
 
-## Scope
+### Runtime, infrastructure, and state
 
-- One deterministic Scout/detection implementation.
-- A small number of free trend sources.
-- One determination process.
-- One current end-to-end content pipeline target: `o2_english_instagram`.
-- One fixed initial `o2_english` format: a 5–8-slide 1080×1920 idiom carousel.
-- One fixed deterministic visual profile with four slide-template variants.
-- One primary font/theme configuration.
-- One accepted trend produces at most one `ContentJob` in the POC.
-- Posting Agent design and live platform integration are under work; they are
-  required to complete the current o2 English end-to-end target.
-- SQLite database.
-- Mac Mini as the primary runtime.
-- Gemini API for determination and content generation where useful.
-- One read-only system dashboard, initially focused on trend detection.
+- The Mac Mini is the primary runtime.
+- SQLite is the single persisted state store and handoff boundary.
+- GCP is used for Vertex Gemini access only. Do not move the database, workers, scheduling, rendering, or queues to GCP for this POC.
+- The system is local-first. Cloud databases, cloud workers, Kubernetes, and distributed infrastructure are out of scope.
+- Secrets remain in a local `.env` file and must never be committed.
 
-The detector remains independently observable and does not use Gemini or any
-other LLM API. The production determination worker uses Gemini only after it
-receives a persisted detection handoff.
+### Orchestration and job volume
 
-Vertex Gemini access is isolated in one client shared by the determination and
-pipeline-owned generation boundaries. If local configuration or IAM access is
-unavailable, those workers fail clearly rather than fall back to hardcoded tags
-or hashtags.
+- One scheduled local Scout/detection loop, one determination worker, and one simple polling pipeline runner are sufficient.
+- Do not introduce Kafka, RabbitMQ, Redis, Celery, distributed queues, or direct module-to-module handoffs.
+- One accepted trend may create at most one `ContentJob`.
+- Transient posting-delivery failures use bounded retry and backoff through persisted attempts; sophisticated delivery orchestration is deferred.
+- Configuration and package-contract delivery failures are terminal; only transient failures are retryable.
+- The dashboard is read-only and is not a workflow-control surface.
 
-The active `o2_english_instagram` pipeline has a fixed idiom-carousel schema
-and four deterministic slide templates. Other English-education formats,
-including usage comparison, are future pipeline formats with their own
-contracts.
+### Active pipeline and publishing scope
 
-Current detection sources:
+- There is one active end-to-end pipeline: [o2 English Instagram](pipelines/o2-english-instagram.md).
+- The POC supports one platform and one configured target account. Multi-pipeline, multi-platform, and multi-account publishing are deferred.
+- Posting integration is limited to the implementation documented by the active pipeline. Advanced cadence optimization and approval workflows are deferred.
+- Rendering uses deterministic code and a fixed initial visual profile. AI image generation and a broad template library are out of scope.
 
-- Hacker News public API.
-- Configured RSS/Atom feeds.
-- Wikimedia pageview analytics.
+### Detection and determination scope
 
-## Trend Source Roadmap
+- Detection is deterministic, independently observable, and LLM-free.
+- Enabled source types are Hacker News, configured RSS/Atom feeds, and Wikimedia pageview analytics.
+- Reddit and YouTube adapters are implemented but disabled until credentialed; Google Trends is disabled pending an approved usable access path.
+- Source failures are retried and stored as source-health records without stopping other sources.
+- The initial shortlist is the top five candidates with a minimum score of 0.25.
+- A candidate gets one frozen `DeterminationRequest` with source evidence, trend history, and producing detection-run ID; repeated Scout cycles must not create duplicate active requests.
+- Gemini is used for determination and pipeline-owned generation. If Vertex configuration or IAM is unavailable, those workers fail clearly and never substitute hardcoded tags or hashtags.
 
-This matrix records the current source plan. “Enabled” means the source is
-available to the running Scout configuration. “Implemented” does not mean the
-source is active; Reddit and YouTube adapters exist but require credentials.
+### POC retention policy
+
+- Keep 90 days of detailed detector data in the primary store.
+- Archive older detailed detector rows as compressed JSONL under `data/archive`.
+- Preserve monthly topic/source summaries in `trend_history` for long-term observation.
+- Retain content and publication records for the POC audit trail.
+- The current state model uses `trends`, `trend_observations`, `topic_snapshots`, `trend_candidates`, `detection_runs`, `determination_handoffs`, `determination_decisions`, `source_health`, `content_jobs`, `content_packages`, and `api_usage`; posting-specific records evolve only as needed for the POC loop.
+
+## Current Detection Source Roadmap
+
+“Enabled” means available to the running Scout configuration. “Implemented” means an adapter exists but may still need credentials.
 
 | Source | Current status | Access | Cost | Priority |
 | --- | --- | --- | --- | --- |
@@ -71,107 +60,54 @@ source is active; Reddit and YouTube adapters exist but require credentials.
 | Hacker News | Enabled | Firebase/API | Free | Core |
 | NPR RSS | Enabled when configured | RSS | Free | Core |
 | Reddit | Not enabled; adapter ready | Reddit Data API approval/OAuth | TBD | High |
-| Google Trends | Not enabled | Trends data/API or other approved access | Potentially free | Very High |
+| Google Trends | Not enabled | Trends data/API or approved access | Potentially free | Very High |
 | YouTube | Not enabled; adapter ready | YouTube Data API v3 | Free within quota | Very High |
 | X | Not enabled | X API | Paid/usage-dependent | High, later |
-| Instagram | Not enabled | Meta APIs | Mostly free, limited discovery | Low |
+| Instagram | Not enabled for detection | Meta APIs | Mostly free, limited discovery | Low |
 | Facebook | Not enabled | Meta Graph API | Mostly free, limited discovery | Low |
 | TikTok | Not enabled | TikTok APIs | Commercial trend access problematic | Low |
 
-This source roadmap is subject to access policies, terms of use, rate limits,
-and cost changes. Credentials must be kept in `.env` and never committed.
-Google Trends remains intentionally disabled until an approved, usable access
-path is available.
+This roadmap is subject to access policies, terms of use, rate limits, and cost changes.
 
-The detector runs as a scheduled local process, stores observation history and
-ranked candidates in SQLite, and exposes a read-only live dashboard for
-observability. This is the initial `Trend Detection` view of the system
-dashboard. Downstream views should be added as the corresponding POC modules
-are implemented.
+## Work Remaining Within the POC
 
-## Detection Work Remaining Before Determination
-
-- Improve semantic clustering/classification as source coverage grows.
-- Expand source adapters while preserving the common observation contract.
-- Carefully revise scoring, baselines, and source weights using observed data.
-- Tune lifecycle thresholds from real multi-run history.
-- Add candidate cooldown and downstream claim behavior to operating policy.
+- Improve semantic clustering and classification as source coverage grows.
+- Keep initial clustering deterministic and conservative; local semantic methods may be evaluated later without moving clustering into Gemini.
+- Revise scoring, baselines, and source weights from observed data.
+- Tune lifecycle thresholds, cooldown, and downstream-claim policy from real multi-run history.
 - Observe the Scout for several days on the Mac Mini.
-- Run retention maintenance separately: keep 90 days of detailed detector
-  data, archive older records as compressed JSONL, and preserve monthly
-  topic/source summaries for long-term history.
-- Store the full scored history for observability, but mark only a configured
-  top-N shortlist that passes the minimum score as `pending_determination`.
-  Initial defaults are top 5 and minimum score 0.25.
-- Create one frozen `DeterminationRequest` per eligible candidate, including
-  candidate metadata, source evidence, trend history, and the producing
-  detection run ID. Do not create a duplicate active request on every Scout
-  cycle.
+- Add source adapters while preserving the common observation contract.
+- Verify one controlled live post after the required publishing credentials are configured.
 
-Clustering and scoring are high-impact because their output directly controls
-which candidates the downstream determination layer consumes.
+## POC Success Criteria
 
-## Success Criteria
+The POC succeeds when, with minimal manual intervention:
 
-The current POC succeeds when the system can complete the o2 English
-end-to-end loop with minimal manual intervention:
+1. A trend is detected and persisted.
+2. Gemini records a determination that rejects it or creates one explicit `ContentJob`.
+3. The selected pipeline persists a validated platform-specific `ContentPackage`.
+4. Deterministic rendering creates required visual assets and records the package as ready.
+5. The Posting Agent queues and publishes it at a cadence-eligible time, then persists a publication record with the external identifier.
+6. The persisted records explain the triggering trend, job, pipeline, generated content and metadata, queue time, publication time, and external post identifier.
 
-1. A trend appears.
-2. The system detects and stores it.
-3. Gemini evaluates whether content should be created.
-4. The decision either rejects the trend or stores one explicit `ContentJob`
-   selecting the POC pipeline, target platform/account, format, audience, and
-   creative brief, including a high-level visual profile.
-5. The POC pipeline executes.
-6. A platform-specific `ContentPackage`, including its content, caption, and
-   Gemini-generated tags/hashtags, is generated. The pipeline may refine the
-   selected visual profile from its allowed choices; deterministic code resolves
-   the concrete visual template.
-7. Required visual assets are rendered and the package is recorded as ready for
-   posting.
-8. The Posting Agent queues it at its cadence-eligible time.
-9. The Posting Agent publishes it to the configured o2 English Instagram
-   account and stores a publication record.
+The implementation-specific acceptance criteria for the active pipeline are in [pipelines/o2-english-instagram.md](pipelines/o2-english-instagram.md).
 
-The system must also be able to explain afterward:
+## Out of Scope
 
-- Which trend triggered the content.
-- Which `ContentJob` was created.
-- Which pipeline ran.
-- What content was generated.
-- Which caption, tags, and hashtags were generated and validated.
-- When it was queued and published, with the external post identifier.
-
-## Out Of Scope
-
-- Multiple content pipelines.
-- Advanced trend prediction.
-- Complex machine-learning trend models.
-- Generic plugin architecture.
-- Complex agent-to-agent architecture.
-- Dynamic workflow generation.
-- Kafka, RabbitMQ, Redis, Celery, or other distributed queues.
-- Kubernetes.
-- Cloud databases.
-- Cloud workers.
-- Large-scale vector databases.
+- Multiple content pipelines or a generic plugin architecture.
+- Advanced trend prediction or complex machine-learning trend models.
+- Dynamic workflow generation or complex agent-to-agent architecture.
+- Distributed queues, cloud workers, cloud databases, Kubernetes, or large-scale vector databases.
 - AI image generation for every asset.
-- Visual template libraries.
-- Multi-platform publishing.
-- Multi-account publishing.
-- Advanced posting optimization.
-- Automatic model routing.
-- Fine-tuning or custom model training.
+- Multi-platform or multi-account publishing.
+- Automatic model routing, fine-tuning, or custom model training.
 
 ## Development Order
 
 1. Repository structure, configuration, and SQLite.
-2. Trend collector/detector.
-3. Trend to determination.
-4. `ContentJob` persistence.
-5. One POC pipeline.
-6. Visual renderer.
-7. Validate the content and visual-rendering path.
-8. Observe failures and improve.
-9. Complete the Posting Agent and verify one o2 English publication.
-10. Add other pipelines only after the o2 target is proven.
+2. Trend collection and detection.
+3. Determination and `ContentJob` persistence.
+4. One POC pipeline and visual renderer.
+5. Validate generation and rendering.
+6. Complete controlled publishing, observe failures, and improve.
+7. Add other pipelines only after the active path is proven.
