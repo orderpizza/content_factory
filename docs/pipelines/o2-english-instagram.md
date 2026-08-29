@@ -1,5 +1,8 @@
 # o2 English Instagram Pipeline
 
+**Document role:** Tier 2 target pipeline contract. It defines required
+behavior; verify implementation from code and tests after development begins.
+
 ## Purpose and Identity
 
 This document defines the active O2 English implementation of the Content
@@ -12,20 +15,15 @@ component/input/output map, lifecycle rules, and local operation guidance.
 | `target_platform` | `instagram` |
 | `target_account` | `o2_english` |
 | `content_format` | Idiom teaching carousel |
-| `visual_profile_id` | `o2_english_idiom_carousel_v1` |
+| `allowed_visual_profiles` | `hook_emphasis_v1`, `concise_explainer_v1`, `monologue_card_v1`, `chat_dialogue_v1` |
 
-The pipeline turns an accepted O2 English `ContentJob` into an Instagram
-`ContentPackage` with status `awaiting_render`. It creates and validates the
-creative content and metadata. Visual rendering and posting are separate
+The pipeline turns an accepted O2 English `ContentJob` into one validated,
+immutable Instagram `ContentPackage` through a durable `GenerationRun`. It
+creates and validates creative content, metadata, and the visual specification.
+The package has no rendering/posting status: a `RenderRun` creates verified
+preview and delivery assets, a `ReviewRequest` owns human approval, and delivery
+begins only from that approval. Visual rendering and posting are separate
 system components described in the system guide.
-
-That status describes the **current implementation**. In the approved target
-model, `ContentPackage` is immutable and has no rendering/posting status. A
-durable `GenerationRun` creates the package, a `RenderRun` creates verified
-preview and delivery assets, a `ReviewRequest` owns human approval, and
-delivery begins only from that approval. Until migration, current table/status
-names are current-state facts rather than permission to bypass the target
-review boundary.
 
 ## Capability Contract
 
@@ -43,10 +41,10 @@ Determination may select this capability only when all of these are true:
   enabled for the frozen capability version.
 
 The versioned capability snapshot records `pipeline_id`, destination account,
-format, accepted input constraints, visual profile, content-contract version,
-estimated model stages/cost class, and prerequisite availability. Intake may
-clarify a weak brief, but Determination owns the authoritative
-eligible/unsuitable/unavailable decision.
+format, allowed renderer-profile set and selection policy, content-contract
+version, estimated model stages/cost class, and prerequisite availability.
+Intake may clarify a weak brief, but Determination owns the authoritative
+accepted/not-recommended/blocked decision.
 
 The route-neutral coverage identity is the normalized teaching target. Content
 identity adds the immutable revision ID, pipeline, account, format, and
@@ -114,22 +112,30 @@ BriefRevision and ContentJob.
 Unavailable or invalid Gemini metadata fails visibly. The pipeline must not
 silently replace it with hardcoded tags or hashtags.
 
-## Templates and Visual Rendering
+## Shared Profile Selection and Visual Rendering
 
-| Slide type | Template ID |
+| Slide type | Selected shared profile |
 | --- | --- |
-| `hook` | `o2_hook_centered_v1` |
-| `explanation` | `o2_explanation_standard_v1` |
-| `use_case_monologue` | `o2_usecase_monologue_v1` |
-| `use_case_dialogue` | `o2_usecase_dialogue_v1` |
+| `hook` | `hook_emphasis_v1` |
+| `explanation` | `concise_explainer_v1` |
+| `use_case_monologue` | `monologue_card_v1` |
+| `use_case_dialogue` | `chat_dialogue_v1` |
 
-The O2 visual profile requires vertical 1080×1920 slide images using the
-`neutral_v1` palette and the layout appropriate to the resolved template. The
-separate Visual Renderer produces reviewable HTML/PNG previews and the final
+O2 uses these renderer-owned, generic profiles with a compatible neutral visual
+treatment for vertical 1080×1920 slides. The pipeline may select one or more
+of them for a package only according to this role mapping; the exact selected
+profile/template/version is frozen in that package's visual specification. It
+uses the shared `html_playwright_v1` provider: versioned local HTML/CSS
+templates render structured package content through local Playwright Chromium.
+The separate Visual Renderer produces reviewable HTML/PNG previews and final
 delivery-ready JPEG assets. Rendering and the versioned PNG-to-JPEG conversion
-are deterministic and do not use an LLM.
+are deterministic and do not use an LLM. The reusable renderer, local-font,
+asset, and quality boundary is defined in the
+[Visual Rendering specification](../specs/visual-rendering.md).
 
-The resolved template identifier and format-specific rendering specification belong to this pipeline rather than to the generic system interface.
+O2 owns its format-specific role mapping and selection constraints. The Visual
+Rendering Layer owns the selected shared profile/template implementation and
+execution of the frozen specification; O2 never calls a renderer directly.
 
 The target manifest binds package/content hash, template and renderer version,
 conversion-contract version, ordered slide role, canonical asset key, MIME
@@ -139,30 +145,7 @@ does not convert or repair them.
 
 ## Instagram Delivery
 
-### Current adapter path
-
-The Instagram adapter delivers an already-rendered, validated package through the Instagram Graph API:
-
-1. Convert each rendered PNG to JPEG with Pillow.
-2. Upload JPEGs to the configured public Cloudflare R2 bucket and retain their public URLs only for the delivery attempt.
-3. Create one Instagram carousel-item container per staged image.
-4. Create a carousel parent container with the ordered child container IDs and immutable package caption.
-5. Poll parent-container readiness up to five times, at five-second intervals.
-6. Publish the ready parent container to the configured Instagram professional account.
-7. Record child and parent container IDs with the posting attempt, then delete temporary staged R2 objects in a `finally` cleanup path.
-
-The adapter requires 2–10 image assets. This package's 5–8 slide contract is
-valid for the target. Any failure before publication is returned to the Posting
-Agent as an attempt result. Read [the system guide](../system.md) for the
-approved human-review policy and operating model. This current adapter path
-does not yet provide that target safety boundary and must not be enabled as the
-continuous Posting Agent until the review migration is complete.
-
-`post_attempts` records every delivery attempt and outcome.
-`instagram_containers` records each child and parent container ID for the
-request. These are Posting Agent audit records, never pipeline creative state.
-
-### Approved target path
+### Delivery path
 
 After migration, the adapter receives a claimable `PostRecord` created from a
 human-approved `PostRequest` and an exact final-delivery manifest:
@@ -178,9 +161,12 @@ human-approved `PostRequest` and an exact final-delivery manifest:
 6. Queue R2 cleanup independently of publication outcome.
 
 Target delivery uses `PostRequest`, `PostRecord`, `PostAttempt`,
-`PublicationResource`, and `DeliveryCleanupTask`. A read-only reconciliation
-worker may investigate `publication_unknown`; neither it nor the dashboard can
-retry or publish.
+`PublicationResource`, `DeliveryCleanupTask`, and the persisted reconciliation
+records. A read-only reconciliation worker may investigate
+`publication_unknown`; neither it nor the dashboard can retry or call
+Instagram directly. The dashboard’s explicit **Post now** command atomically
+creates the immutable `PostRequest` and initial immediate `PostRecord`; the
+Posting Agent claims that record.
 
 ### Required delivery configuration
 
@@ -216,9 +202,9 @@ The implementation is acceptable when:
 - Generated packages satisfy the slide contract, ordering rules, word limits, and metadata validation.
 - A durable GenerationRun retains accepted slides across metadata retry and
   process restart; every Gemini attempt is auditable.
-- Renderer output is 1080×1920, maps every slide type to the template IDs above
-  without changing package content, and manifests final JPEG hashes before
-  review.
+- Renderer output is 1080×1920, maps every slide type to the shared profile
+  selection above without changing package content, and manifests final JPEG
+  hashes before review.
 - Approval binds the exact package and final-delivery manifest shown to the
   human; missing, expired, or hash-mismatched assets cannot be approved.
 - The target adapter stages the approved JPEG bytes, creates ordered child
@@ -232,11 +218,13 @@ Boundary tests cover capability eligibility, generation checkpoints,
 generation/metadata validation, template resolution, final asset manifests,
 review/hash binding, posting-request construction, fenced claims,
 unknown-publication behavior, Graph API delivery steps, reconciliation, and
-cleanup. The root smoke-test script exercises the isolated **current** posting
-path with explicit credentials; it is not part of the target production
-workflow and does not substitute for human approval.
+cleanup. Any live smoke test must exercise the same approval and immutable-asset
+boundary with explicit credentials and authorization; it is not a substitute
+for human approval.
 
 ## Related Documents
 
 - [System guide](../system.md)
+- [Visual Rendering specification](../specs/visual-rendering.md)
+- [Posting Agent specification](../specs/posting.md)
 - [Meta platform reference](../platforms/meta.md)

@@ -1,9 +1,10 @@
 # Dashboard and HAI Specification
 
-**Status:** Approved target design; current dashboard is read-only and partial.
-**Owner:** Dashboard read model, narrow human commands, worker freshness, and
-operational visibility.
-**Read this for:** Dashboard/UI work, human idea/review flows, worker cadence,
+**Document role:** Tier 2 target design contract. It defines the required
+Human–Agent Interface; verify implementation conformance from code and tests.
+**Owner:** Dashboard read model, narrow human commands, health presentation,
+and operational visibility.
+**Read this for:** Dashboard/UI work, human idea/review flows, health display,
 alerts, or reporting. Read [the system guide](../system.md) first and the
 [data model](data-model.md) before changing persisted records.
 
@@ -14,29 +15,48 @@ external publication.
 
 ## Boundary
 
-The target dashboard has a read model over SQLite and only four human command
-paths:
+The dashboard reads its reporting state from SQLite and writes only these
+types of human command:
 
-1. append a human message to a `ContentThread` (new idea or revision);
-2. decide `approve_now`, `schedule`, or `reject` on an awaiting review request;
-3. cancel an unclaimed/scheduled `PostRequest` before its final publication
-   request; and
-4. record a reconciliation decision for terminal `publication_unknown` after a
-   read-only external investigation.
+1. atomically open/continue a `ContentThread`, append its human message, and
+   create the pending `IntakeRequest`;
+2. decide `post_now`, `schedule`, `request_changes`, or `reject` on an awaiting
+   review request;
+3. cancel an eligible scheduled `PostRecord` before its final publication
+   request;
+4. create a read-only `ReconciliationRequest` for terminal
+   `publication_unknown`; and
+5. record a human reconciliation decision against the exact completed checks.
 
 Commands validate the displayed record version and write their narrowly defined
 records in a short SQLite transaction. They never call Gemini, render assets,
 start/retry a worker, stage R2 media, or call a social API. All reporting opens
 SQLite read-only and never initializes, migrates, repairs, or resets it.
 
+From the user’s perspective, **Post now** posts the selected content. The
+dashboard records an immediate, explicit `PostRequest`; the Posting Agent
+claims its policy-eligible `PostRecord` on its normal polling cycle and makes
+the Instagram API call. This
+durable handoff provides an audit trail, prevents duplicate clicks from causing
+duplicate publication, and keeps the dashboard free of delivery logic.
+
 ### Human-action rules
 
 - **New idea / revise:** opens or continues a thread; never edits a historical
-  revision, job, package, review, or post.
-- **Approve now:** creates one immediate `PostRequest`; **schedule** creates
-  one scheduled request; **reject** ends that review request without delivery.
+  revision, job, package, review, or post. The message and Intake request are
+  one transaction and duplicate submission uses a command idempotency key.
+- **Post now:** approves the exact package/render hashes and atomically creates
+  one `delivery_mode=immediate` Post Request plus its initial Post Record. Its
+  actual eligibility follows the active posting policy; the UI shows whether
+  that means now, the next compliant slot, or blocked configuration before
+  confirmation. **Schedule** does the same with a requested time and computed
+  policy slot. **Reject** ends that review request without delivery.
+- **Request changes:** marks the review `changes_requested` and atomically
+  appends the change note as a thread message plus a pending Intake request for
+  a new revision. It never edits the reviewed package.
 - **Cancel delivery:** is available only before an attempt sends the final
-  publication request. It records cancellation and never deletes creative.
+  publication request. It cancels the eligible Post Record and its
+  authorization consistently and never deletes creative.
 - **Publication unknown:** has no retry/publish control. The dashboard shows
   the audit and reconciliation result. A new publication needs a new explicit
   approval.
@@ -51,13 +71,13 @@ safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 | Area | Required visibility | Primary question |
 | --- | --- | --- |
 | System overview | Schema version, DB path/size, local disk headroom, worker freshness, active/stale/failed counts, O2 account, today’s posts, review count, Gemini totals | Is the system alive, safe, and progressing? |
-| Worker health | `worker_runs`, current claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason | Which component needs attention? |
-| Detection | Runs, source-instance health/degradation, observations/snapshots, candidates, score/fingerprint/version, cluster members, shortlist, consumed/rejected/cooldown/evidence change | Why was an opportunity selected, deferred, or blocked? |
-| Threads and intake | New-idea entry, origin, complete conversation, clarification state, revisions/parents, source evidence, linked work | What did I ask for and what changed? |
-| Determination | Requests/leases, frozen input, capability snapshot, decision/reasoning/alternatives/identities, Gemini usage, job/rejection | Why did the system choose/refuse a route? |
+| Worker health | Current `worker_heartbeats`, substantive `worker_runs`, claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason | Which component needs attention? |
+| Detection | Enabled source-instance registry/configuration version, health/degradation, observations/snapshots, candidates, score inputs/fingerprint/formula version, cluster members, shortlist policy/rank/budget, consumed/not-recommended/cooldown/evidence change | Why was an opportunity selected, deferred, or blocked? |
+| Threads and intake | New-idea entry, origin, complete conversation, Intake requests/claims, clarification state, revisions/parents, source evidence/events, linked work | What did I ask for and what changed? |
+| Determination | Requests/leases, frozen input, capability snapshot, decision outcome/reasoning/alternatives/identities, Gemini usage, resulting job when accepted | Why did the system choose/refuse a route? |
 | Production/content | Jobs/leases, recipe, package creative/caption/tags/hashtags/citations, identities/hashes, contract/model versions, validation | What was generated and is it valid? |
 | Rendering | Runs/leases, renderer/template versions, manifest verification, ordered preview/assets/dimensions/checksums, failure/recovery | Are exact assets ready and trustworthy? |
-| Review queue | Final asset preview, caption/tags/hashtags, source/brief/decision context, package identity, age, approve/schedule/reject/revise actions | What is ready for my decision? |
+| Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, approve/schedule/reject/request-changes actions | What exact immutable output is ready for my decision? |
 | Delivery | Requests, cadence, records, attempts, typed errors, final-request boundary, external IDs, R2 cleanup, unknown outcomes, reconciliation | What is queued, published, uncertain, or awaiting cleanup? |
 | Costs/audit/search | Model attempts/tokens/cost, worker errors, migrations, deduplication decisions, full audit search | What happened and what did it cost? |
 
@@ -84,10 +104,12 @@ in chronological order.
 
 This is the priority view. Order by oldest awaiting review, then descending
 priority; filter by pipeline/account. A review card shows the final local
-assets—not a regenerated preview—alongside all metadata, sources, destination,
-identity, and warnings. Approval confirms that Instagram is public and
-irreversible. Scheduling shows the computed cadence slot before the command is
-written.
+delivery assets—not a regenerated preview or R2 copy—alongside all metadata,
+sources, destination, content hash, manifest hash, asset hashes, identity,
+freshness, and warnings. The command includes the displayed record version;
+approval revalidates every binding in its transaction. Approval confirms that
+Instagram is public and irreversible. Scheduling shows the requested time and
+computed cadence slot before the command is written.
 
 ### Delivery view
 
@@ -98,41 +120,35 @@ Keep human intent and external state distinct:
 - `PostAttempt`: which delivery stage was reached.
 - `PublicationResource`: which remote object/container exists.
 - `DeliveryCleanupTask`: whether transient media is still retained.
+- `ReconciliationRequest` / `ReconciliationCheck`: what read-only
+  investigation was authorized and observed.
 
 No control retries a failure. Safe retries are worker policy. The only human
 options are a new revision, a new approval, a pre-publication cancellation, or
 reconciliation of an uncertain publication.
 
-## Freshness, cadence, and stale-state policy
+## Freshness and stale-state presentation
 
-Use local SQLite polling. Every worker writes a `worker_runs` heartbeat at
-start and completion, including no-work polls. Freshness is calculated from
-heartbeat, last success, active lease, and configured cadence—not a browser or
-in-memory flag.
+Every worker updates its current `worker_heartbeats` row on each poll and
+creates `worker_runs` only for substantive claimed work. The dashboard
+calculates freshness from that heartbeat, last substantive success, active
+lease, and the configured cadence—not a browser or in-memory flag. The worker schedule, poll behavior, and worker-specific
+fresh/warn/stale thresholds are owned by the
+[worker runtime specification](runtime.md).
 
-| Component | Normal cadence | Behavior | Fresh / warn / stale |
-| --- | --- | --- | --- |
+| Component | Refresh behavior | Fresh / warn / stale |
+| --- | --- | --- |
 | Dashboard, visible | 10 seconds | One consistent local SQLite snapshot; no external call | ≤20 s / >20 s / >60 s or read failure |
 | Dashboard, hidden | No polling; refresh on return | Avoid needless local load | Shows prior snapshot age |
-| Trend Scout | 15 minutes | Collect, normalize, persist complete scored set, then shortlist | ≤20 min / >20 min / >45 min |
-| Trend Shortlist | Same Scout transaction | Select from just-persisted scored set | Same as parent Scout run |
-| Idea Intake Agent | 30 s with unread human messages; 5 min health poll otherwise | Clarify or freeze revision | ≤1 min / >1 min / >3 min with pending input |
-| Determination Worker | 30 seconds | Drain pending requests; no Gemini call when empty | ≤1 min / >1 min / >3 min with pending work |
-| Pipeline Runner | 30 seconds | Drain pending jobs | ≤1 min / >1 min / >3 min with pending work |
-| Visual Renderer | 30 seconds | Drain pending render runs | ≤1 min / >1 min / >3 min with pending work |
-| Review availability | Created atomically after successful manifest | No separate worker | Next dashboard refresh (≤10 s) |
-| Posting Agent | 15 seconds | Claim due approved/scheduled records; safe retries only | ≤30 s / >30 s / >90 s when due work exists |
-| Cleanup Worker | 5 minutes | Drain safe cleanup tasks | ≤10 min / >10 min / >20 min with pending cleanup |
-| Publication reconciliation | Human request; optional 15-min check while unknown exists | Read-only external lookup, no retry/publish | Show last check; warning until resolved |
 
 Do not call an active leased item stale before its `lease_expires_at`. After
 expiry, label the individual record **stale claim**, separately from ordinary
 backlog. `publication_unknown` is terminal and high visibility, never an item
 for automatic stale recovery.
 
-The 10-second dashboard cadence is intentionally faster than workers so human
-state changes appear promptly without API cost. Manual browser refresh is the
-same read-only operation.
+The dashboard’s 10-second visible refresh is intentionally faster than workers
+so human state changes appear promptly without API cost. Manual browser refresh
+is the same read-only operation.
 
 ## Alerts and visual language
 
@@ -146,3 +162,21 @@ same read-only operation.
 Never mask errors with a green aggregate. Every amber/red count links to the
 specific records with safe error summary, last success, owning worker, and the
 only allowed next action.
+
+## Acceptance requirements
+
+Implementation and boundary tests must demonstrate that:
+
+- reporting connections cannot initialize, migrate, repair, or mutate SQLite;
+- each human command validates target version and a unique command idempotency
+  key, and duplicate submission returns the original result;
+- message + Intake-request creation and approval + request/record creation are
+  atomic;
+- review shows and approves the exact canonical delivery assets and stored
+  hashes, and stale/mismatched output cannot be approved;
+- cancellation racing a worker claim/final-request marker cannot cancel or
+  duplicate an external publication;
+- no dashboard action directly invokes Gemini, a renderer, a worker, R2, or a
+  social API; and
+- worker freshness and publication uncertainty remain correct after browser
+  close/reopen and worker restart.

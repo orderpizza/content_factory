@@ -4,45 +4,77 @@ This is the primary Human–Agent Interface (HAI) and the current source of
 truth for Content Factory. It is deliberately a map, not an encyclopedia:
 read it first, then open only the focused specification needed for the task.
 
+## Documentation Contract
+
+The documentation is a two-tier, repository-local system of record for people
+and Codex:
+
+- **Tier 1 — this guide:** the stable architectural map. It defines shared
+  boundaries, names the canonical owner of each concern, and routes a task to
+  the detailed contract. It contains no field-level schema or implementation
+  recipe.
+- **Tier 2 — focused contracts and references:** the documents routed below.
+  Each owns one concern and is the only place its detailed rules are changed.
+  `specs/` documents define the required target behavior; `pipelines/` defines
+  a pipeline contract; `platforms/` records provider facts; `archive/` is
+  historical rationale only.
+
+The documentation is not a live implementation-status tracker. It defines the
+intended architecture. Current behavior is verified from code, tests, and
+explicit migration notes. Provider facts are time-sensitive and carry a
+verification date. A summary in one document must link to its canonical Tier 2
+owner rather than restate detailed rules.
+
 ## Document Router
 
 | Work | Required follow-up reference |
 | --- | --- |
 | Schema, migrations, statuses, handoffs, or SQLite models | [Data model](specs/data-model.md) |
-| Dashboard, human actions, worker cadence, freshness, or visibility | [Dashboard and HAI](specs/dashboard.md) |
-| Detection quality, recovery, rendering, posting, R2, Gemini accounting, or 24/7 safety | [Reliability and safety](specs/reliability.md) |
+| Dashboard, human actions, freshness display, or visibility | [Dashboard and HAI](specs/dashboard.md) |
+| Worker scheduling, polling, launch/restart, cadence, or runtime ownership | [Worker runtime](specs/runtime.md) |
+| Detection sources, normalization, scoring, selection, recurrence, or evidence quality | [Detection specification](specs/detection.md) |
+| Human idea intake, brief revisions, capability selection, or determination outcomes | [Idea Intake and Determination](specs/idea-intake-and-determination.md) |
+| Shared renderer tools, visual profiles/templates, fonts, local assets, or render quality | [Visual rendering](specs/visual-rendering.md) |
+| Post now, schedule, cancellation, delivery attempt, platform adapter, R2 staging, or reconciliation | [Posting Agent](specs/posting.md) |
+| Worker recovery, idempotency, artifact integrity, Gemini accounting, or external-side-effect safety | [Reliability and safety](specs/reliability.md) |
 | O2 content/metadata/format or Instagram delivery contract | [O2 English Instagram pipeline](pipelines/o2-english-instagram.md) |
 | Meta accounts, permissions, tokens, or Graph API facts | [Meta platform reference](platforms/meta.md) |
 
 The historical [decision archive](archive/decisions.md) is preserved for a
 specific rationale lookup. It is not required working context.
 
+### Required reading for a code change
+
+Always read this Tier 1 guide first. Then read every Tier 2 document named for
+the change below before modifying code. The list is intentionally cumulative:
+for example, changing a post lifecycle may require data, runtime, reliability,
+dashboard, pipeline, and platform contracts.
+
+| Planned change | Required Tier 2 reading |
+| --- | --- |
+| Detection source, aggregation, score, shortlist, or trend recurrence | `specs/detection.md`, `specs/data-model.md`, `specs/runtime.md`; add `specs/dashboard.md` when visibility changes |
+| Persisted model, status, identity, migration, or SQLite boundary | `specs/data-model.md` plus every owning specification affected by that record |
+| Human idea, revision, brief, capability catalog, determination, or routing outcome | `specs/idea-intake-and-determination.md`, `specs/data-model.md`, `specs/dashboard.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes and the selected pipeline reference when capability eligibility changes |
+| Dashboard reporting view only | `specs/dashboard.md`, `specs/data-model.md` |
+| Review decision, Post now, schedule, delivery cancellation, or reconciliation command | `specs/dashboard.md`, `specs/data-model.md`, `specs/posting.md`, `specs/runtime.md`, `specs/reliability.md`; add the selected pipeline/platform references for destination-specific behavior |
+| Worker process, schedule, lease, retry, startup, shutdown, or health | `specs/runtime.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/dashboard.md` when cadence or freshness presentation changes |
+| Shared renderer tool/provider, profile/template, font, local visual asset, or render validation | `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes |
+| O2 content, metadata, visual format, capability eligibility, or package validation | `pipelines/o2-english-instagram.md`, `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/idea-intake-and-determination.md` when capability eligibility/routing changes |
+| Posting Agent, delivery lifecycle, R2 staging, publication, or reconciliation | `specs/posting.md`, `specs/data-model.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`; add pipeline/platform references for the selected destination |
+| Instagram/Meta account, credentials, or Graph API behavior | `platforms/meta.md`, `pipelines/o2-english-instagram.md`, `specs/posting.md`, `specs/data-model.md`, `specs/reliability.md` |
+| Gemini invocation, token/cost ledger, prompt/schema version, or provider-attempt outcome | `specs/data-model.md`, `specs/reliability.md`, and the owning Gemini-stage contract: `specs/idea-intake-and-determination.md` or the selected pipeline reference |
+| Migration or target-schema cutover | `specs/data-model.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`, plus every owning specification whose records are migrated |
+
+When a change alters a contract, update the canonical Tier 2 document in the
+same change as the code and boundary tests. Update this guide only if the
+system boundary, routing, or document ownership changes.
+
 ## Current Objective
 
-Prove that `o2_english_instagram` can run continuously on the Mac Mini: it
+Prove that `o2_english_instagram` can run on the Mac Mini: it
 discovers or accepts an idea, produces and renders an O2 English carousel,
 makes it available for human review, and publishes to Instagram only after
 human approval. Expansion follows only after this loop is reliable.
-
-“24/7” means continuous automated movement through safe stages. It does not
-mean autonomous public posting.
-
-## Current State
-
-| Area | Current implementation | Approved target |
-| --- | --- | --- |
-| Trend detection | Deterministic and SQLite-persisted | One opportunity source with normalized evidence and duplicate controls |
-| Human ideas/revisions | Not implemented | Free-text conversations and source-neutral immutable revisions |
-| Determination | Trend-shaped handoffs; static O2 catalog | Normalized trend/human revisions; enabled capability catalog |
-| O2 pipeline | Fixed 5–8 slide Instagram idiom carousel | Only production pipeline until reliability is proven |
-| Visual rendering | Deterministic HTML/CSS + Playwright O2 renderer | Shared renderer catalog with verified asset manifests |
-| Posting | SQLite queue, Instagram/R2 adapter, retry/audit records | Human review gate, conservative external-side-effect policy |
-| Dashboard | Partial read-only reporting | Sole HAI with complete visibility and narrow persisted human commands |
-| External readiness | R2 and Meta read-only checks passed | One explicit live O2 post remains to be proven |
-
-No live Instagram post has yet been made by this system. Token renewal,
-production media retention, worker supervision, human intake/review, complete
-dashboard coverage, and target schema implementation remain work to do.
 
 ## Components, Inputs, and Persisted Outputs
 
@@ -50,142 +82,128 @@ Components do work. Records are persisted handoffs. They are not interchangeable
 names. SQLite is the authoritative cross-worker boundary; the dashboard renders
 that state and writes only its approved human command records.
 
-### Current implemented flow
+### Target persisted flow
+
+Every arrow label below is a persisted input or output. Components never call
+the next component directly. The combined state/dashboard entity is SQLite as
+the source of truth plus its read/write Human–Agent Interface.
 
 ```mermaid
-flowchart LR
-    external([External sources]) -->|observations| detector
-
-    subgraph workers[Workers — processing order]
-        direction TB
-        detector[1. Trend Detector]
-        shortlist[2. Trend Shortlist Policy]
-        determination[3. Determination Worker]
-        runner[4. Pipeline Runner]
-        pipeline[5. O2 English Instagram Pipeline]
-        renderer[6. Visual Renderer]
-        posting[7. Posting Agent]
-        adapter[8. Instagram carousel adapter]
-        detector ~~~ shortlist ~~~ determination ~~~ runner ~~~ pipeline ~~~ renderer ~~~ posting ~~~ adapter
-    end
-
-    state[(Content Factory State & HAI<br/>SQLite handoffs + read-only dashboard)]
-    instagram([Instagram])
-
-    detector -->|TrendCandidate| state
-    state -->|scored candidates| shortlist
-    shortlist -->|selected DeterminationRequest| state
-    state -->|pending request| determination
-    determination -->|DeterminationDecision; accepted ContentJob| state
-    state -->|pending job| runner
-    runner -->|internal dispatch| pipeline
-    pipeline -->|ContentPackage awaiting_render| state
-    state -->|package awaiting render| renderer
-    renderer -->|final assets; ready_for_posting| state
-    state -->|ready package and due post| posting
-    posting -->|delivery state| state
-    posting -->|due delivery| adapter
-    adapter -->|carousel| instagram
-    adapter -->|attempt/container audit| state
-
-    classDef gemini fill:#ede9fe,stroke:#7c3aed,color:#2e1065
-    class determination,pipeline gemini
-```
-
-Current record distinctions:
-
-- A `TrendCandidate` is durable scored evidence. The shortlist applies the
-  score/top-N policy and creates a frozen `DeterminationRequest` only for
-  selected work.
-- A `DeterminationDecision` records why an opportunity was accepted or
-  rejected. A `ContentJob` exists only for an accepted decision and contains
-  the executable recipe.
-- A `ContentPackage` is the actual platform-specific creative and metadata.
-  Current rendering updates its assets; the target separates immutable package,
-  render run, and review state in the data model.
-- Current `posts` combines a delivery request and outcome. The target separates
-  `PostRequest`, `PostRecord`, attempts, resources, and cleanup.
-
-### Approved target extension
-
-```mermaid
-flowchart LR
-    human([Human free-text idea or rework]) --> dashboard[Dashboard HAI]
-    state[(Content Factory State & HAI<br/>SQLite source of truth)]
+flowchart TB
+    sources([External RSS/Atom feeds<br/>and Wikimedia page views])
+    human([Human idea or rework])
+    state[(Content Factory State & Dashboard HAI<br/>SQLite source of truth)]
+    scout[Trend Scout + Shortlist]
     intake[Idea Intake Agent]
-    determination[Determination]
+    determination[Determination Worker]
+    runner[Pipeline Runner]
+    pipeline[Selected platform-format pipeline]
+    renderer[Visual Renderer]
     review[Human review]
     posting[Posting Agent]
+    adapter[Selected platform adapter]
+    social([Social platform])
 
-    dashboard -->|thread message / review command| state
-    state -->|conversation| intake
-    intake -->|immutable BriefRevision| state
-    state -->|frozen revision| determination
-    determination -->|decision and accepted job| state
-    state -->|verified render| review
-    review -->|approved/scheduled PostRequest| state
-    state -->|due approved request| posting
+    sources -->|raw observations| scout
+    scout -->|every scored TrendCandidate; selected ContentThread + IntakeRequest| state
+    human -->|thread message + IntakeRequest| state
+    state -->|claimable IntakeRequest + frozen input boundary| intake
+    intake -->|clarification or immutable BriefRevision + DeterminationRequest| state
+    state -->|frozen revision + capability snapshot| determination
+    determination -->|DeterminationDecision; accepted ContentJob only| state
+    state -->|claimable ContentJob| runner
+    runner -->|GenerationRun input| pipeline
+    pipeline -->|validated GenerationRun; immutable ContentPackage + visual specification| state
+    state -->|claimable RenderRun| renderer
+    renderer -->|verified RenderAsset manifest; ReviewRequest| state
+    state -->|exact final assets + metadata| review
+    review -->|approved PostRequest + initial PostRecord, changes, or rejection| state
+    state -->|due claimable PostRecord| posting
+    posting -->|validated immutable delivery input| adapter
+    adapter -->|publication result/resources| state
+    adapter -->|published content| social
 
     classDef gemini fill:#ede9fe,stroke:#7c3aed,color:#2e1065
-    class intake,determination gemini
+    class intake,determination,pipeline gemini
 ```
 
-The dashboard never calls the next component directly. Workers consume the
-records written by the preceding component.
+Key record distinctions:
+
+- The Scout persists **every** `TrendCandidate`; only a selected candidate
+  atomically opens a trend `ContentThread` and pending `IntakeRequest`.
+- Human idea/rework commands atomically append their message and create the
+  pending Intake request. The Idea Intake Agent never relies on unread-message
+  inference or an in-memory handoff.
+- `BriefRevision` is the shared immutable input for trend-originated and
+  human-originated editorial work. Determination produces one decision and a
+  `ContentJob` only when accepted.
+- `ContentJob` is an executable recipe; `GenerationRun` is a validated creative
+  checkpoint; `ContentPackage` is immutable platform-specific creative and
+  metadata.
+- `RenderRun` produces the exact final assets reviewed by a human. Approval
+  creates a `PostRequest`; the Posting Agent records delivery in a `PostRecord`
+  and its attempts/resources.
+- The dashboard persists only the human message/Intake handoff and the narrow
+  delivery/review/reconciliation commands. It never invokes an agent or a
+  platform API directly.
+
+The Pipeline Runner is the production worker process. Registered pipelines are
+in-process, platform/format-specific strategy implementations selected from the
+claimed job; they are not separately scheduled worker services. The runner
+persists a `GenerationRun`, invokes the selected strategy within its bounded
+responsibility, and persists the strategy result. SQLite remains the boundary
+before the runner and after generation, so this internal dispatch does not
+create a direct cross-worker call.
 
 ## Opportunity Intake and Revisions
 
 Trend detection stays deterministic and LLM-free. It measures attention; it
-does not create content. Automatic trend recurrence is conservative: accepted
-candidates are consumed, while rejected candidates need both a three-day
-cooldown and materially changed evidence before reconsideration.
+does not create content. The detailed source, scoring, selection, and
+recurrence contract is in the [detection specification](specs/detection.md).
 
 Human intake is a dashboard conversation, not a mandatory form. The Idea Intake
 Agent may ask concise questions or make suggestions, but never silently drops a
-submitted idea. Once sufficient context exists, it freezes an immutable
-`BriefRevision` for Determination.
+submitted idea. Every submitted turn has a durable `IntakeRequest`. Once
+sufficient context exists, Intake atomically freezes an immutable
+`BriefRevision` and its pending Determination request.
 
 `ContentThread` is the source-neutral history for an idea. A selected trend and
 a human conversation each start a thread. Revision 1 is the first agreed brief;
 a later instruction such as “make this more humorous” creates Revision 2 in the
 same thread. Historical jobs, packages, reviews, and posts are never edited.
 This revision model applies equally to trend-originated and human-originated
-work. The detailed records and duplicate rules are in the
-[data model](specs/data-model.md) and [reliability specification](specs/reliability.md).
+work. The detailed records, trend recurrence, and duplicate rules are in the
+[data model](specs/data-model.md) and [detection specification](specs/detection.md).
+The detailed intake, freeze, capability-selection, and decision contract is in
+[Idea Intake and Determination](specs/idea-intake-and-determination.md).
 
 ## Determination, Production, and Posting Boundaries
 
 Determination decides whether and how a normalized opportunity becomes a
 production recipe. It evaluates registered capabilities; it does not generate
-content or call pipelines. O2 English Instagram is the only active capability.
+content or call pipelines. O2 English Instagram is initially the sole enabled
+capability.
+Its outcome contract is owned by
+[Idea Intake and Determination](specs/idea-intake-and-determination.md).
 
 `ContentJob` is a recipe. The O2 pipeline creates the actual `ContentPackage`:
 creative, caption, tags, hashtags, citations, and visual specification. The
-renderer produces assets; Posting uses persisted creative and assets unchanged.
+shared [Visual Rendering Layer](specs/visual-rendering.md) renders that frozen
+specification through a versioned local renderer provider. The renderer owns
+reusable visual profiles; each pipeline selects one or more compatible profiles
+for its content/format, then persists that resolved selection. Posting uses the
+persisted creative and verified assets unchanged.
 
-Every ready package enters human review in the target. You can approve now,
+Every ready package enters human review in the target. You can **Post now**,
 schedule, reject, request a revision, or cancel an unclaimed scheduled delivery.
-Instagram `media_publish` is public and irreversible; no private/draft outcome
-exists for this carousel path. Publication safety, retries, R2 cleanup, and
-uncertain outcomes are owned by [reliability](specs/reliability.md).
-
-## 24/7 Operating Model
-
-```text
-continuous automated work:
-  Scout → Shortlist → Intake/Determination → Pipeline → Renderer → review queue
-
-human gate:
-  approve now / schedule / reject / revise / cancel before publication
-
-continuous delivery work:
-  Posting → attempt audit → publication or reconciliation → R2 cleanup
-```
-
-Each worker operates through SQLite polling and persisted leases. The approved
-cadence, health calculation, and stale thresholds are maintained in the
-[dashboard specification](specs/dashboard.md); recovery and external-side
-effect rules are maintained in [reliability](specs/reliability.md).
+**Post now** is the dashboard action for an actual post: it durably creates
+an immediate-mode `PostRequest` and initial `PostRecord`; the Posting Agent
+claims the record when the active posting policy makes it due and delivers it. The
+dashboard never calls Instagram directly. Instagram `media_publish` is public
+and irreversible; no private/draft outcome exists for this carousel path.
+The generic delivery lifecycle is owned by the [Posting Agent](specs/posting.md).
+Publication safety, retries, R2 cleanup, and uncertain outcomes are owned by
+[reliability](specs/reliability.md).
 
 ## Local Operation and Verification
 
@@ -219,10 +237,15 @@ database/package.
 
 | Document | Owns | Must not duplicate |
 | --- | --- | --- |
-| `system.md` | Current objective/status, responsibility boundaries, high-level architecture, document router | Field-level schema, dashboard columns/cadence, or safety implementation detail |
+| `system.md` | Current objective, responsibility boundaries, high-level architecture, document router | Field-level schema, dashboard columns/cadence, or safety implementation detail |
 | `specs/data-model.md` | Tables, fields, statuses, constraints, migrations | Generic component ownership or vendor API facts |
-| `specs/dashboard.md` | Visibility, HAI commands, navigation, cadence, stale/alert policy | Database field definitions or worker implementation internals |
-| `specs/reliability.md` | Recovery, identities, quality, rendering/posting/configuration safety | UI layout or table-level schema inventory |
+| `specs/dashboard.md` | Visibility, HAI commands, navigation, freshness display, stale/alert policy | Database field definitions or worker implementation internals |
+| `specs/runtime.md` | Worker process boundaries, scheduler/supervisor contract, polling cadence, claim/no-work/restart behavior | Dashboard layout, field-level schema, or social API contract |
+| `specs/detection.md` | Detection sources, evidence, normalization, scoring, shortlist selection, recurrence | Worker recovery, dashboard layout, or table-level schema inventory |
+| `specs/idea-intake-and-determination.md` | Free-text intake, brief freeze, capability catalog, AI decision outcomes, and decision acceptance tests | Detection algorithms, field-level schema, delivery safety, or creative generation |
+| `specs/visual-rendering.md` | Shared local renderer providers, reusable profile/template registry, fonts/assets, deterministic rendering, and quality direction | Pipeline editorial layouts, field-level schema, worker scheduling, or delivery safety |
+| `specs/posting.md` | Generic Posting Agent lifecycle, adapter invocation, delivery staging, resources, and reconciliation input | Provider API facts, pipeline format requirements, schema fields, or retry policy |
+| `specs/reliability.md` | Cross-cutting recovery, idempotency, artifact integrity, configuration, and external-side-effect safety | Normal component/adapter lifecycle, UI layout, or table-level schema inventory |
 | `pipelines/` | Pipeline-specific content/format/delivery contracts | Generic architecture or provider account model |
 | `platforms/` | Provider accounts, permissions, API limits, sources | Pipeline creative contract |
 | `archive/` | Historical rationale | Current policy |

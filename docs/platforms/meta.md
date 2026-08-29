@@ -1,12 +1,11 @@
 # Meta: Facebook and Instagram
 
-**Content Factory status:** Active only for the o2 English Instagram carousel
-POC. Facebook publishing, Threads, messaging, advertising, token renewal, and
-multi-account management are not implemented.
+**Document role:** Tier 2 platform reference. It records provider account/API
+facts and required configuration; it is not a Content Factory implementation
+status report.
 
-**Last verified:** 2026-08-27. The local read-only credential check previously
-resolved the configured `@o2_english` Professional account. Recheck the
-official sources below before changing the adapter or Meta configuration.
+**Last verified:** 2026-08-27. Recheck the official sources below before
+changing the adapter or Meta configuration.
 
 ## Account Model
 
@@ -29,9 +28,9 @@ Meta developer app -- authorized Page access token --> Meta Graph API -- publish
   accounts. It is useful once brands, staff, or clients multiply, but it is
   not a current POC dependency.
 
-## Current Authorization Contract
+## Authorization Contract
 
-The implemented adapter uses the **Instagram API with Facebook Login** and
+The approved adapter uses the **Instagram API with Facebook Login** and
 calls `graph.facebook.com`. It requires a Professional Instagram account linked
 to a Page administered by the authorizing Facebook identity.
 
@@ -50,38 +49,23 @@ pages_show_list
 pages_read_engagement
 ```
 
-`INSTAGRAM_ACCESS_TOKEN` is a bearer secret and remains local only. The app ID
-and app secret are not needed by the current delivery worker because it already
-has a token; they will be needed when token renewal is implemented.
+`INSTAGRAM_ACCESS_TOKEN` is a bearer secret and remains local only. Publication
+requests do not need the app ID/secret when a validated token is already
+provided; renewal will require the appropriate app credentials.
 
 For an owner-operated development app, the app administrator/developer/tester
 can authorize their own connected assets without supporting unrelated accounts.
 Opening the app to other people requires the appropriate Meta access and review
 work; do not treat the POC token as a multi-account solution.
 
-## Current Publishing Path
+## Human-Reviewed Publishing Contract
 
-1. The Posting Agent accepts a ready o2 Instagram package with 5–8 rendered
-   slides (the API accepts a carousel of 2–10 items).
-2. It converts the local PNG slides to JPEG and stages each at a temporary,
-   public HTTPS R2 URL.
-3. Meta creates child media containers, then a parent carousel container.
-4. The agent polls the parent status and calls `media_publish` only after it is
-   ready.
-5. SQLite records attempts, container IDs, and the final external media ID.
-6. The agent deletes the transient R2 objects after the attempt.
-
-Meta must be able to fetch each media URL anonymously while publishing. The
-canonical content package and rendered assets remain local; R2 is only a
-short-lived delivery relay.
-
-## Approved Human-Reviewed Target
-
-The current adapter converts PNG files to JPEG during delivery. That is a
-current implementation fact, not the approved review boundary. In the target
-Content Factory flow, the deterministic renderer creates and manifests the
-final delivery-ready JPEGs before human review. The reviewer sees those exact
-files, caption, hashtags, account, package hash, and manifest hash.
+This is Meta-specific adapter behavior. The generic request, attempt, staging,
+cleanup, and reconciliation lifecycle is owned by the
+[Posting Agent specification](../specs/posting.md). The deterministic renderer
+creates and manifests the final delivery-ready JPEGs before human review. The
+reviewer sees those exact files, caption, hashtags, account, package hash, and
+manifest hash.
 
 After approval, the Meta adapter may only reverify and stage those JPEG bytes;
 it cannot convert, regenerate, repair, or otherwise alter them. The human
@@ -96,6 +80,13 @@ container, call `media_publish`, or authorize another attempt. An unresolved
 lookup remains blocked. Only a human-confirmed not-found result may proceed to
 another explicit review approval and new publication identity.
 
+Meta must be able to fetch each staged media URL anonymously while publishing.
+The adapter uploads each already-reviewed JPEG to a temporary public HTTPS R2
+object, creates and audits ordered child and carousel-parent resources, waits
+for provider readiness, then calls `media_publish` under the safety boundary
+above. The canonical package/assets remain local; R2 is only a short-lived
+delivery relay and cleanup is an independent audited task.
+
 ## Safety and Verification
 
 - `media_publish` creates a real Instagram post. There is no private/draft
@@ -108,14 +99,14 @@ another explicit review approval and new publication identity.
   `GET /{INSTAGRAM_USER_ID}?fields=id,username` and never creates media.
 - Do not place tokens in Git, documentation, dashboards, logs, or chat.
 
-## Operational Gaps to Revisit
+## Provider and operating decisions still required
 
 - Token expiry, renewal, secure rotation, and expiry monitoring.
 - Production public-media setup and retention policy. `r2.dev` is appropriate
   only for development and is rate-limited by Cloudflare.
 - A deliberate test-account policy before the first live publication.
-- Implementation of final-JPEG review binding, the human approval gate, and
-  read-only uncertain-publication reconciliation.
+- A verified, versioned reconciliation matching rule for identifying an
+  already-published carousel without creating any provider resource.
 - Additional Meta products only when a concrete pipeline needs them.
 
 ## Official Sources

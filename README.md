@@ -1,50 +1,27 @@
 # Content Factory
 
-Local-first automated content factory POC.
+Local-first automated content factory POC. The Mac Mini is the target runtime,
+SQLite is the persisted system boundary, and the current objective is one O2
+English Instagram loop with human approval before public publication.
 
-The purpose of this repository is to prove one continuous O2 English loop with
-human approval before any public publication:
+## Start here
 
-```text
-Trend Detection
-  -> Trend Candidate
-  -> Trend Shortlist
-  -> Determination
-  -> ContentJob
-  -> One Content Pipeline
-  -> Content Package
-  -> Visual Rendering
-  -> Ready ContentPackage
-  -> Human Review
-  -> Posting Agent
-  -> Publication Record
-```
+Read [the system guide](docs/system.md) before changing architecture or code.
+It is the Tier 1 Human–Agent Interface: the current target flow, responsibility
+boundaries, and router to every focused contract.
 
-This is intentionally a proof of concept, not the final production system.
-Keep implementation choices small, local, and easy to inspect.
+## Documentation layout
 
-## Current Target
+- `docs/system.md` — Tier 1 architectural map and required-reading matrix.
+- `docs/specs/` — Tier 2 component and cross-cutting contracts.
+- `docs/pipelines/` — platform-format pipeline contracts.
+- `docs/platforms/` — time-sensitive provider account/API facts.
+- `docs/archive/` — historical rationale for targeted lookup only.
 
-The current target, implementation status, operating policy, and deferred work
-live in [docs/system.md](docs/system.md). The immediate goal is one O2 English
-Instagram end-to-end path; Content Factory will later support multiple
-platform-specific pipelines.
-
-## Source Of Truth
-
-Read these before making architectural or boundary changes:
-
-- [docs/system.md](docs/system.md) — primary Human–Agent Interface
-- [docs/specs/](docs/specs/) — task-scoped data model, dashboard, and reliability specifications
-- [docs/pipelines/o2-english-instagram.md](docs/pipelines/o2-english-instagram.md) — active pipeline contract
-- [docs/platforms/meta.md](docs/platforms/meta.md) — Meta-specific account and API reference
-
-Historical decisions are retained in
-[docs/archive/decisions.md](docs/archive/decisions.md) for targeted lookups,
-not routine review.
-
-The active o2 English Instagram contract is documented in
-[docs/pipelines/o2-english-instagram.md](docs/pipelines/o2-english-instagram.md).
+The active pipeline contract is
+[O2 English Instagram](docs/pipelines/o2-english-instagram.md). Follow the
+required-reading matrix in the system guide; do not infer architecture from
+legacy code or this README.
 
 ## Non-Goals For The Initial POC
 
