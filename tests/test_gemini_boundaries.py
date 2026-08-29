@@ -1,7 +1,7 @@
 import unittest
 
 from common.models import ContentJob
-from determination.service import GeminiCandidateEvaluator, POC_PIPELINE_CATALOG
+from determination.service import ACTIVE_PIPELINE_CATALOG, GeminiCandidateEvaluator
 from pipelines.o2_english.content import GeminiIdiomContentGenerator, GeminiIdiomMetadataGenerator
 
 
@@ -31,7 +31,7 @@ class GeminiBoundaryTests(unittest.TestCase):
             "reasoning": "Useful to the selected channel.",
         })
         result = GeminiCandidateEvaluator(client).evaluate(
-            {"topic": "break the ice", "score": 0.8}, [], POC_PIPELINE_CATALOG,
+            {"topic": "break the ice", "score": 0.8}, [], ACTIVE_PIPELINE_CATALOG,
         )
         self.assertTrue(result.should_create)
         self.assertEqual(result.pipeline.pipeline_id, "o2_english_instagram")

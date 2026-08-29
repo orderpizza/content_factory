@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from common.models import PostRecord, TrendCandidate, utc_now
 from database.sqlite import Database
 from determination.service import (
-    POC_PIPELINE_CATALOG,
+    ACTIVE_PIPELINE_CATALOG,
     CandidateEvaluator,
     Determination,
     DeterminationService,
@@ -111,7 +111,7 @@ async def run(args: argparse.Namespace) -> None:
     database.initialize()
     try:
         handoff_id = create_handoff(database)
-        determination = DeterminationService(catalog=POC_PIPELINE_CATALOG, evaluator=ForceO2Evaluator())
+        determination = DeterminationService(catalog=ACTIVE_PIPELINE_CATALOG, evaluator=ForceO2Evaluator())
         job = determination.consume_next_handoff(database)
         if job is None or job.pipeline_id != "o2_english_instagram":
             raise RuntimeError("Smoke test did not produce an o2 English ContentJob")

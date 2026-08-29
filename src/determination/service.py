@@ -19,8 +19,7 @@ class PipelineCapability:
     description: str
 
 
-POC_PIPELINE_CATALOG = (
-    PipelineCapability("poc_pipeline", "bluesky", "default", "text_card", "poc_card", "A concise Bluesky post with a deterministic visual card."),
+ACTIVE_PIPELINE_CATALOG = (
     PipelineCapability("o2_english_instagram", "instagram", "o2_english", "instagram_idiom_carousel", "o2_english_idiom_carousel_v1", "A fixed 5-8 slide Instagram idiom carousel for English learners."),
 )
 
@@ -28,7 +27,7 @@ POC_PIPELINE_CATALOG = (
 @dataclass(frozen=True)
 class Determination:
     should_create: bool
-    pipeline: PipelineCapability = POC_PIPELINE_CATALOG[0]
+    pipeline: PipelineCapability = ACTIVE_PIPELINE_CATALOG[0]
     angle: str = "Explain why this topic is gaining attention."
     audience: str = "general audience"
     objective: str = "inform"
@@ -101,7 +100,7 @@ class DeterminationService:
     invokes a content pipeline.
     """
 
-    def __init__(self, minimum_score: float = 0.25, catalog: tuple[PipelineCapability, ...] = POC_PIPELINE_CATALOG,
+    def __init__(self, minimum_score: float = 0.25, catalog: tuple[PipelineCapability, ...] = ACTIVE_PIPELINE_CATALOG,
                  evaluator: CandidateEvaluator | None = None):
         self.minimum_score = minimum_score
         self.catalog = catalog

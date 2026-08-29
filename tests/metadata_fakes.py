@@ -1,15 +1,4 @@
-from pipelines.poc.metadata import GeneratedMetadata
 from pipelines.o2_english.content import CarouselSlide, IdiomCarouselDraft, IdiomCarouselMetadata
-
-
-class FakeMetadataGenerator:
-    def generate(self, *, topic: str, body: str, audience: str, objective: str) -> GeneratedMetadata:
-        return GeneratedMetadata(
-            caption=f"A concise explanation of {topic}.",
-            tags=["education"],
-            hashtags=["#ContentFactory"],
-            model="fake-gemini",
-        )
 
 
 class FakeIdiomGenerator:

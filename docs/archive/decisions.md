@@ -445,3 +445,76 @@ the agent does not cross-post to Facebook. The local smoke test may validate
 the token read-only, but `media_publish` is a real Instagram publication with
 no private/draft mode. App ID, app secret, token expiry tracking, and renewal
 remain explicitly deferred future operational work.
+
+## 031 - System Guide Is the Primary Human–Agent Interface
+
+Date: 2026-08-29
+
+Decision: Consolidate the overlapping vision, POC, roadmap, current-status,
+architecture, system-flow, and dashboard narratives into `docs/system.md`.
+Keep exact contracts, provider references, runbooks, and immutable decisions as
+separate just-in-time lookup documents.
+
+Reason: Documentation is the primary interface between the human operator and
+the codebase. Multiple overlapping narrative documents obscured which material
+was current and mixed components with their persisted outputs.
+
+Consequence: `docs/system.md` is the narrative source of truth. Legacy
+narrative paths remain short compatibility pointers. Any change to operating
+policy, status, ownership, or scope updates the system guide and the affected
+contract/runbook/reference without duplicating the explanation elsewhere.
+
+## 032 - Human Ideas and Human Approval Are First-Class Boundaries
+
+Date: 2026-08-29
+
+Decision: Add a free-text Human Idea Intake path before Determination and a
+human review gate before Posting. The dashboard is the sole Human–Agent
+Interface for both interactions. Automated workers run continuously but public
+posting occurs only after a persisted human approval.
+
+Reason: Trend detection is not the only legitimate source of high-value O2
+content. The operator needs a low-friction way to supply ideas, and Instagram
+publishing is public and irreversible.
+
+Consequence: An Idea Intake Agent may clarify or suggest improvements, then
+persists a normalized human-originated determination request. It never chooses
+the final pipeline or creates content. The review service persists approval,
+rejection, or scheduling decisions; the Posting Agent consumes those records.
+The dashboard does not invoke workers or platform APIs directly.
+
+## 033 - Determination Routes From an Explicit Capability Catalog
+
+Date: 2026-08-29
+
+Decision: Determination is the sole pipeline-routing authority for normalized
+trend and human opportunities. It must evaluate an explicit enabled capability
+catalog and persist its selected route and reasoning.
+
+Reason: The system will eventually support multiple topic, platform, and
+format-specific pipelines. Free-text human intake must not bypass the same
+routing logic that governs trend-originated work.
+
+Consequence: The current trend-only determination handoff will be generalized
+to record source origin and source reference. Pipeline capabilities must state
+their supported inputs, destination, visual profiles, prerequisites, and
+operational constraints before Determination may select them. O2 English
+Instagram remains the only active production capability until its loop is
+reliable.
+
+## 034 - Visual Rendering Evolves as a Shared Asset Layer
+
+Date: 2026-08-29
+
+Decision: Evolve visual rendering from the current O2-specific deterministic
+renderer into a shared catalog of rendering-tool adapters with explicit asset
+contracts.
+
+Reason: Multiple pipelines will need different visual outputs, while content
+and metadata must remain owned by their pipeline rather than by rendering
+tools.
+
+Consequence: Pipelines provide high-level visual intent and allowed profiles;
+the visual layer selects an eligible renderer and records assets. New template,
+image, video, or specialized tools must not alter pipeline-owned content,
+captions, tags, hashtags, or posting policy.

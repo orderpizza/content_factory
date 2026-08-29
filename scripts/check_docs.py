@@ -6,28 +6,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
     ROOT / "AGENTS.md",
-    ROOT / "docs" / "current.md",
-    ROOT / "docs" / "roadmap.md",
-    ROOT / "docs" / "architecture.md",
-    ROOT / "docs" / "interfaces.md",
-    ROOT / "docs" / "system-flow.md",
-    ROOT / "docs" / "poc.md",
+    ROOT / "docs" / "system.md",
+    ROOT / "docs" / "specs" / "data-model.md",
+    ROOT / "docs" / "specs" / "dashboard.md",
+    ROOT / "docs" / "specs" / "reliability.md",
     ROOT / "docs" / "pipelines" / "o2-english-instagram.md",
-    ROOT / "docs" / "decisions.md",
-    ROOT / "docs" / "runbooks" / "gemini.md",
-    ROOT / "docs" / "runbooks" / "local-runtime.md",
+    ROOT / "docs" / "platforms" / "meta.md",
+    ROOT / "docs" / "archive" / "decisions.md",
+    ROOT / ".env.example",
 ]
 
 
 def main() -> None:
     errors = [f"Missing required documentation: {path.relative_to(ROOT)}" for path in REQUIRED if not path.is_file()]
-    current = ROOT / "docs" / "current.md"
-    if current.is_file():
-        text = current.read_text(encoding="utf-8")
-        for heading in ("## Current Target", "## Status", "## Acceptance Criteria For This Milestone"):
+    system = ROOT / "docs" / "system.md"
+    if system.is_file():
+        text = system.read_text(encoding="utf-8")
+        for heading in (
+            "## Current Objective",
+            "## Current State",
+            "## Components, Inputs, and Persisted Outputs",
+            "## Document Router",
+            "## Local Operation and Verification",
+        ):
             if heading not in text:
-                errors.append(f"docs/current.md is missing {heading!r}")
-    for path in (ROOT / "README.md", ROOT / "docs" / "architecture.md", ROOT / "docs" / "poc.md"):
+                errors.append(f"docs/system.md is missing {heading!r}")
+    for path in (ROOT / "README.md", ROOT / "docs" / "system.md"):
         if path.is_file() and "daily_expression" in path.read_text(encoding="utf-8"):
             errors.append(f"Removed reference project is still mentioned in {path.relative_to(ROOT)}")
     if errors:

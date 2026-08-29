@@ -49,3 +49,17 @@ class InstagramPublisherTests(unittest.TestCase):
         self.assertEqual(store.uploaded, ["slide1.png", "slide2.png"])
         self.assertEqual(store.deleted, ["key-1", "key-2"])
         self.assertEqual(publisher.requests[2][1]["caption"], "Learn an idiom #English #Idioms")
+
+    def test_rejects_a_package_outside_the_o2_instagram_contract_before_upload(self):
+        store = FakeAssetStore()
+        publisher = FakeInstagramPublisher(store)
+        package = {
+            "package_platform": "instagram", "package_account": "o2_english",
+            "content_format": "instagram_idiom_carousel", "assets": json.dumps(["slide1.png"]),
+            "caption": "Learn an idiom", "hashtags": json.dumps(["#English"]),
+        }
+
+        with self.assertRaisesRegex(ValueError, "two to ten"):
+            publisher.publish_package(package)
+
+        self.assertEqual(store.uploaded, [])

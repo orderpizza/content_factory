@@ -19,7 +19,9 @@ class DeterminationTests(unittest.TestCase):
 
         self.assertIsNotNone(job)
         self.assertEqual(job.trend_id, 12)
-        self.assertEqual(job.pipeline_id, "poc_pipeline")
+        self.assertEqual(job.pipeline_id, "o2_english_instagram")
+        self.assertEqual(job.target_platform, "instagram")
+        self.assertEqual(job.target_account, "o2_english")
         self.assertEqual(job.topic, "topic")
         self.assertEqual(job.status, "pending")
 
@@ -50,9 +52,9 @@ class DeterminationTests(unittest.TestCase):
             handoff = database.connection.execute("SELECT status FROM determination_handoffs WHERE handoff_id = ?", (handoff_id,)).fetchone()
             database.close()
 
-        self.assertEqual(job.pipeline_id, "poc_pipeline")
-        self.assertEqual(job.target_platform, "bluesky")
+        self.assertEqual(job.pipeline_id, "o2_english_instagram")
+        self.assertEqual(job.target_platform, "instagram")
         self.assertEqual(job.determination_handoff_id, handoff_id)
         self.assertEqual(decision["status"], "accepted")
-        self.assertEqual(json.loads(decision["recipe_json"])["content_format"], "text_card")
+        self.assertEqual(json.loads(decision["recipe_json"])["content_format"], "instagram_idiom_carousel")
         self.assertEqual(handoff["status"], "completed")
