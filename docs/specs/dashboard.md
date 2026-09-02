@@ -13,6 +13,32 @@ utilitarian by design: complete, fresh, auditable visibility matters more than
 visual polish. Every material record must be traceable from source evidence to
 external publication.
 
+## Local access and command trust
+
+The POC dashboard is a continuously available local service on the Mac Mini.
+It binds only to the loopback interfaces; it is not reachable from the LAN or
+the public internet. Opening the local dashboard is the POC's operator-access
+boundary. A future non-loopback deployment requires an explicit authentication
+and authorization design before any human command is enabled.
+
+The initial POC has one durable dashboard actor, `local_owner`. There is no
+user-login or multi-user account system. The dashboard may maintain a
+short-lived local browser session solely to issue a same-origin anti-CSRF token;
+that session is not the actor identity.
+
+Every state-changing command requires that anti-CSRF token, a unique
+client-generated command ID, and the displayed target-record version. The
+command receipt makes a duplicate click, browser retry, or refresh return the
+original result rather than create another record. This protection adds no
+confirmation step: one click on **Post now** immediately submits its durable
+authorization command.
+
+The dashboard exposes all non-secret operational state and safe diagnostics
+needed to understand the system. It never displays environment values, access
+tokens, authorization headers, credentials, signed URLs, or unredacted provider
+payloads. Raw JSON and errors use the shared redaction rules in
+[Reliability and safety](reliability.md).
+
 ## Boundary
 
 The dashboard reads its reporting state from SQLite and writes only these
@@ -20,10 +46,9 @@ types of human command:
 
 1. atomically open/continue a `ContentThread`, append its human message, and
    create the pending `IntakeRequest`;
-2. decide `post_now`, `schedule`, `request_changes`, or `reject` on an awaiting
-   review request;
-3. cancel an eligible scheduled `PostRecord` before its final publication
+2. decide `post_now`, `request_changes`, or `reject` on an awaiting review
    request;
+3. cancel an eligible `PostRecord` before its final publication request;
 4. create a read-only `ReconciliationRequest` for terminal
    `publication_unknown`; and
 5. record a human reconciliation decision against the exact completed checks.
@@ -48,9 +73,10 @@ duplicate publication, and keeps the dashboard free of delivery logic.
 - **Post now:** approves the exact package/render hashes and atomically creates
   one `delivery_mode=immediate` Post Request plus its initial Post Record. Its
   actual eligibility follows the active posting policy; the UI shows whether
-  that means now, the next compliant slot, or blocked configuration before
-  confirmation. **Schedule** does the same with a requested time and computed
-  policy slot. **Reject** ends that review request without delivery.
+  that means now, the next compliant slot, or blocked configuration when the
+  action is available. The click submits immediately without a confirmation
+  dialog. **Reject** ends that review request without delivery. The initial POC
+  deliberately has no human scheduling action or requested delivery time.
 - **Request changes:** marks the review `changes_requested` and atomically
   appends the change note as a thread message plus a pending Intake request for
   a new revision. It never edits the reviewed package.
@@ -77,7 +103,7 @@ safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 | Determination | Requests/leases, frozen input, capability snapshot, decision outcome/reasoning/alternatives/identities, Gemini usage, resulting job when accepted | Why did the system choose/refuse a route? |
 | Production/content | Jobs/leases, recipe, package creative/caption/tags/hashtags/citations, identities/hashes, contract/model versions, validation | What was generated and is it valid? |
 | Rendering | Runs/leases, renderer/template versions, manifest verification, ordered preview/assets/dimensions/checksums, failure/recovery | Are exact assets ready and trustworthy? |
-| Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, approve/schedule/reject/request-changes actions | What exact immutable output is ready for my decision? |
+| Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, Post now/reject/request-changes actions | What exact immutable output is ready for my decision? |
 | Delivery | Requests, cadence, records, attempts, typed errors, final-request boundary, external IDs, R2 cleanup, unknown outcomes, reconciliation | What is queued, published, uncertain, or awaiting cleanup? |
 | Costs/audit/search | Model attempts/tokens/cost, worker errors, migrations, deduplication decisions, full audit search | What happened and what did it cost? |
 
@@ -108,8 +134,9 @@ delivery assets—not a regenerated preview or R2 copy—alongside all metadata,
 sources, destination, content hash, manifest hash, asset hashes, identity,
 freshness, and warnings. The command includes the displayed record version;
 approval revalidates every binding in its transaction. Approval confirms that
-Instagram is public and irreversible. Scheduling shows the requested time and
-computed cadence slot before the command is written.
+Instagram is public and irreversible. The initial POC has no scheduling
+control: **Post now** is the only delivery authorization action and the active
+posting policy determines its earliest eligible time.
 
 ### Delivery view
 

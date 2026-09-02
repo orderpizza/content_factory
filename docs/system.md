@@ -35,7 +35,7 @@ owner rather than restate detailed rules.
 | Detection sources, normalization, scoring, selection, recurrence, or evidence quality | [Detection specification](specs/detection.md) |
 | Human idea intake, brief revisions, capability selection, or determination outcomes | [Idea Intake and Determination](specs/idea-intake-and-determination.md) |
 | Shared renderer tools, visual profiles/templates, fonts, local assets, or render quality | [Visual rendering](specs/visual-rendering.md) |
-| Post now, schedule, cancellation, delivery attempt, platform adapter, R2 staging, or reconciliation | [Posting Agent](specs/posting.md) |
+| Post now, delivery cancellation, delivery attempt, platform adapter, R2 staging, or reconciliation | [Posting Agent](specs/posting.md) |
 | Worker recovery, idempotency, artifact integrity, Gemini accounting, or external-side-effect safety | [Reliability and safety](specs/reliability.md) |
 | O2 content/metadata/format or Instagram delivery contract | [O2 English Instagram pipeline](pipelines/o2-english-instagram.md) |
 | Meta accounts, permissions, tokens, or Graph API facts | [Meta platform reference](platforms/meta.md) |
@@ -56,7 +56,7 @@ dashboard, pipeline, and platform contracts.
 | Persisted model, status, identity, migration, or SQLite boundary | `specs/data-model.md` plus every owning specification affected by that record |
 | Human idea, revision, brief, capability catalog, determination, or routing outcome | `specs/idea-intake-and-determination.md`, `specs/data-model.md`, `specs/dashboard.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes and the selected pipeline reference when capability eligibility changes |
 | Dashboard reporting view only | `specs/dashboard.md`, `specs/data-model.md` |
-| Review decision, Post now, schedule, delivery cancellation, or reconciliation command | `specs/dashboard.md`, `specs/data-model.md`, `specs/posting.md`, `specs/runtime.md`, `specs/reliability.md`; add the selected pipeline/platform references for destination-specific behavior |
+| Review decision, Post now, delivery cancellation, or reconciliation command | `specs/dashboard.md`, `specs/data-model.md`, `specs/posting.md`, `specs/runtime.md`, `specs/reliability.md`; add the selected pipeline/platform references for destination-specific behavior |
 | Worker process, schedule, lease, retry, startup, shutdown, or health | `specs/runtime.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/dashboard.md` when cadence or freshness presentation changes |
 | Shared renderer tool/provider, profile/template, font, local visual asset, or render validation | `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes |
 | O2 content, metadata, visual format, capability eligibility, or package validation | `pipelines/o2-english-instagram.md`, `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/idea-intake-and-determination.md` when capability eligibility/routing changes |
@@ -195,8 +195,9 @@ for its content/format, then persists that resolved selection. Posting uses the
 persisted creative and verified assets unchanged.
 
 Every ready package enters human review in the target. You can **Post now**,
-schedule, reject, request a revision, or cancel an unclaimed scheduled delivery.
-**Post now** is the dashboard action for an actual post: it durably creates
+reject, request a revision, or cancel an unclaimed delivery. The initial POC
+does not offer human scheduling. **Post now** is the dashboard action for an
+actual post: it durably creates
 an immediate-mode `PostRequest` and initial `PostRecord`; the Posting Agent
 claims the record when the active posting policy makes it due and delivers it. The
 dashboard never calls Instagram directly. Instagram `media_publish` is public

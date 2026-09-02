@@ -134,6 +134,15 @@ External-input and local-artifact adapters also enforce structural boundaries:
 - logs, errors, raw-JSON views, and provider summaries apply a shared secret
   and signed-URL redaction policy.
 
+The POC dashboard binds only to the Mac Mini loopback interfaces. Its single
+operator is the durable `local_owner` actor; it has no remote-access or
+multi-user authentication mode. A state-changing dashboard command requires a
+same-origin anti-CSRF token, unique client command ID, and target-record
+version. These protections make browser retries and duplicate clicks safe but
+do not insert a confirmation step before an authorized **Post now** command.
+Any non-loopback dashboard deployment requires a separately approved
+authentication/authorization design before human commands are enabled.
+
 ## Operational acceptance
 
 Before enabling continuous public delivery, implementation and boundary tests

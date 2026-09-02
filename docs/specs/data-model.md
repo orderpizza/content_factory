@@ -342,12 +342,13 @@ new revision.
 
 `post_requests` is immutable human authorization: unique review FK,
 package/render FKs and approved hashes, destination, `delivery_mode`
-(`immediate`/`scheduled`), requested local time/time zone plus normalized UTC
-time, status (`approved`, `cancelled`, `fulfilled`), publication identity, and
-audit timestamps. It is not worker-claimable.
+(`immediate` only in the initial POC), request time, status (`approved`,
+`cancelled`, `fulfilled`), publication identity, and audit timestamps. It is
+not worker-claimable. The initial POC does not persist a human-requested
+delivery time or schedule.
 
 `post_records` is the external delivery lifecycle: unique request FK,
-cadence-derived schedule, status (`scheduled`, `claimed`, `publishing`,
+policy-derived `eligible_at`, status (`pending`, `claimed`, `publishing`,
 `retry_wait`, `failed`, `published`, `publication_unknown`, `cancelled`), the
 common fenced-claim/bounded-retry fields, external post ID, final timestamps,
 and typed error.
@@ -355,7 +356,7 @@ and typed error.
 retry.
 
 `delivery_mode=immediate` records the human's requested urgency; the active
-posting policy still owns the computed `scheduled_at`. The architecture does
+posting policy still owns the computed `eligible_at`. The architecture does
 not infer whether immediate mode bypasses cadence. If the versioned policy does
 not explicitly answer that question, creation/delivery is blocked rather than
 guessed.
@@ -406,10 +407,12 @@ time. No reconciliation path silently retries the final publication call.
 - `posting_policies` remains keyed by pipeline/platform/account with daily and
   interval limits.
 - `human_command_receipts` provides command idempotency and audit for dashboard
-  writes: unique client command ID, command kind, actor/session identifier,
-  target record/version, safe payload hash, result-record references, and
-  timestamp. Repeating the same ID/payload returns the original result;
-  reusing it with different input is rejected.
+  writes: unique client command ID, command kind, durable actor identifier,
+  short-lived local browser-session identifier where applicable, target
+  record/version, safe payload hash, result-record references, and timestamp.
+  The POC records `local_owner` for every dashboard command. Repeating the same
+  ID/payload returns the original result; reusing it with different input is
+  rejected.
 - `model_invocations` replaces ambiguous `api_usage`: phase, applicable entity
   FKs including `generation_run_id`, attempt ordinal, request/prompt/schema
   version and safe request hash, model/provider request ID, response hash,
@@ -447,7 +450,7 @@ reporting indexes include:
 - `render_runs(status, created_at)`;
 - `review_requests(status, created_at)`;
 - unique post-request publication identity;
-- `post_records(status, scheduled_at, next_attempt_at)`;
+- `post_records(status, eligible_at, next_attempt_at)`;
 - `reconciliation_requests(status, next_attempt_at, created_at)`;
 - `delivery_cleanup_tasks(status, lease_expires_at)`;
 - `thread_messages(thread_id, sequence_number)`;
@@ -483,8 +486,8 @@ normal changes use the forward migration sequence below.
    require a new pending render run; do not approve them by inference.
 5. Backfill published delivery history into request/record/attempt/resource and
    cleanup audit rows. Do not publish during migration. Place every old
-   unpublished queued/scheduled/retry/failed item on migration hold and expose
-   it as awaiting review; no approval is inferred.
+   unpublished queued/retry/failed item on migration hold and expose it as
+   awaiting review; no approval is inferred.
 6. Deploy target-table workers. Keep old tables read-only until record counts,
    foreign-key integrity, hashes, and dashboard traces reconcile. Archive or
    remove obsolete tables only in a separate approved migration.

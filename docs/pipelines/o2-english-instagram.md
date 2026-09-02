@@ -151,7 +151,7 @@ After migration, the adapter receives a claimable `PostRecord` created from a
 human-approved `PostRequest` and an exact final-delivery manifest:
 
 1. Reverify the approved package hash, manifest hash, JPEG checksums,
-   destination, and policy-compliant schedule.
+   destination, and policy-compliant delivery eligibility.
 2. Upload the already-reviewed JPEG bytes to temporary public R2 objects.
 3. Create and audit carousel child/parent resources without changing creative.
 4. Persist the final-publication-request marker immediately before

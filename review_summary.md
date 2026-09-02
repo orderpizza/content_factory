@@ -1,311 +1,408 @@
-# Documentation Architecture Review Summary
+# Documentation Architecture Review Task List
 
-**Review date:** 2026-08-29  
+**Review date:** 2026-08-29
+**Reorganized:** 2026-09-02
 **Scope:** Current documentation architecture only. The codebase was not
 reviewed and must not be treated as evidence of current behavior.
 
-This is a review artifact, not a canonical system contract. Confirmed decisions
-must be incorporated into the owning Tier 2 document routed by
-[`docs/system.md`](docs/system.md); implementation should not depend on this
-file directly.
+This is a temporary working task list, not a canonical system contract.
+Confirmed decisions belong in the Tier 2 document routed by
+[`docs/system.md`](docs/system.md). Implementation must not depend on this file
+directly.
 
-## Settled during this review
+## Decision-order principle
 
-The obvious cross-document gaps have been repaired in the canonical docs:
+The list is ordered to minimize rework, not by the original P0/P1 label alone.
+First settle the inputs, identities, lifecycle policies, and provider
+constraints that create persisted records. Then define the complete data
+catalog. Only then design the dashboard that exposes that stable state.
 
-- Evidence, coverage, content, and publication are four separate identities.
-- Selected trends and human messages create durable `IntakeRequest` handoffs;
-  workers do not infer work from unread conversation.
-- The three-day rejected-candidate cooldown is retained, but expiry alone does
-  not regenerate content. A materially changed candidate continues its existing
-  thread through a `ThreadEvidenceEvent` and `evidence_refresh` revision.
-- Claims use leases plus monotonic fencing versions, bounded attempts,
-  `retry_wait`, and conditional finalization.
-- Accepted Determination decision + unique Content Job + request completion are
-  one transaction.
-- Model-call audit starts before the provider call, so a crash cannot hide a
-  potentially billable invocation.
-- The renderer produces the canonical final JPEGs before review. Review binds
-  exact package, manifest, and asset hashes; the posting adapter cannot convert
-  or repair them.
-- `PostRequest` is immutable human authorization; workers claim `PostRecord`.
-- Publication reconciliation is durable, read-only work with append-only checks
-  and an auditable human resolution.
-- Heartbeats use one current row per worker instance; append-only worker runs
-  are reserved for substantive work.
-- The current pre-production database may be deliberately rebuilt, but never
-  automatically by dashboard/worker startup. Once the new baseline exists,
-  migrations are forward-only.
+The dashboard is the sole visibility tool and will eventually cover many
+pipelines, but that is precisely why its operational UX comes late in this
+sequence. It must present the settled behavior of Detection, Determination,
+generation, rendering, delivery, reliability, and the final data model; it
+must not become the place that invents their states.
 
-## Decisions required before implementation
+- **P0** — required before the affected public/production component can be
+  implemented safely.
+- **P1** — resolve before finalizing the baseline schema if it changes commands,
+  states, or audit records.
+- **P2** — follow-up design/tooling work after policy contracts stabilize.
 
-### P0. Detection canonicalization, clustering, and recurrence materiality
+## Settled task
 
-`attention_v1` has weights and broad formulas, but the following deterministic
-details still need an exact versioned contract:
+### T01 — Dashboard local-access and command-trust boundary [complete]
+
+The continuously running POC dashboard is accessible only on the Mac Mini
+loopback interfaces. It has one durable `local_owner` actor and no login or
+multi-user account system. State-changing commands require same-origin
+anti-CSRF protection, a unique command ID, and the displayed record version.
+One click on **Post now** immediately writes durable authorization; duplicate
+clicks/retries are idempotent. The dashboard exposes complete non-secret
+operational state and redacted diagnostics only.
+
+**Canonical contracts:** [Dashboard and HAI](docs/specs/dashboard.md),
+[Reliability and safety](docs/specs/reliability.md), and
+[Data model](docs/specs/data-model.md).
+
+## Recommended remaining order
+
+| Order | Task | Priority | Why it is before later work |
+| --- | --- | --- | --- |
+| T02 | Detection canonicalization, clustering, and recurrence | P0 | Defines the source evidence, candidate identity, scoring, selection, and trend lineage that the rest of the system consumes. |
+| T03 | Thread lifecycle, cancellation, and blocked-route re-evaluation | P1 | Defines how opportunity lineage may be closed, changed, or safely revisited before downstream records and transitions are finalized. |
+| T04 | Meta delivery facts and reconciliation matching | P0 | Provider media/caption/delivery rules constrain O2 output, renderer encoding, and delivery behavior. |
+| T05 | O2 creative, teaching, and metadata contract | P0 | Defines the structured package and teaching claims consumed by the shared renderer. |
+| T06 | Shared visual profiles, templates, and O2 visual bindings | P0 | Depends on the O2 package fields and provider media constraints. |
+| T07 | Post now, cadence, and account time-zone policy | P0 | Defines how one-click authorization becomes policy-eligible delivery. |
+| T08 | Review freshness and intentional republishing | P1 | Depends on final assets, delivery/reconciliation policy, and renderer/provider versions. |
+| T09 | Worker retry, lease, and Gemini-cost limits | P1 | Requires the full set of worker stages, model calls, and external boundaries above. |
+| T10 | Complete data field and transition catalog | P2 | Consolidates all settled identities, commands, lifecycle states, and constraints into one reviewed baseline. |
+| T11 | Backup, retention, artifact cleanup, and disk pressure | P2 | Depends on the finalized records, render assets, R2 lifecycle, and worker behavior. |
+| T12 | Dashboard visibility and operational UX | P1 | Uses stable component outputs and the final catalog rather than inventing dashboard-only states. |
+| T13 | Documentation conformance checks | P2 | Tooling should validate stable canonical names, links, and routing only after the docs settle. |
+| T14 | Implementation plan and acceptance matrix | P2 | Derives from all settled contracts; it cannot safely substitute for them. |
+
+## T02 — Detection canonicalization, clustering, and recurrence [P0]
+
+**Decide:**
 
 - Unicode/case/punctuation/whitespace normalization for a candidate and its
   route-neutral coverage identity.
 - How RSS titles and Wikimedia article identities become the same cluster,
   including aliases, redirects, ambiguity, and language variants. Detection
-  must remain LLM-free.
-- The exact prominence (`P_s`) calculation, tie handling, minimum population,
-  RSS feed-independence rule, and degraded/unavailable source-health formula
-  used by `R_s`.
-- The exact materiality comparator for a candidate returning after the
-  three-day cooldown. A changed fingerprint by itself is too weak: timestamps,
-  rank movement, or one new feed item could otherwise regenerate effectively
-  identical content.
-- Rolling-budget boundary semantics: half-open UTC windows, selection time used
-  for counting, concurrency behavior, and when a deferred candidate becomes too
-  stale to reconsider.
+  remains LLM-free.
+- Exact prominence (`P_s`) calculation, tie handling, minimum population, RSS
+  feed-independence rule, and degraded/unavailable source-health formula used
+  by `R_s`.
+- Exact materiality comparator for a candidate returning after the three-day
+  cooldown; a changed fingerprint alone is insufficient.
+- Rolling-budget half-open UTC windows, selection-time accounting, concurrency
+  behavior, and deferred-candidate staleness.
 
-Recommended starting position: use a conservative versioned alias table and
-Unicode-normalized exact keys rather than fuzzy/semantic clustering; use
-deterministic percentile rank with an explicit tie rule; and require cooldown
-expiry plus a substantive event such as a new independent source kind or a
-meaningful score/component increase. Do not use “fingerprint differs” as the
-materiality rule. The exact score delta/source condition needs confirmation.
+**Recommended starting position:** Conservative versioned alias table plus
+Unicode-normalized exact keys rather than fuzzy/semantic clustering;
+deterministic percentile rank with an explicit tie rule; cooldown expiry plus a
+new independent source kind or meaningful score/component increase. Do not use
+“fingerprint differs” as the recurrence rule.
 
-Owning documents: `docs/specs/detection.md` and `docs/specs/data-model.md`.
+**Owners:** `docs/specs/detection.md` and `docs/specs/data-model.md`.
 
-### P0. Visual profile and template deep dive
+**Done when:** The same observations always create the same candidate, cluster,
+selection, cooldown, and recurrence outcome without LLM involvement.
 
-The renderer boundary is now coherent, but the visual specification explicitly
-defers the material needed to build it:
+## T03 — Thread lifecycle, cancellation, and blocked-route re-evaluation [P1]
 
-- exact `visual_spec_json` schema and per-role bindings;
-- profile tokens, palette, typography, font files/licensing, safe areas,
-  spacing, local assets, and template/version naming;
-- per-template copy capacity and deterministic overflow/clipping detection;
-- Playwright/Chromium/runtime pinning and reproducibility tolerance;
-- PNG and JPEG encoder settings, color profile, quality/subsampling, and file
-  size bounds;
-- golden fixtures, pixel/perceptual regression thresholds, and manual visual
-  acceptance cases; and
-- fallback behavior when fonts/assets are missing (recommended: fail the run,
-  never silently substitute).
+**Decide:**
 
-This is a blocker for renderer implementation and visual-regression tests.
+- Whether `closed` prevents new intake, what can reopen it, and whether it
+  changes existing work.
+- What `cancelled` may safely stop at each boundary: intake, determination,
+  generation, rendering, review, delivery, and post-publication audit.
+- Whether cancellation invalidates outstanding review/delivery authorization.
+- How a `blocked` determination becomes eligible for a capability recheck
+  without silently re-running the same revision.
+- Whether the capability recheck is a system-authored revision with unchanged
+  editorial content or requires a human message.
 
-Owning document: `docs/specs/visual-rendering.md`, with O2-specific limits in
-`docs/pipelines/o2-english-instagram.md`.
+**Recommended starting position:** `closed` prevents new messages but leaves
+existing work unchanged and may be explicitly reopened. `cancelled` prevents
+new intake and conditionally cancels only work that has not crossed an
+external-side-effect boundary. Never re-evaluate a blocked decision
+automatically; a human **Re-evaluate route** command creates an auditable
+capability-recheck revision/request and preserves the original decision.
 
-### P0. O2 creative and metadata contract completion
+**Owners:** `docs/specs/idea-intake-and-determination.md`,
+`docs/specs/dashboard.md`, `docs/specs/data-model.md`, and
+`docs/specs/reliability.md`.
 
-The slide counts and word limits exist, but robust generation still needs:
+**Done when:** Each command's permitted targets, transaction preconditions, and
+immutable historical records are stated. Published and `publication_unknown`
+records are never erased or rolled back.
 
-- exact structured schemas for slides, dialogue speakers/messages, metadata,
-  provenance, citations, and `visual_spec_json` output;
-- word-count/tokenization rules for contractions, hyphens, emoji, numerals,
-  punctuation, and speaker labels;
-- English locale/variant, tone, reading level, CTA policy, forbidden claims,
-  sensitive-topic rules, and whether the idiom itself counts toward limits;
-- caption serialization order, maximum final caption length, hashtag
-  normalization/case/de-duplication, and whether tags may overlap hashtags;
-- teaching-accuracy validation and what evidence is required for meaning,
-  nuance, and generated examples;
-- prompt/schema versions, maximum creative and metadata attempts, repair-prompt
-  policy, and per-job token/cost ceiling; and
-- whether a failed creative attempt may vary freely or must preserve a frozen
-  outline/angle checkpoint.
+## T04 — Meta delivery facts and reconciliation matching [P0]
 
-Recommended starting position: JSON-schema-first output, `en-US` unless the O2
-brand specifies otherwise, deterministic Unicode word counting, no silent
-metadata fallback, and conservative factual/teaching validation before package
-creation.
+**Decide/verify from current official Meta and Cloudflare sources:**
 
-Owning document: `docs/pipelines/o2-english-instagram.md`.
+- Selected Graph API version, permissions, token lifecycle, rate limits, and
+  error taxonomy.
+- Carousel limits, media URL requirements, container readiness/status behavior,
+  and delivery constraints.
+- Development test-account policy.
+- Production public-media domain and retention policy, replacing development
+  `r2.dev` before live delivery.
+- Read-only reconciliation endpoints, bounded account/time scope, match fields,
+  automatic `confirmed_published` threshold, and outcomes that remain
+  `ambiguous` for a human.
 
-### P0. Post now, cadence, time zone, and overdue policy
-
-The docs now refuse to guess whether `delivery_mode=immediate` bypasses cadence.
-Choose and document:
-
-1. Does **Post now** bypass minimum interval and/or daily cap, or mean “the
-   earliest policy-compliant slot”?
-2. Which IANA time zone owns the daily cap and displayed scheduled times?
-3. How are daylight-saving changes handled?
-4. If a scheduled time is already past after downtime, publish at the next
-   compliant slot, require fresh confirmation, or expire the authorization?
-5. Does a failed pre-publication attempt reserve a cadence slot, and when is
-   the slot released?
-
-Recommended starting position: Post now means earliest policy-compliant slot;
-it never bypasses the minimum interval or daily cap. Store the requested local
-time/zone and normalized UTC time, compute caps in the account time zone, and
-require renewed confirmation for materially overdue authorizations.
-
-Owning documents: `docs/specs/posting.md`, `docs/specs/runtime.md`,
-`docs/specs/dashboard.md`, and `docs/specs/data-model.md`.
-
-### P0. Meta delivery facts and reconciliation match rule
-
-Before adapter implementation, reverify official Meta and Cloudflare material
-for the selected Graph API version, permissions, carousel limits, media URL
-requirements, container status behavior, rate limits, error taxonomy, and token
-lifecycle. Then define a read-only reconciliation algorithm:
-
-- which provider endpoint(s) it queries;
-- the bounded time window and account scope;
-- which fields form a match (media type, creation time, caption/hash surrogate,
-  permalink, child count/order, or another stable identifier);
-- what is unambiguous enough for automatic `confirmed_published`; and
-- which results must remain `ambiguous` for a human.
-
-Also confirm development test-account policy and replace `r2.dev` with the
-intended production public-media domain/retention policy before live delivery.
-
-Owning document: `docs/platforms/meta.md`; generic safety remains in
+**Owners:** `docs/platforms/meta.md`; generic safety remains in
 `docs/specs/posting.md` and `docs/specs/reliability.md`.
 
-## Important policy decisions
+**Done when:** Time-sensitive provider facts have a verification date and
+sources, and reconciliation has a versioned, non-publishing match rule.
 
-### P1. Blocked Determination re-evaluation
+## T05 — O2 creative, teaching, and metadata contract [P0]
 
-A `blocked` decision currently creates no job and the dashboard offers thread
-continuation, but the docs do not decide what happens after configuration or a
-capability becomes available. One Determination request is currently unique per
-revision, so silently running the same revision again would violate the audit
-model.
+**Depends on:** T04 for final platform caption/media constraints.
 
-Recommended starting position: never re-evaluate automatically. Add an explicit
-human **Re-evaluate route** command that creates an auditable capability-recheck
-revision/request with the new capability snapshot; preserve the old blocked
-decision. Confirm whether this may be a system-authored revision with unchanged
-editorial content or must require a human message.
+**Decide:**
 
-Owning documents: `docs/specs/idea-intake-and-determination.md`,
-`docs/specs/data-model.md`, and `docs/specs/dashboard.md`.
+- Exact JSON schemas for teaching target, ordered slides, dialogue speakers and
+  messages, metadata, provenance, citations, and the O2-owned content bindings
+  within `visual_spec_json`.
+- Unicode word-count rules for contractions, hyphens, emoji, numerals,
+  punctuation, speaker labels, and the idiom itself.
+- English locale/variant, tone, reading level, CTA policy, forbidden claims,
+  and sensitive-topic rules.
+- Caption serialization order, maximum final caption length, hashtag
+  normalization/case/de-duplication, and tag/hashtag overlap policy.
+- Teaching-accuracy validation and required evidence for meaning, nuance, and
+  generated examples.
+- Prompt/schema versions, maximum creative/metadata attempts, repair-prompt
+  policy, per-job token/cost ceiling, and the frozen outline/angle boundary.
 
-### P1. Review freshness, renewed review, and intentional republishing
+**Recommended starting position:** JSON-schema-first output; `en-US` unless
+the O2 brand specifies otherwise; deterministic Unicode word counting; no
+silent metadata fallback; conservative factual/teaching validation before
+package creation; and repair attempts that preserve a frozen job intent rather
+than vary freely.
 
-The schema now supports review invalidation/expiration and review cycles, but
-the policy still needs exact answers:
+**Owners:** `docs/pipelines/o2-english-instagram.md`; the generic visual
+envelope is owned by `docs/specs/visual-rendering.md`.
 
-- maximum age of an awaiting review;
-- whether configuration, posting-policy, template, renderer, capability, or
-  provider-contract changes invalidate an existing review;
-- how far in the future an approved scheduled delivery may remain valid;
-- when an expired/rejected exact package may enter a fresh review cycle; and
-- after a human resolves `publication_unknown` as not published, whether the
-  exact package may return for a new approval or must receive a new creative
-  revision.
+**Done when:** A package can be validated deterministically before rendering,
+and every learner-facing claim has an explicit evidence/validation rule.
 
-Recommended starting position: never allow an intentional repost of the same
-published package. Permit a fresh review cycle for unchanged bytes only after
+## T06 — Shared visual profiles, templates, and O2 visual bindings [P0]
+
+**Depends on:** T04 for delivery-media constraints and T05 for structured slide
+fields.
+
+**Decide:**
+
+- Exact generic `visual_spec_json` envelope and per-role O2 bindings.
+- The distinction between reusable pipeline-neutral **profiles**, concrete
+  **templates**, and versioned O2 **themes**; profile IDs must not become
+  pipeline-private styling.
+- Profile tokens, palette, typography, local font files/licenses, safe areas,
+  spacing, local assets, and profile/template/theme naming.
+- Per-template copy capacity and deterministic overflow/clipping/missing-content
+  detection.
+- Playwright/Chromium/runtime pinning and reproducibility tolerance.
+- PNG/JPEG encoder settings, color profile, quality/subsampling, and file-size
+  bounds consistent with T04.
+- Golden fixtures, pixel/perceptual regression thresholds, manual visual
+  acceptance cases, and failure behavior for unavailable fonts/assets.
+
+**Required policy:** Missing fonts or assets fail the `RenderRun`; the renderer
+never silently substitutes them. The pipeline supplies structured content, not
+raw HTML, CSS, fonts, colors, or remote asset URLs.
+
+**Owners:** `docs/specs/visual-rendering.md`; O2 role mapping, copy capacity,
+and compatible selection rules in `docs/pipelines/o2-english-instagram.md`;
+manifest fields in `docs/specs/data-model.md`.
+
+**Done when:** The first renderer can be implemented and regression-tested
+without design choices being invented in code, and human review is bound to the
+exact final JPEGs it will publish.
+
+## T07 — Post now, cadence, and account time-zone policy [P0]
+
+**Decide:**
+
+1. Whether **Post now** bypasses the minimum interval and/or daily cap, or
+   means the earliest policy-compliant delivery time.
+2. The IANA time zone for account caps and dashboard display.
+3. Daylight-saving-time behavior.
+4. Whether a failed pre-publication attempt reserves a cadence slot and when
+   it is released.
+
+**Resolved scope:** The initial POC has no human scheduling command. A future
+scheduling feature must be introduced as a separately versioned contract.
+
+**Recommended starting position:** Post now means the earliest
+policy-compliant delivery time; it never bypasses the minimum interval or daily
+cap. Compute caps in the account time zone.
+
+**Owners:** `docs/specs/posting.md`, `docs/specs/runtime.md`,
+`docs/specs/dashboard.md`, and `docs/specs/data-model.md`.
+
+**Done when:** Dashboard wording, immediate-request/eligibility fields,
+due-work calculation, and delivery authorization behavior use one policy.
+
+## T08 — Review freshness, renewed review, and intentional republishing [P1]
+
+**Depends on:** T04, T06, and T07.
+
+**Decide:**
+
+- Maximum age of an awaiting review.
+- Whether configuration, posting policy, template, renderer, capability, or
+  provider-contract changes invalidate an existing review.
+- Maximum time an approved immediate request may remain policy-deferred before
+  it expires or needs renewed approval.
+- When an expired/rejected exact package can enter a fresh review cycle.
+- Whether an exact package may return for review after an auditable
+  `not_published_cancel` resolution of `publication_unknown`.
+
+**Recommended starting position:** Never intentionally repost the same
+published package. Permit a fresh review of unchanged bytes only after
 expiration or an auditable `not_published_cancel` reconciliation decision; all
-other republishing requires a new Brief Revision and content identity.
+other republication requires a new Brief Revision and content identity.
 
-Owning documents: `docs/specs/dashboard.md`, `docs/specs/data-model.md`, and
+**Owners:** `docs/specs/dashboard.md`, `docs/specs/data-model.md`, and
 `docs/specs/posting.md`.
 
-### P1. Retry, lease, and model-cost limits
+**Done when:** Review validity, invalidation, fresh cycles, and publication
+identity use one auditable policy.
 
-The architecture defines fenced claims and bounded retries, but not the actual
-values for each worker. Specify per worker/stage:
+## T09 — Worker retry, lease, and Gemini-cost limits [P1]
 
-- batch size, lease duration, renewal point, maximum runtime, and graceful-stop
-  behavior;
-- maximum attempts, exponential backoff/jitter, retryable error categories,
-  and terminal escalation;
-- special handling for a stale `ModelInvocation(status=started)`, which may
-  represent incurred cost without a response; and
-- system/job daily Gemini token and cost warning/stop limits.
+**Depends on:** T02–T08, because worker stages, model calls, rendering runtime,
+and external-side-effect boundaries must be known first.
 
-Recommended starting position: lease comfortably above the normal stage p99,
-renew at one-third remaining, small batches for the POC, at most three
-retry-safe technical attempts, and no automatic model retry when the prior call
-is cost-uncertain until a deliberate recovery policy is documented.
+**Decide per worker/stage:**
 
-Owning documents: `docs/specs/runtime.md`, `docs/specs/reliability.md`, and the
+- Batch size, lease duration, renewal point, maximum runtime, and graceful-stop
+  behavior.
+- Maximum attempts, exponential backoff/jitter, retryable error categories,
+  and terminal escalation.
+- Treatment of a stale `ModelInvocation(status=started)`, which may represent
+  incurred cost without a response.
+- System/job daily Gemini token and cost warning/stop limits.
+
+**Recommended starting position:** Lease comfortably above normal stage p99,
+renew at one-third remaining, use small POC batches, allow at most three
+retry-safe technical attempts, and do not automatically retry a cost-uncertain
+model call until a deliberate recovery policy exists.
+
+**Owners:** `docs/specs/runtime.md`, `docs/specs/reliability.md`, and the
 relevant stage contract.
 
-### P1. Thread closure and cancellation propagation
+**Done when:** Every claimable worker has one bounded, observable recovery and
+cost policy; no worker invents retries independently.
 
-`ContentThread.status` is described as administrative, but exact semantics are
-missing. Decide whether closing/cancelling a thread prevents new Intake,
-cancels safely pending Determination/Generation/Render work, invalidates review,
-or leaves all downstream work unchanged. Published and
-`publication_unknown` records must never be erased or rolled back.
+## T10 — Complete the data field and transition catalog [P2]
 
-Recommended starting position: `closed` prevents new messages but leaves
-existing work unchanged and can be explicitly reopened; `cancelled` prevents
-new Intake and conditionally cancels only work that has not crossed an external
-side-effect boundary. Make propagation one audited transaction/service.
+**Depends on:** T02–T09. Do not finalize DDL before the remaining identities,
+commands, lifecycle states, renderer manifest, and delivery policies are known.
 
-Owning documents: `docs/specs/data-model.md`, `docs/specs/dashboard.md`, and
-`docs/specs/reliability.md`.
+**Define:**
 
-### P1. Dashboard trust and operator identity
+- Full table/column catalog or reviewed baseline migration DDL.
+- Field type, nullability, default, foreign key, and retention behavior for
+  every retained record.
+- A transition matrix for every claimable record, including allowed actor and
+  transaction preconditions.
+- Partial unique indexes for one active claim/run/review/reconciliation item.
+- Foreign-key deletion behavior. Permanent audit lineage should use `RESTRICT`;
+  published history must never cascade-delete.
 
-The HAI persists consequential approval, cancellation, and reconciliation
-decisions, but its deployment trust boundary is not defined. Confirm:
+**Owner:** `docs/specs/data-model.md`, with linked transition ownership in each
+component specification.
 
-- localhost-only, trusted LAN, or remotely reachable;
-- authentication/session mechanism and durable actor identity;
-- CSRF/replay protection and command-id generation;
-- whether a second confirmation is required for public **Post now**; and
-- which safe raw JSON/error fields are visible and how redaction is tested.
+**Done when:** The baseline migration, typed boundary models, and boundary
+tests can be reviewed together without silently inventing any contract field or
+status.
 
-Recommended POC position: bind to loopback only, one explicit local operator
-identity, anti-CSRF/idempotency tokens, and a final confirmation showing account,
-exact assets, caption, hashes, and irreversible-publication warning. Any LAN or
-remote access should require real authentication before delivery controls are
-enabled.
+## T11 — Backup, retention, artifact cleanup, and disk pressure [P2]
 
-Owning documents: `docs/specs/dashboard.md` and
-`docs/specs/reliability.md`.
+**Depends on:** T06, T09, and T10.
 
-## Follow-up specification work
+**Decide:**
 
-### P2. Backup, retention, and disk-pressure policy
+- SQLite backup cadence and restoration verification.
+- Artifact, temporary-directory, quarantine, R2-cleanup, model-ledger, and
+  audit retention by terminal state.
+- WAL checkpoint policy and minimum disk headroom.
+- Safe low-disk response.
 
-Define SQLite backup cadence/verification, artifact retention by terminal
-state, temp/quarantine cleanup, R2 cleanup escalation, model/audit retention,
-WAL checkpoint policy, minimum disk headroom, and the safe response to low disk.
-Recommended behavior is to stop new generation/render claims before disk
-exhaustion while preserving review, delivery audit, and published records.
+**Recommended starting position:** Stop new generation/render claims before
+disk exhaustion while preserving review, delivery audit, and published records.
 
-### P2. Complete field/transition catalog
+**Owners:** `docs/specs/reliability.md`, `docs/specs/runtime.md`, and
+`docs/specs/data-model.md`.
 
-`docs/specs/data-model.md` now defines the important records and invariants, but
-some retained detection tables and newer records remain prose rather than a
-complete field/type/nullability/default/foreign-key catalog. Before writing the
-baseline migration, add:
+**Done when:** Unattended operation has a recoverable storage policy that
+cannot destroy pending review or publication audit evidence under pressure.
 
-- a full table/column catalog or reviewed migration DDL;
-- one transition matrix per claimable record, including allowed actor and
-  transaction preconditions;
-- partial unique indexes for one active claim/run/review/reconciliation item;
-  and
-- foreign-key deletion behavior (recommended: restrict permanent audit lineage,
-  never cascading deletion across published history).
+## T12 — Dashboard visibility and operational UX [P1]
 
-The migration DDL and typed boundary models/tests should be reviewed together;
-do not let either silently invent contract details.
+**Depends on:** T02–T11. The dashboard reads and traces the settled system; it
+does not define its own lifecycle states or worker behavior.
 
-### P2. Documentation conformance checks
+**Decide:**
 
-Extend the documentation checker later to verify internal links, required Tier
-2 metadata, router coverage, forbidden duplicate status definitions, canonical
-record names, and that every pipeline/platform reference is reachable from
-`docs/system.md`. This is code/tooling work and was intentionally not changed
-during this documentation-only review.
+- The information architecture, default landing view, navigation, drill-down,
+  filters, sorting, and trace links for all currently enabled pipelines.
+- A pipeline/account-aware design that scales without redesign from O2 to many
+  pipelines, while showing only actually enabled pipelines and never hiding a
+  failing one in a global aggregate.
+- A Trend Opportunities page as the primary view: every normalized candidate,
+  its evidence, score/rank, shortlist result, determination outcome, selected
+  pipeline/account, and linked content/delivery outcome.
+- A complete trace detail from source observations through candidate, thread,
+  brief, determination, ContentJob, package, render/review, and publication.
+- Simple human interaction only: free-text idea/revision conversation, **Post
+  now**, request changes, and remove from queue. No human scheduling control in
+  the initial POC.
+- Secondary views for ideas/threads, review queue, pipeline portfolio, worker
+  operations, costs, audit, cleanup, and reconciliation.
+- Exact refresh/freshness presentation and safe non-secret diagnostics using
+  the final runtime/reliability policies.
 
-### P2. Implementation sequence and acceptance matrix
+**Owners:** `docs/specs/dashboard.md`, with references to every affected Tier 2
+contract. Update `docs/system.md` only if dashboard ownership/routing changes.
 
-Create a noncanonical development plan after the P0/P1 decisions are resolved.
-A practical dependency order is:
+**Done when:** The dashboard presents full source-to-publication traceability
+and operational visibility without duplicating component contracts or requiring
+operator inference from raw database records.
 
-1. baseline schema, constraints, command receipts, claim helpers, and migrations;
-2. Intake + Determination lineage and model ledger;
-3. deterministic Detection + recurrence;
-4. O2 Generation Run/checkpoint/package contract;
-5. renderer profiles, manifests, filesystem recovery, and review binding;
-6. dashboard read model and human commands;
-7. Posting/Meta adapter, cleanup, reconciliation, and live-safety gates; and
+## T13 — Documentation conformance checks [P2]
+
+**Depends on:** T10–T12; checking unstable names/statuses earlier would encode
+premature assumptions in tooling.
+
+**Add checks for:**
+
+- Internal links and required Tier 2 metadata.
+- Tier 1 router coverage and reachable pipeline/platform references.
+- Forbidden duplicate status definitions and canonical record names.
+
+**Owner:** `scripts/check_docs.py` and its tests. This is tooling work, not a
+new architecture contract.
+
+**Done when:** The checker protects finalized document-routing and naming rules
+without treating this temporary task list as canonical input.
+
+## T14 — Noncanonical implementation plan and acceptance matrix [P2]
+
+**Depends on:** T02–T13. It must derive from settled contracts, not replace
+them.
+
+**Plan:**
+
+1. Baseline schema, constraints, command receipts, claim helpers, and
+   migrations.
+2. Intake + Determination lineage and model ledger.
+3. Deterministic Detection + recurrence.
+4. O2 GenerationRun/checkpoint/package contract.
+5. Renderer profiles, manifests, filesystem recovery, and review binding.
+6. Dashboard read model and human commands.
+7. Posting/Meta adapter, cleanup, reconciliation, and live-safety gates.
 8. `launchd`, health, backup/retention, and end-to-end failure injection.
 
 For each stage, derive boundary tests directly from the owning specification.
-Do not use this review file as the implementation source of truth.
+Do not use this task list as the implementation source of truth.
+
+## Completion rule
+
+When a task is decided:
+
+1. Update the named Tier 2 owner(s), plus `docs/system.md` only if routing or
+   top-level ownership changed.
+2. Verify related documents do not duplicate or contradict the new policy.
+3. Mark the task complete here with links to the canonical contracts, or remove
+   it once no follow-up question remains.
+4. Delete this file when every task is resolved; it is intentionally not a
+   permanent documentation tier.

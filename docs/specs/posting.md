@@ -6,7 +6,7 @@ from code and tests.
 **Owner:** `PostRecord` pickup, `PostRequest` authorization,
 `PostRecord`/attempt lifecycle, adapter
 invocation, publication resources, delivery staging, and reconciliation input.
-**Read this for:** Post now, scheduling, cancellation, delivery attempts,
+**Read this for:** Post now, cancellation, delivery attempts,
 adapter behavior, R2 staging, publication records, or reconciliation. Read
 [the system guide](../system.md) first, then [the data model](data-model.md)
 and [reliability](reliability.md).
@@ -31,10 +31,10 @@ approved ReviewRequest
 ```
 
 The dashboard creates authorization and its initial delivery record, or
-cancels an eligible scheduled record, but never calls the agent or a platform
-API. The agent polls and claims its eligible Post Record through SQLite;
+cancels an eligible pre-publication record, but never calls the agent or a
+platform API. The agent polls and claims its eligible Post Record through SQLite;
 `PostRequest` is immutable authorization and is never a worker claim.
-The exact schedule/claim process is in [Worker runtime](runtime.md); the
+The exact eligibility/claim process is in [Worker runtime](runtime.md); the
 records and constraints are in [Data model](data-model.md).
 
 ## Preconditions and immutable input
@@ -59,7 +59,7 @@ delivery.
 
 1. Claim one eligible `PostRecord` using its monotonic fencing version.
 2. Revalidate the immutable approval binding, destination configuration,
-   schedule/cadence policy, and final asset manifest.
+   eligibility/cadence policy, and final asset manifest.
 3. Create a `PostAttempt` before any external side effect.
 4. Ask the selected platform adapter to stage assets, create platform resources,
    and perform its final publication operation.
@@ -69,11 +69,13 @@ delivery.
 6. Create independent `DeliveryCleanupTask` records for transient staging
    objects. Cleanup does not alter confirmed publication state.
 
-`immediate` and `scheduled` requests use the same lifecycle. **Post now**
-records immediate human intent; its due time must be resolved explicitly by the
-versioned posting policy. It never implicitly bypasses cadence, review,
-persistence, validation, or adapter safety. An incomplete policy blocks the
-record before an attempt rather than guessing.
+The initial POC accepts only **Post now** authorization. It records immediate
+human intent; the versioned posting policy derives the record's earliest
+eligible time. It never implicitly bypasses cadence, review, persistence,
+validation, or adapter safety. An incomplete policy blocks the record before an
+attempt rather than guessing. A future human scheduling feature requires a new
+versioned command and data-model contract; it is not an implicit mode of Post
+now.
 
 ## Platform-adapter contract
 
@@ -115,7 +117,7 @@ publication identity.
 
 The dashboard must distinguish human authorization from external activity:
 
-- `PostRequest` is the human's immediate or scheduled authorization.
+- `PostRequest` is the human's immediate delivery authorization.
 - `PostRecord` is the agent's delivery lifecycle.
 - `PostAttempt` records a concrete adapter attempt.
 - `PublicationResource` records remote/staged provider objects.
@@ -123,7 +125,7 @@ The dashboard must distinguish human authorization from external activity:
 - `ReconciliationRequest`, checks, and human decision record the uncertain
   publication investigation.
 
-The only allowed human delivery actions are Post now, schedule, reject before
+The only allowed human delivery actions are Post now, reject before
 authorization, cancel before the final external request, and reconcile an
 unknown result. The detailed UI is owned by [Dashboard and HAI](dashboard.md).
 
