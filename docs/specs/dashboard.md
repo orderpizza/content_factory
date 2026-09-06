@@ -51,7 +51,13 @@ types of human command:
 3. cancel an eligible `PostRecord` before its final publication request;
 4. create a read-only `ReconciliationRequest` for terminal
    `publication_unknown`; and
-5. record a human reconciliation decision against the exact completed checks.
+5. record a human reconciliation decision against the exact completed checks;
+6. close, reopen, or cancel a `ContentThread` under its lifecycle
+   preconditions; and
+7. request a capability re-evaluation for an eligible blocked Determination
+   decision; and
+8. open a permitted fresh review cycle for an unchanged expired or auditable
+   `not_published_cancel` item.
 
 Commands validate the displayed record version and write their narrowly defined
 records in a short SQLite transaction. They never call Gemini, render assets,
@@ -72,14 +78,29 @@ duplicate publication, and keeps the dashboard free of delivery logic.
   one transaction and duplicate submission uses a command idempotency key.
 - **Post now:** approves the exact package/render hashes and atomically creates
   one `delivery_mode=immediate` Post Request plus its initial Post Record. Its
-  actual eligibility follows the active posting policy; the UI shows whether
-  that means now, the next compliant slot, or blocked configuration when the
-  action is available. The click submits immediately without a confirmation
-  dialog. **Reject** ends that review request without delivery. The initial POC
+  actual eligibility follows `posting_policy_v1`; the UI shows **Posts now** or
+  the exact next eligible `Asia/Seoul` time, daily-cap/interval reason, and
+  record expiry. The click submits immediately without a confirmation dialog.
+  **Reject** ends that review request without delivery. The initial POC
   deliberately has no human scheduling action or requested delivery time.
 - **Request changes:** marks the review `changes_requested` and atomically
   appends the change note as a thread message plus a pending Intake request for
   a new revision. It never edits the reviewed package.
+- **Close / reopen thread:** closing is available only when no unfinished
+  descendant work remains; it archives the thread without changing history.
+  Reopen is explicit and changes only the closed thread back to `open`; the
+  next human message creates the next Intake request in the usual way.
+- **Cancel thread:** cancels permitted unfinished descendants and invalidates
+  an awaiting review or a pre-final-request delivery authorization. It is not
+  permitted to alter a delivery whose final publication request may have been
+  sent; that descendant remains published or uncertain while other unfinished
+  descendants may be cancelled. It never removes historical creative, audit,
+  published, or uncertain-publication records.
+- **Re-evaluate route:** is available on a blocked decision only when the
+  thread is open, the decision is current, no competing request is active, and
+  the safe routing-input fingerprint changed. It creates one auditable
+  `capability_recheck` revision/request; it neither sends a chat message nor
+  calls Gemini from the dashboard.
 - **Cancel delivery:** is available only before an attempt sends the final
   publication request. It cancels the eligible Post Record and its
   authorization consistently and never deletes creative.
@@ -94,9 +115,29 @@ completed work. Every view supports time, status, pipeline, account, source,
 and thread filters plus ID/full-text search. Every row opens a detail view with
 safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 
+The default landing page is **Trend Opportunities**. It is a chronological,
+filterable list of every normalized candidate—not only selected items—with its
+source evidence, score/formula version and rank, shortlist outcome/reason,
+coverage identity, linked thread/revision, determination outcome, chosen
+pipeline/account when accepted, and the downstream package/review/publication
+outcome when one exists. It makes the path from detected attention to monetized
+content inspectable without requiring the operator to reconstruct joins.
+
+The primary navigation is: **Trend Opportunities**, **Ideas and Threads**,
+**Review Queue**, **Pipeline Portfolio**, **Worker Operations**, **Delivery and
+Reconciliation**, **Costs and Audit**, and **System Storage**. These are views
+over the same SQLite record model, not separate subsystem stores. A global
+pipeline/account selector lists only currently enabled capabilities by default,
+but an **include disabled/historical** switch exposes retired configuration and
+its history. Portfolio rows are one per enabled pipeline/account/format and
+show status/backlog/failures/review count/publication counts/cost; an error in
+any row remains visible even when a global aggregate is healthy. Pagination,
+search, and filter chips are required rather than a fixed layout assumption, so
+the design accommodates a larger pipeline portfolio without hiding it.
+
 | Area | Required visibility | Primary question |
 | --- | --- | --- |
-| System overview | Schema version, DB path/size, local disk headroom, worker freshness, active/stale/failed counts, O2 account, today’s posts, review count, Gemini totals | Is the system alive, safe, and progressing? |
+| System overview | Schema version, DB path/size, local disk headroom, worker freshness, active/stale/failed counts, O2 account, safe delivery-configuration health including Meta token-expiry state, today’s posts, review count, Gemini totals | Is the system alive, safe, and progressing? |
 | Worker health | Current `worker_heartbeats`, substantive `worker_runs`, claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason | Which component needs attention? |
 | Detection | Enabled source-instance registry/configuration version, health/degradation, observations/snapshots, candidates, score inputs/fingerprint/formula version, cluster members, shortlist policy/rank/budget, consumed/not-recommended/cooldown/evidence change | Why was an opportunity selected, deferred, or blocked? |
 | Threads and intake | New-idea entry, origin, complete conversation, Intake requests/claims, clarification state, revisions/parents, source evidence/events, linked work | What did I ask for and what changed? |
@@ -106,6 +147,7 @@ safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 | Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, Post now/reject/request-changes actions | What exact immutable output is ready for my decision? |
 | Delivery | Requests, cadence, records, attempts, typed errors, final-request boundary, external IDs, R2 cleanup, unknown outcomes, reconciliation | What is queued, published, uncertain, or awaiting cleanup? |
 | Costs/audit/search | Model attempts/tokens/cost, worker errors, migrations, deduplication decisions, full audit search | What happened and what did it cost? |
+| System storage | Latest storage sample/threshold state, free space, SQLite/WAL/artifact/backup sizes, latest backup, last restore verification, retention/quarantine/cleanup counts | Can the Mac Mini safely continue to create and preserve work? |
 
 ## Navigation and traces
 
@@ -124,7 +166,13 @@ Each stage displays `active`, `waiting`, `completed`, `failed`, `stale`, and
 `blocked_by_human` counts. Selecting a count applies that filter to the owning
 view. A trace view starts from any candidate, thread, revision, job, package,
 review request, post request, or post record and displays every linked record
-in chronological order.
+in chronological order. The canonical trace order is source instance/observation
+→ snapshot/cluster/candidate → evidence event or thread → messages/Intake
+request → Brief Revision → Determination request/decision → Content Job →
+Generation Run/package → Render Run/assets → Review Request → Post Request/
+Record/Attempt → publication resources, cleanup, and reconciliation. Missing
+downstream links are shown as an explicit current stopping state, not blank
+space that the operator must interpret.
 
 ### Review queue
 
@@ -137,6 +185,14 @@ approval revalidates every binding in its transaction. Approval confirms that
 Instagram is public and irreversible. The initial POC has no scheduling
 control: **Post now** is the only delivery authorization action and the active
 posting policy determines its earliest eligible time.
+
+The queue separately exposes `awaiting_review`, `expired`, `invalidated`, and
+other terminal review outcomes. An unchanged expired item may display **Open a
+new review cycle** only when the freshness policy permits it; the action creates
+a distinct review-cycle record and never revives the old approval. A package
+with a confirmed publication identity never exposes that action. A resolved
+`not_published_cancel` outcome may also make the exact package eligible for a
+new cycle, with the reconciliation evidence linked on the card.
 
 ### Delivery view
 
@@ -167,6 +223,12 @@ fresh/warn/stale thresholds are owned by the
 | --- | --- | --- |
 | Dashboard, visible | 10 seconds | One consistent local SQLite snapshot; no external call | ≤20 s / >20 s / >60 s or read failure |
 | Dashboard, hidden | No polling; refresh on return | Avoid needless local load | Shows prior snapshot age |
+
+The dashboard also displays the Storage Monitor sample at its five-minute
+cadence, backup age, restore-verification age, and the active shared claim gate
+(`normal`, `storage_warning`, `storage_critical`, or `read_only_emergency`). It
+does not declare a worker broken merely because a claim is deliberately blocked
+by that gate.
 
 Do not call an active leased item stale before its `lease_expires_at`. After
 expiry, label the individual record **stale claim**, separately from ordinary

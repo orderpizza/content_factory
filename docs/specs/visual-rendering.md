@@ -87,6 +87,46 @@ selection rules, and quality thresholds are deliberately deferred to the
 visual-rendering design deep dive. They will be added here and mirrored in the
 data-model contract when they become stable.
 
+## First implementation contract — `visual_spec_v1`
+
+Each visual unit declares `ordinal`, `role`, `profile_id`, `template_id`,
+`theme_id`, `bindings_json`, `output`, and `validation`. Bindings contain only
+typed pipeline fields; no HTML, CSS, color literals, font names, filesystem
+paths, or remote URLs are accepted. Templates resolve all styling from their
+profile/theme tokens. O2 uses a neutral `editorial_clean_v1` theme across the
+four shared profiles.
+
+The initial templates use local, OFL-licensed Noto Sans font files pinned by
+SHA-256, a 1080×1920 canvas, 96px horizontal safe areas, and 120px top/bottom
+safe areas. Missing font, template, theme, or bundled asset is a RenderRun
+failure; substitution is forbidden. Profiles own generic palette/typography
+tokens and templates; the O2 pipeline owns only role-to-profile selection and
+structured content bindings.
+
+Copy capacity is enforced before and after rendering: the renderer measures
+the resolved text box, rejects overflow/clipping/missing bindings, and emits
+no review request. `html_playwright_v1` pins the Playwright/Chromium package
+version and viewport/device scale. Golden fixtures compare output with exact
+dimensions/manifest hashes plus perceptual difference ≤0.5%; required manual
+fixtures cover contrast, safe areas, long valid copy, dialogue balance, and
+missing-font/asset failure.
+
+Preview PNG uses sRGB. Delivery JPEG uses sRGB, baseline JPEG, quality 90,
+4:4:4 chroma sampling, and a 10 MiB maximum per slide; encoder/version and
+every output hash are manifest fields. A template upgrade, font upgrade, or
+encoder change creates a new version and never changes prior reviewed output.
+
+The initial generic template registry is:
+
+| Profile | Template | Capacity enforced by renderer |
+| --- | --- | --- |
+| `hook_emphasis_v1` | `headline_focus_v1` | One expression line plus ≤16-word hook. |
+| `concise_explainer_v1` | `definition_stack_v1` | One expression line, ≤34-word explanation, one optional short usage line. |
+| `monologue_card_v1` | `context_card_v1` | One context label plus ≤22-word example. |
+| `chat_dialogue_v1` | `two_bubble_v1` | Two ordered messages, ≤14 words each. |
+
+These are reusable capacity contracts, not O2-specific names or colors.
+
 ## Shared profile registry
 
 The Visual Rendering Layer maintains the enabled, versioned profile registry.

@@ -53,6 +53,44 @@ an explicit human revision does.
 
 ## Content Contract
 
+Every O2 package uses `o2_creative_v1` and is written in `en-US` for CEFR
+B1–B2 learners. The account may teach an expression used elsewhere, but the
+package must label its relevant regional/register context (for example,
+`US informal`, `UK informal`, or `general`) rather than presenting it as
+universal English. The tone is concise, friendly, concrete, and educational;
+it does not promise fluency, make exaggerated learning claims, or use a
+high-pressure engagement CTA.
+
+### Teaching target and evidence
+
+`creative_json` contains this required structured teaching contract before any
+slide text:
+
+```text
+schema_version: "o2_creative_v1"
+locale: "en-US"
+teaching_target: expression, intended_sense, plain_meaning, nuance,
+  register_and_region, learner_level, usage_notes, avoid_misuse[],
+  claim_reference_ids[]
+teaching_references[]: reference_id, provider/title/source_url,
+  retrieved_at/content_hash, supported_claim_ids[]
+slides[]
+```
+
+Every learner-facing meaning, nuance, register, and usage claim must map to at
+least one `claim_reference_id`. A reference is an entry from the versioned
+operator-approved teaching-reference catalog; it records source metadata and a
+content hash for audit, but O2 does not copy lengthy source text into a post.
+Generated examples are marked as generated examples, not citations. If the
+pipeline lacks enough approved evidence for the intended sense, it fails the
+job visibly before package creation; it must not invent a citation or teach an
+unverified meaning.
+
+The validator rejects targets that are ambiguous without a clearly supported
+sense, primarily offensive/slur/sexual expressions, medical/legal/financial
+advice, unsupported etymology, or context-sensitive usage that cannot be
+taught safely in the available slide format.
+
 ### Slide sequence
 
 Each package contains 5–8 ordered slides:
@@ -68,22 +106,54 @@ Each package contains 5–8 ordered slides:
 | `use_case_monologue` | Show one natural first-person use | 22 words |
 | `use_case_dialogue` | Show a short conversational use | At most two messages; 14 words per message |
 
-The pipeline validates ordering, count, type-specific structure, and the word limits above before a `ContentPackage` may be persisted.
+Each slide is a typed structured object, never raw HTML/CSS:
+
+| Slide type | Required structured content |
+| --- | --- |
+| `hook` | `expression`, one `hook_text` that creates curiosity without changing the target's meaning. |
+| `explanation` | `plain_meaning` plus one or both of `nuance` and `usage_note`; every factual field names its claim reference. |
+| `use_case_monologue` | `context` and one generated `example_text`; the context must make the intended sense natural. |
+| `use_case_dialogue` | `context` plus two ordered generated messages, each with a logical speaker ID. Speaker display names are renderer chrome, not creative copy. |
+
+The pipeline validates ordering, count, type-specific structure, semantic
+consistency with the teaching target, and the word limits above before a
+`ContentPackage` may be persisted.
+The 5–8 slide contract is deliberately inside Instagram's current carousel
+maximum of ten child media items; a package with more than ten delivery assets
+is invalid and may not reach review.
+
+### Deterministic word counting — `o2_word_count_v1`
+
+Word limits apply to learner-facing slide copy after normalization. A word is a
+maximal Unicode letter/number sequence that may contain internal apostrophes or
+hyphens; therefore `don't`, `well-known`, and `10-year` count as one word.
+Whitespace, punctuation, emoji, and standalone symbols count as zero; a slash
+separates words; each numeral sequence counts as one word. The idiom itself is
+counted as the words visibly present (`piece of cake` is three). Dialogue
+speaker labels/template labels do not count, but every displayed message does.
+The validator persists the normalized text and count for every limited field.
 
 ### Metadata contract
 
-Package metadata is created only after the slides are accepted. It requires:
+Package metadata is created only after the slides are accepted. The serialized
+caption order is: short hook, concise teaching summary, optional single CTA,
+then hashtags on their own final line. It requires:
 
-- A non-empty caption.
-- 2–6 unique tags.
-- 3–8 unique hashtags.
-- Every hashtag begins with `#` and contains no whitespace.
+- A non-empty caption of at most 1,500 Unicode code points.
+- At most one optional CTA, capped at 12 words.
+- 2–6 unique private tags, normalized by Unicode NFKC/case folding/trimmed
+  whitespace.
+- 3–8 unique public hashtags, each lowercase ASCII `#` followed by 1–48
+  letters, numerals, or underscores; no whitespace or punctuation follows the
+  `#`.
+- Hashtags are de-duplicated independently from tags. A private tag may have
+  the same lexical topic as a public hashtag because they serve different
+  purposes.
 
 Tags are private editorial/search labels stored with the package; hashtags are
 the public tokens serialized into the immutable Instagram caption according to
 the versioned platform policy. Caption and hashtag validation applies to the
-final serialized value, including platform length/character constraints in
-that policy.
+final serialized value, including stricter provider constraints when verified.
 
 Package provenance distinguishes trend/opportunity evidence, factual or
 teaching references, human-supplied context, and generated examples. A trend
@@ -99,7 +169,21 @@ Gemini is used by this pipeline in two separate calls:
 1. Generate the slide content using a temperature of `0.65`.
 2. Once slide validation succeeds, generate caption, tags, and hashtags using a temperature of `0.45`.
 
-If metadata generation fails validation, the pipeline retries metadata without regenerating the accepted slides. A failed slide-generation attempt does not create a package. The detector remains deterministic and LLM-free; determination uses the system-level LLM decision boundary before this pipeline begins.
+`o2_generation_v1` permits at most two creative attempts and two metadata
+attempts per Content Job. A metadata repair receives the frozen validated slide
+snapshot and may repair only metadata; it may not alter the teaching target,
+slide copy, outline, or selected angle. A creative repair may correct a schema
+or teaching-validation failure only while no package exists. The job has a
+30,000 total-model-token cap and a USD 0.25 local cost cap across all O2 model
+calls; reaching either cap fails visibly rather than silently changing scope or
+spending more. The cost cap is enforced from the model-invocation ledger, not
+inferred from a later billing report.
+
+If metadata generation fails validation, the pipeline retries metadata without
+regenerating the accepted slides. A failed slide-generation attempt does not
+create a package. The detector remains deterministic and LLM-free;
+determination uses the system-level LLM decision boundary before this pipeline
+begins.
 
 In the target model, a durable `GenerationRun` persists the validated slide
 snapshot/hash before metadata begins. Bounded metadata retries reference that
@@ -120,6 +204,19 @@ silently replace it with hardcoded tags or hashtags.
 | `explanation` | `concise_explainer_v1` |
 | `use_case_monologue` | `monologue_card_v1` |
 | `use_case_dialogue` | `chat_dialogue_v1` |
+
+O2 resolves the following immutable `visual_spec_v1` binding for each slide:
+
+| Slide role | Template | Required bindings |
+| --- | --- | --- |
+| `hook` | `headline_focus_v1` | `expression`, `hook_text` |
+| `explanation` | `definition_stack_v1` | `expression`, `plain_meaning`, optional `nuance` or `usage_note` |
+| `use_case_monologue` | `context_card_v1` | `expression`, `context`, `example_text` |
+| `use_case_dialogue` | `two_bubble_v1` | `expression`, `context`, two ordered message objects |
+
+Every O2 unit uses `editorial_clean_v1`, `1080x1920`, `preview_html`,
+`preview_png`, and `delivery_jpeg`. The pipeline supplies no styling values;
+the renderer rejects a binding that exceeds the registered profile capacity.
 
 O2 uses these renderer-owned, generic profiles with a compatible neutral visual
 treatment for vertical 1080×1920 slides. The pipeline may select one or more
@@ -193,7 +290,10 @@ for the Facebook-profile/Page/Instagram-account relationship, required
 permissions, and token lifecycle.
 
 R2 is a transient public-media relay, not the canonical content library. Its
-S3 credentials and enabled public development URL are local-only configuration.
+S3 credentials are local-only configuration. `R2_PUBLIC_DOMAIN` may be the
+Cloudflare-managed `r2.dev` development URL only for an explicit smoke test;
+unattended live delivery requires a dedicated custom domain under the operator's
+control, as defined in the [Meta platform reference](../platforms/meta.md).
 
 ## Acceptance Criteria and Boundary Tests
 

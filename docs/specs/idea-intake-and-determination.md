@@ -79,6 +79,52 @@ material evidence change approved by the deterministic recurrence policy
 creates a `ThreadEvidenceEvent` and Intake request on the same thread. A
 resulting revision uses `revision_reason=evidence_refresh`.
 
+### Thread closure, cancellation, and route re-evaluation
+
+An open thread may be **closed** only after all of its unfinished work has
+reached a terminal state. Closing archives the thread; it does not edit or
+cancel any historical result. The dashboard must require an explicit reopen
+before accepting another human message. Reopening creates no revision or model
+call by itself; the later message follows the normal Intake path.
+
+An open thread may be **cancelled** when the human wants to abandon unfinished
+work. The cancellation transaction records the durable actor/reason, changes
+the thread status, and cancels every unclaimed or retry-wait descendant that
+has not reached an external side-effect boundary: Intake and Determination
+requests, Content Jobs/Generation Runs, Render Runs, and awaiting-review
+requests. It also cancels an approved Post Request/Post Record only while its
+final publication request has not been marked sent. Immutable revisions,
+decisions, packages, assets, rejected/failed history, published posts, and
+`publication_unknown` records are never deleted or rolled back.
+
+A worker with an already claimed local item may finish only its bounded current
+operation. Before it creates a downstream handoff or commits an accepted
+Determination decision, package, review request, or delivery attempt, it checks
+the thread cancellation state in its fenced finalization transaction. A
+cancelled thread makes that finalization `cancelled` instead. Once the final
+platform-publication marker may have been sent, that delivery descendant is
+excluded from cancellation and the Posting Agent safety rules govern the
+resulting post or uncertain publication. Other unfinished descendants may still
+be cancelled safely.
+
+`blocked` is a route/dependency outcome, not an editorial rejection. The
+dashboard shows the specific blocker and may offer **Re-evaluate route** only
+when all of the following are true:
+
+1. the blocked decision belongs to the thread's latest revision and the thread
+   is open;
+2. no non-terminal Intake or Determination request exists for that thread; and
+3. the safe routing-input fingerprint has changed since the blocked decision.
+
+The fingerprint covers the enabled capability catalog, dependency/configuration
+readiness, and routing-policy version, but no secret values. The command
+creates an immutable `capability_recheck` revision with the exact same brief
+and source context, names the prior blocked decision, freezes the new routing
+input, and creates one pending Determination request in one transaction. It
+does not require a human message, invoke Gemini directly, or re-evaluate the
+old revision. If the fingerprint did not change, the command is rejected rather
+than spending another model call on the same blocked route.
+
 ## Normalized brief contract
 
 `brief_json` is an internal agent-produced record, not a dashboard form. A
@@ -136,6 +182,11 @@ For human-originated work, `not_recommended` is editorial feedback, not a
 discarded request. The dashboard offers continuation of the same thread. For a
 trend, a `not_recommended` result is subject to the detection recurrence policy.
 
+For `blocked`, the dashboard offers **Continue this thread** for editorial
+rework and, only when the route-input preconditions above hold,
+**Re-evaluate route**. These actions have distinct audit trails and must not be
+substituted for one another.
+
 When more than one capability fits, select the strongest valid route and persist
 ranked alternatives and tie-break reasoning. Determination may never route to a
 disabled or unregistered capability.
@@ -188,6 +239,13 @@ Implementation and boundary tests must demonstrate:
 - selected-trend and human-originated threads using the same revision lineage;
 - durable Intake claims, clarification resumption, and duplicate-submit safety;
 - Revision 2 never mutates Revision 1 or any past decision/job/package;
+- closing, reopening, and cancellation preserve historical records and stop
+  only the permitted unfinished descendants;
+- a cancellation race cannot send a final publication request after the
+  cancellation transaction wins, and cannot roll back a possible publication;
+- a blocked decision can create one auditable capability-recheck revision only
+  after routing inputs change, without a human message or re-evaluation of the
+  old revision;
 - only registered enabled capabilities are selectable;
 - no suitable capability produces `not_recommended` and no job;
 - unavailable capability/configuration produces `blocked` and no job;

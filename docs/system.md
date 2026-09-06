@@ -39,6 +39,7 @@ owner rather than restate detailed rules.
 | Worker recovery, idempotency, artifact integrity, Gemini accounting, or external-side-effect safety | [Reliability and safety](specs/reliability.md) |
 | O2 content/metadata/format or Instagram delivery contract | [O2 English Instagram pipeline](pipelines/o2-english-instagram.md) |
 | Meta accounts, permissions, tokens, or Graph API facts | [Meta platform reference](platforms/meta.md) |
+| Implementation sequencing and derived acceptance evidence | [Target implementation plan](implementation-plan.md) (noncanonical; owning contracts win) |
 
 The historical [decision archive](archive/decisions.md) is preserved for a
 specific rationale lookup. It is not required working context.
@@ -90,7 +91,7 @@ the source of truth plus its read/write Human–Agent Interface.
 
 ```mermaid
 flowchart TB
-    sources([External RSS/Atom feeds<br/>and Wikimedia page views])
+    sources([Enabled external<br/>detection sources])
     human([Human idea or rework])
     state[(Content Factory State & Dashboard HAI<br/>SQLite source of truth)]
     scout[Trend Scout + Shortlist]
@@ -221,12 +222,20 @@ commit populated values. Gemini requires `GOOGLE_CLOUD_PROJECT`,
 `gcloud auth application-default login`. O2 delivery variables are in the
 [pipeline reference](pipelines/o2-english-instagram.md).
 
-Before handoff, run:
+For a documentation-only change, run:
+
+```sh
+./.venv/bin/python scripts/check_docs.py
+```
+
+For an implementation change, also run:
 
 ```sh
 ./.venv/bin/python scripts/run_tests.py
-./.venv/bin/python scripts/check_docs.py
 ```
+
+The current test suite exercises the existing implementation; it is not proof
+that the target architecture in these documents has been implemented.
 
 Safe external checks are `scripts/test_r2_public_asset_store.py` (temporary
 R2 write/read/delete) and `scripts/test_instagram_credentials.py` (read-only
@@ -250,6 +259,7 @@ database/package.
 | `pipelines/` | Pipeline-specific content/format/delivery contracts | Generic architecture or provider account model |
 | `platforms/` | Provider accounts, permissions, API limits, sources | Pipeline creative contract |
 | `archive/` | Historical rationale | Current policy |
+| `implementation-plan.md` | Derived delivery sequencing and acceptance matrix | Architecture, schema, or provider policy |
 
 - Update this guide when current objective, ownership, or top-level operating
   policy changes.

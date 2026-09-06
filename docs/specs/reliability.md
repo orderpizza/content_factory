@@ -37,6 +37,13 @@ fencing version, and a former owner can no longer commit. Determination must dis
 non-acceptance never stops later work. Accepted decision, unique job, and
 request completion share one transaction; missing-job repair is legacy-only.
 
+Thread cancellation is an additional fenced finalization condition for every
+pre-publication worker. A cancellation that commits first prevents a worker
+from creating its next downstream handoff or an external delivery attempt. A
+worker that already crossed the final platform-publication marker must preserve
+the result as published or `publication_unknown`; cancellation never makes an
+ambiguous external side effect retryable or reversible.
+
 Use short SQLite transactions, configured busy timeout, and WAL only after Mac
 Mini multi-process verification. Never hold a transaction during Gemini, R2,
 or social API work. Database uniqueness conflicts are successful idempotent
@@ -101,7 +108,75 @@ R2 staging cleanup is an independent, idempotent audited task. A cleanup
 failure is visible and retryable when safe, but never changes a confirmed post
 to failed.
 
+## Storage, backup, and retention — `storage_safety_v1`
+
+SQLite is the operational source of truth. Once daily at 03:30 `Asia/Seoul`, a
+maintenance process takes a consistent SQLite online-backup snapshot to the
+configured local backup volume; it never copies a live database file and WAL
+by filesystem copy. Keep 14 daily and 8 weekly snapshots. After a successful
+snapshot, request a passive WAL checkpoint; request `TRUNCATE` only when no
+worker has an active claim and the checkpoint reports no busy reader. Failed
+backup or checkpoint is a visible operational warning, never a reason to delete
+the current database, WAL, or previous backup.
+
+At least once each calendar month, restore the newest backup into a new
+temporary directory, open it with foreign keys enabled, run `PRAGMA
+integrity_check`, verify migration checksum/version, and query a representative
+source-to-publication trace. Record the result as an auditable maintenance run.
+The dashboard warns if the latest successful backup is older than 26 hours or
+the last restore verification is older than 35 days. A separately configured
+Mac backup system/off-device copy is strongly recommended; without one the
+dashboard continuously shows **local backups only** rather than claiming
+hardware-loss recovery.
+
+All SQLite audit records, model/delivery/reconciliation evidence, package
+metadata, review decisions, and publication history are retained indefinitely.
+The system stores bounded source metadata rather than fetched article/video
+bodies. Canonical local renderer output follows this retention schedule:
+
+| Material | Retention and removal rule |
+| --- | --- |
+| Pending, reviewable, approved, delivery-retry, or `publication_unknown` final assets | Keep local bytes until the record is terminally resolved; never delete under routine retention. |
+| Published final assets and their local preview/HTML/PNG derivatives | Keep 180 days after confirmed publication, then delete only bytes after verifying the immutable manifest/hash remains in SQLite. |
+| Rejected, cancelled, failed, or expired final assets with no publication identity | Keep 30 days after terminal state, then delete only bytes after manifest/hash verification. |
+| Run-specific temporary directories | Delete after a verified owner/lease recovery, or 24 hours after abandonment. |
+| Quarantined promoted directories | Keep until reconciled by run ID/hash; never apply age deletion while unreconciled. |
+| R2 `instagram-transient/` staged objects | Cleanup Worker deletes after a safe terminal delivery outcome; bucket lifecycle deletion at 7 days is a backstop only. |
+
+Physical artifact deletion updates no historical asset/manifest/hash fields; it
+adds a deletion timestamp/reason to the artifact record. Cleanup never removes
+credentials, audit evidence, pending-review bytes, or a possibly published
+delivery input merely to reclaim space.
+
+The Storage Monitor samples available space and database/WAL/artifact/backup
+sizes every five minutes. Normal operation requires both at least 15 percent
+free space and 10 GiB free. Below either threshold it enters `storage_warning`
+and blocks new Pipeline Runner and Visual Renderer claims while preserving
+dashboard, review, posting, reconciliation, and cleanup. Below 8 percent or 5
+GiB it also pauses new Trend Scout collections and performs only safe cleanup;
+existing delivery audit remains readable. Below 3 percent or 1 GiB it enters
+read-only emergency mode: it takes no new external/model/generation/delivery
+claim and the dashboard disables commands that would create work, while still
+showing the precise condition and recovery guidance. Recovery requires both
+thresholds to be exceeded on two consecutive samples; no worker deletes audit
+rows automatically to leave an emergency state.
+
 ## Configuration and Gemini accounting
+
+`gemini_budget_v1` applies a local daily warning threshold of USD 5.00 and a
+hard stop at USD 8.00 across all model invocations in one UTC day. Before
+claiming Gemini-backed work, the worker reserves the configured worst-case
+remaining cost for that work against the daily ceiling; the dashboard reports
+both settled ledger cost and outstanding reservations. Reaching the warning
+does not stop already claimed work. The hard stop prevents new Gemini claims
+until the next UTC day or an explicit configuration change. Per-job caps remain
+owned by the selected pipeline contract.
+
+A `ModelInvocation(status=started)` that outlives its lease is cost-uncertain:
+its reservation remains counted until an explicit provider/accounting recovery
+marks it settled or a documented expiry policy releases it. The same content
+entity is blocked from an automatic repeat. This preserves a conservative daily
+ceiling without assuming that a lost response incurred zero cost.
 
 Load local `.env` configuration once at each process composition root. Domain
 modules receive validated settings and never read environment variables. Check

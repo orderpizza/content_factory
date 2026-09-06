@@ -65,6 +65,7 @@ directly.
 | Posting Agent | Every 15 s; **Post now** creates an immediate-mode record whose due time is resolved by the active posting policy | Due/retry-ready `PostRecord`; conditional fenced record claim. `PostRequest` remains immutable authorization. | Persist attempt/result and cleanup tasks. No due post: heartbeat only. A policy-eligible Post now record is normally claimed within one poll interval; Instagram processing time is additional. | ≤30 s / >30 s / >90 s when due work exists |
 | Cleanup Worker | Every 5 min | Pending safe `DeliveryCleanupTask`; conditional task claim | Persist R2 cleanup outcome. No task: heartbeat only. | ≤10 min / >10 min / >20 min with pending cleanup |
 | Publication Reconciliation Worker | On explicit human request; optional 15-min check while unresolved requests exist | Pending/retry-ready `ReconciliationRequest` for `publication_unknown`; conditional fenced claim | Append a read-only `ReconciliationCheck`; resolve only an unambiguous match or mark `needs_human`. It never publishes or retries. | Show last check; warning until resolved |
+| Storage Monitor | Every 5 min | No work claim; local read-only filesystem/database-size sample | Persist current free space, threshold state, database/WAL/artifact/backup sizes, and heartbeat. It never deletes anything itself. | ≤10 min / >10 min / >20 min |
 
 Review availability is created by the completed renderer transaction; it has no
 separate worker. The dashboard is not a worker: while visible, it refreshes its
@@ -85,11 +86,54 @@ is eligible for the Posting Agent. This guarantees the command survives a
 browser close, process restart, or temporary network failure and remains
 visible in the audit trail.
 
+For O2, `posting_policy_v1` computes eligibility in `Asia/Seoul`, allows one
+published or publication-uncertain post per account day, and requires 20 hours
+between publication slots. A safe pre-publication failure releases its slot;
+only a possible final publication keeps one reserved pending reconciliation.
+
 The exact conditional claims, leases, terminal states, safe retries, and
 ambiguous-publication rules are owned by the
 [reliability specification](reliability.md) and [data model](data-model.md).
+Storage thresholds, backup/restore verification, and retention are also owned
+by [Reliability and safety](reliability.md). The Storage Monitor's persisted
+threshold state is the gate for new claims; workers do not make an independent
+disk-space decision.
 
 ## Health and operations
+
+## Initial lease and retry envelope — `worker_recovery_v1`
+
+Every worker claims one item per poll in the POC. The following table is the
+single recovery envelope; it is configuration mirrored in persisted work at
+creation, not a worker-local default. "Maximum runtime" is the time allowed
+for one claimed execution before it must persist a safe retryable outcome or
+allow its lease to expire. It does not authorize an interrupt of a final social
+request that may already be in flight.
+
+| Worker | Lease | Renew | Maximum runtime | Maximum executions |
+| --- | ---: | ---: | ---: | ---: |
+| Trend Scout + Shortlist | 10 min | 3 min 20 sec remaining | 8 min | 3 per source/run |
+| Idea Intake | 5 min | 1 min 40 sec remaining | 4 min | 3 per request |
+| Determination | 5 min | 1 min 40 sec remaining | 4 min | 3 per request |
+| Pipeline Runner | 10 min | 3 min 20 sec remaining | 8 min | 3 per generation run |
+| Visual Renderer | 10 min | 3 min 20 sec remaining | 8 min | 3 per render run |
+| Posting Agent | 5 min | 1 min 40 sec remaining | 4 min | 3 only before a final provider request |
+| Cleanup Worker | 10 min | 3 min 20 sec remaining | 8 min | 3 per task |
+| Publication Reconciliation | 10 min | 3 min 20 sec remaining | 8 min | 3 per request/check cycle |
+
+Attempt 1 is immediately eligible. Safe reattempts 2 and 3 use nominal delays
+of 30 seconds and 5 minutes respectively, with a deterministic plus-or-minus
+10 percent jitter derived from the entity identity and attempt number. A
+rate-limited adapter may use a longer provider `Retry-After` value. Exhausted
+work becomes terminal `failed` with its last typed safe diagnosis; it never
+loops indefinitely. A graceful stop takes no new claim, records a completed
+safe local step where possible, and otherwise releases or lets its active lease
+expire for the next worker instance.
+
+Only transport/pre-side-effect, provider-transient, and locally retryable
+validation failures are retryable. A stale Gemini `started` invocation is
+cost-uncertain and is never retried automatically. A final social-publication
+request that may have been sent becomes `publication_unknown`, never retryable.
 
 Every process updates its single `worker_heartbeats` row on each poll. It adds
 an append-only `worker_runs` row only when it substantively claims or processes

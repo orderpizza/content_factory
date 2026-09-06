@@ -4,8 +4,11 @@
 facts and required configuration; it is not a Content Factory implementation
 status report.
 
-**Last verified:** 2026-08-27. Recheck the official sources below before
-changing the adapter or Meta configuration.
+**Provider facts verified:** Facebook-Login authorization route and carousel
+constraints, 2026-09-05; Cloudflare R2 public-media facts, 2026-09-05. The
+configured Graph API version is a pinned local policy, not a claim that it is
+Meta's newest version; recheck provider support before implementation or an
+adapter change.
 
 ## Account Model
 
@@ -51,7 +54,12 @@ pages_read_engagement
 
 `INSTAGRAM_ACCESS_TOKEN` is a bearer secret and remains local only. Publication
 requests do not need the app ID/secret when a validated token is already
-provided; renewal will require the appropriate app credentials.
+provided; renewal will require the appropriate app credentials. The POC does
+not automatically renew tokens. On onboarding/renewal, store a non-secret
+`token_expires_at` value in validated local configuration or the safe account
+health record. The dashboard warns 14 days before expiry, shows a high-visibility
+failure state at 72 hours, and blocks a delivery attempt once the token is
+expired.
 
 For an owner-operated development app, the app administrator/developer/tester
 can authorize their own connected assets without supporting unrelated accounts.
@@ -87,11 +95,48 @@ for provider readiness, then calls `media_publish` under the safety boundary
 above. The canonical package/assets remain local; R2 is only a short-lived
 delivery relay and cleanup is an independent audited task.
 
+### Public-media environments
+
+The current Cloudflare-managed `r2.dev` URL is permitted only for an explicit
+development smoke test. It is not a production origin. Before unattended live
+delivery, attach a dedicated custom domain controlled in the same Cloudflare
+account (for example, `media.example.com`) to the R2 bucket, configure
+`R2_PUBLIC_DOMAIN` to that HTTPS domain, validate retrieval of a temporary
+probe object, and then disable `r2.dev` public access. Each staging key is
+unique to its delivery attempt and asset; public reachability is required for
+Meta retrieval but does not make the object canonical content.
+
+Cloudflare documents `r2.dev` as a non-production, rate-limited development
+endpoint. A custom domain is the required production path and enables
+production access-management/caching controls. See [Cloudflare R2 public
+buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) and
+[R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
+
+### Reconciliation — `meta_reconciliation_v1`
+
+For the initial Meta adapter, reconciliation is **human-only**. The worker may
+make read-only provider queries scoped to the configured Instagram account and
+to the bounded time interval from ten minutes before the attempt began through
+24 hours after the final-request marker. It records candidate media IDs,
+timestamps, media type, caption hash/length where returned, child count where
+returned, permalink, query version, and safe response summary.
+
+It never automatically changes `publication_unknown` to `published` or
+`not_published`. Even a plausible matching carousel is not proof that it is
+the exact local attempt. The dashboard presents the evidence and a human records
+`published`, `not_published_cancel`, or `leave_unknown`. A later publication
+always requires a fresh human review approval and publication identity.
+
 ## Safety and Verification
 
 - `media_publish` creates a real Instagram post. There is no private/draft
-  publication outcome for this carousel route. Use a separate test account if
-  a real post is unacceptable.
+  publication outcome for this carousel route. A live owner-operated smoke
+  test on the actual account is public and requires explicit **Post now**
+  approval for that exact package. Use a separate test account if a public test
+  post is unacceptable.
+- O2 uses a carousel with at most ten child images. Meta's current content
+  publishing documentation limits a carousel to ten images/videos and requires
+  media to be publicly accessible while it is fetched for publishing.
 - Verify R2 first with `scripts/test_r2_public_asset_store.py`. It uploads,
   reads publicly, then deletes one probe image without calling Meta.
 - Verify Meta credentials next with
@@ -101,12 +146,6 @@ delivery relay and cleanup is an independent audited task.
 
 ## Provider and operating decisions still required
 
-- Token expiry, renewal, secure rotation, and expiry monitoring.
-- Production public-media setup and retention policy. `r2.dev` is appropriate
-  only for development and is rate-limited by Cloudflare.
-- A deliberate test-account policy before the first live publication.
-- A verified, versioned reconciliation matching rule for identifying an
-  already-published carousel without creating any provider resource.
 - Additional Meta products only when a concrete pipeline needs them.
 
 ## Official Sources
@@ -115,4 +154,5 @@ delivery relay and cleanup is an independent audited task.
 - [Instagram content publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing/)
 - [Instagram API with Facebook Login](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/)
 - [Meta Graph API Explorer](https://developers.facebook.com/tools/explorer/)
+- [Meta Instagram content publishing collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api?entity=request-23987686-8365d531-b49f-4e07-8e76-19f8608947a3)
 - [Cloudflare R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/)

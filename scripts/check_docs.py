@@ -1,6 +1,8 @@
-"""Lightweight consistency checks for the Content Factory documentation model."""
+"""Consistency checks for the Content Factory documentation model."""
 
 from pathlib import Path
+import re
+from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +34,58 @@ TIER_TWO_CONTRACTS = [
     ROOT / "docs" / "pipelines" / "o2-english-instagram.md",
     ROOT / "docs" / "platforms" / "meta.md",
 ]
+DOCUMENTS = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+LOCAL_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+DATA_MODEL_REQUIRED_HEADINGS = (
+    "## Four identities",
+    "## Required constraints and indexes",
+    "## Baseline DDL and transition rules",
+    "### Column, foreign-key, and retention catalog",
+    "### Claimable-record transition matrix",
+)
+CANONICAL_RECORDS = (
+    "detection_source_instances",
+    "trend_candidates",
+    "content_threads",
+    "intake_requests",
+    "brief_revisions",
+    "determination_requests",
+    "determination_decisions",
+    "content_jobs",
+    "generation_runs",
+    "content_packages",
+    "render_runs",
+    "review_requests",
+    "post_requests",
+    "post_records",
+    "post_attempts",
+    "reconciliation_requests",
+    "model_invocations",
+)
+
+
+def check_local_links(errors: list[str]) -> None:
+    """Require local Markdown links to resolve inside the repository."""
+    for document in DOCUMENTS:
+        if not document.is_file():
+            continue
+        for target in LOCAL_LINK.findall(document.read_text(encoding="utf-8")):
+            target = unquote(target)
+            path_part = target.split("#", maxsplit=1)[0].split("?", maxsplit=1)[0]
+            if not path_part or "://" in path_part or path_part.startswith(("mailto:", "tel:")):
+                continue
+            linked_path = (document.parent / path_part).resolve()
+            try:
+                linked_path.relative_to(ROOT.resolve())
+            except ValueError:
+                errors.append(
+                    f"{document.relative_to(ROOT)} links outside the repository: {target}"
+                )
+                continue
+            if not linked_path.is_file():
+                errors.append(
+                    f"{document.relative_to(ROOT)} has a missing local link: {target}"
+                )
 
 
 def main() -> None:
@@ -54,6 +108,16 @@ def main() -> None:
     for contract in TIER_TWO_CONTRACTS:
         if contract.is_file() and "**Document role:** Tier 2" not in contract.read_text(encoding="utf-8"):
             errors.append(f"{contract.relative_to(ROOT)} is missing its Tier 2 document role")
+    data_model = ROOT / "docs" / "specs" / "data-model.md"
+    if data_model.is_file():
+        data_model_text = data_model.read_text(encoding="utf-8")
+        for heading in DATA_MODEL_REQUIRED_HEADINGS:
+            if heading not in data_model_text:
+                errors.append(f"docs/specs/data-model.md is missing {heading!r}")
+        for record in CANONICAL_RECORDS:
+            if f"`{record}`" not in data_model_text:
+                errors.append(f"docs/specs/data-model.md does not catalog `{record}`")
+    check_local_links(errors)
     for path in (ROOT / "README.md", ROOT / "docs" / "system.md"):
         if path.is_file() and "daily_expression" in path.read_text(encoding="utf-8"):
             errors.append(f"Removed reference project is still mentioned in {path.relative_to(ROOT)}")

@@ -77,6 +77,35 @@ attempt rather than guessing. A future human scheduling feature requires a new
 versioned command and data-model contract; it is not an implicit mode of Post
 now.
 
+## Initial cadence policy — `posting_policy_v1`
+
+Post now means the earliest policy-compliant delivery; it never bypasses the
+minimum interval or daily cap. O2 uses `Asia/Seoul` for account-day boundaries
+and dashboard display; UTC timestamps remain canonical. The policy records a
+daily cap of one post and a minimum interval of 20 hours. A pre-publication
+failure reserves no slot: it releases immediately when its attempt becomes
+retryable/failed. A final request that may have reached Meta reserves a slot
+until human reconciliation because a post may exist. Daylight-saving changes do
+not affect the initial account time zone; another account must supply its IANA
+zone explicitly.
+
+## Review freshness and republishing — `review_freshness_v1`
+
+An awaiting review request expires 14 days after its RenderRun succeeds. An
+approved immediate Post Request expires if it has not begun a delivery attempt
+within 48 hours; expiration atomically marks its authorization and delivery
+record `expired`, without changing the immutable package or assets. A destination/account change, missing or
+mismatched asset hash, expired token, or incompatible current provider policy
+invalidates approval before delivery. Template, renderer, or font upgrades do
+not invalidate an already reviewed exact asset manifest.
+
+The system never intentionally republishes a confirmed published package. An
+unchanged package may enter a fresh review cycle only after an expired review or
+an auditable `not_published_cancel` reconciliation outcome; it receives a new
+review-cycle number and a new explicit approval. The fresh cycle is created by
+an explicit human dashboard command, never by a worker. Any creative, metadata,
+destination, or asset change requires a new Brief Revision and content identity.
+
 ## Platform-adapter contract
 
 An adapter is a small platform-specific service. It may use only its provided,
@@ -108,10 +137,11 @@ In particular, once a final provider publication request may have reached the
 provider, the attempt is never automatically repeated. The agent records
 `publication_unknown`. An explicit dashboard command creates a durable
 `ReconciliationRequest`; the worker appends read-only `ReconciliationCheck`
-records and never publishes. Only an unambiguous external match may resolve
-automatically. An ambiguous/not-found case requires an auditable human
-decision, and another publication requires a new explicit review approval and
-publication identity.
+records and never publishes. A platform contract may prohibit automatic
+resolution altogether; the initial Meta adapter does so. Otherwise, only an
+unambiguous external match may resolve automatically. An ambiguous/not-found
+case requires an auditable human decision, and another publication requires a
+new explicit review approval and publication identity.
 
 ## Dashboard contract
 
