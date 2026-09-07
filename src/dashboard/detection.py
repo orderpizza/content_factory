@@ -298,11 +298,11 @@ button{{background:var(--accent);color:#fff;border-color:var(--accent);cursor:po
 .metric b{{display:inline;color:var(--ink);font-size:14px;margin-left:5px}} .panel{{overflow:auto;background:var(--paper);border:1px solid var(--line)}}
 .split{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:5px;margin-bottom:5px}} .section-head{{display:flex;justify-content:space-between;align-items:baseline;padding:4px 5px;background:#eaf0f3;border:1px solid var(--line);border-bottom:0}}
 .count{{color:var(--muted);font-size:11px}} .operations{{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:5px}}
-table{{width:100%;border-collapse:collapse;white-space:nowrap}} th,td{{padding:3px 5px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}} th{{background:#f0f4f6;font-size:11px;color:#43505a}}
-.ingestion-table td:nth-child(2),.opportunity-table td:first-child{{white-space:normal;min-width:180px}} tr:last-child td{{border-bottom:0}} .empty{{padding:12px;text-align:center;color:var(--muted)}}
+table{{width:100%;table-layout:fixed;border-collapse:collapse}} th,td{{padding:3px 5px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere}} th{{background:#f0f4f6;font-size:11px;color:#43505a}}
+.ingestion-table th:nth-child(1){{width:15%}} .ingestion-table th:nth-child(2){{width:42%}} .ingestion-table th:nth-child(3){{width:8%}} .ingestion-table th:nth-child(4){{width:13%}} .ingestion-table th:nth-child(5){{width:22%}} .opportunity-table th:nth-child(1){{width:35%}} .opportunity-table th:nth-child(2){{width:8%}} .opportunity-table th:nth-child(3){{width:24%}} .opportunity-table th:nth-child(4){{width:20%}} .opportunity-table th:nth-child(5){{width:13%}} tr:last-child td{{border-bottom:0}} .empty{{padding:12px;text-align:center;color:var(--muted)}}
 details{{min-width:120px}} summary{{cursor:pointer;color:var(--accent)}} pre{{white-space:pre-wrap;max-width:420px;max-height:180px;overflow:auto;background:#f7f8f9;padding:5px;margin:3px 0}}
 a{{color:#0969a2}} .pagination{{display:flex;gap:10px;align-items:center;margin:5px 0;color:var(--muted)}}
-@media(max-width:900px){{.split,.operations{{grid-template-columns:1fr}}}} @media(max-width:560px){{main{{padding:4px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.filters input{{width:260px}}}}
+@media(max-width:640px){{.operations{{grid-template-columns:1fr}}}} @media(max-width:560px){{main{{padding:4px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.filters input{{width:260px}}}}
 </style></head><body>
 <main>{filters}
 <div class='metrics'>
