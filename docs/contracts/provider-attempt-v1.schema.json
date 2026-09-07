@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content_factory/provider_attempt_v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["stage", "outcome", "occurred_at"],
+  "properties": {
+    "stage": {"enum": ["validate", "stage_media", "await_ready", "final_publish", "reconcile", "cleanup"]},
+    "outcome": {"enum": ["succeeded", "retryable_failure", "terminal_failure", "publication_unknown"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "provider_request_id": {"type": "string", "maxLength": 300},
+    "provider_resource_id": {"type": "string", "maxLength": 300},
+    "safe_error_category": {"type": "string", "maxLength": 100},
+    "safe_error_detail": {"type": "string", "maxLength": 2000}
+  },
+  "x-owner": "docs/specs/posting.md"
+}

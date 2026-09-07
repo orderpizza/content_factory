@@ -1,269 +1,218 @@
 # Content Factory System Guide
 
-This is the primary Human–Agent Interface (HAI) and the current source of
-truth for Content Factory. It is deliberately a map, not an encyclopedia:
-read it first, then open only the focused specification needed for the task.
+This is the primary Human–Agent Interface (HAI) and narrative source of truth.
+Read this architectural map first, then the owning focused contracts. Legacy
+implementation is not architectural authority.
 
 ## Documentation Contract
 
-The documentation is a two-tier, repository-local system of record for people
-and Codex:
+- **Tier 1 — this guide:** objective, component boundaries, ownership, and routing.
+- **Tier 2 — focused contracts:** one canonical owner per detailed concern.
+  `specs/` owns shared behavior; `pipelines/` owns domain intelligence;
+  `platforms/` owns time-sensitive provider facts.
+- `contracts/` owns executable SQL and versioned JSON schemas; `profiles/` owns
+  reusable visual implementations; `sources/` owns source-provider facts;
+  `plans/` is derived sequencing; `archive/` is historical rationale only.
 
-- **Tier 1 — this guide:** the stable architectural map. It defines shared
-  boundaries, names the canonical owner of each concern, and routes a task to
-  the detailed contract. It contains no field-level schema or implementation
-  recipe.
-- **Tier 2 — focused contracts and references:** the documents routed below.
-  Each owns one concern and is the only place its detailed rules are changed.
-  `specs/` documents define the required target behavior; `pipelines/` defines
-  a pipeline contract; `platforms/` records provider facts; `archive/` is
-  historical rationale only.
-
-The documentation is not a live implementation-status tracker. It defines the
-intended architecture. Current behavior is verified from code, tests, and
-explicit migration notes. Provider facts are time-sensitive and carry a
-verification date. A summary in one document must link to its canonical Tier 2
-owner rather than restate detailed rules.
-
-## Document Router
-
-| Work | Required follow-up reference |
-| --- | --- |
-| Schema, migrations, statuses, handoffs, or SQLite models | [Data model](specs/data-model.md) |
-| Dashboard, human actions, freshness display, or visibility | [Dashboard and HAI](specs/dashboard.md) |
-| Worker scheduling, polling, launch/restart, cadence, or runtime ownership | [Worker runtime](specs/runtime.md) |
-| Detection sources, normalization, scoring, selection, recurrence, or evidence quality | [Detection specification](specs/detection.md) |
-| Human idea intake, brief revisions, capability selection, or determination outcomes | [Idea Intake and Determination](specs/idea-intake-and-determination.md) |
-| Shared renderer tools, visual profiles/templates, fonts, local assets, or render quality | [Visual rendering](specs/visual-rendering.md) |
-| Post now, delivery cancellation, delivery attempt, platform adapter, R2 staging, or reconciliation | [Posting Agent](specs/posting.md) |
-| Worker recovery, idempotency, artifact integrity, Gemini accounting, or external-side-effect safety | [Reliability and safety](specs/reliability.md) |
-| O2 content/metadata/format or Instagram delivery contract | [O2 English Instagram pipeline](pipelines/o2-english-instagram.md) |
-| Meta accounts, permissions, tokens, or Graph API facts | [Meta platform reference](platforms/meta.md) |
-| Implementation sequencing and derived acceptance evidence | [Target implementation plan](implementation-plan.md) (noncanonical; owning contracts win) |
-
-The historical [decision archive](archive/decisions.md) is preserved for a
-specific rationale lookup. It is not required working context.
-
-### Required reading for a code change
-
-Always read this Tier 1 guide first. Then read every Tier 2 document named for
-the change below before modifying code. The list is intentionally cumulative:
-for example, changing a post lifecycle may require data, runtime, reliability,
-dashboard, pipeline, and platform contracts.
-
-| Planned change | Required Tier 2 reading |
-| --- | --- |
-| Detection source, aggregation, score, shortlist, or trend recurrence | `specs/detection.md`, `specs/data-model.md`, `specs/runtime.md`; add `specs/dashboard.md` when visibility changes |
-| Persisted model, status, identity, migration, or SQLite boundary | `specs/data-model.md` plus every owning specification affected by that record |
-| Human idea, revision, brief, capability catalog, determination, or routing outcome | `specs/idea-intake-and-determination.md`, `specs/data-model.md`, `specs/dashboard.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes and the selected pipeline reference when capability eligibility changes |
-| Dashboard reporting view only | `specs/dashboard.md`, `specs/data-model.md` |
-| Review decision, Post now, delivery cancellation, or reconciliation command | `specs/dashboard.md`, `specs/data-model.md`, `specs/posting.md`, `specs/runtime.md`, `specs/reliability.md`; add the selected pipeline/platform references for destination-specific behavior |
-| Worker process, schedule, lease, retry, startup, shutdown, or health | `specs/runtime.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/dashboard.md` when cadence or freshness presentation changes |
-| Shared renderer tool/provider, profile/template, font, local visual asset, or render validation | `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/runtime.md` when worker behavior changes |
-| O2 content, metadata, visual format, capability eligibility, or package validation | `pipelines/o2-english-instagram.md`, `specs/visual-rendering.md`, `specs/data-model.md`, `specs/reliability.md`; add `specs/idea-intake-and-determination.md` when capability eligibility/routing changes |
-| Posting Agent, delivery lifecycle, R2 staging, publication, or reconciliation | `specs/posting.md`, `specs/data-model.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`; add pipeline/platform references for the selected destination |
-| Instagram/Meta account, credentials, or Graph API behavior | `platforms/meta.md`, `pipelines/o2-english-instagram.md`, `specs/posting.md`, `specs/data-model.md`, `specs/reliability.md` |
-| Gemini invocation, token/cost ledger, prompt/schema version, or provider-attempt outcome | `specs/data-model.md`, `specs/reliability.md`, and the owning Gemini-stage contract: `specs/idea-intake-and-determination.md` or the selected pipeline reference |
-| Migration or target-schema cutover | `specs/data-model.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`, plus every owning specification whose records are migrated |
-
-When a change alters a contract, update the canonical Tier 2 document in the
-same change as the code and boundary tests. Update this guide only if the
-system boundary, routing, or document ownership changes.
+**Must** is mandatory, **should** requires a recorded exception, and **may** is
+permitted discretion. The [Contract Registry](contracts/maturity.md) declares
+maturity, dependencies, and verification requirements. An accepted architecture
+does not make a draft payload, migration, or provider integration ready to run.
+Breaking deployed contracts requires a new version or forward migration.
 
 ## Current Objective
 
-Prove that `o2_english_instagram` can run on the Mac Mini: it
-discovers or accepts an idea, produces and renders an O2 English carousel,
-makes it available for human review, and publishes to Instagram only after
-human approval. Expansion follows only after this loop is reliable.
+Phase 1 is a local-first, inexpensive trend-to-static-social-content experiment:
+five domain pipelines decide which credible angles to produce, generate reusable
+canonical content, and adapt it for Instagram and X under human review.
+
+| Domain pipeline ID | Specialization |
+| --- | --- |
+| `english` | O2English: expressions, vocabulary, phrases, and cultural language |
+| `ai_tools` | AI developments, tools, capabilities, and practical use cases |
+| `personal_finance` | Economic developments and ordinary consumers' financial understanding |
+| `business_side_hustle` | Commercial implications, entrepreneurship, and practical opportunities |
+| `psychology_behavior` | Behavioral patterns, communication, and evidence-grounded interpretation |
+
+Pipeline identity is **not** a platform, format, brand, or account. English's
+primary Instagram destination is `o2_english`; other destination names remain
+configuration choices. The [domain catalog](pipelines/domains.md) owns remit,
+angle eligibility, content extensions, and distribution intent.
+
+The existing implementation milestone remains deterministic detection ingestion
+and its local dashboard, ending at selected `ContentThread` + `IntakeRequest`.
+This strategy update does not migrate that database, enable production workers,
+or claim that the five-domain publishing loop is implemented. Preserve that
+observable slice while building the later stages in the
+[implementation plan](plans/target-implementation.md).
+
+Phase 1 includes Instagram static carousels and X-native single image + post
+text. Image + thread is optional and separately gated. Reuse local HTML/CSS +
+Playwright rendering. TikTok, YouTube Shorts, other video-first platforms,
+AI-generated video, and Bluesky are outside scope; do not build for a future
+video phase. No distributed queues, cloud workers, or generic plugin framework
+are required.
+
+## Document Router
+
+| Work | Canonical reference |
+| --- | --- |
+| Identity, lineage, atomic handoffs, cross-record invariants | [Data model](specs/data-model.md) |
+| Exact SQLite columns, constraints, indexes, migrations | [SQLite records](specs/data/records.md), after the data model |
+| JSON producer/consumer boundary and version maturity | [Machine contracts](contracts/README.md), [registry](contracts/maturity.md) |
+| Configuration releases, registries, account bindings, activation | [Configuration](specs/configuration.md) |
+| Detection evidence, normalization, scoring, shortlist, recurrence | [Detection](specs/detection.md) |
+| Intake, briefs, worth-producing decision, domain selection, angles, skips | [Intake and Determination](specs/idea-intake-and-determination.md) |
+| Five domains, editorial remit, English teaching evidence | [Domain pipelines](pipelines/domains.md) |
+| Canonical content, generation, adaptation, checkpoint and fan-out rules | [Content production](specs/content-production.md) |
+| Instagram carousel and X image/text/thread composition | [Platform outputs](specs/platform-outputs.md) |
+| Shared profiles, templates, fonts, rendering, quality | [Visual rendering](specs/visual-rendering.md) |
+| Review interface, commands, routing trace, portfolio visibility | [Dashboard and HAI](specs/dashboard.md) |
+| Polling, scheduling, processes, leases, freshness | [Worker runtime](specs/runtime.md) |
+| Authorization, delivery adapters, attempts, cleanup, reconciliation | [Posting Agent](specs/posting.md) |
+| Recovery, duplicates, artifact integrity, model budgets, external safety | [Reliability](specs/reliability.md) |
+| Instagram account/API facts | [Meta reference](platforms/meta.md) |
+| X account/API verification and optional-thread gate | [X reference](platforms/x.md) |
+| Prior O2-only contract navigation | [O2 compatibility note](pipelines/o2-english-instagram.md) (not an active pipeline contract) |
+| Implementation sequencing and acceptance evidence | [Target plan](plans/target-implementation.md) (noncanonical) |
+
+Consult the [decision archive](archive/decisions.md) only for a specific historical
+rationale. Do not update it as a routine change log.
+
+### Required reading for a code change
+
+Read this guide, then all rows applicable to the change. For any changed
+persisted boundary also read `specs/data-model.md`, `specs/data/records.md`, and
+the relevant machine contract/maturity entry. Do not implement a superseded
+payload or infer future tables from the detection-only SQL.
+
+| Planned change | Required Tier 2 reading |
+| --- | --- |
+| Detection, scoring, shortlist, recurrence | `specs/detection.md`, `specs/configuration.md`, `specs/runtime.md`; add dashboard when visibility changes |
+| Human ideas, briefs, routing, angles, skip/rejection | `specs/idea-intake-and-determination.md`, `pipelines/domains.md`, `specs/configuration.md`, `specs/reliability.md`, `specs/dashboard.md` |
+| Domain generation or canonical validation | `specs/content-production.md`, `pipelines/domains.md`, `specs/reliability.md`, `specs/runtime.md` |
+| Output adaptation, caption/text, carousel/thread composition | `specs/content-production.md`, `specs/platform-outputs.md`, `specs/visual-rendering.md`, `specs/reliability.md`, relevant domain contract |
+| Renderer, templates, fonts, artifact validation | `specs/visual-rendering.md`, selected profile, `specs/platform-outputs.md`, `specs/reliability.md`, `specs/runtime.md` |
+| Dashboard read model | `specs/dashboard.md`, persisted record contracts |
+| Human review, Post now, cancellation, reconciliation | `specs/dashboard.md`, `specs/posting.md`, `specs/runtime.md`, `specs/reliability.md`, selected output/platform contracts |
+| Posting or provider adapter | `specs/posting.md`, `specs/platform-outputs.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`, `platforms/meta.md` or `platforms/x.md` |
+| Worker, recovery, model ledger, capacity, storage | `specs/runtime.md`, `specs/reliability.md`, `specs/configuration.md`, owning stage contract |
+| Configuration, account binding, readiness | `specs/configuration.md`, owning domain/output/platform contracts, `specs/reliability.md` |
+| Migration/cutover | `specs/data-model.md`, `specs/data/records.md`, `specs/runtime.md`, `specs/reliability.md`, `specs/dashboard.md`, every affected owner |
 
 ## Components, Inputs, and Persisted Outputs
 
-Components do work. Records are persisted handoffs. They are not interchangeable
-names. SQLite is the authoritative cross-worker boundary; the dashboard renders
-that state and writes only its approved human command records.
+SQLite is the authoritative cross-worker boundary. Components poll, claim,
+perform bounded work, and commit persisted results. The dashboard reads that
+state and writes only narrow human commands; it never invokes a worker or API.
 
-### Target persisted flow
-
-Every arrow label below is a persisted input or output. Components never call
-the next component directly. The combined state/dashboard entity is SQLite as
-the source of truth plus its read/write Human–Agent Interface.
-
-```mermaid
-flowchart TB
-    sources([Enabled external<br/>detection sources])
-    human([Human idea or rework])
-    state[(Content Factory State & Dashboard HAI<br/>SQLite source of truth)]
-    scout[Trend Scout + Shortlist]
-    intake[Idea Intake Agent]
-    determination[Determination Worker]
-    runner[Pipeline Runner]
-    pipeline[Selected platform-format pipeline]
-    renderer[Visual Renderer]
-    review[Human review]
-    posting[Posting Agent]
-    adapter[Selected platform adapter]
-    social([Social platform])
-
-    sources -->|raw observations| scout
-    scout -->|every scored TrendCandidate; selected ContentThread + IntakeRequest| state
-    human -->|thread message + IntakeRequest| state
-    state -->|claimable IntakeRequest + frozen input boundary| intake
-    intake -->|clarification or immutable BriefRevision + DeterminationRequest| state
-    state -->|frozen revision + capability snapshot| determination
-    determination -->|DeterminationDecision; accepted ContentJob only| state
-    state -->|claimable ContentJob| runner
-    runner -->|GenerationRun input| pipeline
-    pipeline -->|validated GenerationRun; immutable ContentPackage + visual specification| state
-    state -->|claimable RenderRun| renderer
-    renderer -->|verified RenderAsset manifest; ReviewRequest| state
-    state -->|exact final assets + metadata| review
-    review -->|approved PostRequest + initial PostRecord, changes, or rejection| state
-    state -->|due claimable PostRecord| posting
-    posting -->|validated immutable delivery input| adapter
-    adapter -->|publication result/resources| state
-    adapter -->|published content| social
-
-    classDef gemini fill:#ede9fe,stroke:#7c3aed,color:#2e1065
-    class intake,determination,pipeline gemini
+```text
+External sources → Collector → observations in SQLite
+  → deterministic Scout + shortlist → selected ContentThread + IntakeRequest
+Human idea/rework → message + IntakeRequest in SQLite
+  → Idea Intake → immutable BriefRevision + DeterminationRequest
+  → Determination → decision + five domain route assessments
+      → zero selected: rejection/block reasons, no generation
+      → each selected domain + distinct angle: ContentJob + GenerationRun
+  → Pipeline Runner / domain strategy → CanonicalContent + OutputRequests
+  → Adaptation Worker / output adapter → ContentPackage + RenderRun
+  → shared Visual Renderer → exact assets + ReviewRequest
+  → human Post now → PostRequest + PostRecord
+  → Posting Agent / delivery adapter → audited publication or uncertainty
 ```
 
-Key record distinctions:
+Each cross-stage arrow is a SQLite handoff, not a direct module-to-module call.
+Domain strategies are in-process dispatch within the Pipeline Runner; output
+adapters are in-process dispatch within the Adaptation Worker; delivery adapters
+are in-process dispatch within the Posting Agent. These internal strategies are
+not separately scheduled services.
 
-- The Scout persists **every** `TrendCandidate`; only a selected candidate
-  atomically opens a trend `ContentThread` and pending `IntakeRequest`.
-- Human idea/rework commands atomically append their message and create the
-  pending Intake request. The Idea Intake Agent never relies on unread-message
-  inference or an in-memory handoff.
-- `BriefRevision` is the shared immutable input for trend-originated and
-  human-originated editorial work. Determination produces one decision and a
-  `ContentJob` only when accepted.
-- `ContentJob` is an executable recipe; `GenerationRun` is a validated creative
-  checkpoint; `ContentPackage` is immutable platform-specific creative and
-  metadata.
-- `RenderRun` produces the exact final assets reviewed by a human. Approval
-  creates a `PostRequest`; the Posting Agent records delivery in a `PostRecord`
-  and its attempts/resources.
-- The dashboard persists only the human message/Intake handoff and the narrow
-  delivery/review/reconciliation commands. It never invokes an agent or a
-  platform API directly.
-
-The Pipeline Runner is the production worker process. Registered pipelines are
-in-process, platform/format-specific strategy implementations selected from the
-claimed job; they are not separately scheduled worker services. The runner
-persists a `GenerationRun`, invokes the selected strategy within its bounded
-responsibility, and persists the strategy result. SQLite remains the boundary
-before the runner and after generation, so this internal dispatch does not
-create a direct cross-worker call.
+- Detection measures attention deterministically and uses no LLM. It never
+  determines editorial value or pipeline selection.
+- Intake freezes a route-neutral brief and coverage identity. It does not turn
+  every trend into an English expression.
+- Determination separately records editorial worth, domain fit, a supported
+  angle for each selected domain, skipped domains with reasons, and operational
+  blockers. One trend may select one, several, or no pipelines.
+- `ContentJob` is the immutable domain/angle recipe. `GenerationRun` creates
+  one platform-neutral `CanonicalContent`. An account or platform change is not
+  a reason to regenerate that canonical content.
+- An `OutputRequest` freezes one canonical-content/destination/format binding.
+  Its `AdaptationRun` produces the immutable platform-specific `ContentPackage`
+  (copy, metadata, visual specification). Sibling destinations reuse canonical
+  content but have independent adaptation, rendering, review, and delivery.
+- The renderer uses versioned HTML/CSS + Playwright and validated local assets.
+  It makes no editorial change. Posting sends only the exact approved bytes and
+  text; it never generates captions, tags, hashtags, visuals, or thread replies.
 
 ## Opportunity Intake and Revisions
 
-Trend detection stays deterministic and LLM-free. It measures attention; it
-does not create content. The detailed source, scoring, selection, and
-recurrence contract is in the [detection specification](specs/detection.md).
-
-Human intake is a dashboard conversation, not a mandatory form. The Idea Intake
-Agent may ask concise questions or make suggestions, but never silently drops a
-submitted idea. Every submitted turn has a durable `IntakeRequest`. Once
-sufficient context exists, Intake atomically freezes an immutable
-`BriefRevision` and its pending Determination request.
-
-`ContentThread` is the source-neutral history for an idea. A selected trend and
-a human conversation each start a thread. Revision 1 is the first agreed brief;
-a later instruction such as “make this more humorous” creates Revision 2 in the
-same thread. Historical jobs, packages, reviews, and posts are never edited.
-This revision model applies equally to trend-originated and human-originated
-work. The detailed records, trend recurrence, and duplicate rules are in the
-[data model](specs/data-model.md) and [detection specification](specs/detection.md).
-The detailed intake, freeze, capability-selection, and decision contract is in
-[Idea Intake and Determination](specs/idea-intake-and-determination.md).
+Human and trend-origin ideas share `ContentThread` and immutable
+`BriefRevision` history. Clarifications are durable requests. New evidence does
+not silently reopen consumed opportunities or spend model budget. The 72-hour
+candidate cooldown is only an eligibility condition; coverage, domain-angle,
+canonical-content, output, and publication identities provide independent
+duplicate protections. See [Intake](specs/idea-intake-and-determination.md),
+[Detection](specs/detection.md), and [Data model](specs/data-model.md).
 
 ## Determination, Production, and Posting Boundaries
 
-Determination decides whether and how a normalized opportunity becomes a
-production recipe. It evaluates registered capabilities; it does not generate
-content or call pipelines. O2 English Instagram is initially the sole enabled
-capability.
-Its outcome contract is owned by
-[Idea Intake and Determination](specs/idea-intake-and-determination.md).
+The central experiment is routing quality, not generating five versions of
+everything. Distinct credible angles, deliberate skips, and whole-trend
+rejection are successful outcomes. Potential monetization is an editorial
+hypothesis, not permission to invent claims, affiliate links, or financial gains.
 
-`ContentJob` is a recipe. The O2 pipeline creates the actual `ContentPackage`:
-creative, caption, tags, hashtags, citations, and visual specification. The
-shared [Visual Rendering Layer](specs/visual-rendering.md) renders that frozen
-specification through a versioned local renderer provider. The renderer owns
-reusable visual profiles; each pipeline selects one or more compatible profiles
-for its content/format, then persists that resolved selection. Posting uses the
-persisted creative and verified assets unchanged.
+Domain content is generated once; platform adaptation follows it. Instagram
+gets a domain-appropriate carousel. X gets concise native text and one static
+card, with optional ordered thread text only after its safety contract is ready.
+Shared [production](specs/content-production.md) and
+[output](specs/platform-outputs.md) contracts own these boundaries.
 
-Every ready package enters human review in the target. You can **Post now**,
-reject, request a revision, or cancel an unclaimed delivery. The initial POC
-does not offer human scheduling. **Post now** is the dashboard action for an
-actual post: it durably creates
-an immediate-mode `PostRequest` and initial `PostRecord`; the Posting Agent
-claims the record when the active posting policy makes it due and delivers it. The
-dashboard never calls Instagram directly. Instagram `media_publish` is public
-and irreversible; no private/draft outcome exists for this carousel path.
-The generic delivery lifecycle is owned by the [Posting Agent](specs/posting.md).
-Publication safety, retries, R2 cleanup, and uncertain outcomes are owned by
-[reliability](specs/reliability.md).
+Every package enters its own human review. **Post now** authorizes exactly one
+package, destination, text, and final asset manifest and writes immediate
+delivery intent. The Posting Agent applies account cadence before sending it.
+There is no implicit cross-platform approval, batch publishing, or human
+scheduling in Phase 1. Public posting is externally visible and potentially
+irreversible; a possibly sent publication request is never automatically retried.
+See [Posting](specs/posting.md) and [Reliability](specs/reliability.md).
 
 ## Local Operation and Verification
 
-The Mac Mini is the primary runtime:
+The Mac Mini remains the primary runtime; SQLite is the POC store and GCP Vertex
+Gemini is the model provider. Existing detection commands are in the
+[README](../README.md). These documentation changes do not authorize a database
+reset, live publishing, account creation, or background production activation.
 
 ```sh
 /opt/homebrew/bin/python3.12 -m venv .venv
 ./.venv/bin/python -m pip install -e '.[dev]'
-```
-
-Copy [the root configuration template](../.env.example) to local `.env`; never
-commit populated values. Gemini requires `GOOGLE_CLOUD_PROJECT`,
-`GOOGLE_CLOUD_LOCATION`, and Application Default Credentials via
-`gcloud auth application-default login`. O2 delivery variables are in the
-[pipeline reference](pipelines/o2-english-instagram.md).
-
-For a documentation-only change, run:
-
-```sh
 ./.venv/bin/python scripts/check_docs.py
-```
-
-For an implementation change, also run:
-
-```sh
 ./.venv/bin/python scripts/run_tests.py
 ```
 
-The current test suite exercises the existing implementation; it is not proof
-that the target architecture in these documents has been implemented.
+On Windows use `py scripts/check_docs.py` and `py scripts/run_tests.py`.
+Documentation-only changes require the first check; implementation changes
+require both. Tests for existing code do not prove the new architecture runs.
+Do not enable downstream workers before their exact schemas, migrations, and
+boundary fixtures pass the [implementation gates](plans/target-implementation.md).
 
-Safe external checks are `scripts/test_r2_public_asset_store.py` (temporary
-R2 write/read/delete) and `scripts/test_instagram_credentials.py` (read-only
-Meta check). `scripts/smoke_test_o2_instagram.py --live` can publish a real
-public carousel; use it only with explicit authorization and an isolated test
-database/package.
+Use the local [environment template](../.env.example); never commit secrets.
+Configuration and safe secret references are owned by
+[Configuration](specs/configuration.md). External smoke tests that write temporary
+R2 objects or publish real content require their own explicit authorization.
+`scripts/smoke_test_o2_instagram.py --live` is legacy public-publishing code, not
+a shortcut around the new review/authorization contracts.
 
 ## Documentation Ownership and Maintenance
 
-| Document | Owns | Must not duplicate |
-| --- | --- | --- |
-| `system.md` | Current objective, responsibility boundaries, high-level architecture, document router | Field-level schema, dashboard columns/cadence, or safety implementation detail |
-| `specs/data-model.md` | Tables, fields, statuses, constraints, migrations | Generic component ownership or vendor API facts |
-| `specs/dashboard.md` | Visibility, HAI commands, navigation, freshness display, stale/alert policy | Database field definitions or worker implementation internals |
-| `specs/runtime.md` | Worker process boundaries, scheduler/supervisor contract, polling cadence, claim/no-work/restart behavior | Dashboard layout, field-level schema, or social API contract |
-| `specs/detection.md` | Detection sources, evidence, normalization, scoring, shortlist selection, recurrence | Worker recovery, dashboard layout, or table-level schema inventory |
-| `specs/idea-intake-and-determination.md` | Free-text intake, brief freeze, capability catalog, AI decision outcomes, and decision acceptance tests | Detection algorithms, field-level schema, delivery safety, or creative generation |
-| `specs/visual-rendering.md` | Shared local renderer providers, reusable profile/template registry, fonts/assets, deterministic rendering, and quality direction | Pipeline editorial layouts, field-level schema, worker scheduling, or delivery safety |
-| `specs/posting.md` | Generic Posting Agent lifecycle, adapter invocation, delivery staging, resources, and reconciliation input | Provider API facts, pipeline format requirements, schema fields, or retry policy |
-| `specs/reliability.md` | Cross-cutting recovery, idempotency, artifact integrity, configuration, and external-side-effect safety | Normal component/adapter lifecycle, UI layout, or table-level schema inventory |
-| `pipelines/` | Pipeline-specific content/format/delivery contracts | Generic architecture or provider account model |
-| `platforms/` | Provider accounts, permissions, API limits, sources | Pipeline creative contract |
-| `archive/` | Historical rationale | Current policy |
-| `implementation-plan.md` | Derived delivery sequencing and acceptance matrix | Architecture, schema, or provider policy |
+Keep domain knowledge in `pipelines/domains.md`, shared canonical generation in
+`specs/content-production.md`, output composition in `specs/platform-outputs.md`,
+renderer mechanics in `specs/visual-rendering.md`, and delivery mechanics in
+`specs/posting.md`. An output adapter and a delivery adapter are different
+responsibilities even when both target Instagram or X.
 
-- Update this guide when current objective, ownership, or top-level operating
-  policy changes.
-- Update the one owning focused specification for detailed changes, and link
-  rather than repeat it elsewhere.
-- Preserve the historical archive; do not use it as a routine change log.
-- Keep secrets, tokens, and private media out of Git and documentation.
+The data model owns semantic identities and cross-record invariants; the exact
+record contract/SQL owns executable constraints. Do not copy provider facts or
+schema inventories into multiple documents. Update this guide only for
+objective, routing, or ownership changes; update the focused owner with each
+detailed contract change and its boundary tests. Keep archive history intact.

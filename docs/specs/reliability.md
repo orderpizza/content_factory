@@ -14,7 +14,7 @@ the exact records and constraints.
 ## Scope
 
 Content Factory remains local-first: Mac Mini, SQLite handoffs, deterministic
-detection, Gemini only in Idea Intake/Determination/pipeline generation, and
+detection, Gemini only in Idea Intake/Determination/domain generation/output adaptation, and
 small platform adapters. These policies do not justify distributed queues,
 direct module calls, or new cloud runtime infrastructure.
 
@@ -34,8 +34,16 @@ Every finalize/update condition includes the claimed state, owner, and
 `claim_version`. Safe expired leases resume the same record under a higher
 fencing version, and a former owner can no longer commit. Determination must distinguish
 `no_work`, `accepted`, `not_recommended`, `blocked`, `failed`, and `cancelled`;
-non-acceptance never stops later work. Accepted decision, unique job, and
-request completion share one transaction; missing-job repair is legacy-only.
+non-acceptance never stops later work. Decision, all domain route rows, every selected-route job/initial run, and
+request completion share one transaction. No partial fan-out is permitted.
+
+Detection has two persisted recovery boundaries. A `SourceCollectionAttempt`
+is the only record permitted to call a provider; a retry reuses that attempt
+and no completed response is fetched again. A `ScoutEvaluationRun` is a
+separate, no-provider-call operation that freezes a set of completed collection
+attempts and source-health states before scoring. Its retry reuses exactly that
+frozen input. A later source response is evaluated only by a later evaluation
+slot, never substituted into a completed or retrying run.
 
 Thread cancellation is an additional fenced finalization condition for every
 pre-publication worker. A cancellation that commits first prevents a worker
@@ -55,13 +63,17 @@ safe to retry; it becomes `publication_unknown`.
 
 ## Rendering and package integrity
 
-Pipelines own the creative and versioned visual specification. The shared local
+Domain pipelines own canonical meaning; output adapters own adapted creative
+and the versioned visual specification. The shared local
 renderer renders that specification; it does not rewrite captions, tags,
 hashtags, or creative meaning. The reusable renderer/provider, local input,
 and quality contract is owned by [Visual Rendering](visual-rendering.md).
 
 - Every package carries a versioned visual-spec contract and resolved
   renderer-owned profile/template ID/version/hash for each slide.
+- Successful Adaptation Run finalization atomically creates the immutable
+  package and its first pending Render Run, so a package cannot be stranded
+  without a renderer work item.
 - Render into a package/content-identity-specific temporary directory on the
   same filesystem as the canonical artifact root. `fsync` files/directories as
   supported, verify a complete manifest, atomically rename the directory to a
@@ -76,11 +88,12 @@ and quality contract is owned by [Visual Rendering](visual-rendering.md).
   reviewed; R2 transport copies are not.
 - Path existence is never evidence of valid assets.
 - Review approval revalidates the stored content and manifest hashes and all
-  referenced asset hashes. Mismatch or supersession invalidates the review;
-  approval cannot float to newer output.
-- O2 readiness validates its exact carousel grammar, slide count, image
-  dimensions/format, immutable caption, and hashtag representation before
-  review/delivery. Posting rejects invalid input rather than repairing it.
+  referenced asset hashes. Mismatch, destination/account change, or an
+  incompatible frozen-asset requirement invalidates the review; temporary
+  provider/token readiness does not. Approval cannot float to newer output.
+- Output readiness validates its frozen Instagram/X grammar, native text,
+  image count/dimensions/format, immutable metadata, and required disclosures
+  before review/delivery. Posting rejects invalid input rather than repairing it.
 
 ## External publication safety
 
@@ -89,14 +102,14 @@ Posting Agent and platform-adapter lifecycle is owned by [Posting Agent](posting
 the rules here constrain its safety behavior.
 
 1. Validate configuration, package, asset manifest, cadence, and destination
-   before the final `media_publish` request.
+   before the final provider-publication request.
 2. Persist a `PostAttempt`, publication identity, and a durable
    `final_publication_request_sent_at` marker immediately before that request.
    If the process cannot prove the marker was committed, it must not send.
 3. Classify pre-final-request failure as configuration, validation,
    authentication, permission, rate-limit, server-transient, or
    network-pre-request. Retry only categories explicitly safe to retry.
-4. Once a final request may have reached Instagram—including timeout, lost
+4. Once a final request may have reached the platform—including timeout, lost
    response, or local persistence failure after remote success—write terminal
    `publication_unknown`. Never retry it automatically.
 5. Use a durable `ReconciliationRequest` and append-only read-only checks to
@@ -104,9 +117,31 @@ the rules here constrain its safety behavior.
    provider match may resolve automatically; every human resolution is
    auditable and a second post needs new explicit approval.
 
+Before the durable final-publication marker, dashboard cancellation and the
+Posting Agent's final-marker transaction race through one fenced conditional
+SQLite update. Cancellation that commits first marks the active attempt
+`cancelled`, schedules cleanup for staged R2 bytes, and retains/audits provider
+containers; the agent then has no authority to make the final call. A committed
+final marker wins instead and retains the normal published/unknown safety rule.
+
 R2 staging cleanup is an independent, idempotent audited task. A cleanup
 failure is visible and retryable when safe, but never changes a confirmed post
 to failed.
+
+## Fan-out, reuse, and optional-thread safety
+
+Generation success atomically persists canonical content and all frozen output
+requests/adaptation runs. Adaptation retry never repeats canonical generation.
+Every model call in either stage charges the same parent job cap and the shared
+daily cap. Fingerprint checks, domain-angle guards, unique output identity, and
+confirmed/uncertain publication history remain independent of cooldown.
+
+Optional X threads require one durable pre-send marker per public post, not
+one marker for a multi-call adapter. A confirmed prefix remains public audit;
+a failed/unknown suffix cannot make the whole thread safely unpublished.
+Do not retry a confirmed/possibly sent step or automatically restart the package.
+Until exact per-step transitions and reconciliation fixtures exist, thread mode
+is disabled under [Platform outputs](platform-outputs.md).
 
 ## Storage, backup, and retention — `storage_safety_v1`
 
@@ -143,6 +178,25 @@ bodies. Canonical local renderer output follows this retention schedule:
 | Quarantined promoted directories | Keep until reconciled by run ID/hash; never apply age deletion while unreconciled. |
 | R2 `instagram-transient/` staged objects | Cleanup Worker deletes after a safe terminal delivery outcome; bucket lifecycle deletion at 7 days is a backstop only. |
 
+SQLite record retention is separate from byte retention. The Maintenance Worker
+removes only the following high-volume details, in small committed batches,
+and writes an append-only retention summary before each deletion:
+
+| Record class | Detailed-row retention | Durable summary retained |
+| --- | --- | --- |
+| Observations and source-item events not linked to a selected candidate or retained candidate | 90 days after collection | source, window, count, payload-hash aggregate, retention-run ID |
+| Unselected/deferred/rejected candidate score detail and topic snapshots | 180 days after evaluation | candidate identity, disposition, score/fingerprint/version, retention-run ID |
+| Source-health and completed collection/evaluation operational detail not needed by retained evidence | 180 days | source/run identity, health disposition, counts, configuration fingerprint |
+| `worker_runs` | 90 days | daily worker/status/count/duration aggregate |
+| `storage_samples` | 90 days at five-minute resolution, then daily aggregate through 365 days | daily minimum free space and maximum component sizes |
+| Cleanup-task and maintenance detail | 365 days after terminal outcome | terminal identity, disposition, timestamps, counts/checksum |
+
+Rows tied to a selected candidate, a ContentThread, a revision, a package, a
+review, a post, a reconciliation, a configuration release, or a migration are
+never routine-retention candidates. Retention never removes the evidence needed
+to explain a public or uncertain publication. A failed batch rolls back; a
+retention run records zero deletions rather than partially deleting its scope.
+
 Physical artifact deletion updates no historical asset/manifest/hash fields; it
 adds a deletion timestamp/reason to the artifact record. Cleanup never removes
 credentials, audit evidence, pending-review bytes, or a possibly published
@@ -151,7 +205,7 @@ delivery input merely to reclaim space.
 The Storage Monitor samples available space and database/WAL/artifact/backup
 sizes every five minutes. Normal operation requires both at least 15 percent
 free space and 10 GiB free. Below either threshold it enters `storage_warning`
-and blocks new Pipeline Runner and Visual Renderer claims while preserving
+and blocks new Pipeline Runner, Adaptation Worker, and Visual Renderer claims while preserving
 dashboard, review, posting, reconciliation, and cleanup. Below 8 percent or 5
 GiB it also pauses new Trend Scout collections and performs only safe cleanup;
 existing delivery audit remains readable. Below 3 percent or 1 GiB it enters
@@ -163,27 +217,76 @@ rows automatically to leave an emergency state.
 
 ## Configuration and Gemini accounting
 
-`gemini_budget_v1` applies a local daily warning threshold of USD 5.00 and a
-hard stop at USD 8.00 across all model invocations in one UTC day. Before
-claiming Gemini-backed work, the worker reserves the configured worst-case
-remaining cost for that work against the daily ceiling; the dashboard reports
-both settled ledger cost and outstanding reservations. Reaching the warning
-does not stop already claimed work. The hard stop prevents new Gemini claims
-until the next UTC day or an explicit configuration change. Per-job caps remain
-owned by the selected pipeline contract.
+### Operational-data minimization — `operational_data_v1`
 
-A `ModelInvocation(status=started)` that outlives its lease is cost-uncertain:
+Human messages, source titles/snippets, and frozen editorial snapshots are
+operational data, not secrets by default. The dashboard warns the operator not
+to paste credentials, access tokens, private URLs, or personal data into an
+idea or change request. Idea Intake may send only the bounded current-thread
+messages, frozen brief, and relevant selected evidence to Gemini; Determination
+may send only the frozen revision/catalog and bounded relevant prior-angle
+summaries; a domain pipeline may send only the immutable job and approved
+source/reference inputs; an output adapter may send only its frozen canonical
+content and output policy. No worker sends
+raw source payloads, diagnostic logs, credentials, signed URLs, browser
+sessions, or unrelated historical threads to Gemini.
+
+Authoritative messages are retained under the Data Model policy, but are capped
+at 8,000 UTF-8 characters per message and 32,000 characters of frozen input per
+model invocation. Source excerpts are capped at 4,000 characters per item and
+only their bounded normalized excerpts enter SQLite; fetched bodies are never
+stored. Input over a limit is rejected with a typed `input_too_large` outcome,
+not silently truncated after a human has submitted it.
+
+Safe diagnostics redact values matching secret/header/token/signed-URL patterns
+and retain only category, provider request ID when non-secret, hash, and a
+bounded 2,000-character safe summary. Authoritative human messages are not
+redacted or rewritten because that would break their audit meaning; the UI
+marks them as operator-supplied and keeps them out of generic diagnostic views.
+Backups contain the retained SQLite operational data and therefore inherit the
+same local access boundary. Before any non-local dashboard or multi-operator
+mode, an explicit privacy deletion/export process and data-access design are
+required. Credentials, authorization headers, signed URLs, raw provider
+payloads, and full model prompts/responses must never enter SQLite, backups,
+packages, manifests, or logs.
+
+`gemini_budget_v1` applies a local daily warning threshold of USD 5.00 and a
+hard stop at USD 8.00 across all model invocations in one UTC day. The active
+configuration release must supply a nonempty, versioned price snapshot for each
+permitted model: model/provider ID, effective timestamp, input and output
+prices in integer micro-USD per token, and maximum input/output tokens for each
+named invocation phase. Initial operation is **priced-required**: an absent,
+zero, malformed, or mismatched price snapshot blocks new Gemini-backed claims;
+there is no token-only fallback mode.
+
+Before a provider call, the worker validates the frozen model/schema phase and
+atomically calculates `ceil(max_input_tokens * input_price + max_output_tokens
+* output_price)` micro-USD. It creates one `reserved` ledger row only if that
+amount plus existing `settled`, `reserved`, and `uncertain` reservations is at
+or below both the UTC-day hard stop and the frozen job cap. Token caps are
+checked independently in the same transaction. The reservation stores the
+price snapshot hash, token maxima, daily limit, job limit, and computed
+worst-case cost, so every admission result is reproducible. The dashboard
+reports settled cost, outstanding reservations, and the specific admission
+blocker. Reaching the warning does not stop already claimed work; the hard stop
+prevents new Gemini claims until the next UTC day or a new active release.
+
+A `ModelInvocation(outcome=started)` that outlives its lease is cost-uncertain:
 its reservation remains counted until an explicit provider/accounting recovery
-marks it settled or a documented expiry policy releases it. The same content
+marks it settled or conclusively releases it. The same content
 entity is blocked from an automatic repeat. This preserves a conservative daily
 ceiling without assuming that a lost response incurred zero cost.
 
-Load local `.env` configuration once at each process composition root. Domain
-modules receive validated settings and never read environment variables. Check
-all required/numeric values at startup. A blank optional Gemini cost rate means
-unknown cost, not a reason to fail/repeat a successful model operation.
+Load local `.env` secrets/composition settings once at each process composition
+root. Domain modules receive validated settings and never read environment
+variables. Non-secret source, capability, renderer, posting, teaching, and
+runtime policy is an activated persisted release owned by the
+[Configuration control plane](configuration.md), never an environment default.
+Check all required/numeric values and secret references at startup. A missing
+Gemini price snapshot blocks a new model call before admission; it never causes
+a successful prior model operation to be repeated or reclassified.
 
-Insert and commit a `started` model-invocation ledger row before each provider
+Insert and commit an `outcome=started` model-invocation ledger row before each provider
 call. Finalize it immediately after response or transport failure and before
 parsing/validation. Preserve token usage for accepted, invalid, parse-failed,
 schema-failed, and provider/transport-failed attempts. A stale `started` call is
@@ -225,7 +328,11 @@ must demonstrate:
 
 - idempotent claims and safe recovery after every persistence boundary;
 - fencing prevents an expired claimant from committing after reassignment;
-- one job/package per accepted revision and no accidental duplicate coverage;
+- one job per selected domain route, one canonical result per job, and one
+  package per output request, with atomic fan-out and no duplicate paid creative;
+- independent review/authorization per destination and preservation of siblings;
+- optional-thread per-step markers, partial-publication audit, and no duplicate
+  confirmed prefix before thread mode can be enabled;
 - actual asset dimensions/format/manifest match the package;
 - one final publication request per publication identity;
 - `publication_unknown` after ambiguous final outcomes;

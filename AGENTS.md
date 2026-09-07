@@ -7,13 +7,22 @@
 - Preserve persisted SQLite handoffs. Do not introduce direct module-to-module
   calls, distributed queues, or unnecessary infrastructure.
 - Keep detection deterministic and LLM-free. Gemini belongs only in
-  Idea Intake, Determination, and pipeline-owned generation.
+  Idea Intake, Determination, domain generation, and bounded output adaptation.
 - Respect the responsibility chain: a selected trend or human idea becomes a
   `ContentThread` and immutable `BriefRevision`; then
-  `Determination -> ContentJob -> Pipeline -> ContentPackage -> Visual Renderer
-  -> Review -> Posting Agent`.
-- Pipelines are platform- and format-specific. `ContentJob` is a recipe;
-  `ContentPackage` is the actual platform-specific content and metadata.
+  `Determination -> domain/angle routes -> ContentJob -> GenerationRun
+  -> CanonicalContent -> OutputRequest -> AdaptationRun -> ContentPackage
+  -> RenderRun -> Visual Renderer -> ReviewRequest -> PostRequest -> PostRecord
+  -> Posting Agent`. Zero, one, or several domains may be selected.
+- Pipelines are domain/intelligence modules: `english`, `ai_tools`,
+  `personal_finance`, `business_side_hustle`, and `psychology_behavior`.
+  Keep pipeline identity separate from social account identity. Generate
+  platform-neutral canonical content once, then adapt it for Instagram or X.
+- Phase 1 is static: Instagram carousels and X-native image + text; threads are
+  optional and gated. No TikTok, YouTube Shorts, AI video, or Bluesky.
+- Output adaptation owns platform copy/metadata and visual-profile selection;
+  the shared HTML/CSS + Playwright renderer owns assets. Delivery adapters do
+  not generate. Every destination requires its own exact human approval.
 - Posting never generates or changes captions, tags, hashtags, or visual
   content. Public delivery requires the human-review and explicit
   delivery-authorization boundary defined by the Tier 2 contracts.
@@ -43,7 +52,9 @@
 - When code changes a documented contract, update its canonical Tier 2 document
   in the same change. Update `docs/system.md` only for a routing, ownership, or
   top-level boundary change.
-- Run `py scripts/run_tests.py` and `py scripts/check_docs.py` before handoff.
+- For documentation-only work, run `py scripts/check_docs.py` before handoff.
+  For implementation work, run both `py scripts/run_tests.py` and
+  `py scripts/check_docs.py` before handoff.
 - Keep architecture detail in its owning specification and link rather than
   duplicate it. Preserve the historical decision archive without using it as a
   routine change log.

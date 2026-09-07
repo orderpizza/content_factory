@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-maturity": "superseded",
+  "x-replacement-owner": "docs/specs/idea-intake-and-determination.md",
+  "$comment": "Retained unimplemented draft. Do not use for Phase 1 production; author a new version under the replacement owner before activation.",
+  "$id": "content_factory/determination_result_v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["outcome", "reasoning", "alternatives", "warnings"],
+  "properties": {
+    "outcome": {"enum": ["accepted", "not_recommended", "blocked"]},
+    "capability_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "recipe": {"$ref": "recipe-v1.schema.json"},
+    "reasoning": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "alternatives": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 500}},
+    "warnings": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 500}}
+  },
+  "allOf": [{"if": {"properties": {"outcome": {"const": "accepted"}}}, "then": {"required": ["capability_id", "recipe"]}}],
+  "x-owner": "docs/specs/idea-intake-and-determination.md"
+}

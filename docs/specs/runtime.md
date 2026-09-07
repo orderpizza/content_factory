@@ -43,9 +43,10 @@ directly.
 - Only one active process of a worker type is allowed in the initial POC.
   SQLite conditional claims remain mandatory so a restart or accidental overlap
   cannot duplicate work.
-- Worker intervals, batch sizes, and enabled/disabled state are local runtime
-  configuration. Defaults below are the documented operating policy; a change
-  must update this specification and dashboard freshness thresholds together.
+- Worker intervals, batch sizes, and enabled/disabled state come from the
+  activated non-secret configuration release. Local environment settings only
+  compose the process and resolve secrets; they cannot silently override policy.
+  A worker freezes its release fingerprint when it claims work.
 - Stop requests finish no new claim, release/allow expiry of an active lease,
   persist a safe outcome when possible, and exit. Long Gemini, rendering, R2,
   or social calls must not occur inside a SQLite transaction.
@@ -57,19 +58,48 @@ directly.
 
 | Worker | Default cadence and trigger | SQLite input and claim | Output / no-work behavior | Fresh / warn / stale |
 | --- | --- | --- | --- | --- |
-| Trend Scout + Shortlist | Every 15 min; always runs (a source may reuse a completed longer measurement window) | Enabled external source instances plus prior detection state; one Scout run lease | Persist observations, snapshots, every scored `TrendCandidate`, then atomically create source-backed `ContentThread` + `IntakeRequest` records only for selected candidates. Update source health/worker heartbeat even with zero candidates. | ≤20 min / >20 min / >45 min |
+| Trend Source Collector | Every 5 min; materializes due source-instance collection attempts at their configured cadences | Pending/retry-ready `SourceCollectionAttempt`; conditional fenced attempt claim | Makes one bounded provider operation, then persists immutable observations and source-health evidence. A completed attempt is never fetched again; no due source: heartbeat only. | ≤20 min / >20 min / >45 min for a due source |
+| Trend Scout + Shortlist | Every 15 min; materializes one evaluation slot, then claims it | Pending/retry-ready `ScoutEvaluationRun`; conditional fenced evaluation claim | Freezes the latest usable collection attempt or explicit health state for every enabled source, scores/persists every `TrendCandidate`, then atomically creates source-backed `ContentThread` + `IntakeRequest` only for selected candidates. It makes no provider call. | ≤20 min / >20 min / >45 min |
 | Idea Intake Agent | Every 30 s when pending input exists; 5 min idle health poll | Pending/retry-ready `IntakeRequest`; conditional fenced request claim | Persist a clarification message and `needs_clarification`, or atomically persist immutable `BriefRevision` + pending `DeterminationRequest`. No eligible request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending input |
-| Determination Worker | Every 30 s | Pending `DeterminationRequest`; conditional request claim | Persist one `accepted`, `not_recommended`, or `blocked` decision and a unique `ContentJob` only when accepted. No pending request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending work |
-| Pipeline Runner | Every 30 s | Pending/retry-ready `ContentJob` and its `GenerationRun`; conditional fenced run claim | Invoke the selected in-process pipeline strategy, checkpoint validated creative, then persist one immutable `ContentPackage`, or safe retry/failure. No pending work: heartbeat only. | ≤1 min / >1 min / >3 min with pending work |
+| Determination Worker | Every 30 s | Pending `DeterminationRequest`; conditional request claim | Persist one `accepted`, `not_recommended`, or `blocked` decision. Completion atomically creates five route assessments and one immutable domain job/run per selected route; reuse creates no duplicate job. No pending request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending work |
+| Production Admission Gate | Every 30 s and after any slot release | Waiting GenerationRuns/AdaptationRuns under frozen production policy; no provider call | Atomically reserves required execution/downstream slots and promotes eligible work to `pending`; human-origin first. Full capacity remains `waiting_capacity` without paid work. | ≤1 min / >1 min / >3 min while capacity wait exists |
+| Pipeline Runner | Every 30 s | Pending/retry-ready `GenerationRun`; conditional fenced run claim, with immutable parent `ContentJob` recipe | Invoke the selected in-process pipeline strategy, checkpoint validated domain content, then persist one immutable `CanonicalContent` and every frozen OutputRequest/AdaptationRun, or safe retry/failure on that same run. No pending work: heartbeat only. | ≤1 min / >1 min / >3 min with pending work |
+| Adaptation Worker | Every 30 s | Pending/retry-ready `AdaptationRun` with immutable canonical content and OutputRequest, required reservations, and fenced claim | Invoke the selected in-process Instagram/X output adapter; checkpoint native content/metadata; atomically create one immutable ContentPackage and first RenderRun. No work: heartbeat only, no Gemini call. | ≤1 min / >1 min / >3 min with pending work |
 | Visual Renderer | Every 30 s | Pending `RenderRun`; conditional run claim | Persist verified manifest/assets and create review availability, or a safe failure. No pending run: heartbeat only. | ≤1 min / >1 min / >3 min with pending work |
-| Posting Agent | Every 15 s; **Post now** creates an immediate-mode record whose due time is resolved by the active posting policy | Due/retry-ready `PostRecord`; conditional fenced record claim. `PostRequest` remains immutable authorization. | Persist attempt/result and cleanup tasks. No due post: heartbeat only. A policy-eligible Post now record is normally claimed within one poll interval; Instagram processing time is additional. | ≤30 s / >30 s / >90 s when due work exists |
+| Capability Readiness Monitor | Every 5 min; immediately after configuration activation | No work claim; active configuration plus safe local/provider dependency checks | Upsert each current `CapabilityReadiness` row and append its check evidence. Local config/renderer checks run every poll; read-only provider/account/token checks run at most every 6 h unless activation/startup requires one. It never changes configuration or posts. | ≤10 min / >10 min / >20 min |
+| Posting Agent | Every 15 s; **Post now** creates an immediate-mode record whose due time is resolved by the active posting policy | Due/retry-ready `PostRecord`; conditional fenced record claim. `PostRequest` remains immutable authorization. | Persist attempt/result and cleanup tasks. No due post: heartbeat only. A policy-eligible Post now record is normally claimed within one poll interval; provider processing time is additional. | ≤30 s / >30 s / >90 s when due work exists |
 | Cleanup Worker | Every 5 min | Pending safe `DeliveryCleanupTask`; conditional task claim | Persist R2 cleanup outcome. No task: heartbeat only. | ≤10 min / >10 min / >20 min with pending cleanup |
 | Publication Reconciliation Worker | On explicit human request; optional 15-min check while unresolved requests exist | Pending/retry-ready `ReconciliationRequest` for `publication_unknown`; conditional fenced claim | Append a read-only `ReconciliationCheck`; resolve only an unambiguous match or mark `needs_human`. It never publishes or retries. | Show last check; warning until resolved |
+| Recovery Worker | Every 1 min while a Recovery Request is pending; 5 min idle health poll | Pending/retry-ready `RecoveryRequest`; conditional fenced claim | Validates target fingerprint/terminal state/no external ambiguity and either creates one replacement local run/task or records a typed rejection. It never calls a provider or resets history. | ≤2 min / >2 min / >5 min with pending request |
 | Storage Monitor | Every 5 min | No work claim; local read-only filesystem/database-size sample | Persist current free space, threshold state, database/WAL/artifact/backup sizes, and heartbeat. It never deletes anything itself. | ≤10 min / >10 min / >20 min |
+| Maintenance Worker | Every day at 03:30 Asia/Seoul; restore verification on the first Sunday monthly at 04:15 | One local `maintenance_runs` execution protected by a process lock; it does not claim business work | Runs backup, safe checkpoint, artifact cleanup, and SQLite retention as separate audited operations. No overlap: records `skipped_overlap` and tries again at the next scheduled run. | backup ≤26 h / >26 h / >50 h; restore ≤35 d / >35 d / >42 d |
+
+The shared production admission rules and reservation ownership are canonical in
+[Content production](content-production.md). Domain strategies share one Pipeline
+Runner process; Instagram/X output strategies share one Adaptation Worker
+process. Adding a domain/account does not create a new supervisor service.
 
 Review availability is created by the completed renderer transaction; it has no
 separate worker. The dashboard is not a worker: while visible, it refreshes its
 SQLite reporting snapshot every 10 seconds; while hidden, it does not poll.
+
+## Current detection-milestone entrypoints
+
+The implementation-ready slice exposes separate one-shot process entrypoints
+for scheduler isolation:
+
+| Process | Entrypoint | launchd interval |
+| --- | --- | ---: |
+| Trend Source Collector | `scripts/run_collector.py` | 5 minutes |
+| Trend Scout + Shortlist | `scripts/run_scout.py` | 15 minutes |
+| Read-only dashboard | `scripts/serve_dashboard.py` | kept alive |
+
+`scripts/run_detection.py` runs the due collector pass and one Scout evaluation
+sequentially for local development only; it is not the unattended scheduler
+boundary. `scripts/setup_detection.py` is the only schema/configuration setup
+entrypoint and is always operator-invoked. Neither worker nor dashboard performs
+implicit migration. The corresponding `com.contentfactory.*.plist` templates
+must have their placeholder paths replaced during Mac Mini installation.
 
 ## Eligibility, pickup, and “change detection”
 
@@ -80,16 +110,16 @@ or a due Post Record. A record written by one component becomes visible to the
 next component when that worker makes its next poll.
 
 Human commands use the same mechanism. **Post now** does not make the dashboard
-call Instagram: it atomically creates immutable authorization and an
+call Instagram or X: it atomically creates immutable authorization and an
 immediate-mode `PostRecord`. The active posting policy computes when that record
 is eligible for the Posting Agent. This guarantees the command survives a
 browser close, process restart, or temporary network failure and remains
 visible in the audit trail.
 
-For O2, `posting_policy_v1` computes eligibility in `Asia/Seoul`, allows one
-published or publication-uncertain post per account day, and requires 20 hours
-between publication slots. A safe pre-publication failure releases its slot;
-only a possible final publication keeps one reserved pending reconciliation.
+The active destination's versioned posting policy computes eligibility and slot
+release. Its exact time zone, daily cap, interval, and uncertain-publication
+reservation rule are owned only by the [Posting Agent](posting.md#initial-cadence-policy--posting_policy_v1);
+runtime consumes the frozen policy without restating or overriding it.
 
 The exact conditional claims, leases, terminal states, safe retries, and
 ambiguous-publication rules are owned by the
@@ -99,7 +129,41 @@ by [Reliability and safety](reliability.md). The Storage Monitor's persisted
 threshold state is the gate for new claims; workers do not make an independent
 disk-space decision.
 
-## Health and operations
+## Maintenance Worker — `maintenance_v1`
+
+`com.contentfactory.maintenance` is a single `launchd` service. Its schedule
+is fixed by the activated release: daily 03:30 `Asia/Seoul`; the first Sunday
+of each month additionally performs restore verification at 04:15. It acquires
+a local advisory lock before starting; an existing live lock means the run is
+recorded as `skipped_overlap`, with no deletion or checkpoint. The process is
+not a general worker supervisor and never processes content work.
+
+In this order, each operation receives its own append-only `maintenance_runs`
+row and may fail without suppressing the later non-destructive operations:
+
+1. create an online SQLite backup, verify its checksum and close it;
+2. request the passive WAL checkpoint, requesting `TRUNCATE` only under the
+   Reliability preconditions;
+3. retain 14 daily and 8 weekly backups, deleting only a verified surplus
+   snapshot after the new backup succeeds;
+4. execute verified artifact cleanup and SQLite retention batches; and
+5. on the monthly trigger, restore the newest backup in a new temporary
+   directory and perform the required integrity, migration, and trace checks.
+
+Backup transport or verification failure retries once after 30 minutes; a
+second failure is terminal for that scheduled operation and is red on the
+dashboard. Retention and artifact cleanup may retry safely on their next daily
+run; neither retries by deleting more broadly. A maintenance heartbeat is
+written at start, after every operation, and on completion. The dashboard
+shows each operation's last result, age, counts, exact safe failure, next due
+time, and whether the shared storage gate is blocking new work.
+
+Until Storage Monitor has a current `normal` sample (not merely a heartbeat),
+new Gemini, source-collection, Pipeline Runner, Adaptation Worker, Visual Renderer, and Posting
+Agent claims are blocked. Dashboard reads, review decisions that do not create
+new delivery work, reconciliation reads, and safe cleanup remain available.
+The normal/warning/critical/emergency thresholds and recovery rule are owned by
+[Reliability and safety](reliability.md#storage-backup-and-retention--storage_safety_v1).
 
 ## Initial lease and retry envelope — `worker_recovery_v1`
 
@@ -112,10 +176,13 @@ request that may already be in flight.
 
 | Worker | Lease | Renew | Maximum runtime | Maximum executions |
 | --- | ---: | ---: | ---: | ---: |
-| Trend Scout + Shortlist | 10 min | 3 min 20 sec remaining | 8 min | 3 per source/run |
+| Trend Source Collector | 10 min | 3 min 20 sec remaining | 8 min | 3 per source collection attempt |
+| Trend Scout + Shortlist | 10 min | 3 min 20 sec remaining | 8 min | 3 per Scout evaluation run |
 | Idea Intake | 5 min | 1 min 40 sec remaining | 4 min | 3 per request |
 | Determination | 5 min | 1 min 40 sec remaining | 4 min | 3 per request |
+| Production Admission Gate | none | n/a | local transaction only | no execution retry; re-evaluate next poll |
 | Pipeline Runner | 10 min | 3 min 20 sec remaining | 8 min | 3 per generation run |
+| Adaptation Worker | 10 min | 3 min 20 sec remaining | 8 min | 3 per adaptation run; does not reset the parent job's model budget |
 | Visual Renderer | 10 min | 3 min 20 sec remaining | 8 min | 3 per render run |
 | Posting Agent | 5 min | 1 min 40 sec remaining | 4 min | 3 only before a final provider request |
 | Cleanup Worker | 10 min | 3 min 20 sec remaining | 8 min | 3 per task |

@@ -13,11 +13,11 @@ image asset, render validation, or output-format change. Read
 
 Visual Rendering is a shared local capability layer. It turns the immutable,
 structured visual specification in a `ContentPackage` into reviewable and
-delivery-ready visual assets. It supports many future pipelines without making
-their creative layouts a generic system concern.
+delivery-ready visual assets for all Phase 1 domains through shared static
+profiles. Domain meaning and platform composition remain upstream concerns.
 
 ```text
-Pipeline
+Output adapter (inside Adaptation Worker)
   → immutable ContentPackage + versioned visual specification
   → persisted RenderRun
   → Visual Renderer worker
@@ -25,8 +25,9 @@ Pipeline
   → human review
 ```
 
-The pipeline owns editorial meaning, visual roles, structured content, and the
-selection of one or more compatible profiles for a particular package. The
+The domain pipeline owns canonical editorial meaning. The output adapter owns
+platform composition, visual roles, structured bindings, and compatible profile
+selection for its package. The
 renderer owns the registered reusable profiles and their template
 implementations, template execution, font/local-asset loading, pixel output,
 and render validation. Neither component calls the other directly; `RenderRun`
@@ -58,7 +59,7 @@ example format conversion, resize/crop, compositing, thumbnails, and manifest
 inspection. It is not the primary rich-layout/template engine.
 
 No additional renderer provider is selected yet. A future provider (for
-example, an SVG/vector, custom illustration, or motion renderer) must be
+example, an SVG/vector or custom illustration renderer) must be
 registered behind the same persisted specification and output-manifest boundary
 only after its purpose, local runtime dependency, licensing, reproducibility,
 and validation rules are approved. Adding one must not change the pipeline or
@@ -70,10 +71,10 @@ Posting Agent contract.
 | --- | --- |
 | **Visual profile** | A renderer-owned, pipeline-neutral, versioned visual capability: its reusable layout/design rules, palette, local fonts, spacing, safe areas, allowable assets, template family, and output defaults. A profile must be usable by any compatible pipeline; it is not defined by one pipeline. |
 | **Template** | A versioned implementation within a renderer profile for one visual role. It renders structured content; it is not arbitrary model-generated HTML. |
-| **Profile selection** | The pipeline's frozen mapping of its visual units to compatible registered visual profiles/templates. It may select more than one profile in one package. |
+| **Profile selection** | The output adapter's frozen mapping of its visual units to compatible registered visual profiles/templates. It may select more than one profile in one package. |
 | **Visual specification** | The immutable package input naming the selected profile/template for every ordered visual unit, structured content bindings, local asset references, and required output(s). |
 | **Renderer provider** | A local implementation identified by a stable versioned ID, initially `html_playwright_v1`. It executes a visual specification and returns assets/validation data. |
-| **Render run** | One auditable attempt to render a frozen package specification. A retry creates another run; it never overwrites a prior successful run. |
+| **Render run** | One auditable, claimable execution record for a frozen package specification. A safe retry reuses that record and its frozen input; a separately authorized terminal rerender/recovery creates another run. Neither overwrites a prior successful run. |
 | **Render manifest** | The verified ordered list of output assets and the renderer/template/font/input versions and hashes needed to identify exactly what the human reviewed. |
 
 Every static visual unit has explicit output roles. For the initial Instagram
@@ -82,59 +83,50 @@ delivery-ready `delivery_jpeg`; each role has a stable ordinal. The locally
 generated JPEG bytes—not a later R2 copy or adapter conversion—are the public
 delivery input bound to human review.
 
-Detailed `visual_spec_json` fields, individual template grammar, profile tokens,
-selection rules, and quality thresholds are deliberately deferred to the
-visual-rendering design deep dive. They will be added here and mirrored in the
-data-model contract when they become stable.
+`visual_spec_json` is fully frozen at package creation. Its generic field
+grammar lives here; profile-specific tokens, template geometry, font assets,
+and regression fixtures live in the versioned profile contract. The first such
+legacy reference is [Editorial Clean](../profiles/editorial-clean-v1.md);
+Phase 1 requires new compatible output versions before activation.
 
-## First implementation contract — `visual_spec_v1`
+## Phase 1 static profile contract
 
-Each visual unit declares `ordinal`, `role`, `profile_id`, `template_id`,
-`theme_id`, `bindings_json`, `output`, and `validation`. Bindings contain only
-typed pipeline fields; no HTML, CSS, color literals, font names, filesystem
-paths, or remote URLs are accepted. Templates resolve all styling from their
-profile/theme tokens. O2 uses a neutral `editorial_clean_v1` theme across the
-four shared profiles.
+The shared renderer remains `html_playwright_v1`: local versioned HTML/CSS +
+Playwright, pinned local fonts/assets, escaped structured input, deterministic
+preview and final-image output. It serves Instagram and X through distinct
+compatible profile/canvas bindings, not separate domain renderers.
 
-The initial templates use local, OFL-licensed Noto Sans font files pinned by
-SHA-256, a 1080×1920 canvas, 96px horizontal safe areas, and 120px top/bottom
-safe areas. Missing font, template, theme, or bundled asset is a RenderRun
-failure; substitution is forbidden. Profiles own generic palette/typography
-tokens and templates; the O2 pipeline owns only role-to-profile selection and
-structured content bindings.
+Each visual unit freezes ordinal, semantic role, profile/template/theme versions,
+typed bindings, output dimensions/roles, and validation policy. Bindings contain
+no arbitrary HTML/CSS, colors, filesystem paths, font names, or remote URLs.
+The output adapter must use the exact field grammar of the selected template;
+similar names such as `hook`/`hook_text` are not implicit aliases.
 
-Copy capacity is enforced before and after rendering: the renderer measures
-the resolved text box, rejects overflow/clipping/missing bindings, and emits
-no review request. `html_playwright_v1` pins the Playwright/Chromium package
-version and viewport/device scale. Golden fixtures compare output with exact
-dimensions/manifest hashes plus perceptual difference ≤0.5%; required manual
-fixtures cover contrast, safe areas, long valid copy, dialogue balance, and
-missing-font/asset failure.
+The previous `visual_spec_v1` and
+[Editorial Clean v1](../profiles/editorial-clean-v1.md) are legacy/draft references,
+not compatible new Phase 1 output contracts. Preserve their versions; define
+new static profile and visual-spec versions with exact geometry, font/runtime
+fingerprints, JPEG/PNG encoding, native platform byte limits, and golden fixtures
+before activation. The proposed Instagram and X dimensions are owned by
+[Platform outputs](platform-outputs.md); never infer platform compatibility from
+the old 1080×1920 viewport.
 
-Preview PNG uses sRGB. Delivery JPEG uses sRGB, baseline JPEG, quality 90,
-4:4:4 chroma sampling, and a 10 MiB maximum per slide; encoder/version and
-every output hash are manifest fields. A template upgrade, font upgrade, or
-encoder change creates a new version and never changes prior reviewed output.
-
-The initial generic template registry is:
-
-| Profile | Template | Capacity enforced by renderer |
-| --- | --- | --- |
-| `hook_emphasis_v1` | `headline_focus_v1` | One expression line plus ≤16-word hook. |
-| `concise_explainer_v1` | `definition_stack_v1` | One expression line, ≤34-word explanation, one optional short usage line. |
-| `monologue_card_v1` | `context_card_v1` | One context label plus ≤22-word example. |
-| `chat_dialogue_v1` | `two_bubble_v1` | Two ordered messages, ≤14 words each. |
-
-These are reusable capacity contracts, not O2-specific names or colors.
+Missing font/template/theme/asset, overflow, or incompatible output dimensions
+fails the RenderRun. Substitution, shrink-to-fit, copy truncation, delivery-time
+conversion, and hidden cropping are forbidden. Review receives the exact final
+delivery-format bytes, plus a complete ordered manifest.
 
 ## Shared profile registry
 
-The Visual Rendering Layer maintains the enabled, versioned profile registry.
+The Visual Rendering Layer consumes the enabled, versioned profile registry
+materialized from the activated configuration release.
 Profiles are generic building blocks—not `o2_*` or another pipeline's private
-implementation. A pipeline capability declares the profiles it can use and its
-role/selection constraints; it does not create, fork, or own a profile.
+implementation. An output binding declares the profiles it can use and its role/selection
+constraints; it does not create, fork, or own a profile.
 
-The initial planned registry for static educational/social content is:
+The retained reusable profile families for static educational/social content are
+listed below. Their v1 IDs describe legacy capacities, not approved Phase 1
+platform compatibility; select a new compatible version through the registry:
 
 | Profile ID | Reusable purpose | Suitable visual units |
 | --- | --- | --- |
@@ -143,16 +135,18 @@ The initial planned registry for static educational/social content is:
 | `monologue_card_v1` | A single-speaker example or quotation presented as a readable card. | Example, quote, testimonial |
 | `chat_dialogue_v1` | A short two-party conversation with distinct message treatment. | Dialogue, comparison, Q&A |
 
-These profile IDs establish intended reusable capabilities, not final visual
-design. Their palette tokens, font set, template grammar, content limits,
-supported dimensions, and quality fixtures will be defined in the follow-up
-deep dive. New profiles are added to this registry only when they represent a
+These profile IDs establish reusable capabilities. Their versioned profile
+contracts own palette tokens, font set, template grammar, content limits,
+supported dimensions, and quality fixtures. New profiles are added to this
+registry only when they represent a
 reusable visual need across more than one plausible pipeline or format.
 
-For every package, the pipeline selects only profiles registered as compatible
-with its capability and records the result in the immutable visual
-specification. A selection change is creative/format change and therefore
-requires a new package; the renderer may only retry the frozen selection.
+For every package, the output adapter selects only profiles registered as
+compatible with its output contract/binding and records the result in the immutable visual
+specification. Package creation atomically creates the first pending RenderRun
+with the resolved selection. A selection change is creative/format change and
+therefore requires a new package; the renderer may only retry the frozen
+selection.
 
 ## Determinism, fonts, and local assets
 
@@ -194,42 +188,37 @@ only after ownership checks, while promoted output without a matching committed
 run is quarantined and reconciled by run ID and hash. Existing final output is
 never overwritten or accepted merely because a path exists.
 
-The deep-dive contract will define the complete validation suite. At minimum,
-the target design requires dimensions and format verification, required-font
-availability, complete ordered asset count, local-path/output readability,
-hashes, JPEG encoder/version verification where required, and detection of
-blocking layout defects such as overflow, clipping, or missing required
-content. The dashboard displays the canonical final delivery assets and their
-stored manifest/hash validation, not a fresh renderer preview.
+The renderer validates dimensions and format, required-font availability,
+complete ordered asset count, local-path/output readability, hashes, JPEG
+encoder/version, and blocking layout defects. Profile contracts define the
+exact validation categories and regression fixtures. The dashboard displays the
+canonical final delivery assets and their stored manifest/hash validation, not a
+fresh renderer preview.
 
-## O2 English as the first profile consumer
+## Output adapters as profile consumers
 
-O2 English Instagram is the first pipeline to consume the shared profile
-registry. It uses the local `html_playwright_v1` provider for 1080×1920
-vertical static slides and selects these generic profiles:
+The Instagram carousel adapter maps each domain's semantic progression to
+registered shared templates. The X adapter maps canonical content to one native
+hook/summary card; it may reuse a suitable semantic unit without copying an
+Instagram carousel wholesale. Both select and freeze profiles before rendering.
 
-| Slide role | Selected shared profile |
-| --- | --- |
-| `hook` | `hook_emphasis_v1` |
-| `explanation` | `concise_explainer_v1` |
-| `use_case_monologue` | `monologue_card_v1` |
-| `use_case_dialogue` | `chat_dialogue_v1` |
+The hook, explanation, example, and dialogue families above remain reusable
+design candidates; their old field/geometry versions must not be assumed to
+support every new domain. A new business-risk card or finance explanation should
+extend a shared typed template only when its required layout is materially new.
+Do not fork a renderer per pipeline/account.
 
-O2-specific copy limits, sequence, delivery format, and visual requirements
-remain in the [O2 English Instagram pipeline contract](../pipelines/o2-english-instagram.md).
-O2 may specify a compatible neutral theme/brand treatment as an input to a
-selected shared profile, but it does not own or duplicate the profile. This
-document owns the reusable renderer boundary and profile registry, not O2's
-editorial format.
+The [Platform outputs contract](platform-outputs.md) owns platform-specific
+sequence and copy limits; [Domain pipelines](../pipelines/domains.md) owns
+editorial meaning. Neither owns shared template implementation.
 
 ## Acceptance direction
 
 Before a renderer/profile is enabled for public delivery, boundary tests must
 show that a frozen visual specification resolves the intended local template,
 produces all declared assets at the expected dimensions/format, records exact
-versions and hashes, rejects blocking output defects, and leaves package
-creative/metadata unchanged. Detailed acceptance fixtures and visual-regression
-rules will be defined in the follow-up design.
+versions and hashes, rejects blocking output defects, passes its profile's
+visual-regression protocol, and leaves package creative/metadata unchanged.
 
 ## Related contracts
 
@@ -237,4 +226,5 @@ rules will be defined in the follow-up design.
 - [Data model](data-model.md)
 - [Reliability and safety](reliability.md)
 - [Worker runtime](runtime.md)
-- [O2 English Instagram pipeline](../pipelines/o2-english-instagram.md)
+- [Platform outputs](platform-outputs.md)
+- [Content production](content-production.md)

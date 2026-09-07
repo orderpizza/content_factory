@@ -11,6 +11,8 @@ htmlcov/
 
 data/*.db
 data/*.db-*
+data/*.db.*.bak
+data/*.db.*.bak-*
 generated/*
 !generated/.gitkeep
 !data/.gitkeep

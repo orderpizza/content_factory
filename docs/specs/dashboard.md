@@ -26,8 +26,9 @@ user-login or multi-user account system. The dashboard may maintain a
 short-lived local browser session solely to issue a same-origin anti-CSRF token;
 that session is not the actor identity.
 
-Every state-changing command requires that anti-CSRF token, a unique
-client-generated command ID, and the displayed target-record version. The
+Every state-changing command against an existing target requires that anti-CSRF
+token, a unique client-generated command ID, and the displayed target
+`row_version`. The
 command receipt makes a duplicate click, browser retry, or refresh return the
 original result rather than create another record. This protection adds no
 confirmation step: one click on **Post now** immediately submits its durable
@@ -38,6 +39,12 @@ needed to understand the system. It never displays environment values, access
 tokens, authorization headers, credentials, signed URLs, or unredacted provider
 payloads. Raw JSON and errors use the shared redaction rules in
 [Reliability and safety](reliability.md).
+
+Idea and change-request inputs display a concise warning: **Do not paste
+credentials, tokens, private URLs, or personal data.** The dashboard rejects
+input above the canonical operational-data limit before creating a command.
+It never shows authoritative message text in generic error, worker, or raw
+provider-diagnostic views.
 
 ## Boundary
 
@@ -58,16 +65,19 @@ types of human command:
    decision; and
 8. open a permitted fresh review cycle for an unchanged expired or auditable
    `not_published_cancel` item.
+9. request a permitted terminal-local-work recovery; the request is durable
+   work for the Recovery Worker, never a dashboard retry or reset.
 
-Commands validate the displayed record version and write their narrowly defined
-records in a short SQLite transaction. They never call Gemini, render assets,
+Commands validate the displayed target `row_version`, atomically increment it
+when they change that target, and write their narrowly defined records in a
+short SQLite transaction. They never call Gemini, render assets,
 start/retry a worker, stage R2 media, or call a social API. All reporting opens
 SQLite read-only and never initializes, migrates, repairs, or resets it.
 
 From the user’s perspective, **Post now** posts the selected content. The
 dashboard records an immediate, explicit `PostRequest`; the Posting Agent
 claims its policy-eligible `PostRecord` on its normal polling cycle and makes
-the Instagram API call. This
+the selected Instagram or X API call. This
 durable handoff provides an audit trail, prevents duplicate clicks from causing
 duplicate publication, and keeps the dashboard free of delivery logic.
 
@@ -79,7 +89,7 @@ duplicate publication, and keeps the dashboard free of delivery logic.
 - **Post now:** approves the exact package/render hashes and atomically creates
   one `delivery_mode=immediate` Post Request plus its initial Post Record. Its
   actual eligibility follows `posting_policy_v1`; the UI shows **Posts now** or
-  the exact next eligible `Asia/Seoul` time, daily-cap/interval reason, and
+  the exact next policy-calculated eligible account-local time, daily-cap/interval reason, and
   record expiry. The click submits immediately without a confirmation dialog.
   **Reject** ends that review request without delivery. The initial POC
   deliberately has no human scheduling action or requested delivery time.
@@ -96,7 +106,7 @@ duplicate publication, and keeps the dashboard free of delivery logic.
   sent; that descendant remains published or uncertain while other unfinished
   descendants may be cancelled. It never removes historical creative, audit,
   published, or uncertain-publication records.
-- **Re-evaluate route:** is available on a blocked decision only when the
+- **Re-evaluate route:** is available for blocked routes in the current decision only when the
   thread is open, the decision is current, no competing request is active, and
   the safe routing-input fingerprint changed. It creates one auditable
   `capability_recheck` revision/request; it neither sends a chat message nor
@@ -107,6 +117,11 @@ duplicate publication, and keeps the dashboard free of delivery logic.
 - **Publication unknown:** has no retry/publish control. The dashboard shows
   the audit and reconciliation result. A new publication needs a new explicit
   approval.
+- **Recover local work:** is available only for a terminal `failed` Generation
+  Run, Adaptation Run, Render Run, or Cleanup Task whose recorded failure has no ambiguous
+  external side effect. It records the displayed failure ID, reason, actor,
+  command ID, and row version. It never resets that record, never offers a
+  recovery control for `publication_unknown`, and never retries delivery.
 
 ## Information architecture
 
@@ -115,13 +130,22 @@ completed work. Every view supports time, status, pipeline, account, source,
 and thread filters plus ID/full-text search. Every row opens a detail view with
 safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 
-The default landing page is **Trend Opportunities**. It is a chronological,
-filterable list of every normalized candidate—not only selected items—with its
-source evidence, score/formula version and rank, shortlist outcome/reason,
-coverage identity, linked thread/revision, determination outcome, chosen
-pipeline/account when accepted, and the downstream package/review/publication
-outcome when one exists. It makes the path from detected attention to monetized
-content inspectable without requiring the operator to reconstruct joins.
+The current detection dashboard starts with a title-free compact operator
+surface, rather than a `Trend Opportunities` header or configuration summary.
+Its first row places the live **Ingestion feed** beside **Opportunities** across
+the full viewport width. The feed shows newly persisted normalized observations;
+the opportunities list is limited to candidates that passed shortlist selection
+and created the next `ContentThread` / `IntakeRequest` handoff. This makes the
+incoming signal and the work handed downstream visible together.
+
+The compact detection slice uses `YYYY-MM-DDTHH:MM:SS` for all persisted UTC
+timestamps, without fractional seconds or a rendered timezone suffix. It shows
+filtering, source health, Scout evaluations, worker state, and recent worker
+runs below the first row. The full future candidate/thread trace remains
+available through the wider HAI navigation and must preserve source evidence,
+score/formula version and rank, shortlist outcome/reason, coverage identity,
+linked thread/revision, determination outcome, per-domain angles/dispositions,
+child destination bindings, and downstream outcomes.
 
 The primary navigation is: **Trend Opportunities**, **Ideas and Threads**,
 **Review Queue**, **Pipeline Portfolio**, **Worker Operations**, **Delivery and
@@ -129,25 +153,29 @@ Reconciliation**, **Costs and Audit**, and **System Storage**. These are views
 over the same SQLite record model, not separate subsystem stores. A global
 pipeline/account selector lists only currently enabled capabilities by default,
 but an **include disabled/historical** switch exposes retired configuration and
-its history. Portfolio rows are one per enabled pipeline/account/format and
-show status/backlog/failures/review count/publication counts/cost; an error in
+its history. Portfolio rows are one per domain with expandable platform/account/format
+children. Domain rows show canonical generation state/cost; output children show
+adaptation/render/review/delivery state/cost. Canonical cost is counted once; an error in
 any row remains visible even when a global aggregate is healthy. Pagination,
 search, and filter chips are required rather than a fixed layout assumption, so
 the design accommodates a larger pipeline portfolio without hiding it.
 
 | Area | Required visibility | Primary question |
 | --- | --- | --- |
-| System overview | Schema version, DB path/size, local disk headroom, worker freshness, active/stale/failed counts, O2 account, safe delivery-configuration health including Meta token-expiry state, today’s posts, review count, Gemini totals | Is the system alive, safe, and progressing? |
-| Worker health | Current `worker_heartbeats`, substantive `worker_runs`, claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason | Which component needs attention? |
+| System overview | Schema version, DB path/size, local disk headroom, active configuration release/fingerprint, worker freshness, active/stale/failed counts, configured domain/destination portfolio, safe delivery-configuration health including account/token state, today’s posts, review count, Gemini totals | Is the system alive, safe, and progressing? |
+| Worker health | Current `worker_heartbeats`, substantive `worker_runs`, claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason, capability-readiness monitor state | Which component needs attention? |
 | Detection | Enabled source-instance registry/configuration version, health/degradation, observations/snapshots, candidates, score inputs/fingerprint/formula version, cluster members, shortlist policy/rank/budget, consumed/not-recommended/cooldown/evidence change | Why was an opportunity selected, deferred, or blocked? |
 | Threads and intake | New-idea entry, origin, complete conversation, Intake requests/claims, clarification state, revisions/parents, source evidence/events, linked work | What did I ask for and what changed? |
-| Determination | Requests/leases, frozen input, capability snapshot, decision outcome/reasoning/alternatives/identities, Gemini usage, resulting job when accepted | Why did the system choose/refuse a route? |
-| Production/content | Jobs/leases, recipe, package creative/caption/tags/hashtags/citations, identities/hashes, contract/model versions, validation | What was generated and is it valid? |
+| Determination | Requests/leases, frozen input/catalog, aggregate outcome plus five route fit/disposition/reason rows, selected angles and distinct reader value, output readiness, duplicate/reuse links, model usage, all resulting jobs | Why did each domain respond, skip, reuse, or block? |
+| Production/content | Domain jobs/GenerationRuns, canonical content/claims/sources/hash, output requests/AdaptationRuns, native package copy/metadata, versioned checkpoints and scoped rework | What was generated once, adapted per destination, or reused? |
 | Rendering | Runs/leases, renderer/template versions, manifest verification, ordered preview/assets/dimensions/checksums, failure/recovery | Are exact assets ready and trustworthy? |
 | Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, Post now/reject/request-changes actions | What exact immutable output is ready for my decision? |
 | Delivery | Requests, cadence, records, attempts, typed errors, final-request boundary, external IDs, R2 cleanup, unknown outcomes, reconciliation | What is queued, published, uncertain, or awaiting cleanup? |
 | Costs/audit/search | Model attempts/tokens/cost, worker errors, migrations, deduplication decisions, full audit search | What happened and what did it cost? |
+| Production capacity | Policy/version, active and available unreviewed slots, slot holders/release reason, waiting Generation/Adaptation Runs, origin-priority order, estimated wait age | Why is a job waiting before it spends model budget? |
 | System storage | Latest storage sample/threshold state, free space, SQLite/WAL/artifact/backup sizes, latest backup, last restore verification, retention/quarantine/cleanup counts | Can the Mac Mini safely continue to create and preserve work? |
+| Recovery | Eligible terminal local failures, Recovery Requests, safety rejection reason, linked replacement run/task, and terminal outcome | What can safely be resumed without rewriting history or repeating publication? |
+| Capability readiness | Typed domain or output-binding readiness, platform/destination/account, release fingerprint, checked/valid-until times, ready/degraded/blocked/unknown state, token-expiry warning, renderer/profile/media-domain/provider check results, safe blocking reasons | Can Determination or Posting safely use this route now? |
 
 ## Navigation and traces
 
@@ -157,7 +185,8 @@ The overview uses this vertical stage summary:
 Sources / Scout
   → Candidates / Threads
   → Intake / Determination
-  → Content Jobs / Packages
+  → Domain Routes / Angles / Canonical Content
+  → Output Requests / Adapted Packages
   → Render Runs / Review Queue
   → Post Requests / Publication / Cleanup
 ```
@@ -168,8 +197,9 @@ view. A trace view starts from any candidate, thread, revision, job, package,
 review request, post request, or post record and displays every linked record
 in chronological order. The canonical trace order is source instance/observation
 → snapshot/cluster/candidate → evidence event or thread → messages/Intake
-request → Brief Revision → Determination request/decision → Content Job →
-Generation Run/package → Render Run/assets → Review Request → Post Request/
+request → Brief Revision → Determination request/decision → domain route/angle
+→ Content Job/GenerationRun → CanonicalContent → OutputRequest/AdaptationRun
+→ ContentPackage → Render Run/assets → Review Request → Post Request/
 Record/Attempt → publication resources, cleanup, and reconciliation. Missing
 downstream links are shown as an explicit current stopping state, not blank
 space that the operator must interpret.
@@ -180,16 +210,21 @@ This is the priority view. Order by oldest awaiting review, then descending
 priority; filter by pipeline/account. A review card shows the final local
 delivery assets—not a regenerated preview or R2 copy—alongside all metadata,
 sources, destination, content hash, manifest hash, asset hashes, identity,
-freshness, and warnings. The command includes the displayed record version;
-approval revalidates every binding in its transaction. Approval confirms that
-Instagram is public and irreversible. The initial POC has no scheduling
+freshness, and warnings. The command includes the displayed Review Request
+`row_version`;
+approval revalidates every binding in its transaction. The card identifies the
+exact Instagram or X destination and warns that delivery is public and may be
+irreversible. Show X's complete post text or ordered thread text, not only its
+image. One platform's approval never approves its sibling. The initial POC has no scheduling
 control: **Post now** is the only delivery authorization action and the active
 posting policy determines its earliest eligible time.
 
 The queue separately exposes `awaiting_review`, `expired`, `invalidated`, and
 other terminal review outcomes. An unchanged expired item may display **Open a
-new review cycle** only when the freshness policy permits it; the action creates
-a distinct review-cycle record and never revives the old approval. A package
+new review cycle** only when the freshness policy permits it; the action
+revalidates the exact bytes/hashes/destination and creates a distinct cycle
+whose 14-day expiry starts at the new request's creation. It never revives the
+old approval. A package
 with a confirmed publication identity never exposes that action. A resolved
 `not_published_cancel` outcome may also make the exact package eligible for a
 new cycle, with the reconciliation evidence linked on the card.
@@ -201,6 +236,8 @@ Keep human intent and external state distinct:
 - `PostRequest`: what the human approved and when.
 - `PostRecord`: what the delivery worker did.
 - `PostAttempt`: which delivery stage was reached.
+- Optional `PublicationStep`: the exact confirmed prefix and uncertain/unsent
+  suffix for a thread; unavailable until its versioned safety contract is enabled.
 - `PublicationResource`: which remote object/container exists.
 - `DeliveryCleanupTask`: whether transient media is still retained.
 - `ReconciliationRequest` / `ReconciliationCheck`: what read-only
@@ -209,6 +246,36 @@ Keep human intent and external state distinct:
 No control retries a failure. Safe retries are worker policy. The only human
 options are a new revision, a new approval, a pre-publication cancellation, or
 reconciliation of an uncertain publication.
+
+## Phase 1 routing-quality workspace
+
+Trend Opportunities expands one candidate/thread into five domain assessments,
+then canonical results and their Instagram/X branches. Preserve zero-output
+decisions and explicit stopping reasons. A domain filter is distinct from an
+account/platform filter; an unconfigured account is not a missing domain.
+
+Show one-pipeline selection, multi-pipeline selection, intentional weak-fit
+skips, whole-trend rejection, dependency blockers, reuse, and technical failures
+separately. Do not optimize the UI around producing five packages per trend.
+Top-level candidate/decision counts use distinct IDs; expanding two destinations
+does not double the number of evaluated trends or canonical generations.
+
+For operator-reviewed routing fixtures, display expected acceptable domains/
+angles/skip reasons versus actual results, fixture/policy/model version,
+false-positive forced routes, missed useful routes, duplicate-angle warnings,
+and cost per evaluated trend/canonical/output. Qualitative angle/source-support
+review is required alongside counts. Do not fabricate quality percentages,
+revenue, or monetization success from publication volume.
+
+A change request records whether it targets one output, a domain's canonical
+content, or the common brief. Scope is visible before paid work; already
+approved/in-flight siblings remain untouched unless an explicit permitted
+cancellation wins. A blocked sibling can be rechecked without regenerating
+completed routes under the Intake preconditions.
+
+The currently implemented detection dashboard remains reporting-only. New
+routing, production, review, and command views are target requirements, not
+assumed to exist merely because their documents were updated.
 
 ## Freshness and stale-state presentation
 

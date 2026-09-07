@@ -1,8 +1,4 @@
-"""Run one Scout evaluation against persisted collection evidence.
-
-This filename is retained for the existing launchd label. It delegates to the
-current detection entrypoint and cannot initialize or write the legacy schema.
-"""
+"""Run one due-source collection pass without evaluating the shortlist."""
 
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ def main() -> None:
     command = [
         sys.executable,
         str(ROOT / "scripts" / "run_detection.py"),
-        "--skip-collection",
+        "--skip-scout",
     ]
     database = os.getenv("CONTENT_FACTORY_DB_PATH")
     if database:

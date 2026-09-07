@@ -5,6 +5,8 @@ verify implementation conformance from code and tests.
 **Owner:** SQLite persistence, migrations, boundary models, and their tests.
 **Read this for:** Schema, migrations, worker state, IDs, audit records, or any
 change to a persisted handoff. Read [the system guide](../system.md) first.
+For the exact executable schema of the current detection/dashboard milestone,
+continue to the [SQLite record contract](data/records.md).
 
 SQLite is the authoritative state store. Every worker claims work from and
 writes its result to SQLite. The dashboard reads its reporting view and writes
@@ -21,6 +23,10 @@ including an immediate `PostRequest` for **Post now**.
 - Messages, evidence snapshots, creative packages, decisions, attempts, and
   published records are append-only. Rework creates a new revision; it never
   overwrites history.
+- Apply the bounded operational-data, redaction, and Gemini-input rules in
+  [Reliability and safety](reliability.md#operational-data-minimization--operational_data_v1).
+  Database rows contain safe hashes/summaries rather than credentials, signed
+  URLs, raw provider bodies, or full model prompts/responses.
 - Enforce status sets with SQLite `CHECK` constraints and enforce transitions
   through transactional service methods plus boundary tests.
 - Acquire work in one short conditional transaction. Every claim stores owner,
@@ -31,65 +37,108 @@ including an immediate `PostRequest` for **Post now**.
   attempt count/limit, `retry_policy_version`, `next_attempt_at`, lease
   duration, and a persisted maximum-runtime deadline. It never lets an expired
   claimant commit after another worker has reclaimed the record.
+- `row_version` is a positive monotonic integer on every mutable dashboard
+  command target: `content_threads`, `review_requests`, `post_requests`,
+  `post_records`, `reconciliation_requests`, and future mutable configuration
+  activation records. Creation sets it to `1`; every permitted state or
+  command-visible field transition increments it in the same transaction.
+  It is distinct from worker-only `claim_version` fencing.
 - The production schema uses versioned forward migrations. It must refuse an
   unknown/incomplete/newer schema rather than silently apply additive changes.
 
 ## Relationship map
 
-```mermaid
-flowchart TB
-    candidate[TrendCandidate] -->|selected trend| thread[ContentThread]
-    candidate --> evidence_event[ThreadEvidenceEvent]
-    evidence_event --> thread
-    evidence_event --> intake[IntakeRequest]
-    thread --> message[ThreadMessage]
-    message --> intake[IntakeRequest]
-    intake --> revision[BriefRevision]
-    thread --> revision[BriefRevision]
-    message -->|context frozen in| revision
-    revision --> request[DeterminationRequest]
-    request --> decision[DeterminationDecision]
-    capability[PipelineCapability] --> decision
-    request -->|accepted once| job[ContentJob]
-    job --> generation[GenerationRun]
-    generation -->|produces once| package[ContentPackage]
-    package --> render[RenderRun]
-    render --> asset[RenderAsset]
-    render --> review[ReviewRequest]
-    review -->|approved once| post_request[PostRequest]
-    post_request --> post_record[PostRecord]
-    post_record --> attempt[PostAttempt]
-    attempt --> resource[PublicationResource]
-    resource --> cleanup[DeliveryCleanupTask]
-    post_record --> reconciliation_request[ReconciliationRequest]
-    reconciliation_request --> reconciliation_check[ReconciliationCheck]
-    reconciliation_check --> reconciliation_decision[HumanReconciliationDecision]
+```text
+Candidate/evidence or human messages → ContentThread → IntakeRequest
+  → BriefRevision → DeterminationRequest → DeterminationDecision
+    → five DeterminationRoutes (selected/skipped/blocked/reused)
+      → each selected route: ContentJob → GenerationRun → CanonicalContent
+        → each frozen destination: OutputRequest → AdaptationRun → ContentPackage
+          → RenderRun → RenderAssets → ReviewRequest → PostRequest → PostRecord
+            → PostAttempt → PublicationResource → DeliveryCleanupTask
+            → ReconciliationRequest → checks → human resolution
 ```
 
-This is a persisted-record map, not a direct module-call diagram. The common
-thread/revision lineage covers trend-originated and human-originated work.
-Downstream records derive their thread/revision through foreign keys instead of
-storing independently editable copies.
+One decision may create several domain jobs, and one canonical object may serve
+several output requests. No unique constraint on the determination request may
+collapse this fan-out to one job; no unique constraint on the content job may
+collapse it to one platform package. Required foreign keys preserve every branch.
+Optional X threads additionally require ordered PublicationStep records before
+their format is enabled. This is a record map, not direct worker calls.
 
-## Four identities
+## Atomic handoff-creation matrix
+
+This matrix is the canonical inventory of who creates every cross-worker
+handoff. Each row is one SQLite transaction; a failure rolls back all listed
+new records and leaves no partial downstream input. An existing uniqueness
+conflict is returned as the already-created durable result where its frozen
+input matches, otherwise it is a typed conflict—not permission to create a
+second record.
+
+| Trigger and creator | Atomic persisted result | Uniqueness guard | Failure behavior |
+| --- | --- | --- | --- |
+| New human idea/rework — Dashboard command | New/continued thread, appended message, pending Intake Request, command receipt | client command ID; message sequence; one active Intake Request/thread | No message or request persists on a failed command. Duplicate submission returns its receipt. |
+| Selected candidate — Trend Scout shortlist | candidate selection audit, seed trend thread, pending Intake Request, frozen candidate/evidence linkage | candidate can be selected once; `UNIQUE(seed_candidate_id)`; shortlist budget transaction | Candidate remains persisted/unselected or deferred; no worker call occurs. |
+| Completed normal Intake — Idea Intake Agent | immutable Brief Revision, pending Determination Request, completed Intake Request | revision number/thread; `UNIQUE(revision_id)` determination request | Request stays claimed/retryable or fails safely; no partial revision. Coverage collision follows the separate merge transaction. |
+| Determination completion — Determination Worker | completed request, immutable decision and five route rows; one ContentJob and initial GenerationRun per selected route; explicit reuse links | one decision/request, one route/decision/domain, one job/selected route, unique canonical content identity | All route/job creation rolls back together. Skipped/blocked routes create no job. |
+| Successful generation — Pipeline Runner | succeeded GenerationRun, immutable CanonicalContent, all frozen OutputRequests and initial AdaptationRuns; slot transfer | canonical/run and canonical/job uniqueness; unique output identity | No partial canonical/output fan-out; no RenderRun yet. |
+| Explicit output rework using unchanged canonical content — Determination finalization | completed decision/routes, canonical reuse link, scoped new OutputRequest and first AdaptationRun | one decision/request, unique output identity, canonical creative equality | No new generation or implicit sibling output; branch starts waiting for capacity. |
+| Successful adaptation — Adaptation Worker | succeeded AdaptationRun, immutable ContentPackage, first pending RenderRun | package/output-request and package/adaptation-run uniqueness; one active render/package | No package without its RenderRun; siblings and canonical content are unchanged. |
+| Successful render — Visual Renderer | succeeded Render Run, immutable manifest and asset rows, awaiting Review Request | asset role/ordinal; one active review/package/render/destination | Run returns to `retry_wait` or fails; no review request exposes partial assets. |
+| Post now — Dashboard command | approved Review Request, immutable Post Request, initial pending Post Record, command receipt | review authorizes once; request/review and record/request uniqueness; client command ID | Approval is unchanged if transaction fails; no external call is made. |
+| Delivery start — Posting Agent | claimed Post Record and append-only Post Attempt before any provider side effect | fenced post claim; unique attempt number/record | Claim mismatch leaves no attempt or provider call. |
+| Media/container staging — platform adapter under the claimed attempt | `PublicationResource` for each staged remote/object resource and an eventual `DeliveryCleanupTask` for each R2 object | provider resource identity and resource/object cleanup uniqueness | Safe pre-final failure becomes record retry/failure with audit; cleanup remains independently claimable. |
+| Possible final-publication uncertainty — Posting Agent | terminal `publication_unknown` Post Record and final-attempt evidence | final request marker and post-record fencing transaction | Never retry final publication automatically. A human may later create one Reconciliation Request; none is implied or automatically dispatched. |
+
+Coverage collision is a special Intake finalization: it preserves the candidate
+or human message, writes the documented merge evidence/message, closes the
+unused seed thread, and creates downstream work only on the existing coverage
+owner when permitted. It is never a second editorial handoff.
+
+## Identity boundaries
 
 | Identity | Stored with | Meaning and uniqueness |
 | --- | --- | --- |
-| Evidence identity | Candidate/snapshot and determination decision | Fingerprint of normalized clustered evidence. It decides whether a trend with a prior `not_recommended` outcome materially changed. |
-| Coverage identity | Content thread and determination decision | Route-neutral canonical editorial target. It prevents a second automatic thread for coverage that already exists and is available before pipeline selection. |
-| Content identity | Accepted decision, job, generation run, and package | Coverage plus immutable revision ID, pipeline/destination/format, and recipe/content-contract version. It prevents duplicate automatic generation while allowing explicit human rework. |
-| Publication identity | Post request and record | One explicit review-approval cycle for an exact package/render/destination. It permits at most one automatic final request while allowing a later, separately approved cycle only when review/reconciliation policy authorizes one. |
+| Evidence | Observations/snapshots and decision | Frozen normalized evidence fingerprint; cooldown alone does not imply material change. |
+| Opportunity | Candidate | `trend:<canonicalization_version>:<cluster_key>`; detection attention, not editorial coverage. |
+| Coverage | Thread and revisions | Route-neutral editorial subject under `coverage_normalization_v2`, assigned by Intake; immutable unique non-null thread key. |
+| Domain-angle coverage | Route and coverage reservation | Pipeline + normalized angle kind/target/sense/event scope; excludes account/platform/hook wording. Guards repeat treatment across threads/revisions. |
+| Canonical content | ContentJob and CanonicalContent | Domain-angle identity + creative-input fingerprint (brief's creative scope, frozen evidence/reference versions, domain/content contract); excludes revision number alone, account/platform, retry number, and metadata/layout. |
+| Output | OutputRequest and ContentPackage | Canonical ID/hash + explicit destination/platform/format + output contract and adapted-input version/fingerprint. No duplicate output because a worker restarted or a revision merely reused content. |
+| Publication | PostRequest/PostRecord | Exact package/render/destination and explicit review cycle. At most one possible final send per publication identity; confirmed or uncertain output cannot silently re-enter another cycle. |
 
-For O2, coverage identity uses the normalized teaching target. Content identity
-adds immutable `revision_id`, `pipeline_id`, destination, format, and
-recipe/content-contract version. A worker may not create a revision or add
-randomness merely to bypass duplicate protection. Revisions arise only from an
-explicit human rework, approved automatic evidence refresh, or migration.
+Identity serializers are deterministic over structured fields and persist their
+versions and source components. Intake owns shared coverage; Determination owns
+domain-angle selection. One shared topic can legitimately have several different
+domain angles. Conversely, teaching the same expression/sense from a new trend
+does not automatically justify a new English job.
+
+A unique content identity blocks repeat model spending on unchanged creative
+input even across revisions. A `domain_angle_reservations` guard points to
+current and historical accepted work for each angle. A new generation under the
+same angle requires explicit human rework or a permitted material-evidence
+revision and a genuinely changed creative fingerprint. Automatic cooldown or
+new hook wording cannot bypass that guard. Retain confirmed/uncertain
+destination-publication history when assessing rework; never equate a fresh
+package ID with permission to republish unchanged content.
+
+`canonical_reuse_links` associates a new route/revision/output rework with the
+prior canonical record and frozen reuse reason/fingerprint. It records reuse,
+not fictional generation under the new job. Before adaptation admission, check the immutable output-input identity for
+existing work. After adaptation/rendering, also compare the ordered final public
+text and delivery asset hashes for the same destination, excluding audit IDs,
+revision IDs, timestamps, and private tags from this duplicate fingerprint.
+An identical pending, confirmed, or uncertain public output is linked/suppressed,
+not offered as another publication merely because its package hash includes new
+lineage. A typed duplicate outcome retains any incurred model cost. Exact
+equality is enforced locally;
+uncertain semantic duplicates remain an editorial review issue, not a claimed
+perfect hash-based solution.
 
 ## Detection evidence — retained and extended
 
 Retain `trends`, `trend_observations`, `topic_snapshots`, `trend_history`,
-`source_health`, `detection_runs`, and `trend_candidates`. They remain
+`source_health`, `source_collection_attempts`, `scout_evaluation_runs`, and `trend_candidates`. They remain
 deterministic source evidence, never human ideas or content threads.
 
 Add `detection_source_instances` as the persisted source registry. It holds a
@@ -97,7 +146,7 @@ stable source-instance ID, source-kind/version, provider display name,
 endpoint/feed URL, declared delivery format where applicable, coverage note,
 enabled state, expected poll cadence/availability interval, static trust weight,
 independence group, language/region scope, local quota limit where applicable,
-safe configuration JSON/fingerprint, and audit timestamps. `source_health` and
+safe configuration JSON/fingerprint, required `configuration_release_id`, and audit timestamps. `source_health` and
 every observation/run link to this record. A run stores the exact enabled-source
 configuration snapshot it used; credentials never enter the database.
 
@@ -108,13 +157,20 @@ deterministic configuration, never an LLM output or inference. Retain the
 observation-to-cluster membership that was used for every scored candidate so a
 later alias change cannot rewrite historical evidence.
 
+Each evaluation appends an immutable `topic_snapshots` row for every scored
+cluster. `trend_candidates` is the stable current lifecycle row, unique by
+opportunity identity; it points to the latest snapshot while all earlier score
+and evidence snapshots remain immutable. This separates historical scoring
+evidence from selection/cooldown state and prevents a later evaluation from
+creating a second seed thread for the same opportunity.
+
 Extend candidate/snapshot records with:
 
 - `evidence_fingerprint`, `score_formula_version`, and
   `canonicalization_version`;
 - normalized score breakdown and cluster membership linked to exact observation
   IDs;
-- cluster key, candidate coverage identity, canonicalization version, and the
+- cluster key, candidate opportunity identity, canonicalization version, and the
   exact alias-configuration version used;
 - stable source-adapter/source-item IDs when a provider exposes them, canonical
   URL, provider timestamp, collection time, measurement window, and normalized
@@ -124,9 +180,11 @@ Extend candidate/snapshot records with:
   reason, rank, selected/deferred time, and selected thread ID.
 
 Candidate eligibility uses an explicit closed state set rather than inferring
-meaning from nullable timestamps: `eligible`, `selected`,
+meaning from nullable timestamps: `observed`, `eligible`, `selected`,
 `deferred_by_budget`, `rejected_cooldown`, `reconsiderable`, `consumed`, and
 `migration_hold`.
+`observed` means the opportunity is retained but currently fails one or more
+score, reliability, history, or freshness gates; its exact reason is required.
 `selected` means an Intake request was durably created; `consumed` means an
 accepted route already owns that automatic opportunity. A `not_recommended`
 decision moves the candidate to `rejected_cooldown`. Expiry alone makes it
@@ -143,10 +201,30 @@ backfilled onto the event. This append-only record is the audit bridge for
 evidence refresh. Material evidence continues the existing thread; it never
 creates a duplicate thread.
 
-`source_health` also records source instance, requested/actual measurement
-window, item count, completeness result, health classification/reason, fallback
-mode, latency, and structured error category. `detection_runs` retains Scout-run
-counts and errors. Shortlist audit retains eligibility, rank, `selected_at`,
+`source_collection_attempts` is one claimable provider operation for one source
+instance and scheduled collection time. It freezes source configuration and
+request parameters, records attempt ordinal, response/body hash or safe error,
+provider and collection times, completeness, item counts, quota reservation,
+and its exact immutable observation IDs on completion. Its terminal record is
+never re-fetched or overwritten. `source_health` is append-only source-instance
+health evidence derived from that collection attempt: requested/actual
+measurement window, item count, completeness result, health
+classification/reason, fallback mode, latency, and structured error category.
+
+`scout_evaluation_runs` is a separate claimable, no-provider-call work item for
+one 15-minute UTC evaluation slot and configuration-release fingerprint. When
+claimed, `scout_evaluation_inputs` freezes the latest eligible collection and
+health summary for every enabled source instance as of `input_frozen_at`; each
+summary records whether it is `current`, `reused`, `degraded`, `unavailable`,
+`failed`, or `quota_limited` and the exact reason. Immutable
+`scout_evaluation_attempts` rows additionally enumerate every completed
+collection attempt actually used in the current or baseline windows. It then creates candidate/topic score
+snapshots and performs the shortlist transaction. It records aggregate counts,
+frozen input hash, and safe error. A later successful collection creates a new
+evaluation run; it never rewrites a completed evaluation's input. Completion
+appends topic snapshots and observation memberships, then inserts or updates
+the one stable candidate row for each opportunity identity. Shortlist
+audit retains eligibility, rank, `selected_at`,
 deferred/stale reason, and the frozen score/evidence used for any recurrence
 comparison. A selected candidate’s exact evidence is copied into the first
 revision’s `source_snapshot_json`.
@@ -160,22 +238,23 @@ revision’s `source_snapshot_json`.
 | `thread_id` | Primary key. |
 | `origin` | `trend`, `human`, or migration-only `legacy`. |
 | `seed_candidate_id` | Nullable FK to `trend_candidates`; required for `trend`. |
-| `coverage_identity` | Canonical editorial coverage key. Required and immutable once Revision 1 exists; unique when present. |
+| `coverage_identity` | Canonical editorial coverage key. Null for a new seed thread; assigned atomically with Revision 1 under `coverage_normalization_v2`, then immutable and unique when present. |
 | `status` | `open`, `cancelled`, or `closed`. This is administrative, not worker state. |
 | `created_at`, `updated_at`, `closed_at`, `cancelled_at` | Audit timestamps. |
+| `row_version` | Positive monotonic dashboard concurrency version; starts at 1 and increments on close, reopen, cancel, or collision closure. |
 | `closure_actor`, `closure_reason` | Required audit fields when `closed` or `cancelled`; safe human-provided reason is optional. |
 
 Enforce `origin != 'trend' OR seed_candidate_id IS NOT NULL` and
-`UNIQUE(seed_candidate_id)`. A trend thread receives its coverage identity in
-the same transaction that creates it. A human thread may begin without one,
-but Idea Intake must assign it atomically with Revision 1; it is immutable
-thereafter. A rework stays in its existing thread and creates another revision.
-If a new subject cannot truthfully retain the existing coverage identity, it
-requires an explicit new human thread. If a new trend maps to already consumed
-coverage, retain it as evidence rather than opening a second automatic thread.
+`UNIQUE(seed_candidate_id)`. Both trend and human seed threads begin without
+coverage identity. Idea Intake assigns it atomically with Revision 1 under
+`coverage_normalization_v2`; it is immutable thereafter. A rework stays in its
+existing thread and creates another revision. On collision, the transaction
+attaches a trend candidate as evidence to the existing owner or directs a human
+to continue it, then closes the unused seed thread with
+`coverage_collision_merged`; it does not create a second revision/job.
 
 `closed` is an orderly archival state. It may be entered only when no
-claimable/claimed intake, determination, generation, render, review, or
+claimable/claimed intake, determination, generation, adaptation, render, review, or
 delivery record remains for the thread; terminal failed, rejected, cancelled,
 published, and `publication_unknown` history remains visible. A human must
 explicitly reopen a closed thread before continuing it; reopening changes only
@@ -240,17 +319,17 @@ One immutable agreed brief per numbered version.
 | `thread_id`, `revision_number` | Required FK and positive number; unique pair. |
 | `parent_revision_id` | Optional revision FK; must be in the same thread. |
 | `input_through_message_id` | Last message considered; may be null only when no human message exists. |
-| `brief_json` | Required normalized brief defined by the Idea Intake and Determination contract: editorial goal, topic, audience, desired outcome, constraints/preferences, and requested changes. |
+| `brief_json` | Required route-neutral brief, coverage inputs, audience, desired outcome, constraints, and explicit whole-brief/domain/output revision scope. |
 | `source_snapshot_json` | Frozen candidate/detection evidence or original-conversation context. |
 | `revision_reason` | `initial`, `human_rework`, `evidence_refresh`, `capability_recheck`, or `migration`. |
 | `created_by` | `intake_agent`, `system`, or `system_migration`. |
-| `source_intake_request_id`, `source_evidence_event_id`, `source_blocked_decision_id` | The Intake request, optional evidence event, and optional blocked decision that caused the revision. A capability recheck names its blocked decision and has no Intake request; migration is the other exception to the Intake-request requirement. |
+| `source_intake_request_id`, `source_evidence_event_id`, `source_blocked_decision_id` | The Intake request, optional evidence event, and optional decision containing blocked routes that caused the revision. A capability recheck names that decision and the specific blocked routes and has no Intake request; migration is the other exception to the Intake-request requirement. |
 | `created_at` | Freeze time. |
 
 There is no editable draft revision. Conversation remains in messages until the
 agent freezes the next immutable snapshot. A `capability_recheck` is the sole
 non-conversational revision: the dashboard's explicit command copies the frozen
-brief/source context unchanged, names the prior blocked decision, and creates a
+brief/source context unchanged, names the prior decision containing the blocked route(s), and creates a
 new Determination request with a newly frozen routing-input snapshot. It never
 changes editorial content or overwrites the old decision.
 
@@ -270,77 +349,116 @@ This replaces trend-only `determination_handoffs`.
 | `attempt_count`, `attempt_limit`, `next_attempt_at` | Bounded retry metadata. |
 | `created_at`, `completed_at`, `failure_reason` | Audit/recovery fields. |
 
-### `determination_decisions`
+### `determination_decisions` and `determination_routes`
 
-One decision per request: `decision_id`, unique request FK, outcome
-(`accepted`, `not_recommended`, or `blocked`), selected capability when one
-exists, `recipe_json` for an accepted route, `reasoning`, `alternatives_json`,
-warnings, evidence/coverage identities, and `created_at`. An interrupted worker
-must not leave an accepted decision without its job: accepted decision,
-Content Job, and completed request are committed in one transaction. A repair
-path may create a unique missing job only for legacy or interrupted rows that
-predate this invariant; it never evaluates that revision again. The full decision contract is in
-[Idea Intake and Determination](idea-intake-and-determination.md).
+One immutable decision per request stores aggregate outcome, opportunity value,
+whole-decision rationale, warnings, evidence/coverage identities, and frozen
+routing-policy/catalog/readiness fingerprints. It no longer contains one nullable
+selected capability/recipe. The outcome derives from the five route rows under
+[Intake and Determination](idea-intake-and-determination.md).
+
+Each route has decision FK, stable pipeline ID/version, fit, disposition,
+reason, nullable frozen angle, source support, output assessments, and optional
+prior-work reuse reference. Enforce `UNIQUE(decision_id, pipeline_id)`, all five
+catalog domains exactly once, and selected/blocked/reused angle requirements.
+Only `selected` creates a new job. One fenced transaction writes the complete
+decision/routes/job/run set and finishes the request.
 
 ## Production and rendering records
 
 ### `content_jobs`
 
-One job exists only for an accepted decision. `determination_request_id` is a
-required unique FK, replacing the current trend/candidate/handoff pointers.
-It retains explicit pipeline, platform, account, format, allowed
-renderer-profile set/selection policy, topic, angle, audience, objective, key
-points, sources, priority, and status fields.
+An immutable domain/angle generation recipe belongs to one selected route:
+`UNIQUE(determination_route_id)`, with required `content_identity` unique across
+jobs. The determination-request FK is lineage, **not unique**. Recipe fields
+freeze domain/angle, audience/objective, evidence/reference inputs, creative
+fingerprint, domain/model/budget versions, priority, and bounded output plan.
+The output plan is distribution intent, not platform-specific canonical copy.
 
-Status is `pending`, `claimed`, `running`, `retry_wait`, `completed`, `failed`,
-or `cancelled`, with the common fenced-claim, bounded-retry, error, and
-timestamp fields. `content_identity` is required and unique.
+A ContentJob has no claim/lease/lifecycle. Derive progress from its generation
+and output children; an aggregate must not hide a failed sibling. Reused routes
+link prior canonical work instead of inventing another job or charging again.
 
-### `generation_runs`
+### `generation_runs` and `canonical_contents`
 
-One or more auditable generation attempts may exist for a job, but only one is
-active at a time. It holds the job FK, pipeline/contract version, frozen recipe
-input, claim/lease fields, status (`pending`, `claimed`, `running`,
-`retry_wait`, `succeeded`, `failed`, `cancelled`), common fenced-claim and
-bounded-retry fields, timestamps, safe failure category/text, current
-checkpoint (`creative` or `metadata`), and immutable validated creative
-snapshot JSON/hash.
+GenerationRun is the Pipeline Runner's claimable input: required job FK,
+positive run number, frozen domain recipe/hash and versions, claim envelope,
+safe errors, and status `waiting_capacity/pending/claimed/running/retry_wait/
+succeeded/failed/cancelled`. Enforce unique job/run number and one active run/job.
+Only audited safe terminal recovery may create another numbered run.
 
-A pipeline persists the validated creative snapshot before any dependent
-metadata stage. This allows bounded metadata retries after restart without
-regenerating accepted creative. `model_invocations` link each generation or
-metadata call to the run. A successful run creates one immutable package;
-creative change after package creation requires a new revision/job/run, never
-an update to the prior run.
+Checkpoint validated canonical draft and validation evidence/hash before
+dependent work. The successful transaction inserts immutable CanonicalContent,
+creates all OutputRequests/initial AdaptationRuns from the frozen plan, transfers
+downstream reservations, releases the generation execution slot, and succeeds
+the run. It creates no ContentPackage or RenderRun.
+
+CanonicalContent has required unique job and successful generation-run FKs,
+canonical identity/hash, pipeline/angle, common envelope/domain payload, sources,
+claim mappings, validation evidence, and schema/model versions. It is
+platform-neutral and has no worker status. See
+[Content production](content-production.md) for its payload and validation.
+
+### `output_requests` and `adaptation_runs`
+
+OutputRequest is an immutable recipe with canonical-content FK/hash, originating
+route/revision or explicit reuse-link FK, exact output binding/destination,
+format, output/renderer/policy versions, adaptation-input fingerprint, and unique
+output identity. One canonical record may have several OutputRequests; the
+initial frozen plan allows at most one Instagram and one X destination.
+
+AdaptationRun has required OutputRequest FK, positive run number, frozen input,
+validated adapted-copy/metadata checkpoints and hashes, model-policy versions,
+claim envelope, safe errors, and the same closed state set as GenerationRun.
+Enforce unique output-request/run number and one active run/output request.
+A safe retry resumes the same record; a safe terminal recovery creates another
+numbered run without regenerating canonical content.
 
 ### `content_packages`
 
-One immutable package exists per successful generation run
-(`UNIQUE(generation_run_id)`) and remains unique per job. It contains:
+One immutable package per OutputRequest and successful AdaptationRun:
+`UNIQUE(output_request_id)` and `UNIQUE(adaptation_run_id)`. Several packages
+may reference the same canonical content/job. Remove the legacy unique
+generation-run/job package constraints in the new forward production schema.
 
-- `content_package_id`, job FK, required generation-run FK,
-  pipeline/destination/format identifiers;
-- `creative_json`, caption, `tags_json`, `hashtags_json`, `sources_json`;
-- pipeline-owned typed teaching/provenance evidence within `creative_json`,
-  including claim-to-reference mappings and the reference catalog/content
-  hashes required by the selected pipeline contract;
-- versioned `visual_spec_json`, resolved renderer-owned profile/template
-  ID/version/hash for every visual unit, generation model metadata,
-  `content_hash`, and `created_at`. The reusable visual-spec contract is owned
-  by [Visual Rendering](visual-rendering.md).
+A package contains canonical lineage/hash, destination/platform/format, adapted
+creative, caption or ordered X post text, tags/hashtags/alt text as applicable,
+sources and claim mappings, output/schema/model versions, resolved
+`visual_spec_json`, and content hash/time. No mutable ready/posting status.
+Its creation atomically creates RenderRun number 1. A later output change is an
+explicit scoped revision/new OutputRequest, never mutation of reviewed copy.
 
-It has no mutable “ready for posting” status. Rendering and review are separate
-records. A different creative result requires a new revision/job/package.
+### Production reservations and reuse records
+
+`production_admission_policies` defines versioned generation/adaptation
+execution limits and per-destination unreviewed capacity.
+`production_capacity_reservations` records explicit scope/slot, policy/release,
+job/run/output lineage, active/released state, origin priority, and acquisition/
+transfer/release audit. A partial unique index on active policy/slot enforces
+capacity; a unique run alone cannot enforce a two-slot capacity limit.
+The exact multi-reservation acquisition/release protocol belongs to
+[Content production](content-production.md#admission-and-model-spending).
+
+`domain_angle_reservations` and `canonical_reuse_links` retain the duplicate
+guard and explicit reuse lineage described above. Required FK/uniqueness,
+same-domain/same-angle checks, and append-only histories must be in the forward
+schema before enabling production. New review cycles and terminal local recovery
+reacquire appropriate capacity; they do not reset historical reservations.
 
 ### `render_runs` and `render_assets`
 
-`render_runs` holds package FK, renderer-provider ID/version, resolved
-renderer-owned profile/template selection, frozen input/specification hash,
-resolved font/asset input versions,
+The package-creation transaction creates Render Run number 1. It is the Visual
+Renderer's only claimable input. A later Render Run is permitted only through
+an audited terminal rerender/recovery operation; only one can be active for a
+package at a time. `render_runs` holds package FK, positive run number,
+renderer-provider ID/version, resolved renderer-owned profile/template
+selection, frozen input/specification hash, resolved font/asset input versions,
 common fenced-claim and bounded-retry fields, status (`pending`, `claimed`,
 `running`, `retry_wait`, `succeeded`, `failed`, `cancelled`), timestamps, safe
-error category/text, and an output manifest. At most one run per package is
-active. Safe retries create another run rather than overwrite assets.
+error category/text, and an output manifest. A retry-safe failure returns the
+same run to `retry_wait` and increments its attempt envelope. It never
+overwrites a succeeded run; a separately requested rerender creates a new run
+number with a fresh frozen input/audit reason.
 
 `render_assets` holds run FK, `asset_role`, unique ordinal within role, local
 path, MIME type, dimensions, bytes, SHA-256, conversion/encoder version, and
@@ -365,8 +483,9 @@ One review request exposes one exact package/render/destination review cycle:
 - required content-package hash and render-manifest hash copied at creation;
 - status `awaiting_review`, `approved`, `changes_requested`, `rejected`,
   `invalidated`, `expired`, or `cancelled`;
-- creation, expiry, decision, and terminal-state timestamps plus decision
-  note and actor.
+- creation, expiry (`created_at + 14 days` for that cycle), decision, and
+  terminal-state timestamps plus decision note, actor, and positive
+  `row_version`.
 
 Only one review request may be active per package/render/destination. Approval first revalidates
 the package, manifest, asset hashes, policy freshness, and destination/profile
@@ -374,11 +493,15 @@ compatibility; it is terminal for that request and atomically creates one post
 request plus its initial post record. `changes_requested` atomically appends a
 human thread message and an Intake request for a new revision. Rejection is
 terminal and preserves the creative/history. Any asset/package mutation or
-superseding revision invalidates the request; creative change always starts a
-new revision. Only an explicit human command may create a later review cycle
+explicitly superseding revision within this output/domain's scope invalidates the request; creative change always starts a
+new revision. Unchanged sibling outputs are not invalidated by an output-local
+rework. Only an explicit human command may create a later review cycle
 for the unchanged package/render/destination triple; it is permitted only after
 this request is `expired` or after a linked `not_published_cancel` reconciliation
-decision. A confirmed-published package is never eligible for another cycle.
+decision. The new cycle has its own `created_at` and 14-day expiry, after
+revalidating the exact asset bytes/hashes and compatible destination policy; it
+never inherits the prior request's expiry. A confirmed-published package is
+never eligible for another cycle.
 
 ### `post_requests`, `post_records`, and `post_attempts`
 
@@ -399,6 +522,11 @@ and typed error.
 `publication_unknown` is terminal until human reconciliation, never automatic
 retry.
 
+`post_requests` and `post_records` each carry positive `row_version`. The
+dashboard targets the Post Record version for cancellation/reconciliation and
+revalidates its linked request in the same transaction; any allowed worker,
+expiry, or dashboard state transition increments the affected row version.
+
 `delivery_mode=immediate` records the human's requested urgency; the active
 posting policy still owns the computed `eligible_at`. The architecture does
 not infer whether immediate mode bypasses cadence. If the versioned policy does
@@ -416,18 +544,42 @@ claim and before the final provider request. If no attempt has begun by that
 time, the authorization and record both transition to `expired`; neither may
 later be reclaimed. An exact reviewed package may have at most one
 confirmed-published publication identity across all of its review cycles.
+A temporary readiness failure (including token expiry or provider outage) blocks
+delivery before a provider call without changing human approval. A changed
+destination/account configuration, reviewed-hash mismatch, or incompatible
+frozen-asset requirement invalidates the binding instead and requires a fresh
+review cycle.
 
 `post_attempts` has a record FK, unique attempt number, start/completion,
-status, typed error, and `final_publication_request_sent_at`. Create it before
-the external call. Once that final request may have been transmitted, an absent
-response cannot be treated as a safe retry.
+typed error, and `final_publication_request_sent_at`. Its status set is
+`created`, `staging`, `ready_to_publish`, `final_request_sent`, `succeeded`,
+`retryable_failed`, `failed`, `cancelled`, or `outcome_unknown`. Create it as
+`created` before the first external side effect. Only `created`, `staging`, or
+`ready_to_publish` can become `retryable_failed`; once the final request may
+have been transmitted it becomes `final_request_sent` followed by `succeeded`
+or `outcome_unknown`. The latter atomically makes the parent Post Record
+`publication_unknown`; an absent response is never a safe retry.
+
+Before the final marker, dashboard cancellation may atomically transition a
+`created`, `staging`, or `ready_to_publish` attempt to `cancelled` with its
+parent request/record. Every staged R2 resource receives a cleanup task in that
+transaction; provider containers become audited `retained` resources with the
+reason `cancelled_before_final_publish`. The final-marker transaction and
+cancellation transaction both condition on the same current Post Record/request
+state, so exactly one wins. `final_request_sent`, `succeeded`, and
+`outcome_unknown` attempts cannot be cancelled.
 
 ### `publication_resources` and `delivery_cleanup_tasks`
 
 `publication_resources` generalizes Instagram containers: attempt FK, optional
 asset ordinal, resource type (`staged_media`, `carousel_child`,
 `carousel_parent`, or later platform type), remote/object ID, status, safe
-metadata, and timestamps. Never retain tokens or signed URLs.
+metadata, and timestamps. Its status set is `created`, `ready`, `published`,
+`cleanup_pending`, `cleaned`, `retained`, or `failed`. Adapter creation begins
+at `created`; provider readiness becomes `ready`; a confirmed parent post may
+mark the published resource `published`; safe staging cleanup moves through
+`cleanup_pending` to `cleaned`; and a provider object that cannot or should not
+be deleted is `retained`. Never retain tokens or signed URLs.
 
 `delivery_cleanup_tasks` owns R2 cleanup: resource FK, object key, status
 (`pending`, `claimed`, `retry_wait`, `succeeded`, `failed`, `cancelled`), the
@@ -442,6 +594,10 @@ failure stays visible but does not change a confirmed post to failed.
 common fenced-claim/bounded-retry fields, and audit timestamps. At most one is
 active per Post Record.
 
+It also carries positive `row_version`. A human reconciliation decision matches
+the displayed request version and the exact completed check/evidence IDs; claim
+fencing remains separate.
+
 Each external inspection creates an append-only `reconciliation_check` with
 request FK, provider query/matching-rule version, safe response summary/hash,
 candidate external IDs, outcome (`confirmed_published`,
@@ -453,35 +609,71 @@ time. No reconciliation path silently retries the final publication call.
 
 ## Cross-cutting records
 
-- `pipeline_capabilities` is the persisted enabled capability catalog.
-  It has a stable capability ID, pipeline/platform/account/format/visual-profile
-  identifiers, contract version, `enabled` state, supported goals/audiences and
-  input constraints JSON, deterministic priority/tie-break metadata, safe
-  dependency/configuration requirements, and audit timestamps. It does not
-  store credentials. A determination request freezes the exact applicable
-  catalog snapshot rather than relying on a later mutable lookup.
-- `posting_policies` remains keyed by pipeline/platform/account with daily and
-  interval limits.
+- `configuration_releases` is immutable validated/rejected manifest audit:
+  release name, scope key, schema ID/version, manifest JSON/hash, validation
+  outcome/safe diagnostics, operator, and timestamps. `configuration_activations`
+  is the mutable active/superseded scope pointer with row version and command
+  receipt. Their full lifecycle is owned by the
+  [Configuration control plane](configuration.md).
+- `pipeline_capabilities` is the immutable release-materialized **domain**
+  catalog: pipeline ID/version, enabled state, remit/goals/input constraints,
+  generation prerequisites, and release FK. It contains no platform/account.
+- `output_bindings` separately maps a domain to a configured destination,
+  platform/format/output-contract version and compatible renderer/policy versions.
+  `social_destinations` owns stable account identity and safe secret references.
+  Neither stores secrets. Decisions freeze both registries.
+- `capability_readiness` is one current mutable row per
+  typed readiness subject (`domain` or `output_binding`) and release identity. It records the inspected
+  configuration-release fingerprint, checked/valid-until times, status
+  (`ready`, `degraded`, `blocked`, or `unknown`), typed blocking reasons,
+  non-secret token-expiry time where applicable, renderer/profile availability,
+  provider/media-domain readiness, monitor build/version, safe summary, and
+  positive row version. `capability_readiness_checks` is append-only evidence
+  for each inspection. The Readiness Monitor is its only writer; consumers
+  freeze/read it but never infer readiness from local configuration.
+- `teaching_references` and `teaching_reference_assertions` are immutable
+  release-materialized O2 internal teaching policy. A reference records its
+  stable internal ID/version, approval actor/time, active or superseded state,
+  and configuration-release FK. Each assertion records its reference, stable
+  assertion ID, allowed type/claim IDs, canonical target, and bounded approved
+  text. Packages freeze reference/assertion IDs and hashes; an assertion change
+  creates a new release/version rather than editing prior evidence. Neither
+  table contains a source URL, external attribution, copyright notice, or text
+  that must be rendered publicly.
+- `posting_policies` remains release-materialized and keyed by
+  destination/platform/account with daily and interval limits. Domain changes
+  cannot create separate cadence quotas for the same social account.
 - `human_command_receipts` provides command idempotency and audit for dashboard
   writes: unique client command ID, command kind, durable actor identifier,
   short-lived local browser-session identifier where applicable, target
-  record/version, safe payload hash, result-record references, and timestamp.
+  record/version read, target row version produced when applicable, safe payload
+  hash, result-record references, and timestamp.
   The POC records `local_owner` for every dashboard command. Repeating the same
   ID/payload returns the original result; reusing it with different input is
   rejected.
 - `model_invocations` replaces ambiguous `api_usage`: phase, applicable entity
-  FKs including `generation_run_id`, attempt ordinal, request/prompt/schema
+  FKs including `generation_run_id` and `adaptation_run_id` plus their shared job budget owner, attempt ordinal, request/prompt/schema
   version and safe request hash, model/provider request ID, response hash,
   tokens/cost, outcome (`started`, `succeeded`, `transport_failed`,
   `invalid_output`, `parse_failed`, `schema_failed`), safe error, start time,
-  and completion time. Insert and commit `started` before the provider call;
+  and completion time. `outcome` is the only Model Invocation lifecycle field;
+  it is never called `status`. Insert and commit `outcome=started` before the provider call;
   finalize that row immediately after response or transport failure and before
-  interpreting output. A stale `started` row is an uncertain-cost audit event,
+  interpreting output. A stale `outcome=started` row is an uncertain-cost audit event,
   not evidence that no call occurred.
 - `gemini_budget_reservations` records the UTC accounting day, model invocation
-  or claim FK, worst-case reserved cost, settled cost when known, status, and
-  audit timestamps. A unique active reservation binds one invocation/claim;
-  daily admission checks settled cost plus active reservations atomically.
+  or claim FK, frozen price-snapshot hash, phase token maxima, daily/job limits,
+  computed worst-case reserved cost, settled cost when known, status, and audit
+  timestamps. Monetary values are nonnegative integer micro-USD; no floating
+  point admission arithmetic is permitted. Its status set is `reserved`, `settled`, `released`, or
+  `uncertain`. Admission atomically creates `reserved`; a conclusively
+  pre-provider cancellation may make it `released`; a completed invocation
+  makes it `settled`; and a stale `outcome=started` invocation makes it
+  `uncertain`. Only an explicit accounting-recovery transaction with evidence
+  may change `uncertain` to `settled` or `released`. Daily admission counts
+  settled cost plus the worst-case amount of `reserved` and `uncertain` rows.
+  A unique active reservation binds one invocation/claim. A release without a
+  valid matching price snapshot cannot create a reservation or start Gemini.
 - `worker_heartbeats` keeps one current health row per worker instance: worker
   type, instance ID, start/last-seen time, state, current claim reference, build
   version, and safe health summary. Heartbeats update this row rather than
@@ -496,13 +688,37 @@ time. No reconciliation path silently retries the final publication call.
 - `maintenance_runs` is append-only: kind (`sqlite_backup`, `restore_verify`,
   `wal_checkpoint`, or `artifact_retention`), start/end/status, safe counts,
   backup identity/checksum where applicable, and safe failure detail.
+- `recovery_requests` is a claimable, append-only operator handoff for one
+  terminal local record. It names the failed source record/type, typed reason,
+  actor, command receipt, source row-version/fingerprint, safety assessment,
+  status, claim envelope, and exactly one replacement run/task when approved.
+  Only Generation Runs, Adaptation Runs, Render Runs, and Cleanup Tasks may be recovery targets.
+  Recovery creates a new numbered run or a new cleanup task from immutable
+  parent input; it never rewrites a failure, invokes a provider directly, or
+  targets a Post Record/Attempt or `publication_unknown`.
+- `retention_runs` is append-only: policy version, started/completed time,
+  status, cutoff, per-table eligible/deleted/retained counts, summary hashes,
+  and safe failure. It is the audit parent for preserved daily rollups made
+  before high-volume detail deletion.
 - `schema_migrations` stores forward migration version/name/time/checksum.
 
-## Required constraints and indexes
+## Target record inventory and transition rules
 
-## Baseline DDL and transition rules
+The executable schema for the current implementation milestone is owned by the
+[SQLite record contract](data/records.md) and its linked canonical SQL. The
+catalog below is the complete future target inventory used to plan forward
+migrations; it is not a second DDL definition. When a later stage becomes
+implementation work, its exact columns and indexes move into a new executable
+schema migration before code is written.
 
-The target migration uses `INTEGER PRIMARY KEY` audit IDs, `TEXT NOT NULL`
+The machine-contract maturity and schema versions are listed in
+[Machine-checkable contracts](../contracts/README.md). Every named `*_json`
+field below identifies one of those schema IDs or a field contract owned by
+its focused specification; JSON validation is required before persistence and
+again before a downstream consumer uses the value.
+
+The target migration uses `INTEGER PRIMARY KEY AUTOINCREMENT` for every
+permanent target-record identity, `TEXT NOT NULL`
 UTC timestamps, `TEXT` JSON columns, `INTEGER` booleans constrained to `0/1`,
 and explicit `CHECK` status sets. Required business references use `NOT NULL`
 foreign keys; optional lineage references are nullable. All audit/history
@@ -511,14 +727,13 @@ evidence record is cascade-deleted. Mutable queue rows are updated only through
 their owning transactional service; append-only records are never updated after
 creation except for completion fields explicitly named by their contract.
 
-Every claimable table shares this transition envelope: `pending|retry_wait`
-→ `claimed` → `running|publishing` where applicable → `succeeded|completed|
-published|failed|cancelled`, with lease expiry returning only safe work to
-`retry_wait`. A transition requires the expected prior status, owner, and
-`claim_version`; terminal rows cannot be reclaimed. Each table's stated status
-set narrows this envelope. Partial unique indexes enforce at most one active
-claim/run/review/reconciliation item per owning entity; active means a
-non-terminal status, never merely a nullable completion time.
+Each claimable table has its own closed status set and transition matrix below;
+there is no generic lifecycle that silently adds states to an entity. A worker
+claim transition requires the expected prior status, owner, and `claim_version`;
+lease expiry returns only the table's explicitly safe work to `retry_wait`.
+Terminal rows cannot be reclaimed. Partial unique indexes enforce at most one
+active claim/run/review/reconciliation item per owning entity; active means the
+table's explicitly non-terminal status, never merely a nullable completion time.
 
 The baseline migration must be reviewed as generated SQL plus typed boundary
 models and tests. It may not infer a column, FK action, status, default, or
@@ -526,9 +741,11 @@ transition from legacy code.
 
 ### Column, foreign-key, and retention catalog
 
-This is the canonical baseline catalog. `id` means `INTEGER PRIMARY KEY`; every
-`*_id` is `INTEGER NOT NULL` and references the named parent with `ON DELETE
-RESTRICT` unless the row says optional. `created_at` is `TEXT NOT NULL` UTC;
+This is a planning catalog, not executable DDL. Phase 1 production additions
+remain design-approved pending exact forward schemas and fixtures. Every named primary key (for example,
+`thread_id` or `content_package_id`) is `INTEGER PRIMARY KEY AUTOINCREMENT`.
+Every non-primary-key `*_id` is `INTEGER NOT NULL` and references the named
+parent with `ON DELETE RESTRICT` unless the row says optional. `created_at` is `TEXT NOT NULL` UTC;
 `updated_at`, `completed_at`, and `deleted_at` are nullable UTC `TEXT`. A
 required scalar is `TEXT NOT NULL`, `INTEGER NOT NULL`, or `REAL NOT NULL` as
 its name/value requires; a `*_json` value is validated `TEXT NOT NULL`; and a
@@ -542,37 +759,49 @@ delete only the referenced physical bytes under its documented conditions.
 
 | Table | Required columns beyond common `id` / timestamps | Parent FKs and uniqueness | Owner / retention |
 | --- | --- | --- | --- |
-| `detection_source_instances` | stable ID, kind/version, provider, endpoint, format nullable, coverage, enabled, cadence/availability, trust, independence, scope, quota nullable, config/fingerprint | `UNIQUE(stable_id)` | Detection registry / audit |
-| `detection_runs` | source-config snapshot, measurement window, status, counts, safe error, claim envelope | source instance optional for aggregate run | Trend Scout / audit |
-| `source_health` | window, item count, completeness, classification/reason, fallback, latency, error category | source instance; `UNIQUE(source_instance_id, measurement_window_end)` | Detection / audit |
+| `detection_source_instances` | stable ID, kind/version, provider, endpoint, format nullable, coverage, enabled, cadence/availability, trust, independence, scope, quota nullable, config/fingerprint | unique stable ID/configuration release, as current SQL | Detection registry / audit |
+| `configuration_releases` | release name, scope, schema ID/version, manifest/hash, validation outcome/diagnostics, operator | `UNIQUE(scope_key, release_name)`, immutable | Configuration Operator / audit |
+| `configuration_activations` | scope, active release, active/superseded status, row version, actor/reason, command receipt | one active activation/scope | Configuration Operator / audit |
+| `source_collection_attempts` | source config/request snapshot, scheduled/provider/collection times, response hash/safe error, completeness/counts, quota reservation, status, claim envelope | source instance; `UNIQUE(source_instance_id, scheduled_for, configuration_release_id)` | Trend Source Collector / audit |
+| `scout_evaluation_runs` | evaluation slot, frozen-at/configuration fingerprint, frozen input hash, status, aggregate counts, safe error, claim envelope | `UNIQUE(evaluation_slot_start, configuration_release_id)` | Trend Scout + Shortlist / audit |
+| `scout_evaluation_inputs` | source state, source-health/collection-attempt FKs nullable, exact reason, frozen input ordinal | evaluation run plus source instance; `UNIQUE(scout_evaluation_run_id, source_instance_id)` | Trend Scout / audit |
+| `scout_evaluation_attempts` | measurement role and ordinal | evaluation run, source instance, and exact completed collection attempt; unique attempt within the run | Trend Scout / audit |
+| `source_health` | collection attempt, window, item count, completeness, classification/reason, fallback, latency, error category | source instance and collection attempt; `UNIQUE(source_collection_attempt_id)` | Detection / audit |
 | `trends` | canonical subject/key, first/last observed, safe current metadata | `UNIQUE(canonical_key)` | Detection / audit |
-| `trend_observations` | source item ID nullable, canonical URL nullable, provider/collection time, window, activity/rank, payload | source instance and trend; `UNIQUE(source_instance_id, source_item_id)` where source item exists | Detection / audit |
-| `topic_snapshots` | normalized cluster/key, score inputs, evidence snapshot/hash, formula/canonicalization version | trend/candidate nullable; exact snapshot hash unique within its owning run | Detection / audit |
+| `trend_observations` | source item ID nullable, canonical URL nullable, provider/effective/collection time, window, activity/rank, title snapshot, payload, activity-contributor flag | source collection attempt, source instance, and trend; `UNIQUE(source_collection_attempt_id, source_item_id)` where source item exists | Detection / audit |
+| `source_item_events` | source ordinal/key nullable, closed rejection/exclusion disposition, safe reason, payload hash | source collection attempt and source instance; one event per rejected/excluded item/ordinal | Detection / audit |
+| `topic_snapshots` | normalized cluster/key, score inputs, evidence snapshot/hash, formula/canonicalization version | scout evaluation run; unique cluster within its owning run | Detection / audit |
 | `trend_history` | candidate/trend state event, old/new status, reason, score/rank snapshot | trend and candidate nullable | Detection / audit |
 | `detection_cluster_aliases` | normalized alias, target key, canonicalization/config version, active, reason | `UNIQUE(alias_key, canonicalization_version, configuration_version)` | Detection configuration / audit |
-| `trend_candidates` | cluster, coverage/evidence identities, score/rank/breakdown, eligibility/status, cooldown, shortlist and consumption audit | selected thread optional; unique evidence fingerprint within formula/canonicalization version | Detection / audit |
-| `candidate_observation_memberships` | ordinal, contribution, frozen observation snapshot | candidate and observation; `UNIQUE(candidate_id, observation_id)` | Detection / audit |
-| `content_threads` | origin, seed candidate nullable, coverage identity nullable, administrative status, closure audit | seed candidate optional; `UNIQUE(seed_candidate_id)`, unique non-null coverage identity | Idea Intake / audit |
+| `trend_candidates` | stable opportunity identity, latest snapshot/evidence, current score/rank/breakdown, eligibility/status, cooldown, shortlist and consumption audit | latest topic snapshot and selected seed thread optional; `UNIQUE(opportunity_identity)` | Detection / audit |
+| `candidate_observation_memberships` | ordinal, contribution, frozen observation snapshot | candidate, topic snapshot, and observation; unique observation and ordinal within the topic snapshot | Detection / audit |
+| `content_threads` | origin, seed candidate nullable, coverage identity nullable, administrative status, closure audit, row version | seed candidate optional; `UNIQUE(seed_candidate_id)`, unique non-null coverage identity | Idea Intake / audit |
 | `thread_evidence_events` | old/new evidence fingerprints, comparator/outcome, snapshot, result Intake FK nullable | candidate and thread; result intake optional | Detection + Intake / audit |
 | `thread_messages` | sequence, author kind, body, reply ID nullable | thread; optional self-reply; `UNIQUE(thread_id, sequence_number)` | Dashboard / audit |
 | `intake_requests` | revision/message/event references nullable as documented, context/version, status, claim envelope, result references nullable, safe error | thread plus optional parent references; one active request per thread | Idea Intake / audit |
 | `brief_revisions` | revision number, parent nullable, input message nullable, brief/source snapshot, reason, creator, causation references | thread plus optional same-thread parent/source references; `UNIQUE(thread_id, revision_number)` | Idea Intake / audit |
-| `pipeline_capabilities` | pipeline/platform/account/format/profile IDs, contract version, enabled, goals/constraints, priority/tie-break, config requirements | `UNIQUE(pipeline_id, platform_id, account_id, format_id, contract_version)` | Capability catalog / audit |
+| `pipeline_capabilities` | pipeline ID/version, enabled, goals/constraints, generation prerequisites | configuration release; unique pipeline/version/release | Domain catalog / audit |
+| `production_admission_policies` | typed execution or destination scope, limits, priority, policy fingerprint | configuration release; unique scope/version/release | Production Admission / audit |
+| `production_capacity_reservations` | scope/slot, job/run/output lineage, acquire/transfer/release audit | policy plus applicable owner; one active reservation per policy/slot | Production Admission / audit |
+| `capability_readiness` | typed domain/output-binding subject, release, checked/valid-until, status/reasons, safe facts, row version | one current row per typed subject/release | Readiness Monitor / current health |
+| `capability_readiness_checks` | input fingerprint, individual check outcomes, safe evidence/error, check time | readiness row | Readiness Monitor / audit |
+| `teaching_references` | stable/versioned internal reference ID, approval/status, configuration release | `UNIQUE(reference_id, reference_version)` | Configuration Operator / audit |
+| `teaching_reference_assertions` | stable assertion ID, type, canonical target, bounded approved text, allowed claim IDs | teaching reference; `UNIQUE(teaching_reference_id, assertion_id)` | Configuration Operator / audit |
 | `determination_requests` | revision snapshot, status, claim envelope, failure fields | `UNIQUE(revision_id)` | Determination / audit |
-| `determination_decisions` | outcome, capability nullable, recipe nullable, reasoning, alternatives/warnings, identities | `UNIQUE(determination_request_id)` | Determination / audit |
-| `content_jobs` | pipeline/destination/format/profile policy, frozen recipe/editorial fields, priority, content identity, status, claim envelope | `UNIQUE(determination_request_id)`, `UNIQUE(content_identity)` | Pipeline Runner / audit |
-| `generation_runs` | pipeline/contract, frozen recipe, status, claim envelope, checkpoint, creative snapshot/hash, safe error | content job; one active run per job | Pipeline Runner / audit |
-| `content_packages` | pipeline/destination/format, creative/caption/tags/hashtags/sources, visual spec, resolved visual selection, model metadata, content hash | `UNIQUE(generation_run_id)`, `UNIQUE(content_job_id)` | Pipeline / audit |
-| `render_runs` | renderer/version, resolved visual inputs/hashes, manifest, status, claim envelope, safe error | package; one active run per package | Visual Renderer / audit |
+| `determination_decisions` | aggregate outcome, rationale/warnings, identities and input fingerprints | unique determination request | Determination / audit |
+| `content_jobs` | domain/angle recipe, creative fingerprint, output plan, budget versions, content identity | unique selected route; unique content identity; request lineage is not unique | Determination / audit |
+| `generation_runs` | run number, frozen canonical input, checkpoint/hash, state and claim envelope | job; unique job/run number, one active run/job | Pipeline Runner / audit |
+| `content_packages` | canonical hash, output-specific copy/metadata/visual spec, destination, content hash | unique OutputRequest and AdaptationRun; canonical/job are not unique | Adaptation Worker / audit |
+| `render_runs` | positive run number, renderer/version, resolved visual inputs/hashes, manifest, status, claim envelope, safe error | package; `UNIQUE(content_package_id, run_number)`, one active run per package | Visual Renderer / audit |
 | `render_assets` | role, ordinal, local artifact path, MIME/dimensions/bytes/SHA-256, encoder version | render run; `UNIQUE(render_run_id, asset_role, ordinal)` | Visual Renderer / artifact |
-| `review_requests` | cycle, copied package/manifest hashes, destination key, status, expiry/decision fields | package/render plus destination key; `UNIQUE(package_id, render_run_id, destination_key, review_cycle)` and one active triple | Dashboard / audit |
-| `posting_policies` | pipeline/platform/account, IANA zone, cap, interval, version, reservation rule | `UNIQUE(pipeline_id, platform_id, account_id, policy_version)` | Posting configuration / audit |
-| `post_requests` | approved hashes/destination/mode, expiry, status, publication identity | review/package/render; `UNIQUE(review_request_id)`, `UNIQUE(publication_identity)` | Dashboard / audit |
-| `post_records` | eligible/expiry, status, claim envelope, external ID nullable, error | `UNIQUE(post_request_id)` | Posting Agent / audit |
+| `review_requests` | cycle, copied package/manifest hashes, destination key, status, expiry/decision fields, row version | package/render plus destination key; `UNIQUE(package_id, render_run_id, destination_key, review_cycle)` and one active triple | Dashboard / audit |
+| `posting_policies` | platform/account/destination, IANA zone, cap, interval, version, reservation rule | release; unique destination/policy version/release | Posting configuration / audit |
+| `post_requests` | approved hashes/destination/mode, expiry, status, publication identity, row version | review/package/render; `UNIQUE(review_request_id)`, `UNIQUE(publication_identity)` | Dashboard / audit |
+| `post_records` | eligible/expiry, status, claim envelope, external ID nullable, error, row version | `UNIQUE(post_request_id)` | Posting Agent / audit |
 | `post_attempts` | ordinal, status, error, final-request marker, start/end | post record; `UNIQUE(post_record_id, attempt_number)` | Posting Agent / audit |
 | `publication_resources` | role, asset ordinal nullable, remote/object ID, safe metadata, status | post attempt; unique provider resource identity where non-null | Adapter / audit |
 | `delivery_cleanup_tasks` | object key, status, claim envelope, safe error | publication resource; one active cleanup task per resource/object | Cleanup / artifact |
-| `reconciliation_requests` | reason, status, claim envelope | post record; one active request per record | Reconciliation / audit |
+| `reconciliation_requests` | reason, status, claim envelope, row version | post record; one active request per record | Reconciliation / audit |
 | `reconciliation_checks` | provider query/matching version, safe response hash/summary, candidate IDs, outcome | reconciliation request | Reconciliation / audit |
 | `human_reconciliation_decisions` | actor, exact evidence/check reference, outcome, note | reconciliation request and check | Dashboard / audit |
 | `human_command_receipts` | client command ID, kind, actor/session, target/version, payload hash, result references | target references nullable by command; `UNIQUE(client_command_id)` | Dashboard / audit |
@@ -582,6 +811,17 @@ delete only the referenced physical bytes under its documented conditions.
 | `worker_runs` | worker/instance, claimed entity, start/end/status, summary/error | claim target reference | Runtime / audit |
 | `storage_samples` | free/total and component byte counts, threshold state, safe summary | none | Storage Monitor / audit |
 | `maintenance_runs` | kind, start/end/status, counts, backup identity/checksum nullable, safe error | none | Maintenance / audit |
+| `recovery_requests` | target kind/ID, failure fingerprint/reason, safety decision, status, claim envelope, replacement reference nullable | one target request while nonterminal; command receipt | Recovery Worker / audit |
+| `retention_runs` | policy/cutoff, start/end/status, per-table counts and hashes, safe error | none | Maintenance / audit |
+| `determination_routes` | domain, fit/disposition/reason, angle, evidence, output assessments, reuse FK nullable | decision; unique decision/domain | Determination / audit |
+| `canonical_contents` | common envelope/domain payload, angle and source support, validation, canonical hash | unique content job and generation run | Pipeline Runner / audit |
+| `output_requests` | canonical hash, frozen destination/format/versions/input, output identity | canonical content and route/reuse link; unique output identity | Generation/rework finalization / audit |
+| `adaptation_runs` | run number, frozen input, body/metadata checkpoint, claim envelope/status | output request; unique request/run number; one active run/request | Adaptation Worker / audit |
+| `output_bindings` | domain, destination, format, output contract, renderer compatibility, enabled | domain capability, social destination, release; unique domain/destination/format/version/release | Configuration / audit |
+| `social_destinations` | stable account key, platform, provider identity, safe secret refs | configuration release; unique platform/account/release | Configuration / audit |
+| `domain_angle_reservations` | normalized angle identity, current accepted work pointer, revision permission audit | route/job; one current guard per angle, retained history | Determination / audit |
+| `canonical_reuse_links` | creative equality fingerprint, reuse reason/scope | new route/revision and prior canonical content | Determination/rework / audit |
+| `publication_steps` | optional-thread ordinal, immutable approved text/asset references, per-step marker, remote ID/outcome | post record and originating attempt; unique record/ordinal | Posting / audit; draft, thread mode disabled |
 | `schema_migrations` | version, name, checksum, applied time | `UNIQUE(version)`, `UNIQUE(checksum)` | Migration system / audit |
 
 The legacy detector table names in the first group are target retained evidence
@@ -600,37 +840,63 @@ not an arbitrary worker action.
 
 | Record | Allowed lifecycle | Actor and additional preconditions |
 | --- | --- | --- |
-| `detection_runs` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Scout; source registry is enabled and quota allows collection. Recovery may return only pre-side-effect work to `retry_wait`. |
+| `source_collection_attempts` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Trend Source Collector; source instance is enabled and the scheduled time is due. Safe retry reuses this attempt only; a completed provider response is never re-requested. |
+| `scout_evaluation_runs` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Trend Scout + Shortlist; its fixed slot/configuration release exists. It makes no provider call. Completion atomically persists all score snapshots/candidates and any permitted shortlist selections. |
 | `intake_requests` | `pending/retry_wait → claimed → completed/needs_clarification/retry_wait/failed/cancelled` | Idea Intake; thread is open. `completed` atomically creates one revision and determination request. |
-| `determination_requests` | `pending/retry_wait → claimed → completed/retry_wait/failed/cancelled` | Determination; revision/thread valid. `completed` atomically writes one decision and, if accepted, one job. |
-| `content_jobs` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Pipeline Runner; accepted decision and capability snapshot remain compatible. Completion requires its successful package/run lineage. |
-| `generation_runs` | `pending/retry_wait → claimed → running → succeeded/retry_wait/failed/cancelled` | Pipeline Runner; parent job claim is live. `succeeded` atomically creates one package. |
-| `render_runs` | `pending/retry_wait → claimed → running → succeeded/retry_wait/failed/cancelled` | Visual Renderer; package/hash/spec validate. `succeeded` atomically freezes manifest/assets and creates review availability. |
+| `determination_requests` | `pending/retry_wait → claimed → completed/retry_wait/failed/cancelled` | Determination; revision/thread valid. `completed` atomically writes one decision/five routes and one job/run per selected route. |
+| `generation_runs` | `waiting_capacity → pending → claimed → running → succeeded/retry_wait/failed/cancelled`; `retry_wait → claimed` | Production Admission Gate promotes only with an active capacity reservation; Pipeline Runner needs that reservation plus immutable parent job/recipe and capability snapshot. `succeeded` atomically creates canonical content plus all frozen output requests/adaptation runs. |
+| `adaptation_runs` | `waiting_capacity → pending → claimed → running → succeeded/retry_wait/failed/cancelled`; `retry_wait → claimed` | Admission plus Adaptation Worker; frozen canonical/output input and reservations required; success atomically creates one package and first render run. |
+| `render_runs` | `pending/retry_wait → claimed → running → succeeded/retry_wait/failed/cancelled` | Visual Renderer; package/hash/spec validate. Safe retry returns the same run to `retry_wait`; only audited terminal rerender/recovery creates another run number. `succeeded` atomically freezes manifest/assets and creates review availability. |
 | `post_records` | `pending/retry_wait → claimed → publishing → published/retry_wait/failed/publication_unknown/cancelled/expired` | Posting Agent; request is approved/unexpired, exact review binding and policy validate. Retry only before final provider request. `publication_unknown` follows any possibly transmitted final request. |
 | `delivery_cleanup_tasks` | `pending/retry_wait → claimed → succeeded/retry_wait/failed/cancelled` | Cleanup Worker; object may be safely deleted. Success records deletion but never deletes audit lineage. |
 | `reconciliation_requests` | `pending/retry_wait → claimed → resolved/needs_human/retry_wait/failed/cancelled` | Reconciliation Worker; parent is `publication_unknown`. It may append checks, never publish; only an allowed unambiguous outcome resolves automatically. |
+| `recovery_requests` | `pending/retry_wait → claimed → completed/rejected/retry_wait/failed/cancelled` | Recovery Worker; source is a terminal eligible local record and no ambiguous external effect exists. `completed` atomically creates a new linked numbered local run/task. |
 
 `review_requests`, `post_requests`, `thread_messages`, `brief_revisions`,
-decisions, packages, assets, attempts, resources, checks, and command receipts
+decisions, routes, canonical content, output requests, packages, assets, attempts,
+resources, checks, and command receipts
 are not claimable. Their explicitly documented human or worker creation and
 terminal state transitions are append-only audit actions. A `PostRequest` may
 transition `approved → cancelled/expired/fulfilled` only by the documented
 dashboard, expiry, or confirmed-publication transaction respectively.
 
+### Non-claimable mutable-record transitions
+
+These records do not use worker claims. Every state-changing command matches
+the expected `row_version`, performs the listed side effects atomically, and
+increments the resulting version. Append-only records (`thread_messages`,
+revisions, decisions, attempts, resources, checks, reconciliation decisions,
+and receipts) are created once and never state-mutated.
+
+| Record | Closed status set and legal transitions | Actor / required atomic side effect |
+| --- | --- | --- |
+| `content_threads` | `open → closed`, `open → cancelled`, `closed → open`; `cancelled` is terminal | Dashboard; closure requires no unfinished descendants, cancellation applies only permitted safe descendant cancellations, and collision closure records `coverage_collision_merged`. |
+| `review_requests` | `awaiting_review → approved/changes_requested/rejected/invalidated/expired/cancelled`; every destination outcome is terminal | Dashboard approval creates one Post Request/Record; changes append a message plus Intake Request; invalidation/expiry/cancellation never alter package or assets. |
+| `post_requests` | `approved → cancelled/expired/fulfilled`; all destinations terminal | Dashboard cancels only before final publication marker; expiry atomically expires Post Record; confirmed publication fulfills it. |
+| `post_records` | Its worker-owned lifecycle is in the claimable matrix; dashboard may make pre-final `pending/retry_wait/claimed/publishing` work `cancelled` with its request | Dashboard or Posting Agent; cancellation transaction rechecks no final marker, cancels the active attempt, creates staged-R2 cleanup tasks/retained-container audit, and increments request/record row versions. |
+| `reconciliation_requests` | Its worker-owned lifecycle is in the claimable matrix; human action may append one immutable decision against a completed check | Dashboard; decision exactly names its evidence and does not reset/retry the Post Record. |
+| `configuration_activations` | `active → superseded`; a new activation is created as `active` | Configuration Operator; atomically validates/materializes a release, supersedes prior active scope pointer, creates new active pointer, and records command receipt. Release rows are immutable `validated`/`rejected`. |
+
 Use primary/foreign keys plus the named unique constraints. Required polling and
 reporting indexes include:
 
 - `detection_source_instances(enabled, source_kind, stable_id)`;
+- `source_collection_attempts(status, scheduled_for, next_attempt_at)` and unique source/schedule/configuration key;
+- `scout_evaluation_runs(status, evaluation_slot_start, next_attempt_at)` and unique slot/configuration key;
 - `trend_candidates(status, cooldown_until, evidence_fingerprint)` and cluster
   membership;
 - `thread_evidence_events(thread_id, created_at)` and current fingerprint;
 - unique trend-thread coverage identity;
-- `pipeline_capabilities(enabled, priority, pipeline_id)`;
+- `pipeline_capabilities(enabled, pipeline_id)` and output binding/destination lookup;
+- unique decision/domain route, selected route/job, canonical content identity, and output identity;
+- `adaptation_runs(status, next_attempt_at, created_at)` and one-active-run-per-output-request;
+- `production_capacity_reservations(policy_id, status, acquired_at)` and active-slot count;
+- `generation_runs(status, next_attempt_at, created_at)` including `waiting_capacity` ordering;
 - `intake_requests(status, next_attempt_at, created_at)`;
 - `determination_requests(status, created_at)`;
-- `content_jobs(status, priority DESC, created_at)` and unique content identity;
-- `generation_runs(status, created_at)`;
-- `render_runs(status, created_at)`;
+- `content_jobs(priority DESC, created_at)` and unique content identity;
+- one-active-run-per-job;
+- `render_runs(status, next_attempt_at, created_at)` and one-active-run-per-package;
 - `review_requests(status, created_at)`;
 - unique post-request publication identity;
 - `post_records(status, eligible_at, next_attempt_at)`;
@@ -648,34 +914,31 @@ record; a resource belongs to its creating attempt.
 
 ## Migration and cutover
 
-The durable target uses forward-only migrations and preserves persisted SQLite
-handoffs/history. For the current pre-production architectural reset only, an
-explicit operator-run development rebuild is approved because no production
-data exists. That rebuild must name and display the exact database path, refuse
-to run from worker/dashboard startup, offer a timestamped backup, and require a
-separate deliberate command. Once the target baseline is established, all
-normal changes use the forward migration sequence below.
+This strategy change is documentation-only; do not modify the checksum or table
+definitions of applied `detection_dashboard_schema_v1`, rebuild the live
+development database, or start downstream workers as part of it.
 
-1. Stop workers, back up SQLite, enable foreign keys, verify a supported
-   starting schema, and record the first migration version.
-2. Add target tables/indexes without deleting current tables. Keep detector
-   evidence unchanged and add Intake/evidence-event/reconciliation/model-call
-   audit structures.
-3. Backfill each handoff into a `legacy`/`trend` thread, Revision 1, request,
-   decision, job, generation run, and package lineage. Jobs without a handoff
-   receive legacy lineage.
-4. Backfill each package into a succeeded legacy generation run. Existing
-   render outputs that do not meet the canonical final-JPEG manifest contract
-   require a new pending render run; do not approve them by inference.
-5. Backfill published delivery history into request/record/attempt/resource and
-   cleanup audit rows. Do not publish during migration. Place every old
-   unpublished queued/retry/failed item on migration hold and expose it as
-   awaiting review; no approval is inferred.
-6. Deploy target-table workers. Keep old tables read-only until record counts,
-   foreign-key integrity, hashes, and dashboard traces reconcile. Archive or
-   remove obsolete tables only in a separate approved migration.
-7. Test constraints, concurrency, revision immutability, safe recovery,
-   approval/cancellation, publication uncertainty, and migration safety.
+Before implementation, review exact forward migrations in
+[SQLite records](data/records.md) for domain routes, canonical content, output
+requests, adaptation, changed uniqueness, and capacity/reuse audit. Preserve the
+existing selected thread/Intake handoff and detection evidence. A deliberately
+disposable development database may be rebuilt only by a separate explicit
+operator command naming the exact path and offering a timestamped backup.
+
+Migrate legacy `o2_english_instagram` lineage as legacy evidence, not as a second
+active domain ID. The new domain is `english`; its old account remains a
+separate Instagram destination. Do not manufacture platform-neutral canonical
+content by stripping caption/slide fields from an old package, or claim a new
+domain-generation success occurred. Preserve legacy package/review/publication
+lineage under explicit legacy versions until a reviewed migration maps it
+without invented approvals or paid calls.
+
+Cutover requires backup, supported-version and FK checks, paused affected
+workers, atomic migrations, row/hash/lineage reconciliation, typed boundary
+tests, and rollback-by-restore verification. Unpublished legacy work remains on
+migration hold pending fresh valid review; confirmed/uncertain history is
+never automatically republished. Old reviewed 1080×1920 assets are not silently
+converted to the new Instagram output profile.
 
 No worker or dashboard start path resets or silently accepts an incompatible
 database.

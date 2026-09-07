@@ -40,7 +40,6 @@ to a Page administered by the authorizing Facebook identity.
 ```dotenv
 INSTAGRAM_USER_ID=<numeric Instagram Professional Account ID; not @handle>
 INSTAGRAM_ACCESS_TOKEN=<Page access token for the linked Facebook Page>
-INSTAGRAM_GRAPH_API_VERSION=v24.0
 ```
 
 The initial authorization needs these permissions:
@@ -52,19 +51,32 @@ pages_show_list
 pages_read_engagement
 ```
 
-`INSTAGRAM_ACCESS_TOKEN` is a bearer secret and remains local only. Publication
-requests do not need the app ID/secret when a validated token is already
-provided; renewal will require the appropriate app credentials. The POC does
-not automatically renew tokens. On onboarding/renewal, store a non-secret
-`token_expires_at` value in validated local configuration or the safe account
-health record. The dashboard warns 14 days before expiry, shows a high-visibility
-failure state at 72 hours, and blocks a delivery attempt once the token is
-expired.
+`INSTAGRAM_ACCESS_TOKEN` is a bearer secret and remains local only.
+`INSTAGRAM_USER_ID` and Graph API version are non-secret destination settings
+in the activated configuration release. Publication requests do not need the
+app ID/secret when a validated token is already provided; renewal will require
+the appropriate app credentials. The POC does
+not automatically renew tokens. On onboarding/renewal, the Readiness Monitor
+stores the non-secret `token_expires_at` only in the persisted
+`CapabilityReadiness` record, together with its active configuration-release
+fingerprint and check time. The dashboard warns 14 days before expiry, shows a
+high-visibility failure state at 72 hours, and the Posting Agent blocks a
+delivery attempt once the token is expired or readiness is stale/non-ready.
 
 For an owner-operated development app, the app administrator/developer/tester
 can authorize their own connected assets without supporting unrelated accounts.
 Opening the app to other people requires the appropriate Meta access and review
 work; do not treat the POC token as a multi-account solution.
+
+## Phase 1 ownership
+
+This provider adapter serves any configured domain's Instagram output. The
+domain pipeline ID is not an Instagram account or format; native carousel/caption
+composition belongs to [Platform outputs](../specs/platform-outputs.md).
+Its new static profile must match the reviewed 1080×1350 delivery contract
+before activation. The old 1080×1920 profile is a legacy reference, not an
+implicit conversion path. No provider facts are newly verified by this
+architecture-only update; retain the verification gate above.
 
 ## Human-Reviewed Publishing Contract
 
@@ -95,6 +107,69 @@ for provider readiness, then calls `media_publish` under the safety boundary
 above. The canonical package/assets remain local; R2 is only a short-lived
 delivery relay and cleanup is an independent audited task.
 
+### Carousel adapter protocol — `meta_instagram_carousel_v1`
+
+`META_GRAPH_API_VERSION` is a required non-secret activated-release value in
+the form `vNN.N`; every request below uses
+`https://graph.facebook.com/<META_GRAPH_API_VERSION>`. The Readiness Monitor
+does a read-only version/account check after activation. The adapter rejects an
+unverified, expired, or changed version rather than falling back to an
+unversioned endpoint.
+
+For every reviewed delivery JPEG in ordinal order, send:
+
+```text
+POST /<INSTAGRAM_USER_ID>/media
+access_token=<secret, never persisted>
+image_url=<verified anonymous R2 HTTPS URL>
+is_carousel_item=true
+```
+
+The response must contain a non-empty string `id`; persist it immediately as a
+`PublicationResource(role=meta_child_container, asset_ordinal=n)`. Any
+transport failure before a confirmed response is retryable only while the
+adapter can prove no child ID was returned; otherwise retain the observed
+resource and fail pre-final safely. After all children are ready, send:
+
+```text
+POST /<INSTAGRAM_USER_ID>/media
+access_token=<secret, never persisted>
+media_type=CAROUSEL
+children=<child IDs in reviewed ordinal order, comma-separated>
+caption=<immutable package caption>
+```
+
+Persist its returned `id` as `meta_parent_container`. The adapter polls each
+child and then the parent with `GET /<container-id>?fields=id,status_code,status`
+every 10 seconds for at most 10 minutes. `FINISHED` is ready; `IN_PROGRESS`
+continues; `ERROR` or `EXPIRED` is a terminal pre-final failure; any unknown
+status, malformed response, or timeout is retryable only before the final
+marker and retains all resources. Poll response bodies are reduced to safe
+status, ID, and bounded error summary/hash.
+
+Only after parent `FINISHED` and the Posting Agent final-marker transaction,
+send:
+
+```text
+POST /<INSTAGRAM_USER_ID>/media_publish
+access_token=<secret, never persisted>
+creation_id=<meta_parent_container ID>
+```
+
+A response `id` creates the published external-ID result. Timeout, connection
+loss, malformed response, or persistence failure after the final marker is
+`publication_unknown`; it is never retried. Authentication/permission and
+unsupported-input errors are terminal; rate-limit/server and explicitly
+pre-request transport errors are retryable only before the final marker. Every
+provider error records HTTP status, safe provider code/subcode when returned,
+stage, retry classification, and redacted bounded message.
+
+Reconciliation uses only `GET /<INSTAGRAM_USER_ID>/media` with fields
+`id,media_type,timestamp,caption,permalink,children{id}` and an explicit
+`limit=25`, following `paging.next` no more than four pages within the bounded
+attempt time window. It hashes returned captions locally, stores no raw token
+or response body, and follows the human-only reconciliation rule above.
+
 ### Public-media environments
 
 The current Cloudflare-managed `r2.dev` URL is permitted only for an explicit
@@ -111,6 +186,44 @@ endpoint. A custom domain is the required production path and enables
 production access-management/caching controls. See [Cloudflare R2 public
 buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) and
 [R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
+
+### Transient R2 relay — `r2_transient_delivery_v1`
+
+For every asset, the adapter creates one object key exactly in this shape:
+
+```text
+instagram-transient/<post-record-id>/<attempt-number>/<asset-ordinal>-<32-lowercase-hex-random-bytes>.jpg
+```
+
+The random suffix comes from the operating-system CSPRNG and is never reused,
+even on a retry. The key contains no caption, account handle, content title,
+token, or signed URL. Before upload, the adapter verifies that the canonical
+reviewed asset is `image/jpeg`, 1080×1350, has the manifest byte length, and
+has the manifest SHA-256. It uploads exactly those bytes with
+`Content-Type: image/jpeg`, `Cache-Control: no-store, max-age=0`, and no
+metadata other than the SHA-256 and immutable attempt/resource identifiers.
+
+After upload, it performs an authenticated R2 HEAD and compares byte length,
+content type, metadata hash, and object ETag when available. It then performs
+one anonymous HTTPS GET through `R2_PUBLIC_DOMAIN`, follows no redirect, caps
+the response at the expected byte length, hashes the returned bytes, and
+requires an exact match before it gives the URL to Meta. This probe is an
+attempt resource and is never logged as a reusable signed/public URL.
+
+Production uses the dedicated custom HTTPS domain. Its Cloudflare cache rule
+must bypass cache for `instagram-transient/*`; the response header above is
+the second guard. A configuration activation checks domain ownership, HTTPS,
+that no redirect is returned, and that an anonymous temporary probe has the
+expected bytes. `r2.dev` is rejected for production readiness. The `r2.dev`
+development smoke-test path uses the same key, header, and verification rules.
+
+Cleanup DELETE is idempotent. The Cleanup Worker records deletion time and
+performs an authenticated HEAD that must return `404`/`NoSuchKey`; it does not
+rely on a public GET because intermediate caches may outlive deletion. The
+custom-domain cache-bypass rule is verified at activation and after any cache
+configuration change. The bucket lifecycle rule for this prefix must be
+enabled with a seven-day expiration backstop; readiness records its retrieved
+rule identifier and effective period rather than assuming a console setting.
 
 ### Reconciliation — `meta_reconciliation_v1`
 
@@ -134,7 +247,7 @@ always requires a fresh human review approval and publication identity.
   test on the actual account is public and requires explicit **Post now**
   approval for that exact package. Use a separate test account if a public test
   post is unacceptable.
-- O2 uses a carousel with at most ten child images. Meta's current content
+- The Instagram output adapter uses a carousel with at most ten child images. Meta's current content
   publishing documentation limits a carousel to ten images/videos and requires
   media to be publicly accessible while it is fetched for publishing.
 - Verify R2 first with `scripts/test_r2_public_asset_store.py`. It uploads,
@@ -146,7 +259,7 @@ always requires a fresh human review approval and publication identity.
 
 ## Provider and operating decisions still required
 
-- Additional Meta products only when a concrete pipeline needs them.
+- Additional Meta products only when a concrete output/delivery contract needs them.
 
 ## Official Sources
 
