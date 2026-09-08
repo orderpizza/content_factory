@@ -29,6 +29,13 @@ review, delivery, capability, and model-ledger boundaries used by the local
 placeholder workers. It does not enable Gemini, account bindings, production
 profiles, capacity/reuse policy, or provider delivery; those require the exact
 reviewed contracts and operator configuration named in the Data Model.
+
+The v2 human-idea command path supports both a new `ContentThread` and a
+continuation of an open thread. A continuation appends one `thread_messages`
+row and one pending `intake_requests` row atomically, rejects an active Intake
+request, and uses the command receipt for retry idempotency. The Intake worker
+freezes only the bounded conversation through that request's last-message
+marker; later replies cannot leak into its revision.
 Do not add future production fields to the applied detection migration or change
 its checksum. Preserve current thread/Intake handoffs. Optional X threads require
 a separate per-step publication schema and remain disabled until it is tested.

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow
@@ -58,6 +59,45 @@ class WorkflowV2Tests(unittest.TestCase):
             self.assertEqual(outcome, "not_recommended")
             self.assertEqual(len(routes), 5)
             self.assertTrue(all(row[0] == "skipped" and row[1] == "not_evaluated" for row in routes))
+
+    def test_human_can_answer_intake_clarification_and_refine_same_thread(self):
+        with WorkflowStore(self.path) as store:
+            first_request = store.create_human_idea("maybe", command_id="idea-short")
+            self.assertIsNone(IdeaIntakeWorker(store).run_once())
+            initial = store.connection.execute(
+                "SELECT thread_id,status FROM intake_requests WHERE intake_request_id=?", (first_request,)
+            ).fetchone()
+            self.assertEqual(initial["status"], "needs_clarification")
+            thread = store.connection.execute(
+                "SELECT row_version FROM content_threads WHERE thread_id=?", (initial["thread_id"],)
+            ).fetchone()
+            reply = store.continue_human_thread(
+                initial["thread_id"], "Explain a useful study habit for new English learners.",
+                command_id="clarification-reply", expected_row_version=thread["row_version"],
+            )
+            self.assertEqual(reply, store.continue_human_thread(
+                initial["thread_id"], "Explain a useful study habit for new English learners.",
+                command_id="clarification-reply", expected_row_version=thread["row_version"],
+            ))
+            revision_one = IdeaIntakeWorker(store).run_once()
+            first_brief = store.connection.execute(
+                "SELECT * FROM brief_revisions WHERE revision_id=?", (revision_one,)
+            ).fetchone()
+            source = json.loads(first_brief["source_snapshot_json"])
+            self.assertEqual(len(source["messages"]), 3)  # idea, Intake question, human reply
+
+            revision_request = store.continue_human_thread(
+                initial["thread_id"], "Make the tone encouraging and include a concrete daily example.",
+                command_id="brief-refinement",
+            )
+            self.assertIsNotNone(revision_request)
+            revision_two = IdeaIntakeWorker(store).run_once()
+            second_brief = store.connection.execute(
+                "SELECT * FROM brief_revisions WHERE revision_id=?", (revision_two,)
+            ).fetchone()
+            self.assertEqual(second_brief["parent_revision_id"], revision_one)
+            self.assertEqual(json.loads(second_brief["brief_json"])["topic"], json.loads(first_brief["brief_json"])["topic"])
+            self.assertIn("encouraging", json.loads(second_brief["brief_json"])["constraints"]["requested_changes"][-1])
 
 
 if __name__ == "__main__":

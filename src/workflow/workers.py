@@ -25,26 +25,54 @@ class IdeaIntakeWorker:
             return None
         context = json.loads(request["context_json"])
         if context.get("kind") == "human_conversation":
-            messages = self.store.connection.execute("SELECT body FROM thread_messages WHERE thread_id=? AND author_kind='human' ORDER BY sequence_number", (request["thread_id"],)).fetchall()
-            text = " ".join(row[0] for row in messages).strip()
+            snapshot = self.store.conversation_snapshot(
+                int(request["thread_id"]), context.get("last_message_id") or context.get("message_id")
+            )
+            messages = [item for item in snapshot["messages"] if item["author_kind"] == "human"]
+            text = " ".join(item["body"] for item in messages).strip()
             if len(text) < 8:
                 self.store.clarify_intake(request, "What topic and outcome would you like this content to address?")
                 return None
-            topic = text[:240]
-            source = {"conversation": [row[0] for row in messages]}
+            previous = self.store.connection.execute(
+                "SELECT brief_json FROM brief_revisions WHERE thread_id=? ORDER BY revision_number DESC LIMIT 1",
+                (request["thread_id"],),
+            ).fetchone()
+            if previous is None:
+                topic = text[:240]
+                brief = {
+                    "editorial_goal": f"Explain {topic} accurately and usefully.", "topic": topic,
+                    "coverage_kind": "editorial_topic", "canonical_target": topic,
+                    "revision_scope": "whole_brief", "audience": "general audience",
+                    "desired_outcome": "inform", "constraints": {},
+                    "source_context": f"Placeholder Intake summary for {topic}.", "open_questions": [],
+                }
+            else:
+                prior = json.loads(previous["brief_json"])
+                refinement = messages[-1]["body"]
+                constraints = dict(prior.get("constraints", {}))
+                changes = list(constraints.get("requested_changes", []))
+                changes.append(refinement)
+                constraints["requested_changes"] = changes
+                brief = {
+                    **prior,
+                    "revision_scope": "whole_brief",
+                    "constraints": constraints,
+                    "source_context": f"Refinement requested: {refinement}",
+                    "open_questions": [],
+                }
         else:
             candidate = self.store.connection.execute("SELECT canonical_subject,score FROM trend_candidates WHERE trend_candidate_id=?", (request["source_candidate_id"],)).fetchone()
             if candidate is None:
                 self.store.fail_claim("intake_requests", "intake_request_id", request, "missing frozen trend candidate")
                 return None
-            topic, source = candidate["canonical_subject"], {"candidate": dict(candidate), "context": context}
-        brief = {
-            "editorial_goal": f"Explain {topic} accurately and usefully.", "topic": topic,
-            "coverage_kind": "editorial_topic", "canonical_target": topic,
-            "revision_scope": "whole_brief", "audience": "general audience",
-            "desired_outcome": "inform", "constraints": {},
-            "source_context": f"Placeholder Intake summary for {topic}.", "open_questions": [],
-        }
+            topic = candidate["canonical_subject"]
+            brief = {
+                "editorial_goal": f"Explain {topic} accurately and usefully.", "topic": topic,
+                "coverage_kind": "editorial_topic", "canonical_target": topic,
+                "revision_scope": "whole_brief", "audience": "general audience",
+                "desired_outcome": "inform", "constraints": {},
+                "source_context": f"Placeholder Intake summary for {topic}.", "open_questions": [],
+            }
         return self.store.complete_intake(request, brief, actor_message="A route-neutral brief was frozen by the local placeholder policy.")
 
 

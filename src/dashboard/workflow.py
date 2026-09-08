@@ -18,7 +18,10 @@ def render_workflow_trace(connection: sqlite3.Connection) -> str:
         routes=connection.execute("SELECT pipeline_id,disposition,fit,reason FROM determination_routes WHERE determination_decision_id=? ORDER BY pipeline_id",(row["determination_decision_id"],)).fetchall()
         import json
         topic=json.loads(row["brief_json"]).get("topic","untitled")
-        parts.append(f"<article><h3>{escape(topic)} <small>#{row['determination_decision_id']} — {escape(row['outcome'])}</small></h3><p>{escape(row['rationale'])}</p><details><summary>Five domain routes</summary><ul>")
+        messages=connection.execute("SELECT author_kind,body FROM thread_messages WHERE thread_id=? ORDER BY sequence_number",(row["thread_id"],)).fetchall()
+        parts.append(f"<article><h3>{escape(topic)} <small>#{row['determination_decision_id']} — {escape(row['outcome'])}</small></h3><p>{escape(row['rationale'])}</p><details><summary>Idea conversation ({len(messages)} messages)</summary><ol>")
+        parts.extend(f"<li><b>{escape(message['author_kind'])}</b>: {escape(message['body'])}</li>" for message in messages)
+        parts.append("</ol></details><details><summary>Five domain routes</summary><ul>")
         parts.extend(f"<li><b>{escape(route['pipeline_id'])}</b>: {escape(route['disposition'])} — {escape(route['reason'])}</li>" for route in routes)
         parts.append("</ul></details></article>")
     return "".join(parts)+"</section>"

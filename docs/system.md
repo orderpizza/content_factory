@@ -26,6 +26,14 @@ Phase 1 is a local-first, inexpensive trend-to-static-social-content experiment:
 five domain pipelines decide which credible angles to produce, generate reusable
 canonical content, and adapt it for Instagram and X under human review.
 
+Human ideation is an equal first-class input, not a shortcut around the system:
+a person can start with unstructured text, answer an Intake clarification, or
+refine a prior brief in the same `ContentThread`. Idea Intake preserves that
+conversation, turns each actionable turn into a new immutable revision, and
+sends it through Determination and the normal content-production path. The
+goal is collaborative idea refinement that results in reviewable content, while
+keeping every human message, agent summary, revision, and decision auditable.
+
 | Domain pipeline ID | Specialization |
 | --- | --- |
 | `english` | O2English: expressions, vocabulary, phrases, and cultural language |
@@ -129,6 +137,19 @@ Human idea/rework → message + IntakeRequest in SQLite
   → human Post now → PostRequest + PostRecord
   → Posting Agent / delivery adapter → audited publication or uncertainty
 ```
+
+For a human-origin thread, the intended loop is:
+
+```text
+free-text idea → Intake question or frozen brief
+  → human reply/refinement on the same thread → next immutable BriefRevision
+  → Determination → selected ContentJob(s) → canonical/adapted/reviewable content
+```
+
+Intake is the only component that interprets conversation. A dashboard or CLI
+reply writes only the next message and `IntakeRequest`; it does not call Gemini,
+Determination, or a content worker directly. A materially new editorial subject
+starts a new thread rather than mutating an established coverage identity.
 
 Each cross-stage arrow is a SQLite handoff, not a direct module-to-module call.
 Domain strategies are in-process dispatch within the Pipeline Runner; output

@@ -55,11 +55,9 @@ class WorkflowStore:
         if not body or len(body) > 8000:
             raise ValueError("idea must contain 1-8,000 characters")
         moment = now()
-        payload_hash = digest({"body": body})
+        payload_hash = digest({"kind": "new_idea", "body": body})
         with self.connection:
-            receipt = self.connection.execute(
-                "SELECT result_record_id,payload_hash FROM human_command_receipts WHERE command_id=?", (command_id,)
-            ).fetchone() if self._has_receipts() else None
+            receipt = self._command_receipt(command_id)
             if receipt:
                 if receipt["payload_hash"] != payload_hash:
                     raise ValueError("command ID was reused with different input")
@@ -81,12 +79,98 @@ class WorkflowStore:
             if self._has_receipts():
                 self.connection.execute(
                     "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'new_idea','local_owner',?,?,?)",
-                    (command_id, payload_hash, thread_id, moment),
+                    (command_id, payload_hash, int(request.lastrowid), moment),
+                )
+            return int(request.lastrowid)
+
+    def continue_human_thread(
+        self, thread_id: int, body: str, *, command_id: str, expected_row_version: int | None = None
+    ) -> int:
+        """Append a human reply/revision request and persist the next Intake handoff.
+
+        This is the dashboard's conversational command boundary: it writes only
+        a message and an IntakeRequest. It never calls the Intake worker,
+        Determination, Gemini, or a content pipeline directly.
+        """
+        if self.read_only:
+            raise RuntimeError("read-only dashboard connection")
+        body = body.strip()
+        if not body or len(body) > 8000:
+            raise ValueError("idea reply must contain 1-8,000 characters")
+        moment = now()
+        payload_hash = digest({"kind": "continue_thread", "thread_id": thread_id, "body": body, "row_version": expected_row_version})
+        with self.connection:
+            receipt = self._command_receipt(command_id)
+            if receipt:
+                if receipt["payload_hash"] != payload_hash:
+                    raise ValueError("command ID was reused with different input")
+                return int(receipt["result_record_id"])
+            thread = self.connection.execute(
+                "SELECT status,row_version FROM content_threads WHERE thread_id=?", (thread_id,)
+            ).fetchone()
+            if thread is None or thread["status"] != "open":
+                raise ValueError("only an open thread can receive an idea refinement")
+            if expected_row_version is not None and int(thread["row_version"]) != expected_row_version:
+                raise ValueError("thread has changed; refresh before submitting a refinement")
+            active = self.connection.execute(
+                "SELECT intake_request_id FROM intake_requests WHERE thread_id=? "
+                "AND status IN ('pending','claimed','retry_wait')", (thread_id,)
+            ).fetchone()
+            if active:
+                raise ValueError("the current idea message is still being processed")
+            sequence = int(self.connection.execute(
+                "SELECT COALESCE(MAX(sequence_number),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)
+            ).fetchone()[0])
+            message = self.connection.execute(
+                "INSERT INTO thread_messages(thread_id,sequence_number,author_kind,body,created_at) VALUES (?,?, 'human',?,?)",
+                (thread_id, sequence, body, moment),
+            )
+            message_id = int(message.lastrowid)
+            context = {
+                "kind": "human_conversation", "thread_id": thread_id,
+                "last_message_id": message_id, "conversation_version": "thread_messages_v2",
+            }
+            request = self.connection.execute(
+                "INSERT INTO intake_requests(thread_id,context_json,context_version,status,attempt_limit,created_at) VALUES (?,?,'intake_context_v2','pending',3,?)",
+                (thread_id, canonical(context), moment),
+            )
+            self.connection.execute(
+                "UPDATE content_threads SET updated_at=?,row_version=row_version+1 WHERE thread_id=?",
+                (moment, thread_id),
+            )
+            if self._has_receipts():
+                self.connection.execute(
+                    "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'continue_thread','local_owner',?,?,?)",
+                    (command_id, payload_hash, int(request.lastrowid), moment),
                 )
             return int(request.lastrowid)
 
     def _has_receipts(self) -> bool:
         return self.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='human_command_receipts'").fetchone() is not None
+
+    def _command_receipt(self, command_id: str) -> Any | None:
+        if not self._has_receipts():
+            return None
+        return self.connection.execute(
+            "SELECT result_record_id,payload_hash FROM human_command_receipts WHERE command_id=?", (command_id,)
+        ).fetchone()
+
+    def conversation_snapshot(self, thread_id: int, through_message_id: int | None) -> dict[str, Any]:
+        """Return the bounded immutable conversation seen by one Intake request."""
+        if through_message_id is None:
+            return {"kind": "conversation", "messages": []}
+        boundary = self.connection.execute(
+            "SELECT sequence_number FROM thread_messages WHERE thread_id=? AND message_id=?",
+            (thread_id, through_message_id),
+        ).fetchone()
+        if boundary is None:
+            raise ValueError("Intake request references a message outside its thread")
+        rows = self.connection.execute(
+            "SELECT message_id,sequence_number,author_kind,body,created_at FROM thread_messages "
+            "WHERE thread_id=? AND sequence_number<=? ORDER BY sequence_number",
+            (thread_id, boundary["sequence_number"]),
+        ).fetchall()
+        return {"kind": "conversation", "through_message_id": through_message_id, "messages": [dict(row) for row in rows]}
 
     def register_capability(self, pipeline_id: str, *, enabled: bool, generation_ready: bool, outputs: list[dict[str, str | bool]]) -> int:
         """Operator/test-only registration; no account is inferred or enabled by default."""
@@ -146,10 +230,12 @@ class WorkflowStore:
         moment = now(); thread_id = int(request["thread_id"])
         identity = coverage(str(brief["coverage_kind"]), str(brief["canonical_target"]))
         with self.connection:
-            owned = self.connection.execute("SELECT status FROM content_threads WHERE thread_id=?", (thread_id,)).fetchone()
+            owned = self.connection.execute("SELECT status,coverage_identity FROM content_threads WHERE thread_id=?", (thread_id,)).fetchone()
             if owned is None or owned["status"] != "open":
                 self._finish_claim("intake_requests", "intake_request_id", request, "cancelled", moment, "thread is not open")
                 raise RuntimeError("thread is not open")
+            if owned["coverage_identity"] is not None and owned["coverage_identity"] != identity:
+                raise ValueError("a refinement cannot silently change a thread's editorial coverage")
             collision = self.connection.execute("SELECT thread_id FROM content_threads WHERE coverage_identity=?", (identity,)).fetchone()
             if collision and int(collision["thread_id"]) != thread_id:
                 self._finish_claim("intake_requests", "intake_request_id", request, "completed", moment, None)
@@ -161,7 +247,11 @@ class WorkflowStore:
                 sequence = int(self.connection.execute("SELECT COALESCE(MAX(sequence_number),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)).fetchone()[0])
                 message_id = int(self.connection.execute("INSERT INTO thread_messages(thread_id,sequence_number,author_kind,body,created_at) VALUES (?,?, 'intake_agent',?,?)", (thread_id,sequence,actor_message,moment)).lastrowid)
             last_human = self.connection.execute("SELECT message_id FROM thread_messages WHERE thread_id=? AND author_kind='human' ORDER BY sequence_number DESC LIMIT 1", (thread_id,)).fetchone()
-            snapshot = json.loads(request["context_json"])
+            context = json.loads(request["context_json"])
+            snapshot = (
+                self.conversation_snapshot(thread_id, context.get("last_message_id") or context.get("message_id"))
+                if context.get("kind") == "human_conversation" else context
+            )
             revision = self.connection.execute(
                 "INSERT INTO brief_revisions(thread_id,revision_number,parent_revision_id,input_through_message_id,brief_json,source_snapshot_json,revision_reason,created_by,source_intake_request_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (thread_id, 1 if latest is None else int(latest["revision_number"])+1, None if latest is None else latest["revision_id"], None if last_human is None else last_human[0], canonical(brief), canonical(snapshot), "initial" if latest is None else "human_rework", "intake_agent", request["intake_request_id"], moment),

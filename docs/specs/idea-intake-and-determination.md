@@ -62,6 +62,17 @@ flowchart TB
 Both agents communicate only through SQLite records. Neither calls a pipeline,
 renderer, dashboard action, or social API directly.
 
+### Human-idea success path
+
+The desired human experience is a durable editorial conversation: a person can
+offer an incomplete idea, receive one focused clarification when needed, reply
+in the same thread, and refine the idea again after a brief or decision exists.
+Each actionable turn creates a new immutable `BriefRevision`; it never rewrites
+an earlier brief, decision, job, or package. The latest revision proceeds to
+Determination and, when selected, to the same content-production flow used by a
+trend. A continuation command persists only the message plus its pending
+`IntakeRequest`; it never invokes Gemini or downstream work synchronously.
+
 ## Human free-text intake and revision policy
 
 A human may submit free-form text within the operational-data size limits. There are no required input
