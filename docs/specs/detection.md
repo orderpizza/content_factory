@@ -366,6 +366,16 @@ decimals. The persisted score breakdown includes each source-kind input,
 history readiness/bootstrap state, every component, formula version, and final
 score. No database query or dashboard calculation is allowed to alter it.
 
+### Implementation status
+
+The current detection code uses a simplified placeholder scoring model with
+different weights, component definitions, and no per-source-kind calculations.
+The `attention_v1` model described above is the target specification. The
+placeholder must be replaced with a conforming implementation before the
+shortlist policy is activated for production determination. Boundary tests for
+the target model must verify per-source activity, baseline history readiness,
+bootstrap behavior, prominence ranking, and deterministic tie-breaking.
+
 ## Algorithm and evidence principles
 
 - Normalize heterogeneous inputs before combining them. Publisher-feed item

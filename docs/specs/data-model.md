@@ -654,7 +654,7 @@ time. No reconciliation path silently retries the final publication call.
 - `model_invocations` replaces ambiguous `api_usage`: phase, applicable entity
   FKs including `generation_run_id` and `adaptation_run_id` plus their shared job budget owner, attempt ordinal, request/prompt/schema
   version and safe request hash, model/provider request ID, response hash,
-  tokens/cost, outcome (`started`, `succeeded`, `transport_failed`,
+  input, output, and total tokens; estimated cost; outcome (`started`, `succeeded`, `transport_failed`,
   `invalid_output`, `parse_failed`, `schema_failed`), safe error, start time,
   and completion time. `outcome` is the only Model Invocation lifecycle field;
   it is never called `status`. Insert and commit `outcome=started` before the provider call;
@@ -906,6 +906,7 @@ reporting indexes include:
 - `brief_revisions(thread_id, revision_number)`;
 - `model_invocations(thread_id, revision_id, created_at)`;
 - `model_invocations(generation_run_id, created_at)`; and
+- `gemini_budget_reservations(accounting_day, status)`; and
 - unique `human_command_receipts(client_command_id)`.
 
 Service methods also validate parent state: review requires complete verified
