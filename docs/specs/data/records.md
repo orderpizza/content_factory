@@ -15,18 +15,20 @@ SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` must equal `1` after the
 migration completes.
 
 This contract deliberately contains only the records needed to collect,
-evaluate, shortlist, and display trend opportunities. Later editorial,
-generation, rendering, review, and posting records remain target architecture
-in the Data Model and arrive through reviewed forward migrations when their
-implementation stage begins. They are not required to show the first live
-trend-ingestion feed.
+evaluate, shortlist, and display trend opportunities. It remains immutable for
+existing v1 databases. The optional local workflow scaffold is a separately
+applied forward migration, [`editorial-workflow-schema-v2.sql`](../../contracts/editorial-workflow-schema-v2.sql);
+it preserves every v1 handoff and is never applied by dashboard or worker
+startup.
 
 ## Phase 1 extension boundary
 
-The five-domain strategy requires a new reviewed forward migration for
-DeterminationRoute, CanonicalContent, OutputRequest, AdaptationRun, domain/output
-registries, capacity/reuse records, and their exact JSON contracts. The data model
-defines their target semantics; none is silently present in this v1 SQL.
+The five-domain strategy's initial forward scaffold is v2. It creates the
+persisted Intake, Determination, canonical-content, output-adaptation, render,
+review, delivery, capability, and model-ledger boundaries used by the local
+placeholder workers. It does not enable Gemini, account bindings, production
+profiles, capacity/reuse policy, or provider delivery; those require the exact
+reviewed contracts and operator configuration named in the Data Model.
 Do not add future production fields to the applied detection migration or change
 its checksum. Preserve current thread/Intake handoffs. Optional X threads require
 a separate per-step publication schema and remain disabled until it is tested.

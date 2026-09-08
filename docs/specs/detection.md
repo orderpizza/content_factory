@@ -368,13 +368,15 @@ score. No database query or dashboard calculation is allowed to alter it.
 
 ### Implementation status
 
-The current detection code uses a simplified placeholder scoring model with
-different weights, component definitions, and no per-source-kind calculations.
-The `attention_v1` model described above is the target specification. The
-placeholder must be replaced with a conforming implementation before the
-shortlist policy is activated for production determination. Boundary tests for
-the target model must verify per-source activity, baseline history readiness,
-bootstrap behavior, prominence ranking, and deterministic tie-breaking.
+The current detection path is `src/detection/`: its Scout implements and
+persists `attention_v1` source components, history/bootstrap state, prominence
+ranking, deterministic ordering, and shortlist gates. Its boundary coverage is
+in `tests/test_detection_dashboard_slice.py`.
+
+The older `src/intelligence/` modules remain compatibility code for legacy
+fixtures and must not be used as evidence of the active detection contract or
+as a new worker entrypoint. Any future change to `attention_v1` still requires
+the boundary tests listed below.
 
 ## Algorithm and evidence principles
 

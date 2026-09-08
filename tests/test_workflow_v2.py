@@ -1,0 +1,64 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow
+from detection.configuration import load_manifest
+from detection.store import DetectionStore
+from dashboard import render_workflow_trace
+from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualRenderer, WorkflowStore
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+
+
+class WorkflowV2Tests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "content.db"
+        migrate_detection_dashboard(self.path)
+        with DetectionStore(self.path) as store:
+            store.apply_manifest(load_manifest(MANIFEST))
+        self.assertTrue(migrate_editorial_workflow(self.path))
+
+    def test_full_placeholder_lineage_and_disabled_delivery(self):
+        with WorkflowStore(self.path) as store:
+            store.register_capability("english", enabled=True, generation_ready=True, outputs=[{
+                "platform": "instagram", "account": "fixture_english", "content_format": "instagram_static_carousel_v2", "ready": True,
+            }])
+            request_id = store.create_human_idea("Explain why a practical AI tool matters to ordinary users.", command_id="idea-1")
+            self.assertEqual(request_id, store.create_human_idea("Explain why a practical AI tool matters to ordinary users.", command_id="idea-1"))
+            self.assertIsNotNone(IdeaIntakeWorker(store).run_once())
+            decision_id = DeterminationWorker(store).run_once()
+            self.assertIsNotNone(decision_id)
+            routes = store.connection.execute("SELECT disposition FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
+            self.assertEqual(len(routes), 5)
+            self.assertEqual(sum(row[0] == "selected" for row in routes), 1)
+            self.assertIn("Five domain routes", render_workflow_trace(store.connection))
+            self.assertIsNotNone(PipelineRunner(store).run_once())
+            self.assertIsNotNone(AdaptationWorker(store).run_once())
+            review_id = VisualRenderer(store, Path(self.tmp.name) / "artifacts").run_once()
+            self.assertIsNotNone(review_id)
+            review = store.connection.execute("SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)).fetchone()
+            request = store.approve_review(review_id, row_version=review[0], command_id="approve-1")
+            self.assertIsNotNone(request)
+            self.assertIsNotNone(PostingAgent(store).run_once())
+            state = store.connection.execute("SELECT status,failure_reason FROM post_records").fetchone()
+            self.assertEqual(state["status"], "failed")
+            self.assertIn("disabled", state["failure_reason"])
+
+    def test_unconfigured_domains_are_visible_as_explicit_skips(self):
+        with WorkflowStore(self.path) as store:
+            store.create_human_idea("A sufficiently specific but unconfigured idea", command_id="idea-2")
+            IdeaIntakeWorker(store).run_once()
+            decision_id = DeterminationWorker(store).run_once()
+            outcome = store.connection.execute("SELECT outcome FROM determination_decisions WHERE determination_decision_id=?", (decision_id,)).fetchone()[0]
+            routes = store.connection.execute("SELECT disposition,fit FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
+            self.assertEqual(outcome, "not_recommended")
+            self.assertEqual(len(routes), 5)
+            self.assertTrue(all(row[0] == "skipped" and row[1] == "not_evaluated" for row in routes))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -204,12 +204,6 @@ Record/Attempt → publication resources, cleanup, and reconciliation. Missing
 downstream links are shown as an explicit current stopping state, not blank
 space that the operator must interpret.
 
-### Routing-quality workspace
-
-Trend Opportunities expands one candidate/thread into five domain assessments,
-then canonical results and their Instagram/X branches. Preserve zero-output
-decisions and explicit stopping reasons.
-
 ### Review queue
 
 This is the priority view. Order by oldest awaiting review, then descending

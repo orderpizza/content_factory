@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SchemaError, connect, validate_detection_dashboard
-from dashboard import render_detection_dashboard
+from database.migrations import SCHEMA_VERSION, SchemaError, connect, validate_detection_dashboard
+from dashboard import render_detection_dashboard, render_workflow_trace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +47,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     source=parameters.get("source", [""])[0],
                     status=parameters.get("status", [""])[0],
                     page=page,
-                ).encode("utf-8")
+                )
+                if int(connection.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION:
+                    body = body.replace("</main>", render_workflow_trace(connection) + "</main>", 1)
+                body = body.encode("utf-8")
             finally:
                 connection.close()
             status = 200

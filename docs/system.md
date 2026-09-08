@@ -39,12 +39,21 @@ primary Instagram destination is `o2_english`; other destination names remain
 configuration choices. The [domain catalog](pipelines/domains.md) owns remit,
 angle eligibility, content extensions, and distribution intent.
 
-The existing implementation milestone remains deterministic detection ingestion
-and its local dashboard, ending at selected `ContentThread` + `IntakeRequest`.
-This strategy update does not migrate that database, enable production workers,
-or claim that the five-domain publishing loop is implemented. Preserve that
-observable slice while building the later stages in the
+The existing detection milestone remains deterministic ingestion and its local
+dashboard, ending at selected `ContentThread` + `IntakeRequest`. An explicit
+v2 forward migration now provides a local, end-to-end placeholder workflow for
+the later SQLite handoffs and dashboard trace. It does not enable Gemini,
+production account bindings, real rendering profiles, or social delivery;
+those external/model boundaries remain disabled until their configuration and
+fixtures receive operator review. Preserve the observable detection slice while
+building the remaining production contracts in the
 [implementation plan](plans/target-implementation.md).
+
+For a safe local demonstration, `scripts/setup_workflow.py` explicitly applies
+v2, `scripts/enable_placeholder_route.py --confirm-local-placeholder` creates a
+synthetic non-deliverable route, `scripts/create_local_idea.py` writes an Intake
+handoff, and `scripts/run_workflow.py` advances one persisted stage at a time.
+None of these commands enables Gemini or external publication.
 
 Phase 1 includes Instagram static carousels and X-native single image + post
 text. Image + thread is optional and separately gated. Reuse local HTML/CSS +
@@ -131,6 +140,11 @@ not separately scheduled services.
   determines editorial value or pipeline selection.
 - Intake freezes a route-neutral brief and coverage identity. It does not turn
   every trend into an English expression.
+- Idea Intake is a Gemini-powered agent that claims `IntakeRequest`s on its own
+  polling cycle. It interprets raw trend evidence or human conversation into a
+  structured, route-neutral `BriefRevision`, may ask the human for clarification,
+  assigns editorial coverage identity, and is a distinct stage between Detection
+  and Determination. The local v2 fixture worker is explicitly non-Gemini.
 - Determination separately records editorial worth, domain fit, a supported
   angle for each selected domain, skipped domains with reasons, and operational
   blockers. One trend may select one, several, or no pipelines.
@@ -146,6 +160,10 @@ not separately scheduled services.
   text; it never generates captions, tags, hashtags, visuals, or thread replies.
 
 ## Layer Boundaries and Handoff Reference
+
+This is a target-state index, not an implementation-status claim. It makes the
+record passed at each boundary easy to find; the exact columns, identities,
+statuses, and transaction rules belong to the linked Tier 2 record owners.
 
 The five processing stages are:
 

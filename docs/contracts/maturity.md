@@ -36,6 +36,7 @@ Maturity applies to the stated scope, not a claim that code exists:
 | `platforms/meta.md` | Instagram delivery provider | draft | posting, outputs, configuration | reverify pinned API/endpoint fixtures |
 | `platforms/x.md` | X delivery provider | draft | posting, outputs, configuration | not yet verified for configured access |
 | `contracts/detection-dashboard-schema-v1.sql` | Exact SQLite | approved_for_implementation | data/records, detection/configuration | no |
+| `contracts/editorial-workflow-schema-v2.sql` | Forward SQLite workflow scaffold | approved_for_implementation (local placeholder workers only) | data/records, workflow boundary tests | no |
 | `contracts/configuration-manifest-v1.schema.json` | Detection configuration | approved_for_implementation (detection only) | configuration | no |
 | `contracts/brief-v1.schema.json` | Former Intake payload | superseded draft | needs route-neutral coverage/rework scope version | no |
 | `contracts/determination-result-v1.schema.json` | Former single-route payload | superseded draft | needs multi-route/angle result version | no |
