@@ -416,12 +416,18 @@ time. No reconciliation path silently retries the final publication call.
 - `model_invocations` replaces ambiguous `api_usage`: phase, applicable entity
   FKs including `generation_run_id`, attempt ordinal, request/prompt/schema
   version and safe request hash, model/provider request ID, response hash,
-  tokens/cost, outcome (`started`, `succeeded`, `transport_failed`,
+  input, output, and total tokens; estimated cost; outcome (`started`, `succeeded`, `transport_failed`,
   `invalid_output`, `parse_failed`, `schema_failed`), safe error, start time,
   and completion time. Insert and commit `started` before the provider call;
   finalize that row immediately after response or transport failure and before
   interpreting output. A stale `started` row is an uncertain-cost audit event,
   not evidence that no call occurred.
+- `gemini_budget_reservations` records one accounting reservation for a model
+  invocation or its claim: UTC accounting day, model-invocation or claim FK,
+  worst-case reserved cost, settled cost, status (`reserved`, `settled`,
+  `released`, or `uncertain`), and audit timestamps. Monetary values are
+  nonnegative integer micro-USD; a cost that cannot be settled remains
+  `uncertain` rather than being silently treated as zero.
 - `worker_heartbeats` keeps one current health row per worker instance: worker
   type, instance ID, start/last-seen time, state, current claim reference, build
   version, and safe health summary. Heartbeats update this row rather than
@@ -457,6 +463,7 @@ reporting indexes include:
 - `brief_revisions(thread_id, revision_number)`;
 - `model_invocations(thread_id, revision_id, created_at)`;
 - `model_invocations(generation_run_id, created_at)`; and
+- `gemini_budget_reservations(accounting_day, status)`; and
 - unique `human_command_receipts(client_command_id)`.
 
 Service methods also validate parent state: review requires complete verified

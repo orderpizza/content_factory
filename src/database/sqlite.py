@@ -115,6 +115,67 @@ CREATE TABLE IF NOT EXISTS determination_handoffs (
 CREATE INDEX IF NOT EXISTS idx_determination_handoffs_status
 ON determination_handoffs(status, created_at);
 
+CREATE TABLE IF NOT EXISTS content_threads (
+    thread_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    origin TEXT NOT NULL CHECK(origin IN ('trend', 'human')),
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed')),
+    seed_candidate_id INTEGER REFERENCES trend_candidates(id),
+    opportunity_identity TEXT,
+    coverage_identity TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(seed_candidate_id),
+    UNIQUE(opportunity_identity)
+);
+
+CREATE TABLE IF NOT EXISTS thread_messages (
+    message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES content_threads(thread_id),
+    sequence_number INTEGER NOT NULL,
+    actor TEXT NOT NULL CHECK(actor IN ('human', 'intake_agent')),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(thread_id, sequence_number)
+);
+
+CREATE TABLE IF NOT EXISTS intake_requests (
+    intake_request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES content_threads(thread_id),
+    input_snapshot_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'claimed', 'needs_clarification', 'completed', 'failed')),
+    claimed_at TEXT,
+    completed_at TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_intake_requests_status
+ON intake_requests(status, created_at);
+
+CREATE TABLE IF NOT EXISTS brief_revisions (
+    revision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES content_threads(thread_id),
+    revision_number INTEGER NOT NULL,
+    brief_json TEXT NOT NULL,
+    source_snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(thread_id, revision_number)
+);
+
+CREATE TABLE IF NOT EXISTS determination_requests (
+    determination_request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revision_id INTEGER NOT NULL UNIQUE REFERENCES brief_revisions(revision_id),
+    input_snapshot_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'claimed', 'completed', 'failed')),
+    claimed_at TEXT,
+    completed_at TEXT,
+    failure_reason TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_determination_requests_status
+ON determination_requests(status, created_at);
+
 CREATE TABLE IF NOT EXISTS content_jobs (
     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     trend_id INTEGER REFERENCES trends(id),
@@ -139,11 +200,24 @@ CREATE TABLE IF NOT EXISTS content_jobs (
 
 CREATE TABLE IF NOT EXISTS determination_decisions (
     decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    handoff_id INTEGER NOT NULL UNIQUE REFERENCES determination_handoffs(handoff_id),
+    handoff_id INTEGER UNIQUE REFERENCES determination_handoffs(handoff_id),
+    determination_request_id INTEGER UNIQUE REFERENCES determination_requests(determination_request_id),
     status TEXT NOT NULL,
     recipe_json TEXT NOT NULL DEFAULT '{}',
     reasoning TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS determination_routes (
+    route_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id INTEGER NOT NULL REFERENCES determination_decisions(decision_id),
+    pipeline_id TEXT NOT NULL,
+    disposition TEXT NOT NULL CHECK(disposition IN ('selected', 'skipped', 'blocked', 'reused')),
+    fit TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    angle_json TEXT,
+    output_assessment_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(decision_id, pipeline_id)
 );
 
 CREATE TABLE IF NOT EXISTS content_packages (
@@ -242,9 +316,11 @@ class Database:
 
     def initialize(self) -> None:
         self.connection.executescript(SCHEMA)
+        self._migrate_determination_decisions()
         self._ensure_columns("trend_candidates", {"cooldown_until": "TEXT"})
         self._ensure_columns("content_jobs", {
             "determination_handoff_id": "INTEGER",
+            "determination_request_id": "INTEGER",
             "candidate_id": "INTEGER",
             "target_platform": "TEXT NOT NULL DEFAULT 'bluesky'",
             "target_account": "TEXT NOT NULL DEFAULT 'default'",
@@ -268,6 +344,48 @@ class Database:
             "next_attempt_at": "TEXT",
         })
         self.connection.commit()
+
+    def _migrate_determination_decisions(self) -> None:
+        """Allow target determination decisions without a legacy handoff.
+
+        The initial POC table required ``handoff_id``. Rebuild only that small
+        audit table when opening an older database so historic rows are retained
+        and new Intake → Determination records can use their own request FK.
+        """
+        columns = self.connection.execute("PRAGMA table_info(determination_decisions)").fetchall()
+        handoff = next((row for row in columns if row["name"] == "handoff_id"), None)
+        request = next((row for row in columns if row["name"] == "determination_request_id"), None)
+        if handoff is None or not handoff["notnull"] and request is not None:
+            return
+        self.connection.executescript("""
+            DROP TABLE IF EXISTS determination_routes;
+            ALTER TABLE determination_decisions RENAME TO determination_decisions_legacy;
+            CREATE TABLE determination_decisions (
+                decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                handoff_id INTEGER UNIQUE REFERENCES determination_handoffs(handoff_id),
+                determination_request_id INTEGER UNIQUE REFERENCES determination_requests(determination_request_id),
+                status TEXT NOT NULL,
+                recipe_json TEXT NOT NULL DEFAULT '{}',
+                reasoning TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO determination_decisions
+                (decision_id, handoff_id, status, recipe_json, reasoning, created_at)
+            SELECT decision_id, handoff_id, status, recipe_json, reasoning, created_at
+            FROM determination_decisions_legacy;
+            DROP TABLE determination_decisions_legacy;
+            CREATE TABLE determination_routes (
+                route_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_id INTEGER NOT NULL REFERENCES determination_decisions(decision_id),
+                pipeline_id TEXT NOT NULL,
+                disposition TEXT NOT NULL CHECK(disposition IN ('selected', 'skipped', 'blocked', 'reused')),
+                fit TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                angle_json TEXT,
+                output_assessment_json TEXT NOT NULL DEFAULT '{}',
+                UNIQUE(decision_id, pipeline_id)
+            );
+        """)
 
     def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -406,6 +524,188 @@ class Database:
         self.connection.commit()
         return int(cursor.lastrowid)
 
+    def create_trend_intake_if_absent(self, candidate_id: int, detection_run_id: int,
+                                      snapshot: dict, created_at: str) -> int | None:
+        """Atomically hand a selected deterministic candidate to Idea Intake."""
+        candidate = self.connection.execute(
+            "SELECT topic FROM trend_candidates WHERE id = ?", (candidate_id,)
+        ).fetchone()
+        if candidate is None:
+            raise KeyError(f"Trend candidate {candidate_id} was not found")
+        existing = self.connection.execute(
+            "SELECT intake_request_id FROM intake_requests WHERE thread_id = "
+            "(SELECT thread_id FROM content_threads WHERE seed_candidate_id = ?)",
+            (candidate_id,),
+        ).fetchone()
+        if existing is not None:
+            return None
+        opportunity_identity = f"trend:canonicalization_v1:{candidate['topic']}"
+        try:
+            with self.connection:
+                cursor = self.connection.execute(
+                    """INSERT INTO content_threads
+                    (origin, status, seed_candidate_id, opportunity_identity, created_at, updated_at)
+                    VALUES ('trend', 'open', ?, ?, ?, ?)""",
+                    (candidate_id, opportunity_identity, created_at, created_at),
+                )
+                thread_id = int(cursor.lastrowid)
+                frozen_snapshot = dict(snapshot)
+                frozen_snapshot["detection_run_id"] = detection_run_id
+                frozen_snapshot["candidate_id"] = candidate_id
+                request = self.connection.execute(
+                    "INSERT INTO intake_requests (thread_id, input_snapshot_json, created_at) VALUES (?, ?, ?)",
+                    (thread_id, json.dumps(frozen_snapshot), created_at),
+                )
+                self.connection.execute(
+                    "UPDATE trend_candidates SET status = 'pending_intake', updated_at = ? WHERE id = ?",
+                    (created_at, candidate_id),
+                )
+                return int(request.lastrowid)
+        except sqlite3.IntegrityError:
+            return None
+
+    def pending_intake_requests(self, limit: int = 20):
+        return self.connection.execute(
+            "SELECT * FROM intake_requests WHERE status = 'pending' ORDER BY created_at, intake_request_id LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def claim_intake_request(self, intake_request_id: int, claimed_at: str) -> bool:
+        cursor = self.connection.execute(
+            "UPDATE intake_requests SET status = 'claimed', claimed_at = ? "
+            "WHERE intake_request_id = ? AND status = 'pending'",
+            (claimed_at, intake_request_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
+    def fail_intake_request(self, intake_request_id: int, failure_reason: str, completed_at: str) -> None:
+        self.connection.execute(
+            "UPDATE intake_requests SET status = 'failed', failure_reason = ?, completed_at = ? "
+            "WHERE intake_request_id = ? AND status = 'claimed'",
+            (failure_reason, completed_at, intake_request_id),
+        )
+        self.connection.commit()
+
+    def complete_intake_with_revision(self, intake_request_id: int, brief: dict,
+                                      source_snapshot: dict, coverage_identity: str,
+                                      completed_at: str) -> int:
+        """Freeze one brief and its pending Determination request in one transaction."""
+        row = self.connection.execute(
+            "SELECT thread_id FROM intake_requests WHERE intake_request_id = ? AND status = 'claimed'",
+            (intake_request_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Intake request {intake_request_id} is not claimed")
+        with self.connection:
+            revision_number = int(self.connection.execute(
+                "SELECT COUNT(*) AS count FROM brief_revisions WHERE thread_id = ?", (row["thread_id"],)
+            ).fetchone()["count"]) + 1
+            revision = self.connection.execute(
+                """INSERT INTO brief_revisions
+                (thread_id, revision_number, brief_json, source_snapshot_json, created_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (row["thread_id"], revision_number, json.dumps(brief), json.dumps(source_snapshot), completed_at),
+            )
+            revision_id = int(revision.lastrowid)
+            request_snapshot = {"brief": brief, "source_snapshot": source_snapshot, "catalog_version": "poc_v1"}
+            determination = self.connection.execute(
+                "INSERT INTO determination_requests (revision_id, input_snapshot_json, created_at) VALUES (?, ?, ?)",
+                (revision_id, json.dumps(request_snapshot), completed_at),
+            )
+            self.connection.execute(
+                "UPDATE content_threads SET coverage_identity = ?, updated_at = ? WHERE thread_id = ?",
+                (coverage_identity, completed_at, row["thread_id"]),
+            )
+            self.connection.execute(
+                "UPDATE intake_requests SET status = 'completed', completed_at = ? WHERE intake_request_id = ?",
+                (completed_at, intake_request_id),
+            )
+            return int(determination.lastrowid)
+
+    def pending_determination_requests(self, limit: int = 20):
+        return self.connection.execute(
+            """SELECT r.*, b.brief_json, b.source_snapshot_json, b.thread_id
+            FROM determination_requests r JOIN brief_revisions b ON b.revision_id = r.revision_id
+            WHERE r.status = 'pending' ORDER BY r.created_at, r.determination_request_id LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+    def claim_determination_request(self, determination_request_id: int, claimed_at: str) -> bool:
+        cursor = self.connection.execute(
+            "UPDATE determination_requests SET status = 'claimed', claimed_at = ? "
+            "WHERE determination_request_id = ? AND status = 'pending'",
+            (claimed_at, determination_request_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount == 1
+
+    def fail_determination_request(self, determination_request_id: int, failure_reason: str, completed_at: str) -> None:
+        self.connection.execute(
+            "UPDATE determination_requests SET status = 'failed', failure_reason = ?, completed_at = ? "
+            "WHERE determination_request_id = ? AND status = 'claimed'",
+            (failure_reason, completed_at, determination_request_id),
+        )
+        self.connection.commit()
+
+    def complete_determination_request(self, determination_request_id: int, outcome: str,
+                                       recipe: dict, reasoning: str, routes: list[dict],
+                                       completed_at: str) -> int:
+        """Persist one decision, route summary, optional job, and completion atomically."""
+        request = self.connection.execute(
+            """SELECT r.revision_id, b.thread_id FROM determination_requests r
+            JOIN brief_revisions b ON b.revision_id = r.revision_id
+            WHERE r.determination_request_id = ? AND r.status = 'claimed'""",
+            (determination_request_id,),
+        ).fetchone()
+        if request is None:
+            raise ValueError(f"Determination request {determination_request_id} is not claimed")
+        with self.connection:
+            existing = self.connection.execute(
+                "SELECT decision_id FROM determination_decisions WHERE determination_request_id = ?",
+                (determination_request_id,),
+            ).fetchone()
+            if existing is not None:
+                return int(existing["decision_id"])
+            decision = self.connection.execute(
+                """INSERT INTO determination_decisions
+                (determination_request_id, status, recipe_json, reasoning, created_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (determination_request_id, outcome, json.dumps(recipe), reasoning, completed_at),
+            )
+            decision_id = int(decision.lastrowid)
+            for route in routes:
+                self.connection.execute(
+                    """INSERT INTO determination_routes
+                    (decision_id, pipeline_id, disposition, fit, reason, angle_json, output_assessment_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (decision_id, route["pipeline_id"], route["disposition"], route["fit"], route["reason"],
+                     json.dumps(route.get("angle")) if route.get("angle") else None,
+                     json.dumps(route.get("output_assessment", {}))),
+                )
+            if outcome == "accepted":
+                candidate = self.connection.execute(
+                    "SELECT seed_candidate_id FROM content_threads WHERE thread_id = ?", (request["thread_id"],)
+                ).fetchone()
+                job = self.connection.execute(
+                    """INSERT INTO content_jobs
+                    (determination_request_id, candidate_id, pipeline_id, target_platform, target_account,
+                     content_format, visual_profile_id, topic, angle, audience, objective, key_points, sources,
+                     priority, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+                    (determination_request_id, candidate["seed_candidate_id"] if candidate else None,
+                     recipe["pipeline_id"], recipe["target_platform"], recipe["target_account"],
+                     recipe["content_format"], recipe["visual_profile_id"], recipe["topic"], recipe["angle"],
+                     recipe["audience"], recipe["objective"], json.dumps(recipe["key_points"]),
+                     json.dumps(recipe["sources"]), recipe["priority"], completed_at, completed_at),
+                )
+                _ = int(job.lastrowid)
+            self.connection.execute(
+                "UPDATE determination_requests SET status = 'completed', completed_at = ? WHERE determination_request_id = ?",
+                (completed_at, determination_request_id),
+            )
+            return decision_id
+
     def eligible_candidates(self, now: str, limit: int = 20):
         rows = self.connection.execute(
             "SELECT * FROM trend_candidates WHERE status IN ('new', 'active', 'pending_determination') AND (cooldown_until IS NULL OR cooldown_until <= ?) ORDER BY score DESC LIMIT ?",
@@ -491,8 +791,8 @@ class Database:
 
     def save_content_job(self, job: ContentJob) -> int:
         cursor = self.connection.execute(
-            "INSERT INTO content_jobs (trend_id, determination_handoff_id, candidate_id, pipeline_id, target_platform, target_account, content_format, visual_profile_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (job.trend_id, job.determination_handoff_id, job.candidate_id, job.pipeline_id, job.target_platform, job.target_account, job.content_format, job.visual_profile_id, job.topic, job.angle, job.audience, job.objective, json.dumps(job.key_points), json.dumps(job.sources), job.priority, job.status, job.created_at, job.updated_at),
+            "INSERT INTO content_jobs (trend_id, determination_handoff_id, determination_request_id, candidate_id, pipeline_id, target_platform, target_account, content_format, visual_profile_id, topic, angle, audience, objective, key_points, sources, priority, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (job.trend_id, job.determination_handoff_id, job.determination_request_id, job.candidate_id, job.pipeline_id, job.target_platform, job.target_account, job.content_format, job.visual_profile_id, job.topic, job.angle, job.audience, job.objective, json.dumps(job.key_points), json.dumps(job.sources), job.priority, job.status, job.created_at, job.updated_at),
         )
         self.connection.commit()
         return int(cursor.lastrowid)

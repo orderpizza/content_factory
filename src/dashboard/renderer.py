@@ -53,13 +53,37 @@ def render_dashboard(database) -> str:
         ORDER BY h.created_at DESC, h.handoff_id DESC
         LIMIT 20
     """)
+    threads = rows("""SELECT t.*, c.topic AS candidate_topic
+        FROM content_threads t LEFT JOIN trend_candidates c ON c.id = t.seed_candidate_id
+        ORDER BY t.updated_at DESC, t.thread_id DESC LIMIT 20""")
+    intake_requests = rows("""SELECT i.*, t.origin, c.topic
+        FROM intake_requests i JOIN content_threads t ON t.thread_id = i.thread_id
+        LEFT JOIN trend_candidates c ON c.id = t.seed_candidate_id
+        ORDER BY i.created_at DESC, i.intake_request_id DESC LIMIT 20""")
+    briefs = rows("""SELECT b.*, t.origin, t.coverage_identity
+        FROM brief_revisions b JOIN content_threads t ON t.thread_id = b.thread_id
+        ORDER BY b.created_at DESC, b.revision_id DESC LIMIT 20""")
+    determination_requests = rows("""SELECT r.*, b.thread_id, b.brief_json
+        FROM determination_requests r JOIN brief_revisions b ON b.revision_id = r.revision_id
+        ORDER BY r.created_at DESC, r.determination_request_id DESC LIMIT 20""")
     decisions = rows("""
-        SELECT d.*, h.candidate_id
+        SELECT d.*, COALESCE(c.topic, json_extract(b.brief_json, '$.topic')) AS topic
         FROM determination_decisions d
-        JOIN determination_handoffs h ON h.handoff_id = d.handoff_id
+        LEFT JOIN determination_handoffs h ON h.handoff_id = d.handoff_id
+        LEFT JOIN trend_candidates c ON c.id = h.candidate_id
+        LEFT JOIN determination_requests r ON r.determination_request_id = d.determination_request_id
+        LEFT JOIN brief_revisions b ON b.revision_id = r.revision_id
         ORDER BY d.created_at DESC, d.decision_id DESC
         LIMIT 20
     """)
+    routes = rows("""SELECT dr.*, d.status AS decision_status,
+        COALESCE(c.topic, json_extract(b.brief_json, '$.topic')) AS topic
+        FROM determination_routes dr JOIN determination_decisions d ON d.decision_id = dr.decision_id
+        LEFT JOIN determination_handoffs h ON h.handoff_id = d.handoff_id
+        LEFT JOIN trend_candidates c ON c.id = h.candidate_id
+        LEFT JOIN determination_requests r ON r.determination_request_id = d.determination_request_id
+        LEFT JOIN brief_revisions b ON b.revision_id = r.revision_id
+        ORDER BY d.created_at DESC, dr.route_id ASC LIMIT 50""")
     jobs = rows("SELECT * FROM content_jobs ORDER BY updated_at DESC, job_id DESC LIMIT 20")
     packages = rows("SELECT * FROM content_packages ORDER BY created_at DESC, content_id DESC LIMIT 20")
     posts = rows("SELECT * FROM posts ORDER BY updated_at DESC, id DESC LIMIT 20")
@@ -88,8 +112,17 @@ def render_dashboard(database) -> str:
         )
 
     def determination_status() -> tuple[str, str]:
-        if not handoffs and not jobs:
-            return "NOT_STARTED", "No determination handoffs recorded"
+        if not handoffs and not determination_requests and not jobs:
+            return "NOT_STARTED", "No Intake or determination requests recorded"
+        claimed_requests = sum(row["status"] == "claimed" for row in determination_requests)
+        failed_requests = sum(row["status"] == "failed" for row in determination_requests)
+        pending_requests = sum(row["status"] == "pending" for row in determination_requests)
+        if claimed_requests:
+            return "RUNNING", f"{claimed_requests} claimed determination request(s)"
+        if failed_requests:
+            return "DEGRADED", f"{failed_requests} failed determination request(s)"
+        if pending_requests:
+            return "WAITING", f"{pending_requests} pending determination request(s)"
         claimed = sum(row["status"] == "claimed" for row in handoffs)
         failed = sum(row["status"] == "failed" for row in handoffs)
         pending = sum(row["status"] == "pending" for row in handoffs)
@@ -172,10 +205,36 @@ def render_dashboard(database) -> str:
         lambda row: cell(row["failure_reason"]),
     ], "No determination handoffs yet", 7)
     decision_rows = table_rows(decisions, [
-        lambda row: str(row["decision_id"]), lambda row: str(row["handoff_id"]),
+        lambda row: str(row["decision_id"]), lambda row: cell(row["topic"]),
         lambda row: cell(row["status"]), lambda row: json_cell(row["recipe_json"]),
         lambda row: cell(row["reasoning"]), lambda row: cell(row["created_at"]),
     ], "No determination decisions yet", 6)
+    thread_rows = table_rows(threads, [
+        lambda row: str(row["thread_id"]), lambda row: cell(row["origin"]),
+        lambda row: cell(row["candidate_topic"]), lambda row: cell(row["coverage_identity"]),
+        lambda row: cell(row["status"]), lambda row: cell(row["created_at"]),
+    ], "No content threads yet", 6)
+    intake_rows = table_rows(intake_requests, [
+        lambda row: str(row["intake_request_id"]), lambda row: cell(row["topic"]),
+        lambda row: cell(row["status"]), lambda row: cell(row["created_at"]),
+        lambda row: cell(row["completed_at"]), lambda row: cell(row["failure_reason"]),
+    ], "No Intake requests yet", 6)
+    brief_rows = table_rows(briefs, [
+        lambda row: str(row["revision_id"]), lambda row: str(row["thread_id"]),
+        lambda row: cell(row["coverage_identity"]), lambda row: json_cell(row["brief_json"]),
+        lambda row: cell(row["created_at"]),
+    ], "No frozen briefs yet", 5)
+    determination_request_rows = table_rows(determination_requests, [
+        lambda row: str(row["determination_request_id"]), lambda row: str(row["revision_id"]),
+        lambda row: cell(row["status"]), lambda row: cell(row["created_at"]),
+        lambda row: cell(row["completed_at"]), lambda row: cell(row["failure_reason"]),
+    ], "No Determination requests yet", 6)
+    route_rows = table_rows(routes, [
+        lambda row: str(row["decision_id"]), lambda row: cell(row["topic"]),
+        lambda row: cell(row["pipeline_id"]), lambda row: cell(row["disposition"]),
+        lambda row: cell(row["fit"]), lambda row: cell(row["reason"]),
+        lambda row: json_cell(row["angle_json"]), lambda row: json_cell(row["output_assessment_json"]),
+    ], "No route assessments yet", 8)
     job_rows = table_rows(jobs, [
         lambda row: str(row["job_id"]), lambda row: cell(row["topic"]), lambda row: cell(row["pipeline_id"]),
         lambda row: cell(row["target_platform"]), lambda row: cell(row["target_account"]), lambda row: cell(row["content_format"]), lambda row: str(row["priority"]),
@@ -261,6 +320,9 @@ th{{background:#e8eef2;color:#40505c}} .empty{{color:#68737d;text-align:center}}
 <div class='summary'>
 <div class='metric'>Observations<span class='number'>{count('trend_observations')}</span></div>
 <div class='metric'>Candidates<span class='number'>{count('trend_candidates')}</span></div>
+<div class='metric'>Intake Requests<span class='number'>{count('intake_requests')}</span></div>
+<div class='metric'>Brief Revisions<span class='number'>{count('brief_revisions')}</span></div>
+<div class='metric'>Determination Requests<span class='number'>{count('determination_requests')}</span></div>
 <div class='metric'>Handoffs<span class='number'>{count('determination_handoffs')}</span></div>
 <div class='metric'>Content Jobs<span class='number'>{count('content_jobs')}</span></div>
 <div class='metric'>Packages<span class='number'>{count('content_packages')}</span></div>
@@ -276,9 +338,14 @@ th{{background:#e8eef2;color:#40505c}} .empty{{color:#68737d;text-align:center}}
 <details><summary>Source Health</summary><table><tr><th>Source</th><th>Checked</th><th>Status</th><th>Attempts</th><th>Error</th></tr>{source_rows}</table></details>
 <details><summary>Recent Observations</summary><table><tr><th>Topic</th><th>Source</th><th>Activity</th><th>Baseline</th><th>Observed</th></tr>{observation_rows}</table></details>
 <details><summary>Topic Snapshots</summary><table><tr><th>Topic</th><th>Activity</th><th>Sources</th><th>Mentions</th><th>Observed</th></tr>{snapshot_rows}</table></details></section>
-<section id='determination' class='section'><h2>Determination</h2><p class='meta'>Status counts: {status_counts('determination_handoffs')}</p>
+<section id='determination' class='section'><h2>Idea Intake and Determination</h2><p class='meta'>Intake: {status_counts('intake_requests')} · Determination: {status_counts('determination_requests')}</p>
+<h3>Threads</h3><table><tr><th>Thread</th><th>Origin</th><th>Candidate</th><th>Coverage Identity</th><th>Status</th><th>Created</th></tr>{thread_rows}</table>
+<h3>Intake Requests</h3><table><tr><th>Request</th><th>Topic</th><th>Status</th><th>Created</th><th>Completed</th><th>Failure</th></tr>{intake_rows}</table>
+<h3>Frozen Brief Revisions</h3><table><tr><th>Revision</th><th>Thread</th><th>Coverage Identity</th><th>Brief</th><th>Created</th></tr>{brief_rows}</table>
+<h3>Determination Requests</h3><table><tr><th>Request</th><th>Revision</th><th>Status</th><th>Created</th><th>Completed</th><th>Failure</th></tr>{determination_request_rows}</table>
 <table><tr><th>Handoff</th><th>Topic</th><th>Score</th><th>Status</th><th>Created</th><th>Completed</th><th>Failure</th></tr>{handoff_rows}</table>
-<h3>Decisions</h3><table><tr><th>Decision</th><th>Handoff</th><th>Status</th><th>Recipe</th><th>Reasoning</th><th>Created</th></tr>{decision_rows}</table>
+<h3>Decisions</h3><table><tr><th>Decision</th><th>Topic</th><th>Outcome</th><th>Recipe</th><th>Reasoning</th><th>Created</th></tr>{decision_rows}</table>
+<h3>Five-domain Route Assessments</h3><table><tr><th>Decision</th><th>Topic</th><th>Domain</th><th>Disposition</th><th>Fit</th><th>Reason</th><th>Angle</th><th>Output Assessment</th></tr>{route_rows}</table>
  </section><section id='content-jobs' class='section'><h2>Content Production</h2><h3>Content Jobs</h3><p class='meta'>Status counts: {status_counts('content_jobs')}</p>
 <table><tr><th>Job</th><th>Topic</th><th>Pipeline</th><th>Platform</th><th>Account</th><th>Format</th><th>Priority</th><th>Status</th><th>Updated</th></tr>{job_rows}</table>
 <h3>Content Packages</h3><table><tr><th>Content</th><th>Job</th><th>Pipeline</th><th>Platform</th><th>Account</th><th>Format</th><th>Title</th><th>Package</th><th>Metadata</th><th>Assets</th><th>Created</th></tr>{package_rows}</table></section>

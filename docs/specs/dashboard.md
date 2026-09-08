@@ -100,7 +100,7 @@ safe raw JSON, timestamps, parent/child links, and a full audit timeline.
 | Worker health | Current `worker_heartbeats`, substantive `worker_runs`, claims, duration, last success/failure, lease expiry, backlog, cadence, next expected run, stale reason | Which component needs attention? |
 | Detection | Enabled source-instance registry/configuration version, health/degradation, observations/snapshots, candidates, score inputs/fingerprint/formula version, cluster members, shortlist policy/rank/budget, consumed/not-recommended/cooldown/evidence change | Why was an opportunity selected, deferred, or blocked? |
 | Threads and intake | New-idea entry, origin, complete conversation, Intake requests/claims, clarification state, revisions/parents, source evidence/events, linked work | What did I ask for and what changed? |
-| Determination | Requests/leases, frozen input, capability snapshot, decision outcome/reasoning/alternatives/identities, Gemini usage, resulting job when accepted | Why did the system choose/refuse a route? |
+| Determination | Requests/leases, frozen input/catalog, aggregate outcome plus five route fit/disposition/reason rows, selected angles and distinct reader value, output readiness, duplicate/reuse links, model usage, all resulting jobs | Why did each domain respond, skip, reuse, or block? |
 | Production/content | Jobs/leases, recipe, package creative/caption/tags/hashtags/citations, identities/hashes, contract/model versions, validation | What was generated and is it valid? |
 | Rendering | Runs/leases, renderer/template versions, manifest verification, ordered preview/assets/dimensions/checksums, failure/recovery | Are exact assets ready and trustworthy? |
 | Review queue | Canonical final delivery-asset preview, content/manifest/asset hashes, caption/tags/hashtags, source/brief/decision context, package identity, age/freshness, Post now/reject/request-changes actions | What exact immutable output is ready for my decision? |
@@ -125,6 +125,12 @@ Each stage displays `active`, `waiting`, `completed`, `failed`, `stale`, and
 view. A trace view starts from any candidate, thread, revision, job, package,
 review request, post request, or post record and displays every linked record
 in chronological order.
+
+### Routing-quality workspace
+
+Trend Opportunities expands one candidate/thread into five domain assessments,
+then canonical results and their Instagram/X branches. Preserve zero-output
+decisions and explicit stopping reasons.
 
 ### Review queue
 

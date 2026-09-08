@@ -98,6 +98,24 @@ editorial-quality assertion: source-health reliability is calculated separately
 from successful collection, timeliness, and completeness. A future change to a
 source's static trust weight must be versioned and justified here.
 
+## Canonicalization and clustering — `canonicalization_v1`
+
+Canonicalization applies Unicode NFKC normalization, Unicode case folding, and
+the versioned canonical key rules before observations are grouped. An
+observation joins a cluster only when its canonical key exactly matches the
+cluster key or an operator-managed explicit alias maps it to that key. Alias
+entries are versioned configuration with audit provenance. Fuzzy similarity,
+token overlap, and inferred cross-key synonymy are not permitted.
+
+### Implementation status
+
+The current detection code uses a simplified canonicalization (lowercase +
+punctuation strip) and fuzzy token-overlap clustering. The
+`canonicalization_v1` model described above is the target specification. The
+placeholder must be replaced with a conforming implementation that uses exact
+key matching plus explicit operator-managed aliases only. Fuzzy clustering must
+be removed.
+
 ## Scoring model — `attention_v1`
 
 The score measures externally observable attention only. It does not decide
@@ -145,6 +163,16 @@ Candidate-level components are all in `[0, 1]`:
 decimals. The persisted score breakdown includes each source-kind input,
 history readiness/bootstrap state, every component, formula version, and final
 score. No database query or dashboard calculation is allowed to alter it.
+
+### Implementation status
+
+The current detection code uses a simplified placeholder scoring model with
+different weights, component definitions, and no per-source-kind calculations.
+The `attention_v1` model described above is the target specification. The
+placeholder must be replaced with a conforming implementation before the
+shortlist policy is activated for production determination. Boundary tests for
+the target model must verify per-source activity, baseline history readiness,
+bootstrap behavior, prominence ranking, and deterministic tie-breaking.
 
 ## Algorithm and evidence principles
 

@@ -185,6 +185,64 @@ class DeterminationService:
         database.complete_handoff(handoff["handoff_id"], completed_at)
         return job
 
+    def consume_next_request(self, database: Database) -> int | None:
+        """Consume the Intake-produced request without using a legacy handoff."""
+        requests = database.pending_determination_requests(limit=1)
+        if not requests:
+            return None
+        request = requests[0]
+        request_id = request["determination_request_id"]
+        if not database.claim_determination_request(request_id, utc_now()):
+            return None
+        source_snapshot = json.loads(request["source_snapshot_json"])
+        brief = json.loads(request["brief_json"])
+        candidate = dict(source_snapshot.get("candidate", {}))
+        candidate.setdefault("topic", brief["topic"])
+        candidate.setdefault("score", 0.0)
+        evidence = source_snapshot.get("evidence", [])
+        try:
+            decision = self.evaluate_candidate(candidate, evidence)
+            outcome = "accepted" if decision.should_create else "not_recommended"
+            recipe = self._recipe(decision) if decision.should_create else {}
+            if recipe:
+                recipe["topic"] = brief["topic"]
+            routes = self._route_summary(decision, recipe)
+            decision_id = database.complete_determination_request(
+                request_id, outcome, recipe, decision.reasoning, routes, utc_now(),
+            )
+        except Exception as error:
+            database.fail_determination_request(request_id, str(error), utc_now())
+            raise
+        client = getattr(self.evaluator, "client", None)
+        usage = getattr(client, "last_usage", None)
+        if usage is not None:
+            database.record_api_usage(
+                "determination", request_id, usage.model,
+                usage.input_tokens, usage.output_tokens, usage.total_tokens,
+                estimated_cost_usd(usage), utc_now(),
+            )
+        return decision_id
+
+    @staticmethod
+    def _route_summary(decision: Determination, recipe: dict) -> list[dict]:
+        """Persist a visible disposition for every currently known domain."""
+        domains = (
+            "english", "ai_tools", "personal_finance", "business_side_hustle", "psychology_behavior",
+        )
+        selected_domain = "english" if decision.should_create else None
+        routes = []
+        for domain in domains:
+            selected = domain == selected_domain
+            routes.append({
+                "pipeline_id": domain,
+                "disposition": "selected" if selected else "skipped",
+                "fit": "selected capability" if selected else "not selected for the current POC capability catalog",
+                "reason": decision.reasoning if selected else "No enabled capability for this domain in the current POC.",
+                "angle": {"thesis": decision.angle, "reader_value": decision.objective} if selected else None,
+                "output_assessment": ({"eligible": [recipe["target_platform"]]} if selected else {"eligible": []}),
+            })
+        return routes
+
     # Temporary compatibility path for the offline fixture. Production code
     # consumes DeterminationRequest records through consume_next_handoff.
     def determine(self, trend: Trend) -> ContentJob | None:

@@ -46,6 +46,26 @@ The exact worker schedule, poll behavior, and stale thresholds live in the
 [worker runtime specification](runtime.md). A stale `publishing` post is never
 safe to retry; it becomes `publication_unknown`.
 
+### Idempotency guards at claim boundaries
+
+Every worker checks whether its durable output already exists before performing
+claim-bound work. The exact guard queries are listed in the data model's
+uniqueness constraints.
+
+- Pipeline Runner checks whether `CanonicalContent` already exists for the
+  claimed `job_id` before domain generation.
+- Determination Worker checks whether `DeterminationDecision` already exists
+  for the claimed handoff before evaluation.
+- Adaptation Worker checks whether `ContentPackage` already exists for the
+  claimed `OutputRequest` before adaptation.
+- Visual Renderer checks whether each individual asset file already exists on
+  disk before re-rendering its slide or card.
+- Posting Agent relies on its existing duplicate check: the unique constraint
+  on content/platform/account.
+
+An existing output is a successful idempotent outcome, not a reason to repeat
+generation, adaptation, rendering, or publication.
+
 ## Rendering and package integrity
 
 Pipelines own the creative and versioned visual specification. The shared local

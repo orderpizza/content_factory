@@ -34,6 +34,7 @@ owner rather than restate detailed rules.
 | Worker scheduling, polling, launch/restart, cadence, or runtime ownership | [Worker runtime](specs/runtime.md) |
 | Detection sources, normalization, scoring, selection, recurrence, or evidence quality | [Detection specification](specs/detection.md) |
 | Human idea intake, brief revisions, capability selection, or determination outcomes | [Idea Intake and Determination](specs/idea-intake-and-determination.md) |
+| Pipeline Runner, domain generation, canonical content, output adaptation, or platform package creation | [Content production](specs/content-production.md) |
 | Shared renderer tools, visual profiles/templates, fonts, local assets, or render quality | [Visual rendering](specs/visual-rendering.md) |
 | Post now, delivery cancellation, delivery attempt, platform adapter, R2 staging, or reconciliation | [Posting Agent](specs/posting.md) |
 | Worker recovery, idempotency, artifact integrity, Gemini accounting, or external-side-effect safety | [Reliability and safety](specs/reliability.md) |
@@ -134,6 +135,11 @@ Key record distinctions:
 - Human idea/rework commands atomically append their message and create the
   pending Intake request. The Idea Intake Agent never relies on unread-message
   inference or an in-memory handoff.
+- Idea Intake is a Gemini-powered agent that claims IntakeRequests on its own
+  polling cycle. It interprets raw trend evidence or human conversation into a
+  structured, route-neutral BriefRevision. It may ask the human for
+  clarification. It assigns editorial coverage identity. It is a distinct
+  processing stage between Detection and Determination.
 - `BriefRevision` is the shared immutable input for trend-originated and
   human-originated editorial work. Determination produces one decision and a
   `ContentJob` only when accepted.
@@ -154,6 +160,218 @@ persists a `GenerationRun`, invokes the selected strategy within its bounded
 responsibility, and persists the strategy result. SQLite remains the boundary
 before the runner and after generation, so this internal dispatch does not
 create a direct cross-worker call.
+
+## Layer Boundaries and Handoff Reference
+
+The five processing stages are:
+
+Detection (deterministic, no AI)
+
+→ Idea Intake (Gemini agent)
+
+→ Determination (Gemini agent)
+
+→ Content Production: Pipeline Runner + Adaptation Worker (Gemini)
+
+→ Posting Agent (deterministic, no AI)
+
+Dashboard: Human–Agent Interface alongside all stages
+
+### Detection → Idea Intake
+
+Produced by: Trend Shortlist (within the Scout worker)
+
+SQLite record: `ContentThread` (`origin=trend`, `status=open`)
+
++ `IntakeRequest` (`status=pending`)
+
+Key fields:
+
+- `seed_candidate_id` → links to the scored `TrendCandidate`
+- `opportunity_identity` (`trend:<canonicalization_version>:<cluster_key>`)
+- frozen evidence snapshot: candidate metadata, source observations, score
+  breakdown, evidence fingerprint, producing detection run ID
+- `coverage_identity` is `NULL` at this point (assigned by Idea Intake later)
+
+Consumer: Idea Intake Agent (Gemini)
+
+### Human Idea → Idea Intake
+
+Produced by: Dashboard command (human submits free-text message)
+
+SQLite record: `ContentThread` (`origin=human`, `status=open`)
+
++ `thread_message` (human text)
+
++ `IntakeRequest` (`status=pending`)
+
+Key fields:
+
+- human free-text message (no required structure)
+- no candidate, no evidence, no opportunity identity
+
+Consumer: Idea Intake Agent (Gemini)
+
+### Idea Intake → Determination
+
+Produced by: Idea Intake Agent (Gemini)
+
+SQLite record: `BriefRevision` (immutable)
+
++ `DeterminationRequest` (`status=pending`)
+
+Key fields in `BriefRevision`:
+
+- `editorial_goal`: what the content should accomplish
+- `topic`: route-neutral normalized editorial subject
+- `coverage_kind` + `canonical_target`: structured coverage identity inputs
+- `audience`: intended audience
+- `desired_outcome`: teach, explain, inform, entertain, etc.
+- `constraints`: must-include, avoid, tone, factual limits
+- `source_context`: concise summary (detail stays in `source_snapshot_json`)
+- `source_snapshot_json`: frozen candidate evidence or conversation context
+
+Key fields in `DeterminationRequest`:
+
+- `revision_id`: links to the frozen `BriefRevision`
+- `input_snapshot_json`: brief + evidence + capability catalog + versions
+
+Note: `BriefRevision` is route-neutral. It contains no pipeline, platform,
+account, or format selection. That is Determination's job.
+
+Consumer: Determination Worker (Gemini)
+
+### Determination → Pipeline Runner
+
+Produced by: Determination Worker (Gemini)
+
+SQLite record: `DeterminationDecision` (aggregate outcome)
+
++ 5 `DeterminationRoute` rows (one per domain, always all five)
+
++ `ContentJob` + `GenerationRun` per selected route
+
+Key fields in `DeterminationDecision`:
+
+- aggregate outcome: accepted / not_recommended / blocked
+- opportunity value, rationale, warnings
+- frozen catalog/readiness/routing-policy fingerprints
+
+Key fields in each `DeterminationRoute`:
+
+- `pipeline_id`: `english`, `ai_tools`, `personal_finance`,
+  `business_side_hustle`, or `psychology_behavior`
+- disposition: selected / skipped / blocked / reused
+- fit and reason (required for all five, including skipped/disabled)
+- frozen angle (when selected): `angle_kind`, `canonical_target`, `audience`,
+  `thesis`, `reader_value`, `evidence_reference_ids`
+- output assessments: which platform bindings are eligible vs blocked
+
+Key fields in `ContentJob` (one per selected route):
+
+- `pipeline_id` (domain, NOT platform)
+- frozen angle identity and creative recipe
+- frozen output plan: list of eligible platform bindings (for example,
+  Instagram carousel + X image+text for this domain)
+- evidence/reference inputs, audience, objective, priority
+- `content_identity` (unique, blocks duplicate generation)
+
+Note: `ContentJob` is a domain recipe. It says “teach this English expression
+with this angle for this audience.” It does NOT say “make an Instagram
+carousel.” Platform adaptation happens later.
+
+Consumer: Pipeline Runner (dispatches to domain strategy, uses Gemini)
+
+### Pipeline Runner → Adaptation Worker
+
+Produced by: Pipeline Runner (domain strategy, Gemini)
+
+SQLite record: `CanonicalContent` (immutable, platform-neutral)
+
++ `OutputRequest` per eligible platform binding
+
++ `AdaptationRun` per `OutputRequest`
+
+Key fields in `CanonicalContent`:
+
+- common envelope: hook, context, key points, examples, conclusion/takeaway,
+  claim IDs, source/reference IDs
+- domain extension: domain-specific payload (for example,
+  `english_teaching_v2` with target, sense, meaning, examples)
+- `canonical_identity` and hash (blocks duplicate generation)
+- NO caption, hashtags, slide layout, pixel dimensions, or platform copy
+
+Key fields in `OutputRequest`:
+
+- canonical-content FK and hash
+- exact destination: platform, account, format
+- output contract version, renderer compatibility
+- `output_identity` (unique, blocks duplicate adaptation)
+
+Note: One `CanonicalContent` serves multiple `OutputRequest`s. Instagram and X
+share the same canonical content but each gets independent adaptation.
+
+Consumer: Adaptation Worker (platform-output strategy, Gemini)
+
+### Adaptation Worker → Visual Renderer
+
+Produced by: Adaptation Worker (platform adapter, Gemini)
+
+SQLite record: `ContentPackage` (immutable, platform-specific)
+
++ `RenderRun` (`status=pending`)
+
+Key fields in `ContentPackage`:
+
+- platform-specific creative: caption or ordered X post text, tags, hashtags,
+  alt text, claim mappings
+- `visual_spec_json`: resolved template/profile selection, structured
+  slide/card bindings
+- content hash, output/schema/model versions
+- NO mutable status. Once created, creative change requires a new revision.
+
+Consumer: Visual Renderer (deterministic HTML/CSS + Playwright)
+
+### Visual Renderer → Dashboard (Human Review)
+
+Produced by: Visual Renderer (deterministic, no AI)
+
+SQLite record: `RenderAssets` (immutable files + manifest)
+
++ `ReviewRequest` (`status=awaiting_review`)
+
+Key fields:
+
+- ordered delivery assets with SHA-256 hashes
+- `content_package` and render-manifest hashes (for review validation)
+- review expiry (14 days from creation)
+
+Consumer: Human via Dashboard
+
+### Dashboard (Post now) → Posting Agent
+
+Produced by: Dashboard command (human clicks Post now)
+
+SQLite record: `PostRequest` (immutable authorization)
+
++ `PostRecord` (`status=pending`, delivery lifecycle)
+
+Key fields:
+
+- approved package/render hashes and exact destination
+- `delivery_mode` (immediate in Phase 1)
+- `publication_identity` (unique, blocks duplicate publication)
+- policy-derived `eligible_at` (from `posting_policies`)
+
+Note: Post now authorizes exactly ONE package to ONE destination. There is no
+cross-platform batch approval in Phase 1.
+
+Consumer: Posting Agent (deterministic, no AI)
+
+Every arrow above is a SQLite handoff, not a direct module-to-module call.
+Domain strategies, output adapters, and delivery adapters are in-process
+dispatch within their respective workers. They are not separately scheduled
+services.
 
 ## Opportunity Intake and Revisions
 
@@ -244,6 +462,7 @@ database/package.
 | `specs/runtime.md` | Worker process boundaries, scheduler/supervisor contract, polling cadence, claim/no-work/restart behavior | Dashboard layout, field-level schema, or social API contract |
 | `specs/detection.md` | Detection sources, evidence, normalization, scoring, shortlist selection, recurrence | Worker recovery, dashboard layout, or table-level schema inventory |
 | `specs/idea-intake-and-determination.md` | Free-text intake, brief freeze, capability catalog, AI decision outcomes, and decision acceptance tests | Detection algorithms, field-level schema, delivery safety, or creative generation |
+| `specs/content-production.md` | Pipeline Runner, domain strategy, canonical content, output adaptation, and package contracts | Generic architecture, renderer implementation, field-level schema, or delivery safety |
 | `specs/visual-rendering.md` | Shared local renderer providers, reusable profile/template registry, fonts/assets, deterministic rendering, and quality direction | Pipeline editorial layouts, field-level schema, worker scheduling, or delivery safety |
 | `specs/posting.md` | Generic Posting Agent lifecycle, adapter invocation, delivery staging, resources, and reconciliation input | Provider API facts, pipeline format requirements, schema fields, or retry policy |
 | `specs/reliability.md` | Cross-cutting recovery, idempotency, artifact integrity, configuration, and external-side-effect safety | Normal component/adapter lifecycle, UI layout, or table-level schema inventory |

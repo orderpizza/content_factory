@@ -10,6 +10,24 @@ determination outcomes. Read [the system guide](../system.md) first, then the
 [data model](data-model.md), [dashboard](dashboard.md), and [runtime](runtime.md)
 contracts for their respective boundaries.
 
+## Two distinct workers, one specification
+
+This specification covers two separate Gemini-powered workers that share a
+common editorial planning responsibility:
+
+1. **Idea Intake Agent** — claims `IntakeRequest`s, interprets evidence or
+   conversation, freezes immutable `BriefRevision`s, and assigns coverage
+   identity.
+2. **Determination Worker** — claims `DeterminationRequest`s, evaluates frozen
+   briefs against the five-domain catalog, produces decisions with five route
+   dispositions, and creates `ContentJob`s for selected routes.
+
+They communicate only through SQLite. Idea Intake produces `BriefRevision` +
+`DeterminationRequest`; Determination consumes `DeterminationRequest`. They are
+separate workers with separate polling, separate Gemini calls, and separate
+claim lifecycles. They are grouped here because they share the editorial
+planning boundary and the `ContentThread` lifecycle.
+
 ## Purpose and boundary
 
 This specification converts two kinds of editorial opportunity into a safe,

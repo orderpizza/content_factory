@@ -58,6 +58,7 @@ class ContentJob:
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
     determination_handoff_id: int | None = None
+    determination_request_id: int | None = None
     candidate_id: int | None = None
     target_platform: str = "bluesky"
     target_account: str = "default"

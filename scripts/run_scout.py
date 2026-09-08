@@ -2,7 +2,6 @@
 
 import os
 import time
-import json
 import sys
 from pathlib import Path
 
@@ -59,7 +58,6 @@ def main() -> None:
         minimum_score = float(os.getenv("CONTENT_FACTORY_MINIMUM_TREND_SCORE", "0.25"))
         top_n = int(os.getenv("CONTENT_FACTORY_TOP_N_CANDIDATES", "5"))
         selected = select_candidates(database, minimum_score=minimum_score, top_n=top_n)
-        database.mark_candidates_for_determination([candidate.topic for candidate in selected], observed_at)
         for candidate in selected:
             evidence = [
                 {
@@ -74,10 +72,7 @@ def main() -> None:
                 for observation in observations
                 if canonical_topic(observation.topic) == candidate.topic
             ]
-            payload = {
-                "handoff_id": None,
-                "detection_run_id": run_id,
-                "created_at": observed_at,
+            snapshot = {
                 "candidate": {
                     "candidate_id": candidate_ids[candidate.topic],
                     "topic": candidate.topic,
@@ -90,13 +85,10 @@ def main() -> None:
                 },
                 "evidence": evidence,
                 "history": [snapshot.__dict__ for snapshot in database.topic_history(candidate.topic)],
-                "status": "pending",
             }
-            handoff_id = database.create_handoff_if_absent(candidate_ids[candidate.topic], run_id, payload, observed_at)
-            if handoff_id is not None:
-                payload["handoff_id"] = handoff_id
-                database.connection.execute("UPDATE determination_handoffs SET payload_json = ? WHERE handoff_id = ?", (json.dumps(payload), handoff_id))
-                database.connection.commit()
+            database.create_trend_intake_if_absent(
+                candidate_ids[candidate.topic], run_id, snapshot, observed_at,
+            )
         database.finish_detection_run(run_id, utc_now(), collected, len(all_candidates), len(selected))
         print(f"Observations saved: {collected}")
         print(f"Topic snapshots saved: {len(snapshots)}")
