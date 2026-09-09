@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 import json
 import sqlite3
+from common.diagnostics import safe_diagnostic
 
 from database.migrations import SchemaError, connect, validate_detection_dashboard
 from .configuration import canonical_json, validate_manifest
@@ -25,7 +26,11 @@ class DetectionStore:
                 f"Database does not exist: {self.path}. Run the explicit setup command."
             )
         self.connection = connect(self.path, read_only=read_only)
-        validate_detection_dashboard(self.connection)
+        try:
+            validate_detection_dashboard(self.connection)
+        except Exception:
+            self.connection.close()
+            raise
         self.read_only = read_only
 
     def close(self) -> None:
@@ -47,18 +52,24 @@ class DetectionStore:
         if self.read_only:
             raise RuntimeError("A read-only store cannot apply configuration")
         validate_manifest(manifest)
+        if manifest["schema_version"] >= 2 and int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 3:
+            raise SchemaError("attention_v2 requires the explicit detection safety v3 migration")
         manifest_json = canonical_json(manifest)
         manifest_hash = sha256(manifest_json.encode("utf-8")).hexdigest()
         now = utc_now()
-        existing = self.connection.execute(
-            "SELECT configuration_release_id, manifest_hash FROM configuration_releases "
-            "WHERE scope_key=? AND release_name=?",
-            (manifest["scope_key"], manifest["release_name"]),
-        ).fetchone()
-        if existing and existing["manifest_hash"] != manifest_hash:
-            raise ValueError("Release name already exists with different canonical content")
-
+        self.connection.execute("BEGIN IMMEDIATE")
         with self.connection:
+            target_normalization = manifest["components"]["detection"]["canonicalization_version"]
+            for release in self.connection.execute("SELECT manifest_json FROM configuration_releases WHERE validation_outcome='validated'"):
+                if json.loads(release[0])["components"]["detection"]["canonicalization_version"] != target_normalization:
+                    raise ValueError("Normalization changes require a separately named fresh database; existing identities and handoffs are never rewritten or merged implicitly")
+            existing = self.connection.execute(
+                "SELECT configuration_release_id, manifest_hash FROM configuration_releases "
+                "WHERE scope_key=? AND release_name=?",
+                (manifest["scope_key"], manifest["release_name"]),
+            ).fetchone()
+            if existing and existing["manifest_hash"] != manifest_hash:
+                raise ValueError("Release name already exists with different canonical content")
             if existing:
                 release_id = int(existing["configuration_release_id"])
             else:
@@ -143,6 +154,10 @@ class DetectionStore:
             raise RuntimeError("No active global configuration release; run setup first")
         return row
 
+    def normalization_version(self, release_id: int) -> str:
+        row = self.connection.execute("SELECT manifest_json FROM configuration_releases WHERE configuration_release_id=?", (release_id,)).fetchone()
+        return json.loads(row[0])["components"]["detection"]["canonicalization_version"]
+
     def enabled_sources(self) -> list[sqlite3.Row]:
         release_id = int(self.active_release()["configuration_release_id"])
         return self.connection.execute(
@@ -172,7 +187,7 @@ class DetectionStore:
             "claim_type=excluded.claim_type, claim_id=excluded.claim_id, "
             "build_version=excluded.build_version, safe_summary=excluded.safe_summary, "
             "updated_at=excluded.updated_at",
-            (worker_type, instance_id, now, now, state, claim_type, claim_id, summary[:2000], now, now),
+            (worker_type, instance_id, now, now, state, claim_type, claim_id, safe_diagnostic(summary), now, now),
         )
         self.connection.commit()
 
@@ -200,7 +215,7 @@ class DetectionStore:
         self.connection.execute(
             "UPDATE worker_runs SET completed_at=?, status=?, safe_summary=?, safe_error=? "
             "WHERE worker_run_id=? AND status='running'",
-            (utc_now(), status, summary, error, worker_run_id),
+            (utc_now(), status, safe_diagnostic(summary) if summary else None, safe_diagnostic(error) if error else None, worker_run_id),
         )
         self.connection.commit()
 

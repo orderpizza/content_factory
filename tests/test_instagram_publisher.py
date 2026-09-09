@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from posting.instagram import InstagramCarouselPublisher
+from common.legacy import RetiredOperationError
 
 
 class FakeAssetStore:
@@ -36,7 +37,7 @@ class FakeInstagramPublisher(InstagramCarouselPublisher):
 
 
 class InstagramPublisherTests(unittest.TestCase):
-    def test_publishes_a_ready_carousel_with_persisted_caption_and_hashtags(self):
+    def test_legacy_publisher_is_retired_even_with_valid_input(self):
         store = FakeAssetStore()
         publisher = FakeInstagramPublisher(store)
         package = {
@@ -44,11 +45,11 @@ class InstagramPublisherTests(unittest.TestCase):
             "content_format": "instagram_idiom_carousel", "assets": json.dumps(["slide1.png", "slide2.png"]),
             "caption": "Learn an idiom", "hashtags": json.dumps(["#English", "#Idioms"]),
         }
-        external_id = publisher.publish_package(package)
-        self.assertEqual(external_id, "4")
-        self.assertEqual(store.uploaded, ["slide1.png", "slide2.png"])
-        self.assertEqual(store.deleted, ["key-1", "key-2"])
-        self.assertEqual(publisher.requests[2][1]["caption"], "Learn an idiom #English #Idioms")
+        with self.assertRaises(RetiredOperationError):
+            publisher.publish_package(package)
+        self.assertEqual(store.uploaded, [])
+        self.assertEqual(store.deleted, [])
+        self.assertEqual(publisher.requests, [])
 
     def test_rejects_a_package_outside_the_o2_instagram_contract_before_upload(self):
         store = FakeAssetStore()
@@ -59,7 +60,7 @@ class InstagramPublisherTests(unittest.TestCase):
             "caption": "Learn an idiom", "hashtags": json.dumps(["#English"]),
         }
 
-        with self.assertRaisesRegex(ValueError, "two to ten"):
+        with self.assertRaises(RetiredOperationError):
             publisher.publish_package(package)
 
         self.assertEqual(store.uploaded, [])

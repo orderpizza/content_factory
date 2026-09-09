@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SchemaError, migrate_detection_dashboard
+from database.migrations import SchemaError, connect, migrate_detection_dashboard, validate_detection_dashboard
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 
@@ -20,18 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _backup_legacy_database(path: Path) -> Path | None:
-    if not path.exists():
-        return None
-    if not path.is_file():
-        raise RuntimeError(f"Database path is not a regular file: {path}")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = path.with_name(f"{path.name}.legacy-{stamp}.bak")
-    path.replace(backup)
-    for suffix in ("-wal", "-shm"):
-        sidecar = Path(str(path) + suffix)
-        if sidecar.is_file():
-            sidecar.replace(Path(str(backup) + suffix))
-    return backup
+    raise RuntimeError("Unsafe DB/WAL file-moving rebuild is retired; use a new explicitly named --database path. Existing data is unchanged.")
 
 
 def main() -> None:
@@ -48,22 +37,30 @@ def main() -> None:
     parser.add_argument(
         "--rebuild",
         action="store_true",
-        help="Move an existing development database to a timestamped backup before setup.",
+        help="Retired unsafe reset flag; refuses without changing the database.",
     )
     args = parser.parse_args()
     database_path = Path(args.database).resolve()
     manifest_path = Path(args.manifest).resolve()
     print(f"Database: {database_path}")
     print(f"Manifest: {manifest_path}")
-    if args.rebuild:
-        backup = _backup_legacy_database(database_path)
-        if backup:
-            print(f"Legacy database moved to: {backup}")
-    try:
-        changed = migrate_detection_dashboard(database_path)
-    except SchemaError as error:
-        raise SystemExit(f"Setup refused: {error}\nUse --rebuild only for an intentionally disposable development database.")
     manifest = load_manifest(manifest_path)
+    if args.rebuild:
+        raise SystemExit("--rebuild is retired. Use a new --database path; the existing DB/WAL/SHM are unchanged.")
+    try:
+        if database_path.is_file():
+            connection = connect(database_path, read_only=True)
+            try:
+                version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+                if version in (1, 2, 3):
+                    validate_detection_dashboard(connection)
+            finally:
+                connection.close()
+        else:
+            version = 0
+        changed = False if version in (1, 2, 3) else migrate_detection_dashboard(database_path)
+    except SchemaError as error:
+        raise SystemExit(f"Setup refused: {error}\nUse a new --database path; never reset to resolve a schema mismatch.")
     with DetectionStore(database_path) as store:
         release_id = store.apply_manifest(manifest)
     print("Schema: " + ("created" if changed else "already current"))

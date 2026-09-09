@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from common.diagnostics import safe_diagnostic
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class CollectionResult:
 
 class SourceCollectionError(RuntimeError):
     def __init__(self, category: str, detail: str):
+        detail = safe_diagnostic(detail)
         super().__init__(detail)
         self.category = category
         self.detail = detail[:2000]

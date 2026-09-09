@@ -141,7 +141,17 @@ caption=<immutable package caption>
 
 Persist its returned `id` as `meta_parent_container`. The adapter polls each
 child and then the parent with `GET /<container-id>?fields=id,status_code,status`
-every 10 seconds for at most 10 minutes. `FINISHED` is ready; `IN_PROGRESS`
+every 10 seconds, subject to both a 10-minute per-resource ceiling and the
+Posting execution's **4-minute overall deadline**, whichever is earlier.
+The 4-minute budget includes staging, all child/parent polling and final-call
+admission; it is not restarted per image. Clip each request timeout/wait to
+the remaining budget. Persist a safe pre-final failure with retained resource
+IDs when the budget runs out; do not start a final call without remaining
+time and live unexpired authorization. Lease renewal does not extend this
+execution deadline. A possibly sent final request remains published/unknown,
+not retryable, even if its response arrives after the deadline. These are local
+execution limits, not newly verified provider timing guarantees.
+`FINISHED` is ready; `IN_PROGRESS`
 continues; `ERROR` or `EXPIRED` is a terminal pre-final failure; any unknown
 status, malformed response, or timeout is retryable only before the final
 marker and retains all resources. Poll response bodies are reduced to safe

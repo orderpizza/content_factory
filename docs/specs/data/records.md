@@ -1,8 +1,9 @@
 # SQLite Record Contract
 
-**Document role:** Tier 2 exact persistence contract for the current
-detection-to-dashboard implementation milestone.
-**Contract ID:** `detection_dashboard_schema_v1`.
+**Document role:** Tier 2 exact persistence router for detection v1 and the
+optional local workflow v2 scaffold and v3 detection safety extension.
+**Contract IDs:** `detection_dashboard_schema_v1`, `editorial_workflow_schema_v2`,
+`detection_safety_schema_v3`.
 **Owner:** SQLite schema, migrations, constraints, and persistence boundary
 tests. Read the [Data Model](../data-model.md) first for identity, lineage, and
 cross-record semantics.
@@ -11,15 +12,36 @@ The executable canonical DDL is
 [`detection-dashboard-schema-v1.sql`](../../contracts/detection-dashboard-schema-v1.sql).
 The application migration must execute those statements without maintaining a
 second handwritten table definition. Its recorded migration checksum is the
-SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` must equal `1` after the
-migration completes.
+SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` equals `1` after this
+migration and `2` after the optional forward workflow migration. Both applied
+SQL files/checksums remain immutable.
+
+Checkout execution reads the canonical SQL in `docs/contracts`. Distribution
+builds copy those exact bytes into `content_factory_resources/contracts`; an
+installed wheel loads that resource when no checkout contract exists. There is
+one editable DDL source, not a separate handwritten package schema. The installed
+wheel regression applies v1→v2→v3 outside the checkout and compares every checksum.
 
 This contract deliberately contains only the records needed to collect,
 evaluate, shortlist, and display trend opportunities. It remains immutable for
 existing v1 databases. The optional local workflow scaffold is a separately
 applied forward migration, [`editorial-workflow-schema-v2.sql`](../../contracts/editorial-workflow-schema-v2.sql);
 it preserves every v1 handoff and is never applied by dashboard or worker
-startup.
+startup. The optional [v3 safety migration](../../contracts/detection-safety-schema-v3.sql)
+then sets `user_version=3` without replacing either earlier migration or handoff.
+
+### V3 evidence extension
+
+`scout_frozen_evidence` stores one canonical, hashed source/health/report-day
+snapshot per evaluation. `source_execution_evidence` retains bounded normalized
+items and rejection diagnostics for each received response, including incomplete
+responses that must not contribute scoring observations. Raw response bodies are
+not stored. `scout_prominence_populations` stores each complete ranked population
+once per run/source kind; candidate breakdowns reference its run, kind, hash and
+size rather than copying the entire population into every candidate.
+All three tables reject updates, as do `trend_observations` after v3. Workers
+never rewrite prior contribution flags; they resolve contributors from frozen
+evaluation inputs. This extension is activated only by an explicit migration.
 
 ## Phase 1 extension boundary
 
@@ -34,8 +56,23 @@ The v2 human-idea command path supports both a new `ContentThread` and a
 continuation of an open thread. A continuation appends one `thread_messages`
 row and one pending `intake_requests` row atomically, rejects an active Intake
 request, and uses the command receipt for retry idempotency. The Intake worker
-freezes only the bounded conversation through that request's last-message
-marker; later replies cannot leak into its revision.
+freezes conversation through that request's last-message marker; later replies
+are excluded. Each human message is bounded; the canonical serialized conversation
+is limited to 32,000 characters without truncation. Oversize input becomes a
+visible `input_too_large` failure. Continuations require the displayed positive
+thread row version, with receipt lookup and version checks under one write lock.
+See [current implementation](../../current-state.md).
+
+V2 is not the production Data Model inventory: its JSON fields have syntactic
+validation rather than full production schemas, capabilities are local fixtures,
+and capacity/reuse, exact asset approval and provider delivery are incomplete.
+Local claims now recover expired no-model work within attempt limits, fence stale
+finalizers by owner/version/lease, and cancel downstream finalization when the
+parent thread is closed. Claims with model history or delivery risk fail closed
+for explicit recovery review. Placeholder approval is disabled, not production
+asset verification. Required future fields/states need forward migrations,
+not in-place changes to the scaffold SQL. The table groups and transition
+requirements below describe the v1 slice unless explicitly marked otherwise.
 Do not add future production fields to the applied detection migration or change
 its checksum. Preserve current thread/Intake handoffs. Optional X threads require
 a separate per-step publication schema and remain disabled until it is tested.
@@ -89,6 +126,9 @@ The explicit migration command must:
 4. commit only after `PRAGMA foreign_key_check` returns no rows.
 
 Application and dashboard startup must not call this command implicitly.
+Legacy `database.sqlite.Database.initialize` refuses any nonzero schema version
+before running legacy DDL. Versioned store constructors close their connection
+when validation fails; read-only file URIs encode filesystem path characters.
 
 ### Configuration activation
 
@@ -146,6 +186,13 @@ For one 15-minute UTC slot and active release:
    and
 5. if selected, atomically create one trend `content_threads` row and one
    pending `intake_requests` row before setting the candidate to `selected`.
+
+Freeze creation is fenced by running state, owner and claim version under a
+write transaction. A non-null input hash marks a completed freeze even when
+there are zero attempt rows. A retry reuses both that list and `input_frozen_at`
+for score windows/freshness; selection budget accounting uses the retry execution
+time. Contribution winners are resolved from the frozen set without rewriting
+observations; v3 additionally enforces evidence immutability in SQLite.
 
 The unique opportunity identity and unique `content_threads.seed_candidate_id`
 make restart/overlap idempotent. A candidate whose existing state is

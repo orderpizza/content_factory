@@ -9,6 +9,12 @@ cadence, claim behavior, startup/shutdown, or backlog handling. Read
 [the system guide](../system.md) first, then [the data model](data-model.md)
 and [reliability specification](reliability.md) for state and safety rules.
 
+**Current implementation:** only Collector/Scout one-shot scheduling and the
+read-only dashboard have current service templates. V2 editorial workers are
+local placeholders; production supervision, maintenance and storage gates below
+are target requirements. [Current operations](../current-state.md) owns the
+actual command/settings inventory and legacy warnings.
+
 ## Runtime model
 
 Content Factory is intended to run continuously on the Mac Mini. Components do
@@ -97,9 +103,22 @@ for scheduler isolation:
 `scripts/run_detection.py` runs the due collector pass and one Scout evaluation
 sequentially for local development only; it is not the unattended scheduler
 boundary. `scripts/setup_detection.py` is the only schema/configuration setup
-entrypoint and is always operator-invoked. Neither worker nor dashboard performs
+entrypoint for v1 detection setup and is always operator-invoked.
+`scripts/setup_workflow.py` separately applies the optional local v2 scaffold.
+`scripts/setup_scoring.py --database <exact-existing-path>` explicitly applies
+the optional v3 scoring safety extension and hybrid configuration release.
+Neither worker nor dashboard performs
 implicit migration. The corresponding `com.contentfactory.*.plist` templates
 must have their placeholder paths replaced during Mac Mini installation.
+Do not install `com.contentfactory.maintenance.plist` as current maintenance:
+it points at retired legacy retention, not `maintenance_v1`. Importing the
+cleanup utility is harmless; executing it now refuses without deletion.
+
+The local workflow scaffold recovers expired no-model claims within attempt
+limits, rejects expired/stale finalizers, records processing failures and checks
+thread cancellation under the finalization lock. Claims with model history or
+delivery risk fail closed. This is not the complete production retry/backoff,
+heartbeat, storage-admission and supervision envelope specified below.
 
 ## Eligibility, pickup, and “change detection”
 
@@ -158,14 +177,22 @@ written at start, after every operation, and on completion. The dashboard
 shows each operation's last result, age, counts, exact safe failure, next due
 time, and whether the shared storage gate is blocking new work.
 
-Until Storage Monitor has a current `normal` sample (not merely a heartbeat),
-new Gemini, source-collection, Pipeline Runner, Adaptation Worker, Visual Renderer, and Posting
-Agent claims are blocked. Dashboard reads, review decisions that do not create
-new delivery work, reconciliation reads, and safe cleanup remain available.
-The normal/warning/critical/emergency thresholds and recovery rule are owned by
+Storage admission uses the single action matrix in Reliability; a heartbeat is
+not a storage sample. A missing/stale sample fails closed for new business work;
+a current warning sample is not equivalent to missing storage evidence.
+The normal/warning/critical/emergency thresholds, action matrix and recovery rule are owned by
 [Reliability and safety](reliability.md#storage-backup-and-retention--storage_safety_v1).
 
 ## Initial lease and retry envelope — `worker_recovery_v1`
+
+For current installation reproducibility, `uv.lock` freezes resolved dependency
+versions and artifact hashes across supported markers; build tools are pinned in
+`pyproject.toml`. Use an isolated environment and `uv sync --locked --extra dev`,
+then the documented test/check commands. `--locked` rejects stale project metadata
+instead of silently changing the lock. The current repair verifies Windows and
+installed-package execution; actual Mac/launchd and production renderer/font
+acceptance remain separate rollout gates. See the official
+[uv locking documentation](https://docs.astral.sh/uv/concepts/projects/sync/).
 
 Every worker claims one item per poll in the POC. The following table is the
 single recovery envelope; it is configuration mirrored in persisted work at

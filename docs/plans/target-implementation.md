@@ -5,8 +5,11 @@
 truth; when this plan conflicts with one of them, the contract wins.
 
 **Plan status:** Active Phase 1 target plan, not implementation status.
+Actual completion, demo-only exceptions and legacy paths are recorded in
+[Current state](../current-state.md); genuine review and rollout items are in the
+[repository audit](../../audit_report.md).
 **Owner:** System architecture.
-**Created:** 2026-09-07. **Last reviewed:** 2026-09-08.
+**Created:** 2026-09-07. **Last reviewed:** 2026-09-10.
 **Current milestone contract:** `detection_dashboard_schema_v1` and the routed
 Detection, Dashboard, Configuration, Runtime, and Data Model contracts current
 at the review date. Later stages extend the database through forward migrations
@@ -23,7 +26,7 @@ behavior.
 | --- | --- | --- | --- |
 | 1. Detection state and configuration foundation | No prerequisite | Forward SQLite migrations for the configuration, source, collection, health, observation, evaluation, candidate, worker-health, seed-thread, and Intake-handoff records needed by the first slice; foreign keys, status validation, fenced claims, and a read-only reporting connection. | A fresh development database migrates deterministically; invalid FK/status/duplicate source schedule is rejected; two collectors cannot both finalize; the dashboard connection cannot write or migrate. |
 | 2. Source ingestion | Stage 1 | Activated source registry and one adapter at a time: NASA RSS, Wikimedia pageviews, YouTube US popular, then Hacker News; bounded collection, immutable observations/item events, quota accounting, and source health. | Recorded fixtures and adapter fakes prove provenance, completeness, canonical input handling, idempotent retry, typed degradation, and zero Gemini invocation. A local run produces inspectable observations in SQLite. |
-| 3. Scout evaluation and shortlist | Stages 1–2 | Frozen `ScoutEvaluationRun` inputs, deterministic clustering, `attention_v1`, candidate persistence, ranking, selection budget, recurrence, and selected `ContentThread` + `IntakeRequest` handoff. | The same fixtures always produce the same scores/order; every candidate is persisted before selection; budget/cooldown/material-evidence cases are deterministic; duplicate/restart cannot create a second seed thread or Intake handoff. |
+| 3. Scout evaluation and shortlist | Stages 1–2 | Frozen `ScoutEvaluationRun` inputs, deterministic clustering, approved hybrid `attention_v2` through explicit safety-v3/configuration rollout, candidate persistence, ranking, selection budget, recurrence, and selected `ContentThread` + `IntakeRequest` handoff. Preserve `attention_v1` for historical replay only. | The same fixtures always produce the same scores/order; every candidate is persisted before selection; budget/cooldown/material-evidence cases are deterministic; duplicate/restart cannot create a second seed thread or Intake handoff. |
 | 4. Detection dashboard | Stages 1–3 | Loopback service, read-only reporting model, Trend Opportunities landing page, source health/freshness, observation/evidence drill-down, score breakdown, shortlist status, filters, pagination, and worker state. | Running collection and Scout commands causes the browser feed to update from SQLite without a dashboard-triggered worker/API call; stale/error states are visible; browser refresh cannot mutate state. This completes the first observable milestone. |
 | 5. Freeze Phase 1 executable contracts | Stages 1–4 preserved | Multi-route/angle/brief schemas, domain extensions, canonical/output/adaptation records, separate domain/destination registries, capacity/reuse/identity constraints; reviewed forward migrations. Retire single-route draft consumers. | Positive/negative schema fixtures cover all five domains and zero/one/many jobs; SQL uniqueness permits multiple jobs/request and packages/canonical while rejecting duplicates. Existing detection v1 checksum and handoffs stay unchanged. |
 | 6. Intake and five-domain routing | Stage 5 | Human commands, route-neutral briefs/coverage, source/reference context, deterministic identity serialization, Gemini ledger, five explicit route assessments, distinct angles, skips/rejection/block/reuse, atomic fan-out. | Operator-labeled fixtures prove one domain, several domains, weak-domain skip, whole-trend reject, disabled/unbound cases, duplicate/uncertain-cost guards, and no mandatory five-way output. |
@@ -71,6 +74,26 @@ feed unless the first slice depends on their persisted boundary.
    acceptable routes/angles/skip rationales. Evaluate forced-route false
    positives, missed useful domains, source support, duplicate avoidance, and
    actual cost. Publication count alone does not prove the central experiment.
+
+## Audit-to-plan disposition
+
+On 2026-09-09 the user chose current-system repairs, retaining unbuilt production
+features here. These items are **not implemented** merely because legacy hazards
+are retired or local scaffold tests pass. The [audit history](../archive/audits/repository-audit-2026-09.md)
+preserves findings; the [active audit](../../audit_report.md) contains genuine
+review/rollout items, not this technical feature backlog.
+
+| Future work | Original findings | Dependency / acceptance |
+| --- | --- | --- |
+| Production identity, five-domain payloads, reservations, canonical reuse, consumption/cooldown/material-evidence recurrence | H10–H12, D7, D10 implementation | Versioned schemas and migration/identity fixtures before real workers. Placeholder identities are not production contracts. |
+| Model invocation/budget/capacity accounting and real Intake/Determination/domain generation | H12–H13; production part of H6 | Frozen releases/schemas, bounded fake-provider tests, then editorial/model-budget approval. |
+| Production supervision, lease renewal/backoff and admission | Production part of H6; M14 | Runtime/reliability envelope; no automatic repeats of unknown paid/public work. Local recovery/fencing is already tested. |
+| Real static adaptation, artifact promotion/quarantine and exact manifest/asset review | H8, H14 | Output/profile schemas and real visual/hash fixtures. HTML previews remain non-deliverable. |
+| Browser idea/review/rework/cancellation/Post now and full portfolio/lease/storage visibility | Future parts of H7, M7–M9 | Persisted commands, CSRF/version/receipt tests, independent exact destination approval. Current read-model/CLI repairs do not enable these. |
+| Delivery, uncertainty, cleanup and reconciliation | Replacements for C1, H15, M10 | New posting protocol, fake-provider boundary tests, provider verification and exact authorization; legacy remains retired. |
+| Backup/restore/storage admission and crash-safe retention | H16, M2 replacement, M11 replacement | Maintenance records/workers, evidence preservation and restore verification before unattended operation. Do not revive legacy cleanup. |
+| Mac deployment, font/profile and full production acceptance | Remaining deployment aspects of M13, M14, D12 | Locked Windows/package tests exist; actual Mac/launchd/provider/visual/load/restore acceptance remains a deployment gate. |
+| Optional optimizations or later migrations | M3 follow-on | Conditional feed cache/304 reuse and in-place historical normalization conversion are not prerequisites for the unconditional collector/separate-DB corrected experiment. No automatic identity rewrite. |
 
 ## Integration gates
 

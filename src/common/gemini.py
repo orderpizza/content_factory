@@ -44,37 +44,6 @@ class VertexGeminiClient:
             raise GeminiConfigurationError("GOOGLE_CLOUD_PROJECT must be configured for Vertex Gemini")
 
     def generate_json(self, prompt: str, schema: dict[str, Any], *, temperature: float = 0.2) -> dict[str, Any]:
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError as error:
-            raise GeminiConfigurationError(
-                "google-genai is not installed; install the project dependencies before using Gemini"
-            ) from error
-
-        client = genai.Client(vertexai=True, project=self.project, location=self.location)
-        response = client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                response_mime_type="application/json",
-                response_json_schema=schema,
-            ),
-        )
-        if not response.text:
-            raise RuntimeError("Vertex Gemini returned no JSON content")
-        try:
-            value = json.loads(response.text)
-        except json.JSONDecodeError as error:
-            raise RuntimeError("Vertex Gemini returned invalid JSON") from error
-        if not isinstance(value, dict):
-            raise RuntimeError("Vertex Gemini JSON response must be an object")
-        usage = response.usage_metadata
-        self.last_usage = GeminiUsage(
-            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
-            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
-            total_tokens=int(getattr(usage, "total_token_count", 0) or 0),
-            model=self.model,
-        )
-        return value
+        from common.legacy import refuse_legacy_operation
+        self.last_usage = None
+        refuse_legacy_operation("Legacy Gemini generation")

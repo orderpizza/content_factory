@@ -2,6 +2,9 @@
 
 ## Project Rules
 
+- The rules below define the target boundaries, not an implementation inventory.
+  Code/tests establish current behavior; `docs/current-state.md` maps implemented,
+  partial and legacy paths. Do not claim a planned safeguard already exists.
 - This is a local-first automated content-factory POC. Mac Mini is the primary
   runtime, SQLite is the POC state store, and GCP is used for Vertex Gemini.
 - Preserve persisted SQLite handoffs. Do not introduce direct module-to-module
@@ -26,7 +29,7 @@
 - Posting never generates or changes captions, tags, hashtags, or visual
   content. Public delivery requires the human-review and explicit
   delivery-authorization boundary defined by the Tier 2 contracts.
-- The dashboard is the Human–Agent Interface: it persists human idea, review,
+- The target dashboard is the Human–Agent Interface: it persists human idea, review,
   and explicit delivery-authorization records, including **Post now**. It never
   invokes a worker or external API directly.
 - Keep secrets out of the repository. Isolate external API access behind small
@@ -34,8 +37,8 @@
 
 ## How To Start Work
 
-1. Read `docs/system.md` first. It is the primary Human–Agent Interface and
-   current narrative source of truth.
+1. Read `docs/system.md` first for the target architecture/router, then
+   `docs/current-state.md` for actual implementation and safe operations.
 2. Use the **Required reading for a code change** matrix in `docs/system.md`.
    Read every Tier 2 document named for the planned change before editing code.
 3. Read the relevant pipeline or platform reference only when its detail is
@@ -59,3 +62,7 @@
   duplicate it. Preserve the historical decision archive without using it as a
   routine change log.
 - Do not modify unrelated dirty-worktree files.
+- Never run legacy publishing, paid smoke tests, or retention as routine checks.
+  V1/v2 workers use `database.migrations`; `database.sqlite` is incompatible legacy.
+- Update `docs/current-state.md` when implemented capabilities or entrypoints
+  change; keep future requirements in their focused specifications.

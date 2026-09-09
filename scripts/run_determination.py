@@ -11,6 +11,8 @@ from determination.service import DeterminationService, GeminiCandidateEvaluator
 
 
 def main() -> None:
+    from common.legacy import refuse_legacy_operation
+    refuse_legacy_operation("run_determination.py")
     database = Database(os.getenv("CONTENT_FACTORY_DB_PATH", "data/content.db"))
     database.initialize()
     try:

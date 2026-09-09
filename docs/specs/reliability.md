@@ -63,6 +63,9 @@ safe to retry; it becomes `publication_unknown`.
 
 ### Idempotency guards at claim boundaries
 
+These are target guarantees. The [current-state map](../current-state.md)
+and [audit](../../audit_report.md) identify incomplete guards in both code families.
+
 Every worker checks whether its durable output already exists before performing
 claim-bound work. The exact guard queries are listed in the data model's
 uniqueness constraints.
@@ -70,13 +73,16 @@ uniqueness constraints.
 - Pipeline Runner checks whether `CanonicalContent` already exists for the
   claimed `job_id` before domain generation.
 - Determination Worker checks whether `DeterminationDecision` already exists
-  for the claimed handoff before evaluation.
+  for the claimed DeterminationRequest before evaluation and returns the exact
+  existing decision/routes/job lineage.
 - Adaptation Worker checks whether `ContentPackage` already exists for the
   claimed `OutputRequest` before adaptation.
-- Visual Renderer checks whether each individual asset file already exists on
-  disk before re-rendering its slide or card.
-- Posting Agent relies on its existing duplicate check: the unique constraint
-  on content/platform/account.
+- Visual Renderer reuses only a verified immutable run/manifest/asset result;
+  path existence alone is insufficient. Uncommitted promoted artifacts follow
+  the quarantine/reconciliation protocol below.
+- Posting Agent checks exact publication identity, authorization and retained
+  confirmed/uncertain history. A package/platform/account key alone is insufficient
+  to authorize another final request.
 
 An existing output is a successful idempotent outcome, not a reason to repeat
 generation, adaptation, rendering, or publication.
@@ -222,12 +228,36 @@ adds a deletion timestamp/reason to the artifact record. Cleanup never removes
 credentials, audit evidence, pending-review bytes, or a possibly published
 delivery input merely to reclaim space.
 
+### Storage action matrix
+
+This matrix is the sole owner of admission by storage state. A current sample
+is at most 10 minutes old. Read-only inspection remains available in every
+state; a degraded storage condition never authorizes deleting audit history.
+
+| Action | Normal | Warning | Critical | Emergency or missing/stale sample |
+| --- | --- | --- | --- | --- |
+| Dashboard and audit reads | Allow | Allow | Allow | Allow |
+| New Collector/Scout claims | Allow | Allow | Block | Block |
+| New Intake/Determination model claims | Allow | Block | Block | Block |
+| New generation/adaptation/render claims | Allow | Block | Block | Block |
+| New Post now authorization or delivery claim | Allow | Allow with exact existing approved assets | Block | Block |
+| Human new idea/rework commands | Allow | Allow (processing may wait) | Block | Block |
+| Non-work-creating rejection/cancellation and read-only reconciliation | Allow | Allow | Allow if audit write succeeds | Reads only; no command without durable audit |
+| Audited safe cleanup/backup | Allow | Allow | Allow | No unaudited deletion; resume only when its durable audit can be written |
+
+Already-started work must preserve its outcome when possible; especially a
+possibly sent publication can only finish published/unknown, never become a
+safe retry because storage degraded. These are target admission rules, not a
+claim that the current scaffold implements a Storage Monitor.
+
 The Storage Monitor samples available space and database/WAL/artifact/backup
 sizes every five minutes. Normal operation requires both at least 15 percent
 free space and 10 GiB free. Below either threshold it enters `storage_warning`
 and blocks new Pipeline Runner, Adaptation Worker, and Visual Renderer claims while preserving
-dashboard, review, posting, reconciliation, and cleanup. Below 8 percent or 5
-GiB it also pauses new Trend Scout collections and performs only safe cleanup;
+dashboard, non-model review commands, posting, reconciliation, and cleanup;
+new Intake/Determination model claims are blocked as shown above. Below 8 percent or 5
+GiB it also pauses new Collector/Scout and delivery claims and allows only the
+read/non-work-creating/safe-cleanup actions in the matrix;
 existing delivery audit remains readable. Below 3 percent or 1 GiB it enters
 read-only emergency mode: it takes no new external/model/generation/delivery
 claim and the dashboard disables commands that would create work, while still

@@ -11,11 +11,35 @@ policy. Read [the system guide](../system.md) first, then [the data model](data-
 
 The current milestone manifest is
 [`config/releases/detection-dashboard-v1.json`](../../config/releases/detection-dashboard-v1.json)
-and is validated by
+and its intended shape is defined by
 [`configuration_manifest_v1`](../contracts/configuration-manifest-v1.schema.json).
 That schema intentionally admits only the detection section required by the
 current milestone. Later domain sections require a new schema version before
 their release is activated; an unvalidated free-form component is forbidden.
+Current activation uses the explicit validator in `src/detection/configuration.py`,
+not a general JSON Schema runtime. V2 fixture capabilities are a separate local
+demo exception, not an activated production domain/output configuration release.
+
+The optional [hybrid release](../../config/releases/detection-hybrid-v2.json) uses
+[`configuration_manifest_v2`](../contracts/configuration-manifest-v2.schema.json)
+and `attention_v2`, requiring the explicit v3 safety migration. V1 remains
+unchanged for historical operation/replay. Compatible logical source IDs and
+identical source fingerprints retain scoring history; quota reservations are
+counted across releases by logical source ID regardless of fingerprint changes.
+Activation checks and writes are serialized. Fixture registration is immutable,
+idempotent for identical input, and limited to the active release; reactivation
+does not silently carry old fixture capabilities into a new release.
+
+The [normalized release](../../config/releases/detection-normalized-v3.json) uses
+[`configuration_manifest_v3`](../contracts/configuration-manifest-v3.schema.json):
+hybrid `attention_v2` with corrected `canonicalization_v2`. It requires database
+schema v3, not a new SQL migration. Activation rejects any database with a prior
+validated release using another normalization version, in either direction.
+Use `setup_normalized_detection.py --database <new-path>` to create an isolated
+development database explicitly. Existing data/identities are never merged,
+renamed, reset or copied into that experiment automatically. In-place historical
+identity conversion is outside this repair; choose the rollout before switching
+workers. Compatible same-normalization releases still share history normally.
 
 ## Purpose and boundary
 
@@ -37,6 +61,11 @@ wins, so launchd or an operator can override the file without editing it. The
 loader accepts literal `KEY=VALUE` records only, performs no interpolation or
 command expansion, and never logs values. A malformed file fails startup with
 its line number but without echoing secret content.
+This is implemented by versioned setup/detection/reporting and v2 demo commands;
+legacy entrypoints do not uniformly use it. Explicit CLI paths override defaults.
+`run_workflow.py` honors `CONTENT_FACTORY_ARTIFACT_ROOT` unless `--artifacts`
+is supplied. Reporting-only settings and legacy environment names are cataloged
+in [Current state](../current-state.md#configuration-actually-consumed).
 
 The root [`.env.example`](../../.env.example) is the current implementation template
 for this boundary. `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` compose

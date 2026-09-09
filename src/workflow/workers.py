@@ -11,8 +11,29 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 import json
+from functools import wraps
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
+
+
+def local_operation(table: str, key: str):
+    """Persist an explicit local failure; never retry an unknown external call."""
+    def decorate(function):
+        @wraps(function)
+        def execute(self, row):
+            try:
+                return function(self, row)
+            except Exception as error:
+                # Exception bodies may contain operator text or secrets.
+                reason = "input_too_large" if isinstance(error, ValueError) and str(error).startswith("input_too_large:") else f"local operation failed ({type(error).__name__})"
+                try:
+                    self.store.fail_claim(table, key, row, reason)
+                except RuntimeError:
+                    # A stale owner must neither finalize nor overwrite its successor.
+                    pass
+                return None
+        return execute
+    return decorate
 
 
 class IdeaIntakeWorker:
@@ -23,6 +44,10 @@ class IdeaIntakeWorker:
         request = self.store.claim("intake_requests", "intake_request_id", self.instance_id)
         if request is None:
             return None
+        return self._process(request)
+
+    @local_operation("intake_requests", "intake_request_id")
+    def _process(self, request):
         context = json.loads(request["context_json"])
         if context.get("kind") == "human_conversation":
             snapshot = self.store.conversation_snapshot(
@@ -61,10 +86,7 @@ class IdeaIntakeWorker:
                     "open_questions": [],
                 }
         else:
-            candidate = self.store.connection.execute("SELECT canonical_subject,score FROM trend_candidates WHERE trend_candidate_id=?", (request["source_candidate_id"],)).fetchone()
-            if candidate is None:
-                self.store.fail_claim("intake_requests", "intake_request_id", request, "missing frozen trend candidate")
-                return None
+            candidate = self.store.trend_snapshot(request)["topic_snapshot"]
             topic = candidate["canonical_subject"]
             brief = {
                 "editorial_goal": f"Explain {topic} accurately and usefully.", "topic": topic,
@@ -84,6 +106,10 @@ class DeterminationWorker:
         request = self.store.claim("determination_requests", "determination_request_id", self.instance_id)
         if request is None:
             return None
+        return self._process(request)
+
+    @local_operation("determination_requests", "determination_request_id")
+    def _process(self, request):
         snapshot = json.loads(request["input_snapshot_json"]); catalog = snapshot["catalog"]
         routes: list[dict[str, Any]] = []
         selected = False
@@ -111,6 +137,10 @@ class PipelineRunner:
     def run_once(self) -> int | None:
         run = self.store.claim("generation_runs", "generation_run_id", self.instance_id)
         if run is None: return None
+        return self._process(run)
+
+    @local_operation("generation_runs", "generation_run_id")
+    def _process(self, run):
         job = self.store.connection.execute("SELECT recipe_json FROM content_jobs WHERE content_job_id=?", (run["content_job_id"],)).fetchone()
         recipe=json.loads(job[0]); brief=recipe["brief"]
         canonical={"schema_version":"canonical_content_v1","hook":brief["topic"],"context":brief["source_context"],"key_points":[recipe["angle"]["thesis"]],"examples":[],"takeaway":brief["desired_outcome"],"claims":[],"pipeline_id":recipe["pipeline_id"],"domain_payload":{"placeholder":True}}
@@ -124,6 +154,10 @@ class AdaptationWorker:
     def run_once(self) -> int | None:
         run=self.store.claim("adaptation_runs","adaptation_run_id",self.instance_id)
         if run is None: return None
+        return self._process(run)
+
+    @local_operation("adaptation_runs", "adaptation_run_id")
+    def _process(self, run):
         output=self.store.connection.execute("SELECT o.*,c.canonical_json FROM output_requests o JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE o.output_request_id=?",(run["output_request_id"],)).fetchone()
         content=json.loads(output["canonical_json"])
         package={"platform":output["platform"],"account":output["account"],"format":output["content_format"],"caption":content["hook"],"hashtags":[],"alt_text":content["context"],"claim_mappings":[],"visual_spec":{"profile":"placeholder_static_v1","cards":[{"text":content["hook"]}]},"placeholder":True}
@@ -137,9 +171,14 @@ class VisualRenderer:
     def run_once(self) -> int | None:
         run=self.store.claim("render_runs","render_run_id",self.instance_id)
         if run is None:return None
+        return self._process(run)
+
+    @local_operation("render_runs", "render_run_id")
+    def _process(self, run):
         package=self.store.connection.execute("SELECT package_json FROM content_packages WHERE content_package_id=?",(run["content_package_id"],)).fetchone()
         body=json.loads(package[0]); destination=self.artifact_root / f"render-{run['render_run_id']}"
-        destination.mkdir(parents=True,exist_ok=True); path=destination / "preview.html"
+        destination = destination.resolve()
+        destination.mkdir(parents=True,exist_ok=False); path=destination / "preview.html"
         safe=body["caption"].replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
         path.write_text(f"<!doctype html><meta charset='utf-8'><main>{safe}</main>",encoding="utf-8")
         data=path.read_bytes(); asset={"role":"preview_html","path":str(path),"mime":"text/html","width":1,"height":1,"bytes":len(data),"sha256":sha256(data).hexdigest()}

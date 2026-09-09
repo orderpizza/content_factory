@@ -103,6 +103,8 @@ def create_handoff(database: Database) -> int:
 
 
 async def run(args: argparse.Namespace) -> None:
+    from common.legacy import refuse_legacy_operation
+    refuse_legacy_operation("Legacy O2 paid/public smoke test")
     if args.database.exists():
         raise FileExistsError(
             f"Smoke-test database already exists: {args.database}. Choose --database with a new path; it is never overwritten."

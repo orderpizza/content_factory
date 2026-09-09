@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from common.environment import load_environment_file
 from database.migrations import SchemaError
 from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualRenderer, WorkflowStore
 
@@ -20,9 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))
-    parser.add_argument("--artifacts", default=str(ROOT / "data" / "artifacts"))
+    parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
     args = parser.parse_args()
     try:
         with WorkflowStore(args.database) as store:
@@ -32,7 +34,7 @@ def main() -> None:
             )
             for worker in workers:
                 result = worker.run_once()
-                print(f"{worker.__class__.__name__}: {'idle' if result is None else result}")
+                print(f"{worker.__class__.__name__}: {'no output (idle, clarification, cancellation or failure; see dashboard)' if result is None else result}")
     except SchemaError as error:
         raise SystemExit(f"Workflow worker refused: {error}")
 

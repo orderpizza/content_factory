@@ -11,6 +11,7 @@ from typing import Any
 import json
 import socket
 import sqlite3
+from common.diagnostics import safe_diagnostic
 
 from .configuration import canonical_json
 from .store import DetectionStore, utc_now
@@ -85,8 +86,13 @@ class DetectionScout:
             claim_type="scout_evaluation_run", claim_id=run_id,
         )
         try:
-            attempt_ids = self._freeze_inputs(run_id, release_id, frozen_at)
-            result = self._evaluate(run_id, release_id, manifest, frozen_at, attempt_ids)
+            attempt_ids = self._freeze_inputs(run_id, release_id, frozen_at, claim_version)
+            evaluation_time = _parse_time(self.store.connection.execute(
+                "SELECT input_frozen_at FROM scout_evaluation_runs WHERE scout_evaluation_run_id=?",
+                (run_id,),
+            ).fetchone()["input_frozen_at"])
+            result = self._evaluate(run_id, release_id, manifest, evaluation_time, attempt_ids)
+            # Selection budgets use this execution's time, not the older input clock.
             self._finalize(run_id, claim_version, result, manifest, frozen_at)
             summary = f"{result['candidate_count']} candidate(s), {result['selected_count']} selected"
             self.store.finish_worker_run(worker_run_id, "completed", summary=summary)
@@ -96,7 +102,7 @@ class DetectionScout:
             }
             return {"run_id": run_id, "status": "completed", **public_result}
         except Exception as error:
-            detail = f"{type(error).__name__}: {error}"[:2000]
+            detail = f"unexpected Scout error ({type(error).__name__})"
             self._fail(run_id, claim_version, detail)
             self.store.finish_worker_run(worker_run_id, "failed", error=detail)
             self.store.heartbeat(self.WORKER_TYPE, self.instance_id, "failed", detail)
@@ -184,21 +190,40 @@ class DetectionScout:
             return version
 
     def _freeze_inputs(
-        self, run_id: int, release_id: int, frozen_at: datetime
+        self, run_id: int, release_id: int, frozen_at: datetime, claim_version: int
     ) -> list[int]:
-        existing = self.store.connection.execute(
-            "SELECT source_collection_attempt_id FROM scout_evaluation_attempts "
-            "WHERE scout_evaluation_run_id=? ORDER BY scout_evaluation_attempt_id",
-            (run_id,),
-        ).fetchall()
-        if existing:
-            return [int(row["source_collection_attempt_id"]) for row in existing]
-
         current_start = frozen_at - timedelta(hours=24)
         baseline_start = current_start - timedelta(days=14)
         frozen_description: list[dict[str, Any]] = []
         attempt_ids: list[int] = []
         with self.store.connection:
+            # Acquire the write lock and validate ownership before reading/writing
+            # the freeze boundary. A completed empty input still has an input_hash.
+            claimed = self.store.connection.execute(
+                "UPDATE scout_evaluation_runs "
+                "SET input_frozen_at=COALESCE(input_frozen_at,?) "
+                "WHERE scout_evaluation_run_id=? AND configuration_release_id=? "
+                "AND status='running' AND claim_owner=? AND claim_version=?",
+                (frozen_at.isoformat(), run_id, release_id, self.instance_id, claim_version),
+            )
+            if claimed.rowcount != 1:
+                raise RuntimeError("Scout claim was lost before freezing inputs")
+            frozen = self.store.connection.execute(
+                "SELECT input_hash FROM scout_evaluation_runs WHERE scout_evaluation_run_id=?",
+                (run_id,),
+            ).fetchone()
+            if frozen["input_hash"] is not None:
+                return [int(row["source_collection_attempt_id"]) for row in self.store.connection.execute(
+                    "SELECT source_collection_attempt_id FROM scout_evaluation_attempts "
+                    "WHERE scout_evaluation_run_id=? ORDER BY scout_evaluation_attempt_id",
+                    (run_id,),
+                )]
+            release_manifest = json.loads(self.store.connection.execute(
+                "SELECT manifest_json FROM configuration_releases WHERE configuration_release_id=?", (release_id,)
+            ).fetchone()[0])
+            if release_manifest["components"]["detection"]["score_formula_version"] == "attention_v2":
+                from .hybrid import freeze
+                return freeze(self.store.connection, run_id, release_id, frozen_at)
             sources = self.store.connection.execute(
                 "SELECT * FROM detection_source_instances "
                 "WHERE configuration_release_id=? AND enabled=1 ORDER BY stable_id",
@@ -258,8 +283,9 @@ class DetectionScout:
             input_hash = sha256(input_json.encode("utf-8")).hexdigest()
             self.store.connection.execute(
                 "UPDATE scout_evaluation_runs SET input_frozen_at=?, input_hash=? "
-                "WHERE scout_evaluation_run_id=? AND status='running'",
-                (frozen_at.isoformat(), input_hash, run_id),
+                "WHERE scout_evaluation_run_id=? AND status='running' "
+                "AND claim_owner=? AND claim_version=?",
+                (frozen_at.isoformat(), input_hash, run_id, self.instance_id, claim_version),
             )
         return attempt_ids
 
@@ -293,6 +319,9 @@ class DetectionScout:
         frozen_at: datetime,
         attempt_ids: list[int],
     ) -> dict[str, Any]:
+        if manifest["components"]["detection"]["score_formula_version"] == "attention_v2":
+            from .hybrid import evaluate
+            return evaluate(self.store.connection, run_id, release_id, manifest)
         if not attempt_ids:
             return {"candidate_count": 0, "selected_count": 0, "candidates": []}
         placeholders = ",".join("?" for _ in attempt_ids)
@@ -306,6 +335,19 @@ class DetectionScout:
             f"ORDER BY o.effective_observed_at, o.trend_observation_id",
             tuple(attempt_ids),
         ).fetchall()
+        # Never trust a mutable/global collection-time contributor flag for
+        # replay. Resolve the documented winner using only these frozen rows.
+        observations = [dict(row) for row in observations]
+        winners = {}
+        for row in observations:
+            item = (row["canonical_url"] or row["canonical_key"]) if row["source_kind"] == "publisher_feed_collector_v1" else row["source_item_key"]
+            group = (row["independence_group"], row["window_start"], row["window_end"], item)
+            pair = (row["source_instance_id"], row["source_item_key"])
+            winners[group] = min(winners.get(group, pair), pair)
+        for row in observations:
+            item = (row["canonical_url"] or row["canonical_key"]) if row["source_kind"] == "publisher_feed_collector_v1" else row["source_item_key"]
+            group = (row["independence_group"], row["window_start"], row["window_end"], item)
+            row["activity_contributor"] = int((row["source_instance_id"], row["source_item_key"]) == winners[group])
         aliases = {
             row["alias_key"]: row["target_cluster_key"]
             for row in self.store.connection.execute(
@@ -510,12 +552,20 @@ class DetectionScout:
         frozen_at: datetime,
     ) -> None:
         policy = manifest["components"]["detection"]["shortlist"]
+        formula_version = manifest["components"]["detection"]["score_formula_version"]
+        normalization_version = manifest["components"]["detection"]["canonicalization_version"]
         six_hours = (frozen_at - timedelta(hours=6)).isoformat()
         day = (frozen_at - timedelta(hours=24)).isoformat()
         deferred_stale_before = (
             frozen_at - timedelta(hours=policy["deferred_fresh_hours"])
         ).isoformat()
         with self.store.connection:
+            for kind, population in result.get("prominence_populations", {}).items():
+                encoded_population = canonical_json(population)
+                self.store.connection.execute(
+                    "INSERT INTO scout_prominence_populations(scout_evaluation_run_id,source_kind,population_json,population_hash,created_at) VALUES (?,?,?,?,?)",
+                    (run_id, kind, encoded_population, sha256(encoded_population.encode()).hexdigest(), frozen_at.isoformat()),
+                )
             self.store.connection.execute(
                 "UPDATE trend_candidates SET eligibility_status='deferred_stale', "
                 "eligibility_reason='deferred_evidence_older_than_policy_window', "
@@ -541,7 +591,7 @@ class DetectionScout:
                         run_id, candidate["cluster_key"], candidate["opportunity_identity"],
                         candidate["canonical_subject"], candidate["score"],
                         canonical_json(candidate["breakdown"]), candidate["evidence_json"],
-                        candidate["evidence_fingerprint"], "attention_v1", "canonicalization_v1",
+                        candidate["evidence_fingerprint"], formula_version, normalization_version,
                         frozen_at.isoformat(),
                     ),
                 )
@@ -562,15 +612,15 @@ class DetectionScout:
                     self.store.connection.execute(
                         "UPDATE trend_candidates SET cluster_key=?, canonical_subject=?, "
                         "latest_topic_snapshot_id=?, latest_evidence_fingerprint=?, score=?, "
-                        "score_breakdown_json=?, score_formula_version='attention_v1', "
-                        "canonicalization_version='canonicalization_v1', eligibility_status=?, "
+                        "score_breakdown_json=?, score_formula_version=?, "
+                        "canonicalization_version=?, eligibility_status=?, "
                         "eligibility_reason=?, rank=?, last_seen_at=?, updated_at=? "
                         "WHERE trend_candidate_id=?",
                         (
                             candidate["cluster_key"], candidate["canonical_subject"], snapshot_id,
                             candidate["evidence_fingerprint"], candidate["score"],
-                            canonical_json(candidate["breakdown"]), desired_status, reason, rank,
-                            frozen_at.isoformat(), frozen_at.isoformat(), existing["trend_candidate_id"],
+                            canonical_json(candidate["breakdown"]), formula_version, normalization_version, desired_status, reason, rank,
+                            candidate.get("last_seen_at", frozen_at.isoformat()), frozen_at.isoformat(), existing["trend_candidate_id"],
                         ),
                     )
                     candidate_id = int(existing["trend_candidate_id"])
@@ -585,9 +635,9 @@ class DetectionScout:
                         (
                             candidate["opportunity_identity"], candidate["cluster_key"],
                             candidate["canonical_subject"], snapshot_id, candidate["evidence_fingerprint"],
-                            candidate["score"], canonical_json(candidate["breakdown"]), "attention_v1",
-                            "canonicalization_v1", desired_status, reason, rank, frozen_at.isoformat(),
-                            frozen_at.isoformat(), frozen_at.isoformat(), frozen_at.isoformat(),
+                            candidate["score"], canonical_json(candidate["breakdown"]), formula_version,
+                            normalization_version, desired_status, reason, rank, frozen_at.isoformat(),
+                            candidate.get("last_seen_at", frozen_at.isoformat()), frozen_at.isoformat(), frozen_at.isoformat(),
                         ),
                     )
                     candidate_id = int(cursor.lastrowid)
@@ -598,9 +648,12 @@ class DetectionScout:
                         "contribution, snapshot_json, created_at) VALUES (?,?,?,?,?,?,?)",
                         (
                             candidate_id, snapshot_id, member["trend_observation_id"], ordinal,
-                            float(member["activity"]), canonical_json({
+                            float(member["activity"]) if member["activity_contributor"] and member["trend_observation_id"] not in candidate["breakdown"].get("excluded_observation_ids", []) else 0.0, canonical_json({
                                 "source": member["stable_id"], "activity": member["activity"],
                                 "rank": member["rank"], "title": member["title"],
+                                "source_item_key": member["source_item_key"], "canonical_url": member["canonical_url"],
+                                "effective_observed_at": member["effective_observed_at"], "collected_at": member["collected_at"],
+                                "window_start": member["window_start"], "window_end": member["window_end"],
                             }), frozen_at.isoformat(),
                         ),
                     )
@@ -659,6 +712,7 @@ class DetectionScout:
                 raise RuntimeError("Scout claim was lost before finalization")
 
     def _fail(self, run_id: int, claim_version: int, detail: str) -> None:
+        detail = safe_diagnostic(detail)
         row = self.store.connection.execute(
             "SELECT attempt_count, attempt_limit FROM scout_evaluation_runs "
             "WHERE scout_evaluation_run_id=?",

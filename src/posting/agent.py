@@ -157,15 +157,9 @@ class BlueskyPublisher:
         self.service_url = service_url.rstrip("/")
 
     def publish(self, text: str) -> str:
-        session = self._request("com.atproto.server.createSession", {"identifier": self.handle, "password": self.app_password})
-        record = {"$type": "app.bsky.feed.post", "text": text, "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
-        response = self._request("com.atproto.repo.createRecord", {"repo": session["did"], "collection": "app.bsky.feed.post", "record": record}, session["accessJwt"])
-        return response["uri"]
+        from common.legacy import refuse_legacy_operation
+        refuse_legacy_operation("Bluesky publishing")
 
     def _request(self, endpoint: str, payload: dict, token: str | None = None) -> dict:
-        headers = {"Content-Type": "application/json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        request = Request(f"{self.service_url}/xrpc/{endpoint}", data=json.dumps(payload).encode(), headers=headers, method="POST")
-        with urlopen(request, timeout=20) as response:
-            return json.load(response)
+        from common.legacy import refuse_legacy_operation
+        refuse_legacy_operation("Bluesky provider access")

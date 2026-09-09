@@ -2,19 +2,25 @@
 
 This directory contains executable boundary contracts. JSON documents use
 JSON Schema Draft 2020-12; SQL documents are canonical migration inputs routed
-by the SQLite record contract. A producer validates JSON before it persists a
-`*_json` field and a consumer validates again before use. Contract IDs and
+by the SQLite record contract. Production producers must validate JSON before
+persistence and consumers must validate again before use. This is a target
+requirement: current v2 placeholder payloads use JSON syntax checks and ad-hoc
+validation, not complete production schemas. Contract IDs and
 applied SQL checksums are immutable: a breaking change creates a new
 ID/version or forward migration rather than editing a deployed contract.
 
-No schema permits credentials, authorization headers, signed URLs, raw
-provider responses, or arbitrary unbounded opaque fields.
+Production contracts must reject credentials, authorization headers, signed URLs,
+raw provider responses and unbounded opaque fields. SQL JSON validity checks
+alone cannot enforce that policy; a shared semantic/redaction boundary is still needed.
 
 | Artifact | Narrative owner | Scope |
 | --- | --- | --- |
 | `detection-dashboard-schema-v1.sql` | `docs/specs/data/records.md` | Exact first-milestone SQLite schema. |
 | `editorial-workflow-schema-v2.sql` | `docs/specs/data/records.md` | Explicit v1→v2 local workflow scaffold; placeholder integrations only. |
+| `detection-safety-schema-v3.sql` | `docs/specs/data/records.md` | Explicit v2→v3 immutable scoring/partial-response evidence; preserves editorial handoffs. |
 | `configuration-manifest-v1.schema.json` | `docs/specs/configuration.md` | Non-secret release manifest. |
+| `configuration-manifest-v2.schema.json` | `docs/specs/configuration.md` | Non-secret hybrid `attention_v2` release; requires database v3. |
+| `configuration-manifest-v3.schema.json` | `docs/specs/configuration.md` | Hybrid scoring with corrected normalization; separate-database activation only. |
 | `brief-v1`, `determination-result-v1`, `recipe-v1`, `o2-creative-v1`, `visual-spec-v1` schemas | Their retained historical owner | Superseded, unimplemented drafts; do not use for Phase 1 production. |
 | Remaining `*.schema.json` files | Their `x-owner` field | Draft later-stage boundaries; check Phase 1 conformance before adoption. |
 

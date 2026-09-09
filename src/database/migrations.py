@@ -6,15 +6,19 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
+from content_factory_resources import contract_path
 
 
 DETECTION_SCHEMA_VERSION = 1
 SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
+SAFETY_MIGRATION_NAME = "detection_safety_schema_v3"
 MIGRATION_NAME = "detection_dashboard_schema_v1"
 EDITORIAL_MIGRATION_NAME = "editorial_workflow_schema_v2"
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT_PATH = ROOT / "docs" / "contracts" / "detection-dashboard-schema-v1.sql"
-EDITORIAL_CONTRACT_PATH = ROOT / "docs" / "contracts" / "editorial-workflow-schema-v2.sql"
+CONTRACT_PATH = contract_path("detection-dashboard-schema-v1.sql")
+EDITORIAL_CONTRACT_PATH = contract_path("editorial-workflow-schema-v2.sql")
+SAFETY_CONTRACT_PATH = contract_path("detection-safety-schema-v3.sql")
 
 
 class SchemaError(RuntimeError):
@@ -37,7 +41,7 @@ def connect(path: str | Path, *, read_only: bool = False) -> sqlite3.Connection:
     database_path = Path(path).resolve()
     if read_only:
         connection = sqlite3.connect(
-            f"file:{database_path.as_posix()}?mode=ro",
+            f"{database_path.as_uri()}?mode=ro",
             uri=True,
             timeout=5,
         )
@@ -119,7 +123,7 @@ def migrate_editorial_workflow(path: str | Path) -> bool:
     connection = connect(database_path)
     try:
         version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if version == SCHEMA_VERSION:
+        if version in (SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
             validate_editorial_workflow(connection)
             return False
         if version != DETECTION_SCHEMA_VERSION:
@@ -150,22 +154,53 @@ def migrate_editorial_workflow(path: str | Path) -> bool:
         connection.close()
 
 
-def validate_detection_dashboard(connection: sqlite3.Connection) -> None:
+def migrate_detection_safety(path: str | Path) -> bool:
+    """Explicit forward migration from a validated v2 database; never reset."""
+    database_path = Path(path).resolve()
+    if not database_path.is_file():
+        raise SchemaError("Safety migration requires an existing v2 database.")
+    connection = connect(database_path)
+    try:
+        validate_editorial_workflow(connection)
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) == LATEST_SCHEMA_VERSION:
+            return False
+        sql = SAFETY_CONTRACT_PATH.read_bytes()
+        checksum = sha256(sql).hexdigest()
+        moment = datetime.now(timezone.utc).isoformat()
+        try:
+            connection.executescript("BEGIN EXCLUSIVE;\n" + sql.decode("utf-8"))
+            connection.execute("INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES (?,?,?,?)", (3, SAFETY_MIGRATION_NAME, checksum, moment))
+            if connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise SchemaError("Safety migration foreign-key check failed")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        validate_detection_dashboard(connection)
+        return True
+    finally:
+        connection.close()
+
+
+def validate_detection_dashboard(connection: sqlite3.Connection, *, check_foreign_keys: bool = True) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version not in (DETECTION_SCHEMA_VERSION, SCHEMA_VERSION):
+    if version not in (DETECTION_SCHEMA_VERSION, SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
         raise SchemaError(
-            f"Database schema version is {version}; expected 1 or {SCHEMA_VERSION}. "
+            f"Database schema version is {version}; expected 1, 2 or {LATEST_SCHEMA_VERSION}. "
             "Run the explicit setup command."
         )
     try:
         _validate_migration(connection, DETECTION_SCHEMA_VERSION, MIGRATION_NAME, contract_checksum())
     except sqlite3.Error as error:
         raise SchemaError("Database does not contain the required migration ledger.") from error
-    if version == SCHEMA_VERSION:
+    if version >= SCHEMA_VERSION:
         _validate_migration(connection, SCHEMA_VERSION, EDITORIAL_MIGRATION_NAME, editorial_contract_checksum())
-    violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-    if violations:
-        raise SchemaError(f"Database foreign-key check failed: {len(violations)} violation(s).")
+    if version == LATEST_SCHEMA_VERSION:
+        _validate_migration(connection, 3, SAFETY_MIGRATION_NAME, sha256(SAFETY_CONTRACT_PATH.read_bytes()).hexdigest())
+    if check_foreign_keys:
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise SchemaError(f"Database foreign-key check failed: {len(violations)} violation(s).")
 
 
 def _validate_migration(connection: sqlite3.Connection, version: int, name: str, checksum: str) -> None:
@@ -179,6 +214,6 @@ def _validate_migration(connection: sqlite3.Connection, version: int, name: str,
 
 
 def validate_editorial_workflow(connection: sqlite3.Connection) -> None:
-    if int(connection.execute("PRAGMA user_version").fetchone()[0]) != SCHEMA_VERSION:
+    if int(connection.execute("PRAGMA user_version").fetchone()[0]) not in (SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
         raise SchemaError("Editorial workflow schema v2 is required; run scripts/setup_workflow.py explicitly.")
     validate_detection_dashboard(connection)

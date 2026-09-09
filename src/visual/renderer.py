@@ -40,10 +40,12 @@ h1 {{ font-size: 76px; line-height: 1.05; margin: 0 0 64px; }}
         output_path.parent.mkdir(parents=True, exist_ok=True)
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch()
-            page = await browser.new_page(viewport={"width": self.width, "height": self.height}, device_scale_factor=1)
-            await page.goto(html_path.resolve().as_uri())
-            await page.screenshot(path=str(output_path), full_page=True)
-            await browser.close()
+            try:
+                page = await browser.new_page(viewport={"width": self.width, "height": self.height}, device_scale_factor=1)
+                await page.goto(html_path.resolve().as_uri())
+                await page.screenshot(path=str(output_path), full_page=True)
+            finally:
+                await browser.close()
         return output_path
 
     async def render_and_record_png(self, database: Database, package: ContentPackage, html_path: str | Path, output_path: str | Path) -> Path:

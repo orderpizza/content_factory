@@ -12,6 +12,8 @@ from posting.instagram import InstagramCarouselPublisher
 
 
 def main() -> None:
+    from common.legacy import refuse_legacy_operation
+    refuse_legacy_operation("run_posting.py")
     publishers = {}
     handle, password = os.getenv("BLUESKY_HANDLE"), os.getenv("BLUESKY_APP_PASSWORD")
     if handle and password:

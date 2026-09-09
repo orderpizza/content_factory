@@ -42,12 +42,10 @@ class WorkflowV2Tests(unittest.TestCase):
             review_id = VisualRenderer(store, Path(self.tmp.name) / "artifacts").run_once()
             self.assertIsNotNone(review_id)
             review = store.connection.execute("SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)).fetchone()
-            request = store.approve_review(review_id, row_version=review[0], command_id="approve-1")
-            self.assertIsNotNone(request)
-            self.assertIsNotNone(PostingAgent(store).run_once())
-            state = store.connection.execute("SELECT status,failure_reason FROM post_records").fetchone()
-            self.assertEqual(state["status"], "failed")
-            self.assertIn("disabled", state["failure_reason"])
+            with self.assertRaisesRegex(ValueError, "disabled"):
+                store.approve_review(review_id, row_version=review[0], command_id="approve-1")
+            self.assertIsNone(PostingAgent(store).run_once())
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
 
     def test_unconfigured_domains_are_visible_as_explicit_skips(self):
         with WorkflowStore(self.path) as store:
@@ -89,6 +87,7 @@ class WorkflowV2Tests(unittest.TestCase):
             revision_request = store.continue_human_thread(
                 initial["thread_id"], "Make the tone encouraging and include a concrete daily example.",
                 command_id="brief-refinement",
+                expected_row_version=store.connection.execute("SELECT row_version FROM content_threads WHERE thread_id=?", (initial["thread_id"],)).fetchone()[0],
             )
             self.assertIsNotNone(revision_request)
             revision_two = IdeaIntakeWorker(store).run_once()

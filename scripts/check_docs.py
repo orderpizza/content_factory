@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
     ROOT / "AGENTS.md",
     ROOT / "docs" / "system.md",
+    ROOT / "docs" / "current-state.md",
     ROOT / "docs" / "specs" / "detection.md",
     ROOT / "docs" / "specs" / "idea-intake-and-determination.md",
     ROOT / "docs" / "specs" / "visual-rendering.md",
@@ -29,6 +30,12 @@ REQUIRED = [
     ROOT / "docs" / "contracts" / "README.md",
     ROOT / "docs" / "contracts" / "maturity.md",
     ROOT / "docs" / "contracts" / "detection-dashboard-schema-v1.sql",
+    ROOT / "docs" / "contracts" / "editorial-workflow-schema-v2.sql",
+    ROOT / "docs" / "contracts" / "detection-safety-schema-v3.sql",
+    ROOT / "docs" / "contracts" / "configuration-manifest-v2.schema.json",
+    ROOT / "docs" / "contracts" / "configuration-manifest-v3.schema.json",
+    ROOT / "config" / "releases" / "detection-normalized-v3.json",
+    ROOT / "config" / "releases" / "detection-hybrid-v2.json",
     ROOT / "docs" / "profiles" / "editorial-clean-v1.md",
     ROOT / "docs" / "plans" / "target-implementation.md",
     ROOT / "config" / "releases" / "detection-dashboard-v1.json",
@@ -53,7 +60,7 @@ TIER_TWO_CONTRACTS = [
     ROOT / "docs" / "platforms" / "meta.md",
     ROOT / "docs" / "platforms" / "x.md",
 ]
-DOCUMENTS = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+DOCUMENTS = [ROOT / "README.md", ROOT / "audit_report.md", *sorted((ROOT / "docs").rglob("*.md"))]
 LOCAL_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 DATA_MODEL_REQUIRED_HEADINGS = (
@@ -108,6 +115,8 @@ REQUIRED_SCHEMA_IDS = (
     "content_factory/render_manifest_v1",
     "content_factory/provider_attempt_v1",
     "content_factory/configuration_manifest_v1",
+    "content_factory/configuration_manifest_v2",
+    "content_factory/configuration_manifest_v3",
     "content_factory/o2_creative_v1",
 )
 DETECTION_DASHBOARD_TABLES = (

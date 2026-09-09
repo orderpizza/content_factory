@@ -2,12 +2,49 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from hashlib import sha256
+from base64 import b64encode
 from html import escape
 from typing import Any
 from urllib.parse import urlencode
 import json
 import sqlite3
+
+
+# Static script: its exact bytes are authorized by the server CSP hash.
+AUTO_REFRESH_SCRIPT = """(() => {
+  let timer;
+  let editing = false;
+  const refresh = () => {
+    if (!document.hidden && !editing) window.location.reload();
+  };
+  const schedule = () => {
+    clearTimeout(timer);
+    if (!document.hidden && !editing) timer = setTimeout(refresh, 10000);
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearTimeout(timer);
+    else refresh();
+  });
+  document.addEventListener('input', () => { editing = true; clearTimeout(timer); });
+  schedule();
+})();"""
+AUTO_REFRESH_CSP = "'sha256-" + b64encode(sha256(AUTO_REFRESH_SCRIPT.encode()).digest()).decode() + "'"
+
+
+def _worker_freshness(row, at: datetime) -> str:
+    """Heartbeat age is separate from the last reported state or claim health."""
+    if row["worker_type"] not in {"trend_source_collector", "trend_scout_shortlist"}:
+        return "unknown cadence"
+    try:
+        seen = datetime.fromisoformat(row["last_seen_at"].replace("Z", "+00:00"))
+        age = (at - seen).total_seconds()
+    except (TypeError, ValueError):
+        return "invalid heartbeat time"
+    if age < 0:
+        return "clock skew"
+    return "stale heartbeat" if age > 2700 else "late heartbeat" if age > 1200 else "fresh heartbeat"
 
 
 def _cell(value: Any) -> str:
@@ -68,7 +105,9 @@ def render_detection_dashboard(
     page_size = 50
     search_pattern = _literal_like(query)
 
-    connection.execute("BEGIN")
+    owns_snapshot = not connection.in_transaction
+    if owns_snapshot:
+        connection.execute("BEGIN")
     try:
         release = connection.execute(
             "SELECT r.configuration_release_id "
@@ -109,7 +148,6 @@ def render_detection_dashboard(
             "JOIN scout_evaluation_runs er "
             "ON er.scout_evaluation_run_id=s.scout_evaluation_run_id "
             "LEFT JOIN content_threads t ON t.thread_id=c.selected_thread_id "
-            "LEFT JOIN intake_requests i ON i.thread_id=t.thread_id "
         )
         candidate_where = (
             "WHERE er.configuration_release_id=? "
@@ -159,7 +197,7 @@ def render_detection_dashboard(
 
         candidates = connection.execute(
             "SELECT c.*, s.evidence_snapshot_json, s.created_at AS snapshot_at, "
-            "t.thread_id, i.intake_request_id, i.status AS intake_status "
+            "t.thread_id "
             + candidate_from
             + candidate_where
             + "ORDER BY CASE c.eligibility_status "
@@ -202,7 +240,8 @@ def render_detection_dashboard(
             "ORDER BY started_at DESC, worker_run_id DESC LIMIT 50"
         ).fetchall()
     finally:
-        connection.rollback()
+        if owns_snapshot:
+            connection.rollback()
 
     source_options = "".join(
         f"<option value='{_cell(row['stable_id'])}'"
@@ -271,7 +310,7 @@ def render_detection_dashboard(
         lambda row: _cell(row["failure_category"] or "—"),
     ], "No Scout evaluation has run yet.", 6)
     worker_rows = _rows(workers, [
-        lambda row: _cell(row["worker_type"]), lambda row: _cell(row["state"]),
+        lambda row: _cell(row["worker_type"]), lambda row: _cell(row["state"] + " / " + _worker_freshness(row, datetime.now(timezone.utc))),
         lambda row: _timestamp(row["last_seen_at"]), lambda row: _cell(row["safe_summary"]),
     ], "No worker heartbeat has been recorded yet.", 4)
     worker_run_rows = _rows(worker_runs, [
@@ -286,7 +325,7 @@ def render_detection_dashboard(
     ], "No substantive worker run has been recorded yet.", 8)
     return f"""<!doctype html>
 <html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<meta http-equiv='refresh' content='10'><title>Content Factory</title>
+<title>Content Factory</title><script>{AUTO_REFRESH_SCRIPT}</script>
 <style>
 :root{{--ink:#17202a;--muted:#65717c;--line:#dce3e8;--paper:#fff;--wash:#f4f6f8;--accent:#136f63}}
 *{{box-sizing:border-box}} body{{margin:0;background:var(--wash);color:var(--ink);font:12px/1.25 system-ui,-apple-system,sans-serif}}

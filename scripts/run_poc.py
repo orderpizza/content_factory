@@ -16,6 +16,8 @@ from visual.renderer import VisualRenderer
 
 
 def main() -> None:
+    from common.legacy import refuse_legacy_operation
+    refuse_legacy_operation("run_poc.py")
     database = Database(Path("data/content.db"))
     database.initialize()
     try:

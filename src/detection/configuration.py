@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from .normalization import canonical_title
 
@@ -79,8 +79,8 @@ def validate_manifest(manifest: Any) -> None:
         raise ConfigurationError("release_name is invalid")
     if manifest["scope_key"] != "global":
         raise ConfigurationError("configuration_manifest_v1 supports only global scope")
-    if manifest["schema_id"] != "configuration_manifest_v1" or manifest["schema_version"] != 1:
-        raise ConfigurationError("Manifest schema identity must be configuration_manifest_v1 version 1")
+    if not isinstance(manifest["schema_id"], str) or type(manifest["schema_version"]) is not int or (manifest["schema_id"], manifest["schema_version"]) not in {("configuration_manifest_v1", 1), ("configuration_manifest_v2", 2), ("configuration_manifest_v3", 3)}:
+        raise ConfigurationError("Unsupported manifest schema identity/version")
     try:
         created_at = datetime.fromisoformat(
             str(manifest["created_at"]).replace("Z", "+00:00")
@@ -97,15 +97,17 @@ def validate_manifest(manifest: Any) -> None:
     if not isinstance(detection, dict):
         raise ConfigurationError("components.detection must be an object")
     _exact_fields(detection, DETECTION_FIELDS, "components.detection")
-    if detection["canonicalization_version"] != "canonicalization_v1":
+    normalization_version = "canonicalization_v2" if manifest["schema_version"] == 3 else "canonicalization_v1"
+    if detection["canonicalization_version"] != normalization_version:
         raise ConfigurationError("Unsupported canonicalization version")
-    if detection["score_formula_version"] != "attention_v1":
+    if detection["score_formula_version"] != ("attention_v2" if manifest["schema_version"] >= 2 else "attention_v1"):
         raise ConfigurationError("Unsupported score formula version")
-    if detection["shortlist"] != SHORTLIST_VALUES:
+    if canonical_json(detection["shortlist"]) != canonical_json(SHORTLIST_VALUES):
         raise ConfigurationError("shortlist must exactly match shortlist_v1")
-    if not isinstance(detection["cluster_aliases"], list):
+    if not isinstance(detection["cluster_aliases"], list) or len(detection["cluster_aliases"]) > 500:
         raise ConfigurationError("cluster_aliases must be an array")
     alias_targets: dict[str, str] = {}
+    seen_aliases: set[str] = set()
     for alias in detection["cluster_aliases"]:
         if not isinstance(alias, dict) or set(alias) != {"alias_key", "target_cluster_key", "active", "reason"}:
             raise ConfigurationError("Every cluster alias must use the exact v1 fields")
@@ -114,14 +116,15 @@ def validate_manifest(manifest: Any) -> None:
         _require_string(alias["reason"], "alias reason")
         if not isinstance(alias["active"], bool):
             raise ConfigurationError("alias active must be boolean")
-        if canonical_title(alias["alias_key"]) != alias["alias_key"]:
+        if canonical_title(alias["alias_key"], normalization_version) != alias["alias_key"]:
             raise ConfigurationError("alias_key must already be canonicalization_v1 normalized")
-        if canonical_title(alias["target_cluster_key"]) != alias["target_cluster_key"]:
+        if canonical_title(alias["target_cluster_key"], normalization_version) != alias["target_cluster_key"]:
             raise ConfigurationError(
                 "target_cluster_key must already be canonicalization_v1 normalized"
             )
-        if alias["alias_key"] in alias_targets:
+        if alias["alias_key"] in seen_aliases:
             raise ConfigurationError(f"Duplicate alias_key: {alias['alias_key']}")
+        seen_aliases.add(alias["alias_key"])
         if alias["active"]:
             if alias["alias_key"] == alias["target_cluster_key"]:
                 raise ConfigurationError("An active cluster alias cannot target itself")
@@ -136,7 +139,7 @@ def validate_manifest(manifest: Any) -> None:
             current = alias_targets[current]
 
     sources = detection["sources"]
-    if not isinstance(sources, list) or not sources:
+    if not isinstance(sources, list) or not 1 <= len(sources) <= 32:
         raise ConfigurationError("At least one detection source is required")
     stable_ids: set[str] = set()
     for source in sources:
@@ -152,26 +155,34 @@ def _validate_source(source: Any) -> None:
     _exact_fields(source, SOURCE_FIELDS, "source")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_]{0,99}", str(source["stable_id"])):
         raise ConfigurationError("Source stable_id is invalid")
-    if source["source_kind"] not in SOURCE_KINDS:
+    if not isinstance(source["source_kind"], str) or source["source_kind"] not in SOURCE_KINDS:
         raise ConfigurationError(f"Unsupported source kind: {source['source_kind']}")
     for key in ("adapter_version", "provider_name", "coverage_note", "independence_group"):
         _require_string(source[key], key)
-    parsed = urlparse(str(source["endpoint_url"]))
+    try:
+        parsed = urlparse(str(source["endpoint_url"]))
+        parsed.port
+    except ValueError as error:
+        raise ConfigurationError("Source endpoint_url is malformed") from error
     if parsed.scheme != "https" or not parsed.hostname:
         raise ConfigurationError("Source endpoint_url must be absolute HTTPS")
-    if source["delivery_format"] not in {"rss", "atom", "json", None}:
+    sensitive = {"key", "api_key", "apikey", "token", "access_token", "password", "signature", "credential"}
+    if (parsed.username is not None or parsed.password is not None or parsed.fragment
+            or any(key.casefold() in sensitive or key.casefold().startswith("x-amz-") for key, _ in parse_qsl(parsed.query))):
+        raise ConfigurationError("Source endpoint_url must not contain credentials, signed parameters or fragments")
+    if source["delivery_format"] not in ("rss", "atom", "json", None):
         raise ConfigurationError("Unsupported delivery_format")
     if not isinstance(source["enabled"], bool):
         raise ConfigurationError("Source enabled must be boolean")
     for key in ("cadence_seconds", "availability_seconds"):
-        if not isinstance(source[key], int) or not 60 <= source[key] <= 172800:
+        if type(source[key]) is not int or not 60 <= source[key] <= 172800:
             raise ConfigurationError(f"{key} is out of range")
-    if not isinstance(source["trust_weight"], (int, float)) or not 0 <= source["trust_weight"] <= 1:
+    if type(source["trust_weight"]) not in (int, float) or not 0 <= source["trust_weight"] <= 1:
         raise ConfigurationError("trust_weight must be between 0 and 1")
     for key in ("language_scope", "region_scope", "secret_ref"):
         _require_string(source[key], key, nullable=True)
     quota = source["quota_limit"]
-    if quota is not None and (not isinstance(quota, int) or quota <= 0):
+    if quota is not None and (type(quota) is not int or quota <= 0):
         raise ConfigurationError("quota_limit must be null or positive")
     hosts = source["allowed_redirect_hosts"]
     if not isinstance(hosts, list) or not all(isinstance(host, str) and host for host in hosts):

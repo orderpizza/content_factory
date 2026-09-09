@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common.models import ContentJob, ContentPackage, PostRecord, TopicSnapshot, Trend
+from database.migrations import SchemaError
 from intelligence.sources import Observation
 
 
@@ -315,6 +316,12 @@ class Database:
         self.connection.execute("PRAGMA foreign_keys = ON")
 
     def initialize(self) -> None:
+        version = int(self.connection.execute("PRAGMA user_version").fetchone()[0])
+        if version != 0:
+            raise SchemaError(
+                f"Legacy initialization refuses versioned database schema {version}. "
+                "Use the versioned detection/workflow entrypoints; no legacy DDL was run."
+            )
         self.connection.executescript(SCHEMA)
         self._migrate_determination_decisions()
         self._ensure_columns("trend_candidates", {"cooldown_until": "TEXT"})
@@ -778,7 +785,7 @@ class Database:
                         VALUES (?, ?, ?, 1, ?, ?, ?, ?)
                         ON CONFLICT(period_start, topic, source) DO UPDATE SET
                         observation_count = observation_count + 1,
-                        average_activity = ((average_activity * (observation_count - 1)) + excluded.average_activity) / observation_count,
+                        average_activity = ((average_activity * observation_count) + excluded.average_activity) / (observation_count + 1),
                         maximum_activity = MAX(maximum_activity, excluded.maximum_activity),
                         first_seen_at = MIN(first_seen_at, excluded.first_seen_at),
                         last_seen_at = MAX(last_seen_at, excluded.last_seen_at)""",

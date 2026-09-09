@@ -541,8 +541,12 @@ are copied to the Post Record audit trail.
 
 The 48-hour immediate-request expiry is evaluated transactionally before a
 claim and before the final provider request. If no attempt has begun by that
-time, the authorization and record both transition to `expired`; neither may
-later be reclaimed. An exact reviewed package may have at most one
+time, or staging began but the final marker has not committed, the authorization
+and record both transition to `expired`; neither may
+later be reclaimed. Both checks require `now < expires_at`. A final marker
+committed before expiry retains its published/unknown outcome after expiry;
+expiration never retries or cancels that possible external effect.
+An exact reviewed package may have at most one
 confirmed-published publication identity across all of its review cycles.
 A temporary readiness failure (including token expiry or provider outage) blocks
 delivery before a provider call without changing human approval. A changed
@@ -864,9 +868,14 @@ dashboard, expiry, or confirmed-publication transaction respectively.
 
 These records do not use worker claims. Every state-changing command matches
 the expected `row_version`, performs the listed side effects atomically, and
-increments the resulting version. Append-only records (`thread_messages`,
-revisions, decisions, attempts, resources, checks, reconciliation decisions,
-and receipts) are created once and never state-mutated.
+increments the resulting version. Immutable snapshots (`thread_messages`,
+revisions, decisions, completed checks, reconciliation decisions and receipts)
+are created once and never state-mutated. Attempts, publication resources,
+model invocations and execution audit rows instead have immutable identity/input
+and only the explicitly named lifecycle/completion fields may change through
+their owning fenced transaction. Terminal outcomes are not reset or overwritten.
+Append-only audit means preserving each attempt's identity and evidence, not
+forbidding its documented start-to-completion transition.
 
 | Record | Closed status set and legal transitions | Actor / required atomic side effect |
 | --- | --- | --- |

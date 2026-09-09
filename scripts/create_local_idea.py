@@ -10,19 +10,23 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from common.environment import load_environment_file
 from workflow import WorkflowStore
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("message", help="Free-text idea or refinement message.")
     parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))
     parser.add_argument("--command-id", default=None, help="Reuse this UUID to safely retry the same command.")
     parser.add_argument("--thread-id", type=int, help="Continue this open thread instead of starting a new idea.")
-    parser.add_argument("--row-version", type=int, help="Optional displayed thread version required for a guarded continuation.")
+    parser.add_argument("--row-version", type=int, help="Displayed thread version; required with --thread-id.")
     args = parser.parse_args()
+    if args.thread_id is not None and (args.row_version is None or args.row_version < 1):
+        parser.error("--thread-id requires a positive displayed --row-version")
     command_id = args.command_id or str(uuid.uuid4())
     with WorkflowStore(args.database) as store:
         if args.thread_id is None:

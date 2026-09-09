@@ -149,9 +149,9 @@ has been observed in operation. A future publisher or source instance may be
 added only after its exact official interface, coverage declaration, and
 permitted use have been reviewed and recorded. Source selection does not
 authorize reuse of publisher creative or article text in a generated post; it
-supplies trend observations only. This target configuration does not claim that
-the stale implementation has already created the SQLite registry rows or
-started collecting these sources.
+supplies trend observations only. Explicit detection setup now materializes this
+registry. That implementation does not prove live provider availability; see
+[current implementation](../current-state.md) and the audit's verification limits.
 
 ### Source-instance registry
 
@@ -172,6 +172,12 @@ from successful collection, timeliness, and completeness. A future change to a
 source's static trust weight must be versioned and justified here.
 
 ## Canonicalization and clustering — `canonicalization_v1`
+
+This is the original intended algorithm. Historical v1 implementation preserves
+typographic apostrophes/dashes but drops their ASCII equivalents, and its link
+normalizer collapses empty/trailing path segments. Those historical serializers
+remain unchanged for replay. The corrected implementation is explicitly versioned
+below; old keys are not silently rewritten.
 
 The detector creates a candidate cluster from source observations without an
 LLM. It preserves the original provider title/identity unchanged as evidence;
@@ -196,6 +202,19 @@ canonical link, then the normalized title. These item keys de-duplicate source
 observations but do not by themselves determine cross-source clustering.
 
 ### Input, URL, and timestamp canonicalization — `collection_input_v1`
+
+Current adapters reject oversized title/key/payload fields instead of truncating
+them, reject invalid UTF-8 and encoded XML entity declarations, and preserve valid
+normalized partial items plus safe rejection diagnostics. Malformed chart items
+do not discard the other valid normalized records. Complete responses never score
+NaN/boolean activity, duplicate provider identities or empty normalized titles.
+
+Feed requests are unconditional in the current implementation: no conditional
+cache headers are sent. An unexpected HTTP 304 without a validated cache body is
+a typed failed attempt, not an empty successful feed. Conditional HTTP-cache reuse
+is a future optimization; it is not claimed as implemented by the 304 rule in the
+target source table. Error/redirect response streams are always closed, and
+authorization/cookie headers are not forwarded to a different redirect host.
 
 Collection is deterministic and never follows a feed item to obtain article
 content. A configured feed endpoint may follow at most three HTTP redirects
@@ -277,7 +296,29 @@ Cluster membership is append-only evidence. Changing an alias configuration
 affects future scoring under its new version and never rewrites previously
 frozen candidate evidence, selection, revision, or decision records.
 
+### Corrected normalization — `canonicalization_v2`
+
+The normalized configuration-v3 release keeps `attention_v2` and the existing
+shortlist policy but selects `canonicalization_v2`. Title normalization applies
+apostrophe/dash substitution before punctuation removal, so ASCII and typographic
+variants yield the same key. Link normalization removes dot segments while
+preserving repeated/trailing slashes and percent-encoded path content. Title-only
+feed item fallback keys include the frozen collection day; GUID and valid URL
+keys remain durable across polls. No semantic/fuzzy matching is added.
+
+This version changes identity. It is allowed only in an explicitly created
+separate development database, not as an in-place configuration switch over old
+releases. Old observations, selected threads and handoffs remain untouched in the
+original database. Configuration activation enforces that boundary in both
+directions. See [Configuration](configuration.md) and
+[Current state](../current-state.md#normalized-detection-experiment) for rollout.
+
 ## Scoring model — `attention_v1`
+
+
+**Historical version:** retained for old releases/replays. New explicit rollout
+uses `attention_v2` below, selected by the operator on 2026-09-09. Do not edit
+old release manifests or historical topic snapshots to relabel their scores.
 
 The score measures externally observable attention only. It does not decide
 whether a topic is useful, safe, factual, or suitable for any pipeline; those
@@ -368,10 +409,21 @@ score. No database query or dashboard calculation is allowed to alter it.
 
 ### Implementation status
 
-The current detection path is `src/detection/`: its Scout implements and
-persists `attention_v1` source components, history/bootstrap state, prominence
-ranking, deterministic ordering, and shortlist gates. Its boundary coverage is
-in `tests/test_detection_dashboard_slice.py`.
+The current detection path is `src/detection/`. The original release still runs
+historical `attention_v1`; its window/health limitations are not silently patched
+under the same formula ID. The explicit hybrid release and v3 migration enable
+`attention_v2` as defined below. Offline regressions cover live/daily alignment,
+frozen historical health, empty healthy baseline days, completed empty reports,
+immutable contributions, quota continuity and compatible release history.
+Full prominence populations are stored once per run/source kind and referenced
+by hash from candidate breakdowns, avoiding quadratic database growth.
+
+Both paths fence input freezing, preserve empty freezes and keep the original
+evaluation clock across retries; selection budgets use current execution time.
+Editorial consumption/recurrence integration remains implementation work, not
+something the scoring repair enables. See the dated
+[audit follow-up](../../audit_report.md#follow-up-repairs--2026-09-09) and
+[current state](../current-state.md) for activation and verification boundaries.
 
 The older `src/intelligence/` modules remain compatibility code for legacy
 fixtures and must not be used as evidence of the active detection contract or
@@ -379,6 +431,49 @@ as a new worker entrypoint. Any future change to `attention_v1` still requires
 the boundary tests listed below.
 
 ## Algorithm and evidence principles
+
+### Hybrid scoring — `attention_v2`
+
+The operator selected live fast-source signals plus completed Wikimedia reports.
+`configuration_manifest_v2` / `detection-hybrid-v2.json` selects this version;
+the explicit safety-v3 migration is required before activation. V1/v2 SQL is
+unchanged. No setup/worker automatically upgrades or activates the live database.
+
+- NASA, YouTube and Hacker News use the trailing interval `(now - 24h, now]`.
+  Wikimedia uses each source's latest complete reported UTC day, never a moving
+  timestamp test that drops a daily report at midday. Daily evidence freshness
+  is its report-window end, not the later time it was fetched.
+- Fast-source baselines use the 14 completed UTC days ending at midnight at or
+  before the live window's start, excluding any overlap with live evidence.
+  Wikimedia's baseline is the 14 UTC report days preceding its current report.
+  Seven valid days establish history readiness. Empty healthy days count as
+  zero; missing/degraded days are excluded, not manufactured from observations.
+- Freeze source configuration, current health and per-day historical health in
+  `scout_frozen_evidence`, and enumerate every complete attempt used through the
+  existing attempt-link table. Compatible releases share history only when
+  stable ID and exact source-configuration fingerprint match. Observations are
+  immutable; retries reuse this frozen health and attempt set without rereading
+  current health. Incompatible configurations have separate baselines.
+- Current healthy age is at most 1.5 availability intervals; late/error-backed
+  evidence is degraded through three intervals. Quota exhaustion is unavailable
+  even if a previous chart exists. Exclude unavailable/zero-trust sources from
+  activity, prominence population, breadth, bootstrap and reliability weighting.
+- Compute feed group deduplication from frozen rows, not global mutable flags.
+  Repeated Wikimedia article/report rows contribute once, with deterministic
+  earliest-observation tie-break; aliased distinct articles sum. HN activity is
+  rounded to six decimals before ranking. Persist complete activity/rank/tie
+  populations and the source/date health decisions used by the score.
+- Persistence counts distinct completed UTC days in the preceding 72 hours;
+  the live partial day does not count as a completed day. Candidate last-seen
+  records actual newest evidence time, never the Scout execution time.
+- Keep the existing component formulas/weights, score rounding, shortlist
+  thresholds/budgets and 72-hour material-evidence recurrence requirements.
+  A scoring-version change is not a new opportunity identity or permission to
+  duplicate an existing selected/consumed thread.
+
+Local quota admission counts every reserved execution for the same stable
+YouTube source ID across releases, even if its nonsecret configuration changes;
+release activation must not reset the UTC-day safety ceiling.
 
 - Normalize heterogeneous inputs before combining them. Publisher-feed item
   counts and Wikimedia page views are not directly comparable.

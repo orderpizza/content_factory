@@ -142,7 +142,7 @@ The compact detection slice uses `YYYY-MM-DDTHH:MM:SS` for all persisted UTC
 timestamps, without fractional seconds or a rendered timezone suffix. It shows
 filtering, source health, Scout evaluations, worker state, and recent worker
 runs below the first row. The full future candidate/thread trace remains
-available through the wider HAI navigation and must preserve source evidence,
+planned for the wider HAI navigation and must preserve source evidence,
 score/formula version and rank, shortlist outcome/reason, coverage identity,
 linked thread/revision, determination outcome, per-domain angles/dispositions,
 child destination bindings, and downstream outcomes.
@@ -273,9 +273,25 @@ approved/in-flight siblings remain untouched unless an explicit permitted
 cancellation wins. A blocked sibling can be rechecked without regenerating
 completed routes under the Intake preconditions.
 
-The currently implemented detection dashboard remains reporting-only. New
-routing, production, review, and command views are target requirements, not
-assumed to exist merely because their documents were updated.
+The currently implemented dashboard remains reporting-only. V2/v3 adds a bounded
+thread-first trace including pending/clarification/failed Intake, messages,
+revisions, decisions/routes and downstream generation/adaptation/render/review/
+delivery row statuses. Messages appear once per thread. This is not the full
+portfolio, exact asset review or human-command UI described above. Detection and
+workflow sections share one read transaction. Opportunity counts/list rows remain
+one per selected candidate, independent of its number of Intake requests.
+See [current implementation](../current-state.md) for operational limitations.
+
+The current read view pauses automatic refresh while hidden and refreshes on
+return, using a fixed CSP-hashed script. Editing a filter pauses automatic
+reload to preserve input. Detection worker heartbeat age is labeled separately
+from its last reported state using the runtime's 20/45-minute thresholds.
+Full lease/backlog/storage-aware health remains a target requirement.
+
+Each HTTP refresh verifies schema version and migration-ledger checksums inside
+its consistent read snapshot. It does not rescan every foreign key on every
+10-second refresh. Explicit setup and normal worker/store startup retain full
+foreign-key validation; lightweight reporting is not an integrity-check verdict.
 
 ## Freshness and stale-state presentation
 

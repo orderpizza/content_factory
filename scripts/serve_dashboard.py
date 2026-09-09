@@ -2,6 +2,7 @@
 
 import os
 import sqlite3
+import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import escape
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from common.environment import load_environment_file
 from database.migrations import SCHEMA_VERSION, SchemaError, connect, validate_detection_dashboard
 from dashboard import render_detection_dashboard, render_workflow_trace
+from dashboard.detection import AUTO_REFRESH_CSP
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +42,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             connection = connect(database_path, read_only=True)
             try:
-                validate_detection_dashboard(connection)
+                connection.execute("BEGIN")
+                # Validate ledger/version on every snapshot; avoid rescanning all
+                # retained evidence FKs every ten-second browser refresh.
+                validate_detection_dashboard(connection, check_foreign_keys=False)
                 body = render_detection_dashboard(
                     connection,
                     query=parameters.get("q", [""])[0],
@@ -48,10 +53,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     status=parameters.get("status", [""])[0],
                     page=page,
                 )
-                if int(connection.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION:
+                if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= SCHEMA_VERSION:
                     body = body.replace("</main>", render_workflow_trace(connection) + "</main>", 1)
                 body = body.encode("utf-8")
             finally:
+                connection.rollback()
                 connection.close()
             status = 200
         except (OSError, sqlite3.Error, SchemaError) as error:
@@ -70,6 +76,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; "
+            f"script-src {AUTO_REFRESH_CSP}; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         )
         self.end_headers()
@@ -87,9 +94,14 @@ def main():
         raise SystemExit("Dashboard host must be loopback-only in the local POC")
     if not 1 <= port <= 65535:
         raise SystemExit("Dashboard port must be between 1 and 65535")
-    server = ThreadingHTTPServer((host, port), DashboardHandler)
-    print(f"Dashboard: http://{host}:{port}")
-    server.serve_forever()
+    class LoopbackServer(ThreadingHTTPServer):
+        address_family = socket.AF_INET6 if host == "::1" else socket.AF_INET
+    server = LoopbackServer((host, port), DashboardHandler)
+    print(f"Dashboard: http://{'[' + host + ']' if ':' in host else host}:{port}")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

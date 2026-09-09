@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import asdict
 from hashlib import sha256
 from typing import Any
 import json
 import os
 import socket
 import sqlite3
+from common.diagnostics import safe_diagnostic
 
 from .adapters import collect_source
 from .configuration import canonical_json
@@ -123,10 +125,32 @@ class DetectionCollector:
             claim_type="source_collection_attempt", claim_id=attempt_id,
         )
         try:
-            result = collect_source(source)
+            # The scheduled request, not today's wall clock, owns a report date.
+            request = json.loads(self.store.connection.execute(
+                "SELECT request_json FROM source_collection_attempts WHERE source_collection_attempt_id=?", (attempt_id,)
+            ).fetchone()[0])
+            frozen_source = dict(source)
+            frozen_source["canonicalization_version"] = self.store.normalization_version(source["configuration_release_id"])
+            frozen_source["collection_day"] = _parse_time(request["scheduled_for"]).date().isoformat()
+            frozen_source["report_date"] = request.get("report_date") or (
+                _parse_time(request["scheduled_for"]).date() - timedelta(days=1)
+            ).isoformat()
+            result = collect_source(frozen_source)
+            if execution_id is not None and int(self.store.connection.execute("PRAGMA user_version").fetchone()[0]) >= 3:
+                # Incomplete responses never enter scoring, but their bounded
+                # parsed evidence survives independently for each execution.
+                evidence = {"items": [asdict(item) for item in result.items],
+                            "events": [{**asdict(event), "reason": safe_diagnostic(event.reason)} for event in result.events],
+                            "failure_category": result.failure_category,
+                            "failure_detail": safe_diagnostic(result.failure_detail) if result.failure_detail else None}
+                with self.store.connection:
+                    self.store.connection.execute(
+                        "INSERT INTO source_execution_evidence(source_request_execution_id,complete,response_hash,evidence_json,created_at) VALUES (?,?,?,?,?)",
+                        (execution_id, int(result.complete), result.response_hash, canonical_json(evidence), utc_now()),
+                    )
             if not result.complete:
                 category = result.failure_category or "incomplete_response"
-                detail = result.failure_detail or "provider response was incomplete"
+                detail = safe_diagnostic(result.failure_detail or "provider response was incomplete")
                 status = self._finalize_failure(
                     source, attempt_id, claim_version, category, detail
                 )
@@ -158,7 +182,7 @@ class DetectionCollector:
             self.store.finish_worker_run(worker_run_id, status, error=error.detail)
             return {"source": source["stable_id"], "attempt_id": attempt_id, "status": status, "error": error.detail}
         except Exception as error:  # converted to bounded safe state at this boundary
-            detail = f"{type(error).__name__}: {error}"[:2000]
+            detail = f"unexpected collector error ({type(error).__name__})"
             status = self._finalize_failure(
                 source, attempt_id, claim_version, "unexpected_error", detail
             )
@@ -193,6 +217,8 @@ class DetectionCollector:
             "configuration_fingerprint": source["config_fingerprint"],
             "options": json.loads(source["config_json"])["options"],
         }
+        if source["source_kind"] == "wikimedia_enwiki_pageviews_v1":
+            request["report_date"] = (scheduled.date() - timedelta(days=1)).isoformat()
         request_json = canonical_json(request)
         request_hash = sha256(request_json.encode("utf-8")).hexdigest()
         try:
@@ -227,14 +253,16 @@ class DetectionCollector:
         reserve_quota: bool,
     ) -> tuple[int | None, int | None, str]:
         lease = (current + timedelta(minutes=10)).isoformat()
+        self.store.connection.execute("BEGIN IMMEDIATE")
         with self.store.connection:
             quota_units = 0
             if source["source_kind"] == "youtube_most_popular_v1" and reserve_quota:
                 quota_day = current.date().isoformat()
                 used = int(self.store.connection.execute(
-                    "SELECT COALESCE(SUM(quota_units), 0) FROM source_request_executions "
-                    "WHERE source_instance_id=? AND quota_day=?",
-                    (source["detection_source_instance_id"], quota_day),
+                    "SELECT COALESCE(SUM(e.quota_units), 0) FROM source_request_executions e "
+                    "JOIN detection_source_instances s ON s.detection_source_instance_id=e.source_instance_id "
+                    "WHERE s.stable_id=? AND e.quota_day=?",
+                    (source["stable_id"], quota_day),
                 ).fetchone()[0])
                 quota_limit = int(source["quota_limit"])
                 if used >= quota_limit:
@@ -359,6 +387,7 @@ class DetectionCollector:
         result: CollectionResult,
     ) -> None:
         window_start, window_end = utc_day_window(collected_at)
+        normalization_version = self.store.normalization_version(source["configuration_release_id"])
         with self.store.connection:
             for event in result.events:
                 self.store.connection.execute(
@@ -368,12 +397,12 @@ class DetectionCollector:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         attempt_id, source["detection_source_instance_id"], event.source_ordinal,
-                        event.source_item_key, event.disposition, event.reason[:2000],
+                        event.source_item_key, event.disposition, safe_diagnostic(event.reason),
                         event.payload_hash, collected_at.isoformat(),
                     ),
                 )
             for item in result.items:
-                key = canonical_title(item.title)
+                key = canonical_title(item.title, normalization_version)
                 if not key:
                     continue
                 if source["source_kind"] in {
@@ -382,9 +411,17 @@ class DetectionCollector:
                     effective_text, time_status = collected_at.isoformat(), "collection_time_measurement"
                 else:
                     effective_text, time_status = parse_provider_time(item.provider_time, collected_at)
+                    if time_status == "provider_time_fallback":
+                        first = self.store.connection.execute(
+                            "SELECT MIN(o.collected_at) FROM trend_observations o JOIN detection_source_instances s "
+                            "ON s.detection_source_instance_id=o.source_instance_id WHERE s.stable_id=? "
+                            "AND s.source_kind=? AND o.source_item_key=?",
+                            (source["stable_id"], source["source_kind"], item.source_item_key),
+                        ).fetchone()[0]
+                        effective_text = first or effective_text
                 effective = _parse_time(effective_text)
                 item_window_start, item_window_end = utc_day_window(effective)
-                trend_id = self._upsert_trend(key, item.title, effective_text, item.payload, collected_at.isoformat())
+                trend_id = self._upsert_trend(key, item.title, effective_text, item.payload, collected_at.isoformat(), normalization_version)
                 payload = dict(item.payload)
                 payload["provider_time_status"] = time_status
                 activity_contributor = self._resolve_activity_contributor(
@@ -493,24 +530,8 @@ class DetectionCollector:
                 ),
             )
             return 0
-        for row in existing:
-            self.store.connection.execute(
-                "UPDATE trend_observations SET activity_contributor=0 "
-                "WHERE trend_observation_id=? AND activity_contributor=1",
-                (row["trend_observation_id"],),
-            )
-            self.store.connection.execute(
-                "INSERT INTO source_item_events "
-                "(source_collection_attempt_id, source_instance_id, source_item_key, "
-                "disposition, reason, created_at) "
-                "VALUES (?,?,?,'duplicate_suppressed',?,?)",
-                (
-                    row["source_collection_attempt_id"], row["source_instance_id"],
-                    row["source_item_key"],
-                    "superseded by the deterministic independence-group contributor",
-                    now.isoformat(),
-                ),
-            )
+        # Completed observations/events are immutable. Scout resolves the winner
+        # from its own frozen attempt set and records that decision in membership.
         return 1
 
     def _upsert_trend(
@@ -520,21 +541,22 @@ class DetectionCollector:
         observed_at: str,
         payload: dict[str, Any],
         updated_at: str,
+        normalization_version: str = "canonicalization_v1",
     ) -> int:
         self.store.connection.execute(
             "INSERT INTO trends "
             "(canonical_key, canonicalization_version, canonical_subject, first_observed_at, "
             "last_observed_at, current_metadata_json, created_at, updated_at) "
-            "VALUES (?, 'canonicalization_v1', ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(canonical_key, canonicalization_version) DO UPDATE SET "
             "canonical_subject=excluded.canonical_subject, "
             "last_observed_at=MAX(trends.last_observed_at, excluded.last_observed_at), "
             "current_metadata_json=excluded.current_metadata_json, updated_at=excluded.updated_at",
-            (key, title, observed_at, observed_at, canonical_json(payload), updated_at, updated_at),
+            (key, normalization_version, title, observed_at, observed_at, canonical_json(payload), updated_at, updated_at),
         )
         row = self.store.connection.execute(
-            "SELECT trend_id FROM trends WHERE canonical_key=? AND canonicalization_version='canonicalization_v1'",
-            (key,),
+            "SELECT trend_id FROM trends WHERE canonical_key=? AND canonicalization_version=?",
+            (key, normalization_version),
         ).fetchone()
         return int(row["trend_id"])
 
@@ -546,6 +568,7 @@ class DetectionCollector:
         category: str,
         detail: str,
     ) -> str:
+        detail = safe_diagnostic(detail)
         now = datetime.now(timezone.utc)
         row = self.store.connection.execute(
             "SELECT attempt_count, attempt_limit FROM source_collection_attempts "

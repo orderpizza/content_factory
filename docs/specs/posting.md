@@ -121,9 +121,14 @@ before their format is enabled.
 
 An awaiting Review Request expires exactly 14 days after that request's own
 `created_at`, not after its Render Run. An approved immediate Post Request
-expires if it has not begun a delivery attempt within 48 hours; expiration
+expires 48 hours after authorization if the final-publication marker has not
+committed, even when staging or an earlier pre-final attempt has begun. The
+claim and final-marker transactions both require `now < expires_at`; expiration
 atomically marks its authorization and delivery record `expired`, without
-changing the immutable package or assets. A destination/account configuration
+changing the immutable package or assets. Expiry during staging stops the final
+send and schedules safe cleanup. Once a final marker has committed before
+expiry, preserve the eventual published/unknown outcome; expiry never permits
+a retry or erases possible publication. A destination/account configuration
 change, missing/mismatched reviewed asset hash, or a provider requirement that
 makes the frozen reviewed asset invalidates the review binding. Template,
 renderer, or font upgrades do not invalidate an already reviewed exact asset
@@ -147,7 +152,10 @@ destination policy. It rejects a new cycle when those assets are missing, a
 confirmed publication exists, or a changed destination/provider requirement
 would alter the reviewed binding. The fresh cycle is created by an explicit
 human dashboard command, never by a worker. Any creative, metadata,
-destination, or asset change requires a new Brief Revision and content identity.
+destination, or asset change requires explicit scoped rework and a new output
+and publication identity followed by fresh review. A distribution-only change
+reuses unchanged canonical content under an audited reuse link; only changed
+domain-angle/creative input requires a new canonical content identity.
 
 ## Platform-adapter contract
 

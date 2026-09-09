@@ -13,12 +13,14 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from common.environment import load_environment_file
 from workflow import WORKFLOW_PIPELINES, WorkflowStore
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--pipeline", choices=WORKFLOW_PIPELINES, default="english")
     parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))

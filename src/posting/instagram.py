@@ -79,40 +79,8 @@ class InstagramCarouselPublisher:
         self.readiness_interval_seconds = readiness_interval_seconds
 
     def publish_package(self, package: Mapping[str, object]) -> str:
-        if package["package_platform"] != "instagram" or package["package_account"] != "o2_english":
-            raise ValueError("Instagram carousel publisher only accepts o2_english Instagram packages")
-        if package["content_format"] != "instagram_idiom_carousel":
-            raise ValueError("Unsupported Instagram content format")
-        assets = json.loads(str(package["assets"]))
-        if not 2 <= len(assets) <= 10:
-            raise ValueError("Instagram carousel requires two to ten rendered assets")
-        keys: list[str] = []
-        with tempfile.TemporaryDirectory(prefix="content-factory-instagram-") as temporary_directory:
-            try:
-                children = []
-                for asset_index, asset in enumerate(assets):
-                    prepared = self._as_jpeg(asset, Path(temporary_directory), asset_index)
-                    key, public_url = self.asset_store.upload(str(prepared))
-                    keys.append(key)
-                    child = str(self._post(f"{self.instagram_user_id}/media", {
-                        "image_url": public_url, "is_carousel_item": "true",
-                    })["id"])
-                    children.append(child)
-                    self._record_container(child, "carousel_item", asset_index)
-                caption = _caption_with_hashtags(str(package["caption"]), json.loads(str(package["hashtags"])))
-                parent = str(self._post(f"{self.instagram_user_id}/media", {
-                    "media_type": "CAROUSEL", "children": ",".join(str(item) for item in children), "caption": caption,
-                })["id"])
-                self._record_container(parent, "carousel", None)
-                self._wait_until_ready(parent)
-                external_post_id = str(self._post(f"{self.instagram_user_id}/media_publish", {"creation_id": parent})["id"])
-                return external_post_id
-            finally:
-                for key in keys:
-                    try:
-                        self.asset_store.delete(key)
-                    except Exception:
-                        pass
+        from common.legacy import refuse_legacy_operation
+        refuse_legacy_operation("Legacy Instagram publishing")
 
     def _as_jpeg(self, asset: str, temporary_directory: Path, asset_index: int) -> Path:
         source = Path(asset)
@@ -147,13 +115,8 @@ class InstagramCarouselPublisher:
             self.container_recorder(container_id, container_type, asset_index, status, datetime.now(timezone.utc).isoformat())
 
     def _post(self, route: str, values: dict[str, str]) -> dict:
-        payload = {**values, "access_token": self.access_token}
-        request = Request(f"{self.base_url}/{route}", data=urlencode(payload).encode(), method="POST")
-        try:
-            with urlopen(request, timeout=60) as response:
-                return json.load(response)
-        except Exception as error:
-            raise RuntimeError(f"Instagram Graph API request failed for {route}: {error}") from error
+        from common.legacy import refuse_legacy_operation
+        refuse_legacy_operation("Legacy Instagram provider writes")
 
     def _get(self, route: str, values: dict[str, str]) -> dict:
         payload = urlencode({**values, "access_token": self.access_token})
