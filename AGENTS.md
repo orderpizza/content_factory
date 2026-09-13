@@ -63,9 +63,9 @@
 - When code changes a documented contract, update its canonical Tier 2 document
   in the same change. Update `docs/system.md` only for a routing, ownership, or
   top-level boundary change.
-- For documentation-only work, run `py scripts/check_docs.py` before handoff.
-  For implementation work, run both `py scripts/run_tests.py` and
-  `py scripts/check_docs.py` before handoff.
+- For documentation-only work, run `.venv/bin/python scripts/check_docs.py` before handoff.
+  For implementation work, run both `.venv/bin/python scripts/run_tests.py` and
+  `.venv/bin/python scripts/check_docs.py` before handoff.
 - Keep architecture detail in its owning specification and link rather than
   duplicate it. Preserve the historical decision archive without using it as a
   routine change log.

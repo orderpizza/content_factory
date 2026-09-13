@@ -50,9 +50,8 @@ claim that planned safeguards already work.
 
 ## Verification and scope
 
-Run `py scripts/check_docs.py` for documentation changes; also run
-`py scripts/run_tests.py` for implementation. Use the configured virtualenv's
-`python` on Mac. Provider/paid/public smoke tests are not routine verification;
+Run `.venv/bin/python scripts/check_docs.py` for documentation changes; also run
+`.venv/bin/python scripts/run_tests.py` for implementation on the Mac Mini. Provider/paid/public smoke tests are not routine verification;
 offline tests use fakes for Gemini, R2, Meta, and X.
 
 Phase 1 targets `english`, `ai_tools`, `personal_finance`,

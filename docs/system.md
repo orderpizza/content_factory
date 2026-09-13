@@ -277,7 +277,7 @@ reset, live publishing, account creation, or background production activation.
 ./.venv/bin/python scripts/run_tests.py
 ```
 
-On Windows use `py scripts/check_docs.py` and `py scripts/run_tests.py`.
+The active runtime is macOS on the Mac Mini, using this repository's `.venv`.
 Documentation-only changes require the first check; implementation changes
 require both. Offline tests establish the bounded v4 code path but do not prove
 live credentials, provider entitlements, visual quality, or unattended Mac

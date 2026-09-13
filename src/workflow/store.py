@@ -614,7 +614,6 @@ class WorkflowStore:
                         or public.scheme != "https" or not public.hostname
                         or public.username or public.password or public.query or public.fragment
                         or public.path not in {"", "/"}
-                        or public.hostname.casefold().endswith("r2.dev")
                     ):
                         raise ValueError("Instagram destination configuration is unsafe or unsupported")
                 else:

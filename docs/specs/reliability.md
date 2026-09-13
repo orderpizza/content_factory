@@ -359,6 +359,20 @@ schema-failed, and provider/transport-failed attempts. A stale `started` call is
 an uncertain-cost event and is never silently repeated. Store safe metadata
 only—never credentials or full provider prompts/responses.
 
+The shared Vertex client captures returned usage before reading/parsing the JSON
+body. Its `output_tokens` includes both `candidates_token_count` and
+`thoughts_token_count`, because thinking is billed as output; the provider's
+total is retained separately. Missing usage metadata stays unknown rather than
+being reported as zero-cost success. This feeds the existing daily/job ledger
+without a schema migration or rewriting prior invocation history.
+
+Vertex's constrained decoder rejects the nested array bounds in the canonical
+schema with `400 INVALID_ARGUMENT`. The shared client therefore sends those
+cardinalities as schema descriptions while preserving types, fields, enums,
+and required/closed object structure. Every worker still enforces the original
+array limits in its local validator before persistence. This is a deterministic
+wire-schema projection, not an automatic paid retry or relaxed storage contract.
+
 All external text—trend titles, feed bodies, provider metadata, and human text
 quoted from an external source—is untrusted data. Detection never interprets
 instructions. Gemini prompts delimit source material from system policy, and

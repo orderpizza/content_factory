@@ -1,6 +1,6 @@
 # Audit action register
 
-**Updated:** 2026-09-12
+**Updated:** 2026-09-14
 
 **Agreed scope:** finish current detection/dashboard and local-scaffold repairs;
 retain unbuilt production stages in the implementation plan.
@@ -10,6 +10,13 @@ notes remain in [audit history](docs/archive/audits/repository-audit-2026-09.md)
 Unbuilt features are mapped by audit ID in the
 [implementation plan](docs/plans/target-implementation.md#audit-to-plan-disposition),
 not marked fixed or implemented.
+
+The historical repairs and verification below are unchanged. Current Mac
+provider evidence, closed configuration gaps, and the remaining Instagram/
+human-review/unattended-operation gates are maintained in the authoritative
+[current-state register](docs/current-state.md#genuine-human-review-and-external-gates),
+not duplicated here. YouTube/X are on hold and an R2 domain purchase is not a
+remaining gate for the owner-selected PoC.
 
 ## Follow-up repairs — 2026-09-09
 

@@ -35,8 +35,6 @@ def _public_domain(parser: ArgumentParser, value: str | None) -> str:
         or parsed.path not in {"", "/"}
     ):
         parser.error("R2 public domain must be an origin-only HTTPS URL")
-    if parsed.hostname.casefold().endswith("r2.dev"):
-        parser.error("production configuration requires a dedicated R2 custom domain, not r2.dev")
     return text.rstrip("/")
 
 

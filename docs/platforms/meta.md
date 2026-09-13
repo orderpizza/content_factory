@@ -5,20 +5,25 @@ facts and required configuration. Current conformance is stated explicitly
 below; unqualified protocol detail remains the target contract.
 
 **Provider facts verified:** Facebook-Login authorization route and carousel
-constraints, 2026-09-05; Cloudflare R2 public-media facts, 2026-09-05. The
+constraints, 2026-09-05; Cloudflare R2 public-media facts, 2026-09-13. The
 configured Graph API version is a pinned local policy, not a claim that it is
 Meta's newest version; recheck provider support before live activation or an
 adapter change.
 
 **Current adapter subset:** schema v4 freezes the numeric Instagram account,
-Graph version, token reference, dedicated R2 custom origin, and posting policy.
+Graph version, token reference, dedicated R2 HTTPS origin, and posting policy.
 The fake-tested adapter stages exact reviewed JPEGs, creates/polls ordered child
 and parent containers, commits the final-send marker, calls `media_publish`, and
 audits results/resources/cleanup. Readiness makes one account-identity GET and an
-explicit transient R2 put/head/public-get/delete probe. No live Meta/R2 call was
-made in repository verification. Current readiness does not inspect token
-expiry/scopes, app-review state, quota, custom-domain ownership/cache rules, or
-the bucket lifecycle setting; those remain operator gates.
+explicit transient R2 put/head/public-get/delete probe. The September 2026 Mac
+check passed that complete relay probe through the owner's `r2.dev` origin;
+the read-only Meta identity check returned OAuth 190 (token could not be
+decrypted) with both Bearer and query-token authentication. See
+[current operational evidence](../current-state.md#genuine-human-review-and-external-gates).
+Current readiness does not inspect token
+expiry/scopes, app-review state, quota, optional custom-domain cache rules, or
+the bucket lifecycle setting; those remain operator gates. No live public
+publication has been verified.
 
 ## Account Model
 
@@ -193,18 +198,20 @@ or response body, and follows the human-only reconciliation rule above.
 
 ### Public-media environments
 
-The current Cloudflare-managed `r2.dev` URL is permitted only for an explicit
-development smoke test. It is not a production origin. Before unattended live
-delivery, attach a dedicated custom domain controlled in the same Cloudflare
-account (for example, `media.example.com`) to the R2 bucket, configure
-`R2_PUBLIC_DOMAIN` to that HTTPS domain, validate retrieval of a temporary
-probe object, and then disable `r2.dev` public access. Each staging key is
-unique to its delivery attempt and asset; public reachability is required for
-Meta retrieval but does not make the object canonical content.
+On 2026-09-13 the owner selected the existing Cloudflare-managed `r2.dev` URL
+for this small local PoC. Both the CLI and persisted configuration validator
+accept that origin in real-account mode. Purchasing a domain is not required.
+Origin-only HTTPS, successful public-byte verification, safe cleanup, and exact
+Post now authorization remain mandatory. Each staging key is unique to its
+delivery attempt and asset; public reachability is required for Meta retrieval
+but does not make the object canonical content.
 
 Cloudflare documents `r2.dev` as a non-production, rate-limited development
-endpoint. A custom domain is the required production path and enables
-production access-management/caching controls. See [Cloudflare R2 public
+endpoint. Accepting it here is a local PoC tradeoff, not a production-service
+guarantee from Cloudflare. If rate limiting interferes with Meta retrieval or
+volume grows, move to a custom domain through a reviewed configuration release.
+A custom domain enables additional access-management/caching controls.
+See [Cloudflare R2 public
 buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) and
 [R2 limits](https://developers.cloudflare.com/r2/platform/limits/).
 
@@ -231,16 +238,17 @@ the response at the expected byte length, hashes the returned bytes, and
 requires an exact match before it gives the URL to Meta. This probe is an
 attempt resource and is never logged as a reusable signed/public URL.
 
-Production uses the dedicated custom HTTPS domain. Its Cloudflare cache rule
-should bypass cache for `instagram-transient/*`; the response header above is
-the second guard. Current configuration validates origin-only HTTPS and rejects
-`r2.dev`; current readiness proves an anonymous temporary probe has exact bytes
-and no redirect. Domain ownership and cache-rule inspection are not automated.
+The current PoC uses the selected `r2.dev` HTTPS origin. If a custom domain is
+used later, its Cloudflare cache rule should bypass cache for
+`instagram-transient/*`; the response header above is the second guard.
+Current configuration validates origin-only HTTPS; current readiness proves an
+anonymous temporary probe has exact bytes and no redirect. Domain ownership
+and cache-rule inspection are not automated.
 
 Cleanup DELETE is idempotent. The Cleanup Worker records deletion time and
 performs an authenticated HEAD that must return `404`/`NoSuchKey`; it does not
 rely on a public GET because intermediate caches may outlive deletion. The
-custom-domain cache-bypass rule is verified at activation and after any cache
+custom-domain cache-bypass rule, when applicable, is verified at activation and after any cache
 configuration change. The bucket lifecycle rule for this prefix must be
 enabled with a seven-day expiration backstop. Current readiness does not
 retrieve that rule, so the owner must verify it in Cloudflare before unattended

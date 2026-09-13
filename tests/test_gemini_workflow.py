@@ -17,7 +17,7 @@ import sys
 import tempfile
 import unittest
 
-from common.gemini import GeminiUsage, VertexGeminiClient
+from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
 from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
@@ -505,6 +505,39 @@ class GeminiWorkflowTests(unittest.TestCase):
                 2,
             )
 
+    def test_adaptation_thinking_policy_is_scoped_to_gemini_three(self):
+        for model, expected in (("gemini-3-flash-preview", "LOW"), ("gemini-2.5-flash", None)):
+            with self.subTest(model=model), patch(
+                "workflow.gemini_adaptation.configured_model", return_value=model
+            ), patch("workflow.gemini_adaptation.VertexGeminiClient") as factory:
+                store = SimpleNamespace(model_budget_policy=SimpleNamespace(
+                    phase_limits={"adaptation": (12000, 8000)}
+                ))
+                GeminiAdaptationWorker(store)
+                factory.assert_called_once_with(max_output_tokens=8000, thinking_level=expected)
+
+    def test_gemini_adaptation_enforces_cta_limit_without_discarding_canonical(self):
+        with WorkflowStore(self.path) as store:
+            canonical_id = self.prepare_english_canonical(store, command_id="adapt-cta")
+            response = self.adaptation_response("instagram")
+            response["cta"] = " ".join(["word"] * 13)
+            client = FakeGeminiClient(response)
+            self.assertIsNone(GeminiAdaptationWorker(store, client).run_once())
+            self.assertEqual(len(client.calls), 1)
+            self.assertEqual(store.connection.execute(
+                "SELECT status FROM adaptation_runs ORDER BY adaptation_run_id LIMIT 1"
+            ).fetchone()[0], "failed")
+            self.assertEqual(store.connection.execute(
+                "SELECT canonical_content_id FROM canonical_contents"
+            ).fetchone()[0], canonical_id)
+            self.assertEqual(store.connection.execute(
+                "SELECT COUNT(*) FROM content_packages"
+            ).fetchone()[0], 0)
+            # The sibling output can still adapt the same canonical content.
+            self.assertIsNotNone(GeminiAdaptationWorker(
+                store, FakeGeminiClient(self.adaptation_response("x"))
+            ).run_once())
+
     def test_gemini_adaptation_rejects_unmapped_canonical_claim(self):
         with WorkflowStore(self.path) as store:
             self.prepare_english_canonical(store, command_id="adapt-bad")
@@ -670,10 +703,57 @@ class GeminiWorkflowTests(unittest.TestCase):
         with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai}):
             client = VertexGeminiClient(project="fixture-project", location="fixture-location", model="fixture-model")
             result = client.generate_json("prompt", {"type": "object"}, temperature=0.3)
+            self.assertEqual(client.last_usage, GeminiUsage(3, 2, 5, "fixture-model"))
+            response.usage_metadata.thoughts_token_count = 7
+            response.usage_metadata.total_token_count = 12
+            client.generate_json("prompt", {"type": "object"})
+            self.assertEqual(client.last_usage, GeminiUsage(3, 9, 12, "fixture-model"))
+            for invalid in ("not JSON", "[]", ""):
+                with self.subTest(response=invalid):
+                    response.text = invalid
+                    with self.assertRaises(RuntimeError):
+                        client.generate_json("prompt", {"type": "object"})
+                    self.assertEqual(client.last_usage, GeminiUsage(3, 9, 12, "fixture-model"))
+            response.text = '{"ok": true}'
+            response.candidates = [SimpleNamespace(finish_reason="MAX_TOKENS")]
+            with self.assertRaisesRegex(RuntimeError, "output token limit"):
+                client.generate_json("prompt", {"type": "object"})
+            self.assertEqual(client.last_usage, GeminiUsage(3, 9, 12, "fixture-model"))
+            response.candidates = []
+            response.usage_metadata = None
+            client.generate_json("prompt", {"type": "object"})
+            self.assertIsNone(client.last_usage)
+            limited = VertexGeminiClient(project="fixture-project", model="gemini-3-flash-preview",
+                                         max_output_tokens=8000, thinking_level="LOW")
+            limited.generate_json("prompt", {"type": "object"}, temperature=1.0)
+            config = calls[-1][1]["config"].values
+            self.assertEqual(config["thinking_config"], {"thinking_level": "LOW"})
+            self.assertEqual(config["max_output_tokens"], 8000)
+            self.assertEqual(config["temperature"], 1.0)
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(client.last_usage, GeminiUsage(3, 2, 5, "fixture-model"))
         self.assertEqual(calls[0][1]["project"], "fixture-project")
         self.assertEqual(calls[1][1]["config"].values["response_mime_type"], "application/json")
+        self.assertIsNone(calls[1][1]["config"].values["thinking_config"])
+
+    def test_vertex_schema_projection_preserves_contract_and_local_cardinality_checks(self):
+        from workflow.gemini_generation import _validate_content
+        schema = generation_schema("english")
+        original = deepcopy(schema)
+        wire = _vertex_response_schema(schema)
+        self.assertEqual(schema, original)
+        self.assertNotIn('"maxItems"', json.dumps(wire))
+        self.assertNotIn('"minItems"', json.dumps(wire))
+        self.assertEqual(wire["required"], schema["required"])
+        self.assertFalse(wire["additionalProperties"])
+        self.assertEqual(wire["properties"]["claims"]["items"]["properties"]["claim_kind"]["enum"],
+                         schema["properties"]["claims"]["items"]["properties"]["claim_kind"]["enum"])
+        self.assertIn("at most 30 items", wire["properties"]["claims"]["description"])
+        named_like_keyword = {"type": "object", "properties": {"maxItems": {"type": "integer"}}}
+        self.assertEqual(_vertex_response_schema(named_like_keyword), named_like_keyword)
+        value = {"hook": "hook", "context": "context", "takeaway": "takeaway",
+                 "key_points": ["point"] * 9, "examples": [], "claims": [], "domain_payload": {}}
+        with self.assertRaisesRegex(ValueError, "key_points"):
+            _validate_content(value, "english", set())
 
 
 if __name__ == "__main__":

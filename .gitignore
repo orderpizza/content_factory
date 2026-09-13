@@ -19,6 +19,8 @@ data/*.db.*.bak-*
 data/artifacts/
 data/archive/
 data/backups/
+# Isolated, non-deliverable live acceptance evidence; never commit databases/assets.
+data/mac-smoke-*/
 data/*.log
 generated/*
 !generated/.gitkeep

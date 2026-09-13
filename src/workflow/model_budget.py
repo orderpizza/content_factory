@@ -22,7 +22,8 @@ DEFAULT_PHASE_LIMITS = {
     "intake": (8_000, 2_000),
     "determination": (12_000, 4_000),
     "generation": (12_000, 4_000),
-    "adaptation": (12_000, 4_000),
+    # Carousel JSON and thinking share the provider output-token allowance.
+    "adaptation": (12_000, 8_000),
 }
 
 

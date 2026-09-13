@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from argparse import ArgumentParser
+from contextlib import redirect_stderr
 from datetime import timedelta
 from decimal import Decimal
 from hashlib import sha256
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 import json
+import runpy
 import tempfile
 import unittest
 
@@ -185,6 +189,35 @@ class ProductionWorkflowTests(unittest.TestCase):
                 row[0], status="ready", reasons=[], facts={"fixture": True},
                 valid_for=timedelta(days=1),
             )
+
+    def test_r2_dev_catalog_acceptance_preserves_https_origin_boundary(self):
+        public_domain = runpy.run_path(str(ROOT / "scripts" / "configure_production.py"))["_public_domain"]
+        with WorkflowStore(self.path, catalog_kind="production") as store:
+            for invalid in (
+                "http://pub-fixture.r2.dev", "https://user:password@pub-fixture.r2.dev",
+                "https://pub-fixture.r2.dev/path", "https://pub-fixture.r2.dev?token=value",
+                "https://pub-fixture.r2.dev#fragment",
+            ):
+                with self.subTest(origin=invalid):
+                    with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                        public_domain(ArgumentParser(), invalid)
+                    value = self.configuration(platforms=("instagram",))
+                    value["destinations"][0]["config"]["r2_public_domain"] = invalid
+                    with self.assertRaises(ValueError):
+                        store.register_production_configuration(value)
+                    self.assertEqual(store.connection.execute(
+                        "SELECT COUNT(*) FROM production_configurations"
+                    ).fetchone()[0], 0)
+            origin = public_domain(ArgumentParser(), "https://pub-fixture.r2.dev/")
+            self.assertEqual(origin, "https://pub-fixture.r2.dev")
+            value = self.configuration(platforms=("instagram",))
+            value["destinations"][0]["config"]["r2_public_domain"] = origin
+            store.register_production_configuration(value)
+            self.assertEqual(store.connection.execute(
+                "SELECT COUNT(*) FROM social_destinations WHERE platform='x'"
+            ).fetchone()[0], 0)
+            readiness = store.connection.execute("SELECT status FROM capability_readiness").fetchone()[0]
+            self.assertNotEqual(readiness, "ready")
 
     def create_review(self, store, platform="x", *, stop_at_adaptation=False):
         sequence = int(store.connection.execute(

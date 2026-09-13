@@ -62,6 +62,11 @@ worst case under daily and per-job limits. The structural evidence check is
 implemented; deeper reference-quality validation, canonical reuse, and the
 execution/capacity reservations below are not.
 
+The shared client projects array cardinalities into provider-facing descriptions
+to avoid Vertex constrained-decoder complexity errors. The full local validators
+still reject out-of-range lists; see the
+[Gemini boundary](reliability.md#configuration-and-gemini-accounting).
+
 ## Immutable job and output plan
 
 Determination freezes the domain/angle recipe and a bounded list of enabled
@@ -126,6 +131,15 @@ independent package/render run. Synthetic mode remains review-only. Production
 mode reserves each call, persists the validated body and metadata independently,
 and permits one metadata-only retry from the body checkpoint without rewriting
 it. Failure is branch-local and never changes or regenerates canonical content.
+
+Adaptation prompt v2 states the existing local copy/CTA/tag/alt-text limits
+explicitly; in particular an Instagram CTA is optional and capped at 12 words.
+The wire schema also constrains that CTA to at most 12 whitespace-separated
+words and 120 characters. Gemini 3 adaptation uses the bounded thinking and
+temperature policy in [Configuration](configuration.md); local validation
+remains authoritative and failed output is never silently repaired or published.
+The initial prompt omitted that limit and a live response failed validation.
+This changes model guidance, not the persisted package limits or review rules.
 
 ## Admission and model spending
 

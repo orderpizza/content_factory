@@ -52,11 +52,15 @@ quality acceptance remain open; Stage 11 remains disabled.
 
 ## Remaining work, in order
 
-1. **Owner configuration and live acceptance:** choose prices/budgets, accounts,
-   cadence, destination bindings, font/profile quality, and R2 custom-domain/
-   lifecycle policy; use the implemented non-network preflight, then run
-   explicit readiness and first-post acceptance per destination. These are
-   genuine human/external gates, not code defaults.
+1. **Remaining owner configuration and live acceptance:** Gemini configuration,
+   prices/budgets, native Mac execution, and the owner-selected `r2.dev` relay
+   have been checked; a purchased domain is not required for this PoC. Resolve
+   the Meta effective-token mismatch, approve destination bindings/cadence and
+   visual quality, verify bucket lifecycle policy, then freeze the production
+   catalog and obtain fresh persisted readiness before one exact Post now.
+   YouTube and X credentials are on hold, not Instagram-only blockers. The
+   [current-state register](../current-state.md#genuine-human-review-and-external-gates)
+   owns observed evidence and remaining gates.
 2. **Routing and reference quality:** curate operator-labeled one/many/weak-skip/
    whole-reject fixtures and domain evidence standards. Measure forced routes,
    missed value, support quality, duplicate angles, and actual cost. Add a
@@ -98,8 +102,8 @@ retains historical repair verification rather than this backlog.
 
 ## Integration gates
 
-1. Run `py scripts/check_docs.py` for docs-only work and both that command and
-   `py scripts/run_tests.py` for implementation or documentation-checker changes.
+1. Run `.venv/bin/python scripts/check_docs.py` for docs-only work and both that command and
+   `.venv/bin/python scripts/run_tests.py` for implementation or documentation-checker changes.
 2. Do not enable an unattended production worker until its input/output schema,
    migration, configuration, readiness checks, and boundary fixtures are present
    and approved. The v4 path is opt-in and remains blocked until owner/live gates

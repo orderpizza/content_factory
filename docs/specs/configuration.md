@@ -54,7 +54,10 @@ active normalized release with `canonicalization_v2` and `attention_v2`.
 real destinations, numeric provider account IDs, safe secret references,
 adapter/API settings, one finite posting policy per destination, and the absolute
 pinned-font path/hash behind an explicit profile-approval flag. Instagram also
-requires an R2 account/bucket and origin-only custom HTTPS public domain; X is
+requires an R2 account/bucket and origin-only HTTPS public domain; the owner has
+chosen the Cloudflare-managed `r2.dev` origin for this PoC. Its rate limits are
+accepted under the [Meta public-media policy](../platforms/meta.md#public-media-environments),
+and a custom-domain purchase is not an activation requirement. X is
 frozen to the implemented v2 media/single-post endpoints. Configuration rows,
 destinations, and posting policies are immutable. The current implementation has
 no in-place edit or activation pointer for a second production configuration;
@@ -92,6 +95,30 @@ a worst-case reservation before each call; fixture/review-preview mode retains
 the simpler token/cost ledger without production admission. Reporting-only settings and legacy
 environment names are cataloged in
 [Current state](../current-state.md#configuration-actually-consumed).
+
+Default maximum input/output tokens are Intake 8,000/2,000, Determination
+12,000/4,000, generation 12,000/4,000, and adaptation 12,000/8,000. The adaptation
+output allowance includes thinking as well as carousel JSON; the former 4,000
+allowance truncated a live Gemini 3 Flash preview response. Each explicit
+`GEMINI_<PHASE>_MAX_INPUT_TOKENS` / `GEMINI_<PHASE>_MAX_OUTPUT_TOKENS` override
+still takes precedence. Production admission reserves the configured maximum
+under the unchanged owner daily/job dollar caps before each call.
+
+For Gemini 3 model IDs, adaptation (including metadata-only retries) requests
+`LOW` thinking and temperature `1.0`; other phases and older models retain
+their existing settings. An 8,000-token trial also exhausted its allowance
+with default high thinking. The lower adaptation thinking level is a relative
+allowance, not a guarantee against truncation; validation and hard admission
+limits still apply. This follows the provider's
+[Gemini 3 guidance](https://ai.google.dev/gemini-api/docs/generate-content/gemini-3).
+
+`INSTAGRAM_ACCOUNT_KEY` is a stable internal label such as `o2_english`.
+`INSTAGRAM_USER_ID` is the numeric Instagram Professional ID, not its linked
+Facebook Page ID. `test_instagram_credentials.py` uses the same root `.env`
+loader and `META_GRAPH_API_VERSION` as the runner (with the old
+`INSTAGRAM_GRAPH_API_VERSION` as a fallback). Its `--local-only` mode prints
+only effective source, length, and a short SHA-256 fingerprint for comparing
+credentials between machines; it makes no request and never prints the token.
 
 The root [`.env.example`](../../.env.example) is the current implementation template
 for this boundary. `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` compose

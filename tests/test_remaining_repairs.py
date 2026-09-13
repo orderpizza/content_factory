@@ -1,8 +1,12 @@
 """Offline safety regressions for the follow-up audit repairs."""
 
 from copy import deepcopy
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from io import BytesIO, StringIO
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 import json
 import runpy
@@ -28,6 +32,46 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RemainingRepairTests(unittest.TestCase):
+    def test_instagram_probe_uses_root_env_and_current_version_without_leaking_token(self):
+        root = Path(self.tmp.name)
+        (root / ".env").write_text(
+            "INSTAGRAM_USER_ID=123456\nINSTAGRAM_ACCESS_TOKEN=local-fixture-token\n"
+            "META_GRAPH_API_VERSION=v24.0\nINSTAGRAM_GRAPH_API_VERSION=v23.0\n",
+            encoding="utf-8",
+        )
+        main = runpy.run_path(str(ROOT / "scripts/test_instagram_credentials.py"))["main"]
+        output = StringIO()
+        with patch.dict(main.__globals__, {"ROOT": root}), patch.dict("os.environ", {}, clear=True), \
+                patch("sys.argv", ["probe"]), patch.dict(main.__globals__) as namespace:
+            from unittest.mock import MagicMock
+            transport = MagicMock()
+            transport.return_value.__enter__.return_value.read.return_value = b'{"id":"123456","username":"fixture"}'
+            namespace["urlopen"] = transport
+            with redirect_stdout(output):
+                main()
+            request = transport.call_args.args[0]
+            self.assertEqual(urlsplit(request.full_url).path, "/v24.0/123456")
+            self.assertEqual(parse_qs(urlsplit(request.full_url).query)["access_token"], ["local-fixture-token"])
+            self.assertNotIn("local-fixture-token", output.getvalue())
+            transport.side_effect = HTTPError(
+                request.full_url, 401, "Unauthorized", {},
+                BytesIO(b'{"error":{"code":190,"message":"bad local-fixture-token"}}'),
+            )
+            with self.assertRaises(SystemExit) as failure:
+                main()
+            self.assertIn("190", str(failure.exception))
+            self.assertNotIn("local-fixture-token", str(failure.exception))
+
+        with patch.dict(main.__globals__, {"ROOT": root}), \
+                patch.dict("os.environ", {"INSTAGRAM_ACCESS_TOKEN": "process-fixture-token"}, clear=True), \
+                patch("sys.argv", ["probe", "--local-only"]), redirect_stdout(StringIO()) as output:
+            main()
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["token_source"], "process_environment")
+            self.assertEqual(report["token_length"], len("process-fixture-token"))
+            self.assertFalse(report["network_calls_made"])
+            self.assertNotIn("process-fixture-token", output.getvalue())
+
     def test_dashboard_refresh_is_visibility_gated_and_csp_hashed(self):
         from hashlib import sha256
         from base64 import b64encode

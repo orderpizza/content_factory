@@ -8,13 +8,13 @@ import json
 import re
 import unicodedata
 
-from common.gemini import VertexGeminiClient
+from common.gemini import VertexGeminiClient, configured_model
 
 from .store import WorkflowStore
 from .workers import local_operation
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v1"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v2"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v1"
 SUPPORTED_FORMATS = {
@@ -65,7 +65,12 @@ def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
         properties = {
             **common,
             "caption_summary": _string(),
-            "cta": {"anyOf": [_string(), {"type": "null"}]},
+            "cta": {"anyOf": [
+                {**_string(), "maxLength": 120,
+                 "pattern": r"^\S+(?:\s+\S+){0,11}$",
+                 "description": "A short CTA, ideally 4-7 words; at most 12 words. Use null if unnecessary."},
+                {"type": "null"},
+            ]},
             "visual_units": {
                 "type": "array", "minItems": 5, "maxItems": 8,
                 "items": _UNIT_SCHEMA,
@@ -108,7 +113,10 @@ class GeminiAdaptationWorker:
         maximum = None
         if store.model_budget_policy is not None:
             maximum = store.model_budget_policy.phase_limits["adaptation"][1]
-        self.client = client or VertexGeminiClient(max_output_tokens=maximum)
+        self.client = client or VertexGeminiClient(
+            max_output_tokens=maximum,
+            thinking_level="LOW" if configured_model().startswith("gemini-3") else None,
+        )
         self.instance_id = instance_id
         self.production = production
 
@@ -174,7 +182,8 @@ class GeminiAdaptationWorker:
         )
         try:
             response = self.client.generate_json(
-                _adaptation_prompt(request_value), schema, temperature=0.3
+                _adaptation_prompt(request_value), schema,
+                temperature=1.0 if str(getattr(self.client, "model", "")).startswith("gemini-3") else 0.3,
             )
         except Exception as error:
             outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
@@ -251,7 +260,8 @@ class GeminiAdaptationWorker:
         )
         try:
             response = self.client.generate_json(
-                _metadata_retry_prompt(retry_value), schema, temperature=0.2
+                _metadata_retry_prompt(retry_value), schema,
+                temperature=1.0 if str(getattr(self.client, "model", "")).startswith("gemini-3") else 0.2,
             )
             if not isinstance(response, Mapping) or set(response) != {
                 "private_tags", "hashtags", "alt_text"
@@ -558,6 +568,21 @@ visual unit claim_ids. For Instagram, return 5-8 units beginning with hook and
 ending with takeaway. For X, return one useful card and native standalone post
 text. Hashtags must be unique lowercase ASCII values beginning with #. Private
 tags are internal labels without #. Keep qualifications visible where needed.
+
+The local validator also requires these limits. Each visual title is at most
+120 characters and each visual body at most 600; aim below 60 and 240 respectively
+for readable cards. Alt text is at most 1,000 characters. Return 2-6 unique
+private tags, each at most 80 characters. Use at most 8 Instagram hashtags or
+2 X hashtags, each matching #[a-z0-9_]{1,48}.
+For Instagram, caption_summary is at most 1,100 characters; CTA is null or at
+most 12 whitespace-separated words and 120 characters. Aim for 4-7 words,
+for example 'Save this for your next meeting.' Prefer null if no CTA adds
+value. The complete caption (canonical hook, summary, optional CTA and
+hashtags, joined with blank lines) must fit 1,500 characters.
+For X, keep the complete post including hashtags within 280 weighted characters
+(URLs count as 23, most non-Latin characters as 2); keep it comfortably shorter.
+Check these limits before returning JSON; do not omit a required qualification
+or claim mapping to fit.
 
 <FROZEN_OUTPUT>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """

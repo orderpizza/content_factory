@@ -103,9 +103,9 @@ is allowed only on this active normalized experiment.
 Decision 035 selected Option B: active development uses a fresh normalized
 experiment and preserves the legacy database without migration.
 
-```powershell
-py scripts/setup_normalized_detection.py --database data/dev-normalized.db
-py scripts/setup_production.py --database data/dev-normalized.db
+```sh
+.venv/bin/python scripts/setup_normalized_detection.py --database data/dev-normalized.db
+.venv/bin/python scripts/setup_production.py --database data/dev-normalized.db
 ```
 
 The first command creates v1–v3 including the editorial workflow, activates
@@ -116,8 +116,8 @@ See [decision 035](archive/decisions.md#035---development-database-uses-fresh-no
 
 Install the pinned browser once in the selected Python environment:
 
-```powershell
-playwright install chromium
+```sh
+.venv/bin/playwright install chromium
 ```
 
 ### 2. Supply secrets and explicit operating limits
@@ -130,7 +130,7 @@ Copy `.env.example` to the ignored `.env`. Production requires:
 - artifact and backup roots;
 - enabled Instagram and/or X account keys and numeric provider IDs;
 - Instagram access token plus R2 S3 credentials, bucket, account ID, and a
-  dedicated HTTPS custom public domain; and/or an X OAuth user access token.
+  HTTPS public origin (`r2.dev` is accepted for this PoC); and/or an X OAuth user access token.
 
 Environment values do not activate accounts. They are either secrets resolved
 at runtime or inputs validated and frozen by the next command.
@@ -140,9 +140,9 @@ at runtime or inputs validated and frozen by the next command.
 Render and inspect representative fixture previews first. Then deliberately
 record acceptance of the current static profiles:
 
-```powershell
-py scripts/configure_production.py --database data/dev-normalized.db \
-  --approve-current-static-profiles
+```sh
+.venv/bin/python scripts/configure_production.py --database data/dev-normalized.db \
+  --approve-current-static-profiles --disable-x
 ```
 
 The command freezes all five domains against each enabled real destination,
@@ -155,12 +155,12 @@ new database/configuration release mechanism rather than silent mutation.
 These commands make read-only account calls; the R2 flag additionally authorizes
 one random transient put/head/public-get/delete probe. They do not publish:
 
-```powershell
-py scripts/check_production_readiness.py --database data/dev-normalized.db \
+```sh
+.venv/bin/python scripts/check_production_readiness.py --database data/dev-normalized.db \
   --live --confirm-transient-r2-write
-py scripts/run_maintenance.py --database data/dev-normalized.db \
+.venv/bin/python scripts/run_maintenance.py --database data/dev-normalized.db \
   --artifacts data/artifacts --backups data/backups --restore-verify
-py scripts/check_smoke_readiness.py --database data/dev-normalized.db \
+.venv/bin/python scripts/check_smoke_readiness.py --database data/dev-normalized.db \
   --artifacts data/artifacts --backups data/backups --mode delivery
 ```
 
@@ -176,12 +176,12 @@ visual quality, or publication behavior.
 
 ### 5. Run workers and the dashboard
 
-```powershell
-py scripts/run_workflow.py --database data/dev-normalized.db \
+```sh
+.venv/bin/python scripts/run_workflow.py --database data/dev-normalized.db \
   --artifacts data/artifacts --backups data/backups \
   --gemini --review-preview --production --delivery --poll
 
-py scripts/serve_dashboard.py --database data/dev-normalized.db \
+.venv/bin/python scripts/serve_dashboard.py --database data/dev-normalized.db \
   --artifacts data/artifacts
 ```
 
@@ -200,17 +200,17 @@ into `~/Library/LaunchAgents`.
 
 For a no-provider demo, register one route and run the default workers:
 
-```powershell
-py scripts/enable_placeholder_route.py --confirm-local-placeholder
-py scripts/create_local_idea.py "Explain a useful learning habit" --command-id demo-idea-1
-py scripts/run_workflow.py
+```sh
+.venv/bin/python scripts/enable_placeholder_route.py --confirm-local-placeholder
+.venv/bin/python scripts/create_local_idea.py "Explain a useful learning habit" --command-id demo-idea-1
+.venv/bin/python scripts/run_workflow.py
 ```
 
 For Gemini-assisted review without any deliverable account binding:
 
-```powershell
-py scripts/check_smoke_readiness.py --database data/dev-normalized.db --mode preview
-py scripts/run_workflow.py --database data/dev-normalized.db \
+```sh
+.venv/bin/python scripts/check_smoke_readiness.py --database data/dev-normalized.db --mode preview
+.venv/bin/python scripts/run_workflow.py --database data/dev-normalized.db \
   --gemini --review-preview --poll
 ```
 
@@ -232,7 +232,7 @@ values win, then explicit CLI arguments override path defaults.
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GEMINI_MODEL` | Vertex connection/model (`gemini-2.5-flash` default). Project is required before a call. |
 | `GEMINI_*COST*`, `GEMINI_*LIMIT*`, phase token maxima | Positive price snapshots and production reservation/admission policy. See `.env.example` for exact names/default token maxima. |
 | `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_ACCOUNT_KEY`, `INSTAGRAM_USER_ID`, `META_GRAPH_API_VERSION` | Meta credential reference and immutable destination inputs. |
-| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_DOMAIN` | Transient Instagram media relay. The public domain must be dedicated HTTPS, not `r2.dev`. |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_DOMAIN` | Transient Instagram media relay. Use an origin-only HTTPS URL; `r2.dev` is accepted for this PoC. |
 | `X_USER_ACCESS_TOKEN`, `X_ACCOUNT_KEY`, `X_USER_ID` | X OAuth user credential and immutable destination inputs. |
 | `YOUTUBE_API_KEY` | Current YouTube detection adapter. |
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback dashboard, default `127.0.0.1:8787`. |
@@ -246,25 +246,70 @@ a completed multi-user privacy/security model.
 
 Code cannot decide or safely simulate these items for the owner:
 
-1. Enter current Gemini prices and choose the daily warning, daily hard limit,
-   per-job hard limit, and optional phase token maxima.
-2. Inspect representative assets and approve—or reject/change—the bundled
-   Instagram/X layouts, pinned font, alt text, copy, and brand quality.
-3. Confirm real account IDs, destination selection, custom R2 domain, daily cap,
-   minimum interval, and 48-hour authorization TTL before freezing configuration.
-4. Run the explicitly authorized live readiness probes and verify Meta/X app
-   access, scopes, quotas, account status, and R2 lifecycle policy.
-5. Observe the first deliberately authorized post to each real destination and
+1. Resolve the Instagram effective-credential discrepancy. On the Mac,
+   `graph.facebook.com/v24.0/{id}?fields=id,username` returned OAuth 190,
+   "The access token could not be decrypted", with both Bearer authentication
+   and the Windows-reported `access_token` query format. There was no process
+   override, duplicate key, or token whitespace. The older standalone probe
+   did not load `.env` and used a different API-version variable; it now follows
+   the application loader/version. Compare `--local-only` fingerprints and
+   exact API versions on both machines; do not share tokens. The precise cause
+   remains unproven until the successful Windows request's effective inputs
+   are compared. Do not treat a header-format change as a fix.
+2. Inspect generated copy, claims, alt text, and representative assets; approve
+   the Instagram layout, pinned font, and brand quality. Confirm which domains
+   belong on the chosen account: the configuration helper otherwise binds all
+   five domains to that account. Approve cadence and 48-hour authorization TTL
+   before freezing the immutable production catalog. That catalog and its
+   enabled destinations have not been created in the development database.
+3. After resolving Meta authentication and configuring destinations, obtain
+   fresh persisted readiness; verify Meta app access/scopes, quotas, account
+   status, and the R2 lifecycle policy. A successful relay probe alone does not
+   prove these permissions or authorize a post.
+4. Observe the first deliberately authorized Instagram post and
    reconcile any externally ambiguous result; offline fakes cannot prove live
    provider behavior.
-6. Review and install the Mac Mini `launchd` templates, then perform unattended
+5. Review and install the Mac Mini `launchd` templates, then perform unattended
    restart, sleep/wake, load, backup/restore, disk-pressure, and log monitoring
    acceptance.
 
+Closed configuration/operational gaps (Mac checks, 2026-09-13/14): saved Gemini
+configuration and ADC authenticate with `gemini-3-flash-preview` in `global`;
+prices and finite daily/per-job limits are configured. The complete R2
+put/authenticated-HEAD/public-byte-GET/delete/404 probe passed through the
+owner-selected `r2.dev` origin and removed its probe object. No purchased domain
+is required for this PoC. SQLite v4 integrity, native Python/dependencies,
+Chromium, and an online backup with temporary restore verification passed.
+Storage evidence expires and must continue being refreshed by maintenance.
+YouTube and X credentials are intentionally on hold and do not block the
+Instagram-only human-idea path. Native Mac execution is verified; installed
+unattended services are not.
+
 ## Smoke-test boundary
 
-There is no known repository-code blocker to a **supervised preview smoke** once
-the preview preflight passes and the owner authorizes one bounded Gemini run.
+An explicitly authorized **supervised preview smoke** on 2026-09-14 completed
+real Gemini Intake, five-domain Determination (English selected; four domains
+skipped with reasons), canonical generation, Instagram adaptation, and local
+rendering: one ContentJob, one canonical object, one package, six 1080×1350
+JPEGs, and one ReviewRequest. There were zero PostRequests and no public calls.
+The final isolated database is `data/mac-smoke-l1qv35tg/smoke.db`; assets are in
+its sibling `artifacts/render-1/` directory (local ignored evidence).
+
+This was not a clean first-pass acceptance: schema complexity, thinking-token
+accounting, output truncation, and insufficiently enforced CTA constraints were
+found and repaired. In the final isolated lineage, two failed adaptation runs
+were preserved and a third succeeded against the same canonical object; new
+runs were explicitly appended only in that test database. Its six model calls
+recorded an estimated total $0.04908 at the configured prices, including failed
+calls (not the total for every earlier diagnostic). This does not add a general
+failed-run recovery UI or prove sustained first-pass reliability.
+
+All six cards were visually inspected for clipping/readability. Editorial
+acceptance remains human-owned: the caption repeats the opening sentence, and
+generic Content Factory branding is not final account-brand approval. The
+review-only profile is synthetic/non-deliverable, not approval of a production
+profile. No model/provider call belongs in the routine offline test suite.
+
 A real delivery smoke additionally requires the immutable production catalog,
 current normal storage evidence, a verified backup, resolved secret references,
 current live destination readiness, exact asset/text review, and Post now for
@@ -278,7 +323,7 @@ artifact/SQL retention, and sustained load/restart evidence.
 
 | Residual item | Why it remains | Supervised one-item smoke impact |
 | --- | --- | --- |
-| Gemini/account/profile/policy choices and live readiness | Owner authority, current provider state, and credentials cannot be inferred or safely simulated. | Blocking at the applicable preview/production/delivery level. |
+| Meta authentication, production bindings/profile approval, fresh readiness | Effective Windows/Mac credentials are not yet reconciled; account/editorial choices require owner approval. | Blocks real Instagram delivery, not local preview. |
 | Routing/reference-quality corpus | Accepted labels and evidence standards are editorial judgments; generated self-labels would not be acceptance evidence. | Not a structural blocker; owner must review the smoke output. |
 | Mid-call renewal, capacity, process isolation, full restart telemetry | Requires a separately reviewed concurrency/supervision design and sustained runtime evidence. | Not blocking for one supervised item; required before unattended or concurrent scale. |
 | Detection storage admission | V1–v3 detection compatibility and collection evidence policy need a deliberate forward design; silently applying the v4 creative gate would change the stable milestone. | Human-idea smoke is unaffected; full unattended detection remains partially hardened. |
@@ -311,14 +356,20 @@ only for the versioned opt-in workflow workers.
 `test_r2_public_asset_store.py` and `test_instagram_credentials.py` are separately
 authorized external probes, not routine acceptance. Routine verification is:
 
-```powershell
-py scripts/run_tests.py
-py scripts/check_docs.py
+```sh
+.venv/bin/python scripts/run_tests.py
+.venv/bin/python scripts/check_docs.py
 ```
 
 The offline suite covers migrations, fake Gemini/provider boundaries, budget and
 storage gates, exact asset hashes, Post now/cancellation, uncertain publication,
 cleanup/reconciliation, backup/restore, runtime heartbeats, and non-network
-smoke preflight. Live Gemini, R2, Meta, and X calls;
-visual quality approval; installed launchd behavior; and sustained unattended
-operation remain explicitly unverified until the owner runs the gates above.
+smoke preflight. These tests use fakes, not provider credentials. Separate,
+explicitly authorized Mac checks exercised live Gemini and the R2 relay; Meta
+identity authentication failed as recorded above. Public Meta delivery, X,
+owner visual-quality approval, installed launchd behavior, and sustained
+unattended operation remain unverified.
+
+Final Mac regression verification on 2026-09-14: **172 tests passed**;
+`scripts/check_docs.py` and `git diff --check` passed. Historical Windows test
+counts in archived audit evidence are intentionally not rewritten.
