@@ -3,9 +3,10 @@
 This directory contains executable boundary contracts. JSON documents use
 JSON Schema Draft 2020-12; SQL documents are canonical migration inputs routed
 by the SQLite record contract. Production producers must validate JSON before
-persistence and consumers must validate again before use. This is a target
-requirement: current v2 placeholder payloads use JSON syntax checks and ad-hoc
-validation, not complete production schemas. Contract IDs and
+persistence and consumers must validate again before use. Schema v4 adds exact
+SQL persistence constraints; current Gemini payloads use closed in-code JSON
+schemas plus semantic validation rather than standalone JSON Schema files.
+Contract IDs and
 applied SQL checksums are immutable: a breaking change creates a new
 ID/version or forward migration rather than editing a deployed contract.
 
@@ -16,8 +17,9 @@ alone cannot enforce that policy; a shared semantic/redaction boundary is still 
 | Artifact | Narrative owner | Scope |
 | --- | --- | --- |
 | `detection-dashboard-schema-v1.sql` | `docs/specs/data/records.md` | Exact first-milestone SQLite schema. |
-| `editorial-workflow-schema-v2.sql` | `docs/specs/data/records.md` | Explicit v1→v2 local workflow scaffold; placeholder integrations only. |
+| `editorial-workflow-schema-v2.sql` | `docs/specs/data/records.md` | Explicit v1→v2 local workflow scaffold; default fixtures plus opt-in Gemini Intake/Determination/generation/adaptation and local review rendering with in-code validation. |
 | `detection-safety-schema-v3.sql` | `docs/specs/data/records.md` | Explicit v2→v3 immutable scoring/partial-response evidence; preserves editorial handoffs. |
+| `production-workflow-schema-v4.sql` | `docs/specs/data/records.md` | Explicit v3→v4 real destinations, budgets, checkpoints, delivery, reconciliation, storage, and maintenance records. |
 | `configuration-manifest-v1.schema.json` | `docs/specs/configuration.md` | Non-secret release manifest. |
 | `configuration-manifest-v2.schema.json` | `docs/specs/configuration.md` | Non-secret hybrid `attention_v2` release; requires database v3. |
 | `configuration-manifest-v3.schema.json` | `docs/specs/configuration.md` | Hybrid scoring with corrected normalization; separate-database activation only. |
@@ -29,10 +31,17 @@ alone cannot enforce that policy; a shared semantic/redaction boundary is still 
 The [registry](maturity.md) is authoritative for maturity. The five-domain design
 requires route-neutral brief/rework, multi-route/angle, canonical job/content,
 domain-extension, output-request/adaptation/package, and compatible static
-visual contracts. The v2 SQL establishes the durable placeholder path, but
-does not make its external/model/production payloads live. Provider and model
-workers remain disabled until their fixtures and configuration releases are
-reviewed.
+visual contracts. The v2 SQL establishes the durable editorial path, and its
+opt-in runner exercises Gemini for the route-neutral Intake and
+five-route Determination boundaries, per-domain canonical generation, and
+Instagram/X adaptation using closed in-code response schemas and offline fakes.
+The local renderer creates real review assets. The v4 SQL then implements the
+bounded production subset: immutable real destinations/profiles, priced budget
+reservations, adaptation checkpoints, exact Post now authorization, Instagram/X
+single-post delivery audit, cleanup/reconciliation, and local maintenance.
+It is opt-in and live providers remain unverified. Reference-quality evaluation,
+reuse/recurrence, capacity allocation, X threads, and unattended acceptance
+remain outside the implemented contract.
 
 Preserve IDs/checksums of deployed detection/configuration contracts. The
 superseded JSON drafts remain for traceability and carry explicit maturity

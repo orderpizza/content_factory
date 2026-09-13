@@ -16,9 +16,15 @@ and its intended shape is defined by
 That schema intentionally admits only the detection section required by the
 current milestone. Later domain sections require a new schema version before
 their release is activated; an unvalidated free-form component is forbidden.
-Current activation uses the explicit validator in `src/detection/configuration.py`,
-not a general JSON Schema runtime. V2 fixture capabilities are a separate local
-demo exception, not an activated production domain/output configuration release.
+Current detection activation uses the explicit validator in
+`src/detection/configuration.py`, not a general JSON Schema runtime. V2 fixture
+capabilities are a separate local demo exception, not an activated production
+domain/output configuration release.
+When `run_workflow.py --gemini` is selected, it idempotently registers all five
+domains with synthetic Instagram/X fixture bindings for routing evaluation only.
+Those bindings cannot authorize delivery. `--review-preview` may consume them
+for real local content/adaptation/rendering, but synthetic packages remain
+review-only and record `delivery_ready=false`.
 
 The optional [hybrid release](../../config/releases/detection-hybrid-v2.json) uses
 [`configuration_manifest_v2`](../contracts/configuration-manifest-v2.schema.json)
@@ -41,6 +47,19 @@ renamed, reset or copied into that experiment automatically. In-place historical
 identity conversion is outside this repair; choose the rollout before switching
 workers. Compatible same-normalization releases still share history normally.
 
+**Current production subset:** the explicit v4 migration is allowed only on an
+active normalized release with `canonicalization_v2` and `attention_v2`.
+`configure_production.py` then validates and freezes
+`production_configuration_v1`: operator/time, all five domain bindings, enabled
+real destinations, numeric provider account IDs, safe secret references,
+adapter/API settings, one finite posting policy per destination, and the absolute
+pinned-font path/hash behind an explicit profile-approval flag. Instagram also
+requires an R2 account/bucket and origin-only custom HTTPS public domain; X is
+frozen to the implemented v2 media/single-post endpoints. Configuration rows,
+destinations, and posting policies are immutable. The current implementation has
+no in-place edit or activation pointer for a second production configuration;
+changed real-account/profile policy needs a new forward release mechanism.
+
 ## Purpose and boundary
 
 Configuration is not a worker-local default and the dashboard does not edit it.
@@ -61,24 +80,32 @@ wins, so launchd or an operator can override the file without editing it. The
 loader accepts literal `KEY=VALUE` records only, performs no interpolation or
 command expansion, and never logs values. A malformed file fails startup with
 its line number but without echoing secret content.
-This is implemented by versioned setup/detection/reporting and v2 demo commands;
-legacy entrypoints do not uniformly use it. Explicit CLI paths override defaults.
-`run_workflow.py` honors `CONTENT_FACTORY_ARTIFACT_ROOT` unless `--artifacts`
-is supplied. Reporting-only settings and legacy environment names are cataloged
-in [Current state](../current-state.md#configuration-actually-consumed).
+This is implemented by versioned setup/detection/reporting, workflow,
+production-configuration, readiness, maintenance, and dashboard commands; legacy
+entrypoints do not uniformly use it. Explicit CLI paths override defaults.
+`run_workflow.py` and `serve_dashboard.py` honor
+`CONTENT_FACTORY_ARTIFACT_ROOT` unless `--artifacts` is supplied. The opt-in v2
+Gemini path resolves project, location and model at the composition root and
+records token usage across Intake, Determination, generation and adaptation.
+Production mode additionally requires positive price/budget values and persists
+a worst-case reservation before each call; fixture/review-preview mode retains
+the simpler token/cost ledger without production admission. Reporting-only settings and legacy
+environment names are cataloged in
+[Current state](../current-state.md#configuration-actually-consumed).
 
 The root [`.env.example`](../../.env.example) is the current implementation template
 for this boundary. `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` compose
 the Vertex connection; `YOUTUBE_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`,
-`R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` resolve named credentials;
+`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `X_USER_ACCESS_TOKEN` resolve
+named credentials;
 `CONTENT_FACTORY_DB_PATH`, `CONTENT_FACTORY_ARTIFACT_ROOT`,
 `CONTENT_FACTORY_BACKUP_ROOT`, `CONTENT_FACTORY_DASHBOARD_HOST`, and
 `CONTENT_FACTORY_DASHBOARD_PORT` compose local process roots. The dashboard
-host must be a loopback address. X authorization secret references must be
-added to that template only with its verified provider implementation; no
-credential values or guessed account names are required by this doc update.
-Every other behavior-bearing value belongs in
-the release: including model/version and budget, detection sources/scores,
+host must be a loopback address. V4 currently takes Gemini model/prices/budgets
+from validated process settings and freezes each reservation's policy hash; the
+real destination materializer freezes its reviewed non-secret inputs. The longer
+term unified manifest remains the target. Every other behavior-bearing value
+belongs in the release: including model/version and budget, detection sources/scores,
 source quotas, capability/destination IDs, Graph API version, R2 endpoint/
 bucket/public domain, worker policy, retention, and visual profiles.
 

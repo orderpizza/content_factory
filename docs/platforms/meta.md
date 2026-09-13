@@ -1,14 +1,24 @@
 # Meta: Facebook and Instagram
 
 **Document role:** Tier 2 platform reference. It records provider account/API
-facts and required configuration; it is not a Content Factory implementation
-status report.
+facts and required configuration. Current conformance is stated explicitly
+below; unqualified protocol detail remains the target contract.
 
 **Provider facts verified:** Facebook-Login authorization route and carousel
 constraints, 2026-09-05; Cloudflare R2 public-media facts, 2026-09-05. The
 configured Graph API version is a pinned local policy, not a claim that it is
-Meta's newest version; recheck provider support before implementation or an
+Meta's newest version; recheck provider support before live activation or an
 adapter change.
+
+**Current adapter subset:** schema v4 freezes the numeric Instagram account,
+Graph version, token reference, dedicated R2 custom origin, and posting policy.
+The fake-tested adapter stages exact reviewed JPEGs, creates/polls ordered child
+and parent containers, commits the final-send marker, calls `media_publish`, and
+audits results/resources/cleanup. Readiness makes one account-identity GET and an
+explicit transient R2 put/head/public-get/delete probe. No live Meta/R2 call was
+made in repository verification. Current readiness does not inspect token
+expiry/scopes, app-review state, quota, custom-domain ownership/cache rules, or
+the bucket lifecycle setting; those remain operator gates.
 
 ## Account Model
 
@@ -56,12 +66,11 @@ pages_read_engagement
 in the activated configuration release. Publication requests do not need the
 app ID/secret when a validated token is already provided; renewal will require
 the appropriate app credentials. The POC does
-not automatically renew tokens. On onboarding/renewal, the Readiness Monitor
-stores the non-secret `token_expires_at` only in the persisted
-`CapabilityReadiness` record, together with its active configuration-release
-fingerprint and check time. The dashboard warns 14 days before expiry, shows a
-high-visibility failure state at 72 hours, and the Posting Agent blocks a
-delivery attempt once the token is expired or readiness is stale/non-ready.
+not automatically renew tokens. The target readiness design stores a non-secret
+`token_expires_at` and provides advance expiry warnings; the current monitor
+records account identity and a six-hour readiness expiry only. The Posting Agent
+does block stale/non-ready destinations, but token-expiry warning/renewal remains
+an operator responsibility.
 
 For an owner-operated development app, the app administrator/developer/tester
 can authorize their own connected assets without supporting unrelated accounts.
@@ -174,10 +183,12 @@ pre-request transport errors are retryable only before the final marker. Every
 provider error records HTTP status, safe provider code/subcode when returned,
 stage, retry classification, and redacted bounded message.
 
-Reconciliation uses only `GET /<INSTAGRAM_USER_ID>/media` with fields
+The target reconciliation search uses `GET /<INSTAGRAM_USER_ID>/media` with fields
 `id,media_type,timestamp,caption,permalink,children{id}` and an explicit
 `limit=25`, following `paging.next` no more than four pages within the bounded
-attempt time window. It hashes returned captions locally, stores no raw token
+attempt time window. The current worker fetches only the first 25 results and
+compares exact caption text; it does not implement pagination or the bounded
+time filter. It hashes returned captions locally, stores no raw token
 or response body, and follows the human-only reconciliation rule above.
 
 ### Public-media environments
@@ -214,26 +225,26 @@ has the manifest SHA-256. It uploads exactly those bytes with
 metadata other than the SHA-256 and immutable attempt/resource identifiers.
 
 After upload, it performs an authenticated R2 HEAD and compares byte length,
-content type, metadata hash, and object ETag when available. It then performs
+content type, and metadata hash. It then performs
 one anonymous HTTPS GET through `R2_PUBLIC_DOMAIN`, follows no redirect, caps
 the response at the expected byte length, hashes the returned bytes, and
 requires an exact match before it gives the URL to Meta. This probe is an
 attempt resource and is never logged as a reusable signed/public URL.
 
 Production uses the dedicated custom HTTPS domain. Its Cloudflare cache rule
-must bypass cache for `instagram-transient/*`; the response header above is
-the second guard. A configuration activation checks domain ownership, HTTPS,
-that no redirect is returned, and that an anonymous temporary probe has the
-expected bytes. `r2.dev` is rejected for production readiness. The `r2.dev`
-development smoke-test path uses the same key, header, and verification rules.
+should bypass cache for `instagram-transient/*`; the response header above is
+the second guard. Current configuration validates origin-only HTTPS and rejects
+`r2.dev`; current readiness proves an anonymous temporary probe has exact bytes
+and no redirect. Domain ownership and cache-rule inspection are not automated.
 
 Cleanup DELETE is idempotent. The Cleanup Worker records deletion time and
 performs an authenticated HEAD that must return `404`/`NoSuchKey`; it does not
 rely on a public GET because intermediate caches may outlive deletion. The
 custom-domain cache-bypass rule is verified at activation and after any cache
 configuration change. The bucket lifecycle rule for this prefix must be
-enabled with a seven-day expiration backstop; readiness records its retrieved
-rule identifier and effective period rather than assuming a console setting.
+enabled with a seven-day expiration backstop. Current readiness does not
+retrieve that rule, so the owner must verify it in Cloudflare before unattended
+use.
 
 ### Reconciliation — `meta_reconciliation_v1`
 

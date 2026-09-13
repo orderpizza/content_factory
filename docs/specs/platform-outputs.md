@@ -24,6 +24,14 @@ The adapter must reject content that cannot fit safely; it cannot remove a
 material caveat, invent a source, truncate after approval, or delegate copy
 repair to posting. No AI images or video generation is required for Phase 1.
 
+The current `--review-preview` path implements closed versions of the Instagram
+carousel and X single-post shapes below and validates copy, tags, alt text, claim
+mapping, and weighted X length. Synthetic bindings always write
+`delivery_ready=false`. V4 production bindings use the same immutable package
+shapes but require the approved delivery profile and become eligible only after
+render/hash/readiness validation. Offline conformance is not a claim that live
+provider limits or real accounts have been accepted.
+
 ## Instagram — `instagram_static_carousel_v2`
 
 Primary output is a static, ordered carousel. The proposed internal format

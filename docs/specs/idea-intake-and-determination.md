@@ -372,7 +372,12 @@ Tests and an operator-reviewed routing fixture set must demonstrate:
 - cancellation stopping only authorized unfinished descendants; and
 - invalid model output or provider failure recorded as failure, not rejection.
 
-Exact multi-route/angle/rework JSON schemas, forward SQL, and semantic fixtures
-are required before enabling this worker. The old single-route
+The opt-in worker uses closed in-code response schemas, persisted v2 creative
+tables, and fake-client boundary tests. Synthetic mode evaluates five
+non-deliverable capabilities; v4 production mode freezes real enabled/readiness
+bindings and applies priced admission to Intake and Determination calls. Exact
+standalone multi-route/angle/rework JSON artifacts, capacity/reuse enforcement,
+and operator-reviewed semantic routing fixtures remain required before
+unattended production acceptance. The old single-route
 `determination_result_v1`, `recipe_v1`, and the old `brief_v1` draft are
 superseded; see [contract maturity](../contracts/maturity.md).

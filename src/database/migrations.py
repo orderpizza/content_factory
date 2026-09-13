@@ -5,20 +5,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+import json
 import sqlite3
 from content_factory_resources import contract_path
 
 
 DETECTION_SCHEMA_VERSION = 1
 SCHEMA_VERSION = 2
-LATEST_SCHEMA_VERSION = 3
+SAFETY_SCHEMA_VERSION = 3
+PRODUCTION_SCHEMA_VERSION = 4
+LATEST_SCHEMA_VERSION = PRODUCTION_SCHEMA_VERSION
 SAFETY_MIGRATION_NAME = "detection_safety_schema_v3"
+PRODUCTION_MIGRATION_NAME = "production_workflow_schema_v4"
 MIGRATION_NAME = "detection_dashboard_schema_v1"
 EDITORIAL_MIGRATION_NAME = "editorial_workflow_schema_v2"
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = contract_path("detection-dashboard-schema-v1.sql")
 EDITORIAL_CONTRACT_PATH = contract_path("editorial-workflow-schema-v2.sql")
 SAFETY_CONTRACT_PATH = contract_path("detection-safety-schema-v3.sql")
+PRODUCTION_CONTRACT_PATH = contract_path("production-workflow-schema-v4.sql")
 
 
 class SchemaError(RuntimeError):
@@ -123,7 +128,7 @@ def migrate_editorial_workflow(path: str | Path) -> bool:
     connection = connect(database_path)
     try:
         version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if version in (SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
+        if version in (SCHEMA_VERSION, SAFETY_SCHEMA_VERSION, PRODUCTION_SCHEMA_VERSION):
             validate_editorial_workflow(connection)
             return False
         if version != DETECTION_SCHEMA_VERSION:
@@ -162,14 +167,14 @@ def migrate_detection_safety(path: str | Path) -> bool:
     connection = connect(database_path)
     try:
         validate_editorial_workflow(connection)
-        if int(connection.execute("PRAGMA user_version").fetchone()[0]) == LATEST_SCHEMA_VERSION:
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) in (SAFETY_SCHEMA_VERSION, PRODUCTION_SCHEMA_VERSION):
             return False
         sql = SAFETY_CONTRACT_PATH.read_bytes()
         checksum = sha256(sql).hexdigest()
         moment = datetime.now(timezone.utc).isoformat()
         try:
             connection.executescript("BEGIN EXCLUSIVE;\n" + sql.decode("utf-8"))
-            connection.execute("INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES (?,?,?,?)", (3, SAFETY_MIGRATION_NAME, checksum, moment))
+            connection.execute("INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES (?,?,?,?)", (SAFETY_SCHEMA_VERSION, SAFETY_MIGRATION_NAME, checksum, moment))
             if connection.execute("PRAGMA foreign_key_check").fetchall():
                 raise SchemaError("Safety migration foreign-key check failed")
             connection.commit()
@@ -182,11 +187,71 @@ def migrate_detection_safety(path: str | Path) -> bool:
         connection.close()
 
 
+def migrate_production_workflow(path: str | Path) -> bool:
+    """Explicitly add credential-ready safety/delivery records to schema v3."""
+    database_path = Path(path).resolve()
+    if not database_path.is_file():
+        raise SchemaError("Production migration requires an existing workflow database.")
+    connection = connect(database_path)
+    try:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if version == PRODUCTION_SCHEMA_VERSION:
+            validate_production_workflow(connection)
+            return False
+        if version != SAFETY_SCHEMA_VERSION:
+            raise SchemaError(
+                f"Production migration requires schema v{SAFETY_SCHEMA_VERSION}; found v{version}."
+            )
+        validate_editorial_workflow(connection)
+        active = connection.execute(
+            "SELECT r.manifest_json FROM configuration_activations a "
+            "JOIN configuration_releases r ON r.configuration_release_id=a.configuration_release_id "
+            "WHERE a.scope_key='global' AND a.status='active'"
+        ).fetchone()
+        if active is None:
+            raise SchemaError("Production migration requires an active detection configuration release.")
+        try:
+            detection = json.loads(active["manifest_json"])["components"]["detection"]
+        except (KeyError, TypeError, json.JSONDecodeError) as error:
+            raise SchemaError("Active detection configuration is malformed.") from error
+        if (
+            detection.get("canonicalization_version") != "canonicalization_v2"
+            or detection.get("score_formula_version") != "attention_v2"
+        ):
+            raise SchemaError(
+                "Production v4 is restricted to the fresh Option B normalized/hybrid database; "
+                "the legacy database was not changed."
+            )
+        sql = PRODUCTION_CONTRACT_PATH.read_bytes()
+        checksum = sha256(sql).hexdigest()
+        moment = datetime.now(timezone.utc).isoformat()
+        try:
+            connection.executescript("BEGIN EXCLUSIVE;\n" + sql.decode("utf-8"))
+            connection.execute(
+                "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES (?,?,?,?)",
+                (PRODUCTION_SCHEMA_VERSION, PRODUCTION_MIGRATION_NAME, checksum, moment),
+            )
+            if connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise SchemaError("Production migration foreign-key check failed")
+            connection.commit()
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        validate_production_workflow(connection)
+        return True
+    finally:
+        connection.close()
+
+
 def validate_detection_dashboard(connection: sqlite3.Connection, *, check_foreign_keys: bool = True) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version not in (DETECTION_SCHEMA_VERSION, SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
+    if version not in (
+        DETECTION_SCHEMA_VERSION, SCHEMA_VERSION, SAFETY_SCHEMA_VERSION,
+        PRODUCTION_SCHEMA_VERSION,
+    ):
         raise SchemaError(
-            f"Database schema version is {version}; expected 1, 2 or {LATEST_SCHEMA_VERSION}. "
+            f"Database schema version is {version}; expected 1 through {LATEST_SCHEMA_VERSION}. "
             "Run the explicit setup command."
         )
     try:
@@ -195,8 +260,10 @@ def validate_detection_dashboard(connection: sqlite3.Connection, *, check_foreig
         raise SchemaError("Database does not contain the required migration ledger.") from error
     if version >= SCHEMA_VERSION:
         _validate_migration(connection, SCHEMA_VERSION, EDITORIAL_MIGRATION_NAME, editorial_contract_checksum())
-    if version == LATEST_SCHEMA_VERSION:
-        _validate_migration(connection, 3, SAFETY_MIGRATION_NAME, sha256(SAFETY_CONTRACT_PATH.read_bytes()).hexdigest())
+    if version >= SAFETY_SCHEMA_VERSION:
+        _validate_migration(connection, SAFETY_SCHEMA_VERSION, SAFETY_MIGRATION_NAME, sha256(SAFETY_CONTRACT_PATH.read_bytes()).hexdigest())
+    if version >= PRODUCTION_SCHEMA_VERSION:
+        _validate_migration(connection, PRODUCTION_SCHEMA_VERSION, PRODUCTION_MIGRATION_NAME, sha256(PRODUCTION_CONTRACT_PATH.read_bytes()).hexdigest())
     if check_foreign_keys:
         violations = connection.execute("PRAGMA foreign_key_check").fetchall()
         if violations:
@@ -214,6 +281,14 @@ def _validate_migration(connection: sqlite3.Connection, version: int, name: str,
 
 
 def validate_editorial_workflow(connection: sqlite3.Connection) -> None:
-    if int(connection.execute("PRAGMA user_version").fetchone()[0]) not in (SCHEMA_VERSION, LATEST_SCHEMA_VERSION):
+    if int(connection.execute("PRAGMA user_version").fetchone()[0]) not in (
+        SCHEMA_VERSION, SAFETY_SCHEMA_VERSION, PRODUCTION_SCHEMA_VERSION,
+    ):
         raise SchemaError("Editorial workflow schema v2 is required; run scripts/setup_workflow.py explicitly.")
     validate_detection_dashboard(connection)
+
+
+def validate_production_workflow(connection: sqlite3.Connection) -> None:
+    if int(connection.execute("PRAGMA user_version").fetchone()[0]) != PRODUCTION_SCHEMA_VERSION:
+        raise SchemaError("Production workflow schema v4 is required; run scripts/setup_production.py explicitly.")
+    validate_editorial_workflow(connection)

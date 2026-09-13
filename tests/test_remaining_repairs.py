@@ -10,7 +10,6 @@ import tempfile
 import unittest
 
 from common.diagnostics import safe_diagnostic
-from common.gemini import VertexGeminiClient
 from common.legacy import RetiredOperationError
 from database.migrations import connect, migrate_detection_dashboard, migrate_editorial_workflow
 from dashboard import render_detection_dashboard, render_workflow_trace
@@ -48,6 +47,11 @@ class RemainingRepairTests(unittest.TestCase):
         self.assertEqual(_worker_freshness(worker, at), "fresh heartbeat")
         self.assertEqual(_worker_freshness(worker, at + timedelta(minutes=21)), "late heartbeat")
         self.assertEqual(_worker_freshness(worker, at + timedelta(minutes=46)), "stale heartbeat")
+
+        workflow = {"worker_type": "posting_agent", "state": "idle", "last_seen_at": at.isoformat()}
+        self.assertEqual(_worker_freshness(workflow, at + timedelta(seconds=30)), "fresh heartbeat")
+        self.assertEqual(_worker_freshness(workflow, at + timedelta(seconds=31)), "late heartbeat")
+        self.assertEqual(_worker_freshness(workflow, at + timedelta(seconds=91)), "stale heartbeat")
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -214,17 +218,15 @@ class RemainingRepairTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_placeholder_review_never_creates_authorization(self):
+    def test_review_commands_never_create_delivery_authorization(self):
         with WorkflowStore(self.path) as store:
             for review_id in (1, -1):
-                with self.assertRaisesRegex(ValueError, "disabled"):
+                with self.assertRaisesRegex(ValueError, "does not exist"):
                     store.approve_review(review_id, row_version=1, command_id="approve")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
 
-    def test_legacy_external_boundaries_fail_before_network(self):
+    def test_legacy_publishing_boundary_fails_before_network(self):
         with patch("socket.socket.connect", side_effect=AssertionError("network forbidden")):
-            with self.assertRaises(RetiredOperationError):
-                VertexGeminiClient(project="fixture").generate_json("prompt", {})
             with self.assertRaises(RetiredOperationError):
                 BlueskyPublisher("fixture", "secret").publish("text")
 

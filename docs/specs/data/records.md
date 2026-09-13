@@ -1,9 +1,9 @@
 # SQLite Record Contract
 
-**Document role:** Tier 2 exact persistence router for detection v1 and the
-optional local workflow v2 scaffold and v3 detection safety extension.
+**Document role:** Tier 2 exact persistence router for detection v1, editorial
+workflow v2, detection safety v3, and the bounded production v4 extension.
 **Contract IDs:** `detection_dashboard_schema_v1`, `editorial_workflow_schema_v2`,
-`detection_safety_schema_v3`.
+`detection_safety_schema_v3`, `production_workflow_schema_v4`.
 **Owner:** SQLite schema, migrations, constraints, and persistence boundary
 tests. Read the [Data Model](../data-model.md) first for identity, lineage, and
 cross-record semantics.
@@ -11,16 +11,19 @@ cross-record semantics.
 The executable canonical DDL is
 [`detection-dashboard-schema-v1.sql`](../../contracts/detection-dashboard-schema-v1.sql).
 The application migration must execute those statements without maintaining a
-second handwritten table definition. Its recorded migration checksum is the
-SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` equals `1` after this
-migration and `2` after the optional forward workflow migration. Both applied
-SQL files/checksums remain immutable.
+second handwritten table definition. Each recorded migration checksum is the
+SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` advances from `1` through
+explicit v2, v3, and v4 migrations. Every applied SQL file/checksum remains
+immutable.
 
 Checkout execution reads the canonical SQL in `docs/contracts`. Distribution
 builds copy those exact bytes into `content_factory_resources/contracts`; an
 installed wheel loads that resource when no checkout contract exists. There is
 one editable DDL source, not a separate handwritten package schema. The installed
-wheel regression applies v1→v2→v3 outside the checkout and compares every checksum.
+wheel regression applies v1→v2→v3 outside the checkout and compares every
+packaged v1–v4 SQL checksum. A separate Option B fixture applies and validates
+v4 because production migration intentionally requires the active normalized
+release.
 
 This contract deliberately contains only the records needed to collect,
 evaluate, shortlist, and display trend opportunities. It remains immutable for
@@ -29,6 +32,11 @@ applied forward migration, [`editorial-workflow-schema-v2.sql`](../../contracts/
 it preserves every v1 handoff and is never applied by dashboard or worker
 startup. The optional [v3 safety migration](../../contracts/detection-safety-schema-v3.sql)
 then sets `user_version=3` without replacing either earlier migration or handoff.
+
+The explicit [v4 production migration](../../contracts/production-workflow-schema-v4.sql)
+requires an active Option B release (`canonicalization_v2` + `attention_v2`). It
+refuses a legacy normalization release without writing, then advances the same
+database to `user_version=4`.
 
 ### V3 evidence extension
 
@@ -43,14 +51,35 @@ All three tables reject updates, as do `trend_observations` after v3. Workers
 never rewrite prior contribution flags; they resolve contributors from frozen
 evaluation inputs. This extension is activated only by an explicit migration.
 
+### V4 production extension
+
+V4 preserves earlier creative rows and adds the bounded real-operation subset:
+
+- immutable production configuration, destinations, posting policies, and
+  materialized domain/destination bindings;
+- expiring readiness state plus append-only readiness checks;
+- priced Gemini reservations, adaptation body/metadata checkpoints, and
+  production render/profile/manifest fields;
+- exact PostRequest/destination/manifest binding, attempts, safe remote
+  resources, cleanup, and human-directed reconciliation; and
+- storage samples, maintenance audit, and artifact reconciliation records.
+
+SQL constraints and immutability triggers protect the most safety-critical
+states. Store methods additionally validate full structured payloads, hashes,
+row versions, readiness, storage, policy, and legal transitions. V4 does not add
+X thread steps, canonical reuse, recurrence, recovery-work requests, worker
+heartbeat enforcement, or a capacity allocator.
+
 ## Phase 1 extension boundary
 
-The five-domain strategy's initial forward scaffold is v2. It creates the
+The five-domain strategy's initial editorial scaffold is v2. It creates the
 persisted Intake, Determination, canonical-content, output-adaptation, render,
 review, delivery, capability, and model-ledger boundaries used by the local
-placeholder workers. It does not enable Gemini, account bindings, production
-profiles, capacity/reuse policy, or provider delivery; those require the exact
-reviewed contracts and operator configuration named in the Data Model.
+placeholder workers. The opt-in runner also uses these same Intake,
+Determination and model-ledger rows for bounded Gemini decisioning with in-code
+response validation. V4 extends rather than replaces those rows for real account
+bindings, production profiles, model-budget admission, provider delivery, and
+maintenance. Capacity/reuse/recurrence remain outside this extension.
 
 The v2 human-idea command path supports both a new `ContentThread` and a
 continuation of an open thread. A continuation appends one `thread_messages`
@@ -63,14 +92,17 @@ visible `input_too_large` failure. Continuations require the displayed positive
 thread row version, with receipt lookup and version checks under one write lock.
 See [current implementation](../../current-state.md).
 
-V2 is not the production Data Model inventory: its JSON fields have syntactic
-validation rather than full production schemas, capabilities are local fixtures,
-and capacity/reuse, exact asset approval and provider delivery are incomplete.
+V2 by itself is not the production Data Model inventory: its JSON fields have
+syntactic validation rather than standalone production schemas and its
+capabilities may be local fixtures. V4 supplies the additional fail-closed
+production records; closed in-code model schemas and semantic validators remain
+part of the worker boundary.
 Local claims now recover expired no-model work within attempt limits, fence stale
 finalizers by owner/version/lease, and cancel downstream finalization when the
 parent thread is closed. Claims with model history or delivery risk fail closed
-for explicit recovery review. Placeholder approval is disabled, not production
-asset verification. Required future fields/states need forward migrations,
+for explicit recovery review. Synthetic approval cannot create PostRequests;
+production review/delivery revalidates persisted and physical assets. Required
+future fields/states need forward migrations,
 not in-place changes to the scaffold SQL. The table groups and transition
 requirements below describe the v1 slice unless explicitly marked otherwise.
 Do not add future production fields to the applied detection migration or change
@@ -102,8 +134,19 @@ a separate per-step publication schema and remain disabled until it is tested.
 | Source registry and collection | `detection_source_instances`, `detection_cluster_aliases`, `source_collection_attempts`, `source_request_executions`, `source_health` | Freeze enabled source configuration, audit every reserved outbound execution (including retry quota), and record one bounded collection attempt plus its terminal health result. |
 | Evidence | `trends`, `trend_observations`, `source_item_events` | Preserve canonical subjects, immutable observation snapshots, and explicit exclusions/rejections. |
 | Evaluation | `scout_evaluation_runs`, `scout_evaluation_inputs`, `scout_evaluation_attempts`, `topic_snapshots`, `trend_candidates`, `candidate_observation_memberships` | Freeze source-level health plus every collection attempt used, append each score/evidence snapshot, and maintain one current candidate lifecycle per opportunity identity. |
-| Selected handoff | `content_threads`, `intake_requests`, `thread_evidence_events` | Persist the terminal boundary of the current milestone without running Idea Intake. |
+| Selected handoff | `content_threads`, `intake_requests`, `thread_evidence_events` | Persist trend/human handoff and route-neutral Intake conversation. |
 | Runtime visibility | `worker_heartbeats`, `worker_runs` | Show current worker freshness and substantive collection/evaluation executions. |
+| Editorial workflow | v2 brief, determination, route, job, generation, canonical, output, adaptation, package, render, review, post, capability, receipt, and model-ledger tables | Persist the complete creative/review lineage used by fixture and Gemini modes. |
+| Production control/delivery | v4 production configuration, destination/policy/readiness, budget/checkpoint, attempt/resource/cleanup/reconciliation tables | Freeze real account/profile/policy input and audit every authorized side effect. |
+| Operations | `storage_samples`, `maintenance_runs`, `artifact_reconciliations` | Gate production work and retain backup/checkpoint/restore/retention evidence. |
+
+The shared workflow poller now reuses the v1 runtime-visibility tables without a
+schema change. It upserts one `worker_heartbeats` row per logical stage/instance
+on every pass. A non-idle returned result appends `worker_runs`, using
+`claim_type`/`claim_id` as the safe result-record type and ID; storage samples
+already have append-only history and are not duplicated there. This is basic
+freshness/result visibility, not the target active-claim, restart-count, or
+lease-renewal model.
 
 `topic_snapshots` is the immutable per-evaluation score/evidence record.
 `trend_candidates` is the stable current lifecycle row keyed by
@@ -210,8 +253,13 @@ evidence but does not silently become a new initial selection.
 | `content_threads` | `open → closed/cancelled`; `closed → open`; `cancelled` terminal | Idea Intake/dashboard in later stages; current Scout only creates `open` trend seeds |
 | `intake_requests` | `pending/retry_wait → claimed → completed/needs_clarification/retry_wait/failed/cancelled` | Idea Intake; current Scout only creates `pending` |
 
-The current dashboard is reporting-only, so it owns no write transition in this
-milestone.
+The dashboard keeps reporting on a read-only connection and opens a separate
+short write transaction only for human commands: new/continued Intake,
+approve/reject/request-changes, production Post now, eligible pre-final cancel,
+and explicit reconciliation request/resolution. Editorial acceptance alone
+creates no PostRequest. The model ledger records Intake, Determination,
+generation, and adaptation calls; v4 reservations and production adaptation
+checkpoints add the current price/cost and restart boundaries.
 
 ## Index and query contract
 

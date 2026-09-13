@@ -273,20 +273,30 @@ approved/in-flight siblings remain untouched unless an explicit permitted
 cancellation wins. A blocked sibling can be rechecked without regenerating
 completed routes under the Intake preconditions.
 
-The currently implemented dashboard remains reporting-only. V2/v3 adds a bounded
-thread-first trace including pending/clarification/failed Intake, messages,
-revisions, decisions/routes and downstream generation/adaptation/render/review/
-delivery row statuses. Messages appear once per thread. This is not the full
-portfolio, exact asset review or human-command UI described above. Detection and
-workflow sections share one read transaction. Opportunity counts/list rows remain
-one per selected candidate, independent of its number of Intake requests.
+The current dashboard implements the human boundary for the bounded production
+slice. It renders Detection/workflow state in one read-only transaction, while a
+separate loopback POST executes only new-idea, thread-reply, preview
+accept/reject/request-changes, exact production Post now, eligible pre-final
+cancel, and explicit reconciliation request/resolution commands through
+`WorkflowStore`. Commands validate the process CSRF token, command ID, and
+applicable displayed row version. It serves only currently hash-valid manifested
+PNG/JPEG files below the artifact root and shows the exact review text/images.
+Editorial acceptance alone creates no PostRequest; the separately displayed Post
+now button requires a production-ready package and current destination readiness.
+Messages appear once per thread. Recovery requests, configuration editing,
+routing replay/quality evaluation, and the full portfolio/lease controls above
+remain unimplemented. Opportunity counts/list rows remain one per selected
+candidate, independent of its number of Intake requests.
 See [current implementation](../current-state.md) for operational limitations.
 
 The current read view pauses automatic refresh while hidden and refreshes on
 return, using a fixed CSP-hashed script. Editing a filter pauses automatic
 reload to preserve input. Detection worker heartbeat age is labeled separately
-from its last reported state using the runtime's 20/45-minute thresholds.
-Full lease/backlog/storage-aware health remains a target requirement.
+from its last reported state using the runtime's 20/45-minute thresholds. The
+production summary shows the latest storage state, conservative current-UTC-day
+Gemini budget usage/warning, destination readiness/expiry, delivery states, and
+cleanup counts. Full per-worker lease/backlog/capacity health and alerting remain
+target requirements.
 
 Each HTTP refresh verifies schema version and migration-ledger checksums inside
 its consistent read snapshot. It does not rescan every foreign key on every

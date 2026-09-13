@@ -29,9 +29,17 @@
 - Posting never generates or changes captions, tags, hashtags, or visual
   content. Public delivery requires the human-review and explicit
   delivery-authorization boundary defined by the Tier 2 contracts.
-- The target dashboard is the Human–Agent Interface: it persists human idea, review,
-  and explicit delivery-authorization records, including **Post now**. It never
-  invokes a worker or external API directly.
+- The dashboard is the Human–Agent Interface: it persists human ideas, replies,
+  preview decisions, scoped review feedback, and—in schema v4—exact **Post now**,
+  pre-final cancellation, and reconciliation commands. It never invokes a
+  worker or external API directly.
+- The runner keeps deterministic workers as its default. Its explicit
+  `--gemini` mode may use Gemini for Idea Intake and Determination;
+  `--review-preview` also enables canonical generation, output adaptation, and
+  the local Playwright renderer. Synthetic mode remains non-deliverable.
+  `--production` selects the immutable v4 real-destination catalog and priced
+  admission; `--delivery` additionally composes credentialed adapters, but no
+  public call is possible without one exact dashboard Post now authorization.
 - Keep secrets out of the repository. Isolate external API access behind small
   services or adapters.
 
@@ -62,7 +70,8 @@
   duplicate it. Preserve the historical decision archive without using it as a
   routine change log.
 - Do not modify unrelated dirty-worktree files.
-- Never run legacy publishing, paid smoke tests, or retention as routine checks.
-  V1/v2 workers use `database.migrations`; `database.sqlite` is incompatible legacy.
+- Never run legacy publishing, live provider checks, public posting, or
+  non-temporary retention as routine checks. V1–v4 workers use
+  `database.migrations`; `database.sqlite` is incompatible legacy.
 - Update `docs/current-state.md` when implemented capabilities or entrypoints
   change; keep future requirements in their focused specifications.

@@ -35,7 +35,23 @@ AUTO_REFRESH_CSP = "'sha256-" + b64encode(sha256(AUTO_REFRESH_SCRIPT.encode()).d
 
 def _worker_freshness(row, at: datetime) -> str:
     """Heartbeat age is separate from the last reported state or claim health."""
-    if row["worker_type"] not in {"trend_source_collector", "trend_scout_shortlist"}:
+    thresholds = {
+        "trend_source_collector": (1200, 2700),
+        "trend_scout_shortlist": (1200, 2700),
+        "idea_intake": (60, 180),
+        "determination": (60, 180),
+        "pipeline_runner": (60, 180),
+        "adaptation": (60, 180),
+        "visual_renderer": (60, 180),
+        "posting_agent": (30, 90),
+        "cleanup": (600, 1200),
+        "publication_reconciliation": (600, 1200),
+        "storage_monitor": (600, 1200),
+        "capability_readiness": (600, 1200),
+        "maintenance": (26 * 3600, 50 * 3600),
+    }
+    limits = thresholds.get(row["worker_type"])
+    if limits is None:
         return "unknown cadence"
     try:
         seen = datetime.fromisoformat(row["last_seen_at"].replace("Z", "+00:00"))
@@ -44,7 +60,12 @@ def _worker_freshness(row, at: datetime) -> str:
         return "invalid heartbeat time"
     if age < 0:
         return "clock skew"
-    return "stale heartbeat" if age > 2700 else "late heartbeat" if age > 1200 else "fresh heartbeat"
+    warn_after, stale_after = limits
+    return (
+        "stale heartbeat" if age > stale_after
+        else "late heartbeat" if age > warn_after
+        else "fresh heartbeat"
+    )
 
 
 def _cell(value: Any) -> str:
@@ -331,7 +352,7 @@ def render_detection_dashboard(
 *{{box-sizing:border-box}} body{{margin:0;background:var(--wash);color:var(--ink);font:12px/1.25 system-ui,-apple-system,sans-serif}}
 main{{width:100%;padding:6px 8px}} h2{{font-size:13px;line-height:1.15;margin:0;font-weight:700}} h3{{font-size:12px;margin:0}}
 .filters{{display:flex;gap:5px;align-items:end;flex-wrap:wrap;background:var(--paper);border:1px solid var(--line);padding:5px;margin:0 0 5px}}
-.filters label{{display:grid;gap:2px;color:var(--muted);font-size:11px}} .filters input{{width:min(300px,46vw)}} input,select,button{{font:inherit;padding:3px 5px;border:1px solid #b9c4cb;border-radius:3px;background:#fff}}
+.filters label{{display:grid;gap:2px;color:var(--muted);font-size:11px}} .filters input{{width:min(300px,46vw)}} input,select,button,textarea{{font:inherit;padding:3px 5px;border:1px solid #b9c4cb;border-radius:3px;background:#fff}} textarea{{display:block;width:min(720px,95%);min-height:70px;margin:.35rem 0}} .workflow form{{margin:.6rem 0 1rem}}
 button{{background:var(--accent);color:#fff;border-color:var(--accent);cursor:pointer}} .reset{{padding:4px 2px}}
 .metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-bottom:5px}} .metric{{background:var(--paper);border:1px solid var(--line);padding:4px 6px;color:var(--muted)}}
 .metric b{{display:inline;color:var(--ink);font-size:14px;margin-left:5px}} .panel{{overflow:auto;background:var(--paper);border:1px solid var(--line)}}

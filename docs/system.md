@@ -49,13 +49,16 @@ configuration choices. The [domain catalog](pipelines/domains.md) owns remit,
 angle eligibility, content extensions, and distribution intent.
 
 The existing detection milestone remains deterministic ingestion and its local
-dashboard, ending at selected `ContentThread` + `IntakeRequest`. An explicit
-v2 forward migration now provides a local, end-to-end placeholder workflow for
-the later SQLite handoffs and dashboard trace. It does not enable Gemini,
-production account bindings, real rendering profiles, or social delivery;
-those external/model boundaries remain disabled until their configuration and
-fixtures receive operator review. Preserve the observable detection slice while
-building the remaining production contracts in the
+dashboard, ending at selected `ContentThread` + `IntakeRequest`. Forward schemas
+v2 and v3 provide the editorial and detection-safety handoffs. Schema v4 adds an
+immutable real-destination catalog, current-readiness facts, priced model
+reservations, production rendering checkpoints, exact Post now authorization,
+delivery attempts/resources, cleanup/reconciliation, and storage/maintenance
+records. The default runner remains a non-deliverable fixture. Production and
+delivery are separate explicit runner flags and still require operator-approved
+configuration, credentials, live readiness, and one human authorization per
+destination. Current implementation limits are in
+[Current state](current-state.md); remaining scale/quality work stays in the
 [implementation plan](plans/target-implementation.md).
 
 For a safe local demonstration, `scripts/setup_workflow.py` explicitly applies
@@ -63,13 +66,25 @@ v2, `scripts/enable_placeholder_route.py --confirm-local-placeholder` creates a
 synthetic non-deliverable route, `scripts/create_local_idea.py` writes an Intake
 handoff, and `scripts/run_workflow.py` invokes each placeholder worker once in
 sequence, potentially advancing one item through several persisted stages.
-None of these commands enables Gemini or external publication.
+`scripts/run_workflow.py --gemini` instead composes Gemini only for Intake and
+Determination and auto-registers five synthetic fixture capabilities;
+`--poll` repeats the persisted pass for interactive ideation. Adding
+`--review-preview` composes Gemini generation/adaptation and real local asset
+rendering, while fixture reviews remain non-deliverable. On the fresh Option B
+database only, explicit v4 setup plus `--production` uses real configured
+destinations; `--delivery` polls approved delivery work. The dashboard is still
+the only component that can create that work through **Post now**.
+`scripts/check_smoke_readiness.py` performs the non-network preview, production,
+or delivery preflight and reports remaining local/configuration gates without
+resolving or printing secret values.
 
 The optional v3 safety migration adds replay evidence for the user-approved
 hybrid scoring policy: live fast signals and completed Wikimedia daily reports.
 Its explicit activation command and limits are in [Current state](current-state.md).
-Real legacy Gemini and publishing entrypoints are retired and refuse execution;
-placeholder reviews cannot authorize delivery.
+Legacy Gemini composition roots and old Instagram/Bluesky publisher entrypoints
+remain retired. The shared Vertex client is used by the opt-in workflow workers;
+only the v4 `CredentialedPostingAgent` may deliver, and ordinary editorial
+acceptance never authorizes it.
 
 Phase 1 includes Instagram static carousels and X-native single image + post
 text. Image + thread is optional and separately gated. Reuse local HTML/CSS +
@@ -177,7 +192,8 @@ not separately scheduled services.
   polling cycle. It interprets raw trend evidence or human conversation into a
   structured, route-neutral `BriefRevision`, may ask the human for clarification,
   assigns editorial coverage identity, and is a distinct stage between Detection
-  and Determination. The local v2 fixture worker is explicitly non-Gemini.
+  and Determination. The local v2 runner retains a non-Gemini fixture worker by
+  default and selects the implemented Gemini worker only with `--gemini`.
 - Determination separately records editorial worth, domain fit, a supported
   angle for each selected domain, skipped domains with reasons, and operational
   blockers. One trend may select one, several, or no pipelines.
@@ -248,7 +264,10 @@ See [Posting](specs/posting.md) and [Reliability](specs/reliability.md).
 
 The Mac Mini remains the primary runtime; SQLite is the POC store and GCP Vertex
 Gemini is the intended model provider. Actual commands and settings are in
-[Current state](current-state.md). These documentation changes do not authorize a database
+[Current state](current-state.md). The active development-data policy is the
+fresh normalized experiment in
+[decision 035](archive/decisions.md#035---development-database-uses-fresh-normalized-experiment).
+Setup remains an explicit operator command and does not authorize a database
 reset, live publishing, account creation, or background production activation.
 
 ```sh
@@ -260,9 +279,11 @@ reset, live publishing, account creation, or background production activation.
 
 On Windows use `py scripts/check_docs.py` and `py scripts/run_tests.py`.
 Documentation-only changes require the first check; implementation changes
-require both. Tests for existing code do not prove the new architecture runs.
-Do not enable downstream workers before their exact schemas, migrations, and
-boundary fixtures pass the [implementation gates](plans/target-implementation.md).
+require both. Offline tests establish the bounded v4 code path but do not prove
+live credentials, provider entitlements, visual quality, or unattended Mac
+operation. Do not activate production workers before their schemas, migration,
+configuration, readiness, human review, and boundary fixtures pass the
+[implementation gates](plans/target-implementation.md).
 
 Use the local [environment template](../.env.example); never commit secrets.
 Configuration and safe secret references are owned by

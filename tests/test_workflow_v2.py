@@ -42,8 +42,16 @@ class WorkflowV2Tests(unittest.TestCase):
             review_id = VisualRenderer(store, Path(self.tmp.name) / "artifacts").run_once()
             self.assertIsNotNone(review_id)
             review = store.connection.execute("SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)).fetchone()
-            with self.assertRaisesRegex(ValueError, "disabled"):
-                store.approve_review(review_id, row_version=review[0], command_id="approve-1")
+            self.assertEqual(
+                store.approve_review(review_id, row_version=review[0], command_id="approve-1"),
+                review_id,
+            )
+            self.assertEqual(
+                store.connection.execute(
+                    "SELECT status FROM review_requests WHERE review_request_id=?", (review_id,)
+                ).fetchone()[0],
+                "approved",
+            )
             self.assertIsNone(PostingAgent(store).run_once())
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
 
@@ -97,6 +105,53 @@ class WorkflowV2Tests(unittest.TestCase):
             self.assertEqual(second_brief["parent_revision_id"], revision_one)
             self.assertEqual(json.loads(second_brief["brief_json"])["topic"], json.loads(first_brief["brief_json"])["topic"])
             self.assertIn("encouraging", json.loads(second_brief["brief_json"])["constraints"]["requested_changes"][-1])
+
+    def test_dashboard_review_feedback_reenters_intake_without_authorizing_delivery(self):
+        with WorkflowStore(self.path) as store:
+            store.register_capability("english", enabled=True, generation_ready=True, outputs=[{
+                "platform": "instagram", "account": "fixture_english",
+                "content_format": "instagram_static_carousel_v2", "ready": True,
+            }])
+            store.create_human_idea("Teach a practical meeting phrase.", command_id="review-idea")
+            IdeaIntakeWorker(store).run_once()
+            DeterminationWorker(store).run_once()
+            PipelineRunner(store).run_once()
+            AdaptationWorker(store).run_once()
+            review_id = VisualRenderer(store, Path(self.tmp.name) / "review-artifacts").run_once()
+            review = store.connection.execute(
+                "SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)
+            ).fetchone()
+            html = render_workflow_trace(
+                store.connection, interactive=True, csrf_token="test-token"
+            )
+            self.assertIn("Submit an idea", html)
+            self.assertIn("Request changes", html)
+            self.assertIn("test-token", html)
+
+            request_id = store.request_review_changes(
+                review_id,
+                note="Use a more concrete workplace example.",
+                row_version=review["row_version"],
+                command_id="review-change",
+            )
+            self.assertEqual(request_id, store.request_review_changes(
+                review_id,
+                note="Use a more concrete workplace example.",
+                row_version=review["row_version"],
+                command_id="review-change",
+            ))
+            self.assertEqual(
+                store.connection.execute(
+                    "SELECT status FROM review_requests WHERE review_request_id=?", (review_id,)
+                ).fetchone()[0],
+                "changes_requested",
+            )
+            intake = store.connection.execute(
+                "SELECT context_json,status FROM intake_requests WHERE intake_request_id=?", (request_id,)
+            ).fetchone()
+            self.assertEqual(intake["status"], "pending")
+            self.assertEqual(json.loads(intake["context_json"])["revision_scope"], "output_request")
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

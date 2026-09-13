@@ -51,6 +51,17 @@ meaning, naturalness, and support, but cannot fetch facts or silently repair.
 Validation never declares an unsupported factual claim verified merely because
 a model repeated it. Unsupported required claims fail before canonical commit.
 
+**Current implementation:** `GeminiPipelineRunner` claims the existing v2
+GenerationRun, audits one model invocation, and validates a closed common body
+plus the matching extension for each of the five registered domains. Claims are
+limited to `source_bound_fact`, `qualified_inference`, or `generated_example`;
+source-bound references must exist in the frozen job snapshot. Successful commit
+creates the frozen Instagram/X OutputRequests atomically. Synthetic mode is
+review-only. In v4 production mode, the same call must first reserve its priced
+worst case under daily and per-job limits. The structural evidence check is
+implemented; deeper reference-quality validation, canonical reuse, and the
+execution/capacity reservations below are not.
+
 ## Immutable job and output plan
 
 Determination freezes the domain/angle recipe and a bounded list of enabled
@@ -103,7 +114,28 @@ inserts one ContentPackage per OutputRequest, and creates its first RenderRun.
 After package commit, creative change requires a new human revision/output
 request, never in-place repair. Rendering retries reuse the exact package.
 
+A metadata validation or generation failure does not discard or regenerate
+the canonical content. The adaptation run may retry its own bounded metadata
+attempts using the already-checkpointed adapted body. Canonical content is
+committed before any adaptation begins.
+
+**Current implementation:** `GeminiAdaptationWorker` validates either an
+Instagram 5–8-unit carousel or one X post/card, normalizes tags/hashtags, maps
+every canonical claim, freezes a visual specification, and creates one
+independent package/render run. Synthetic mode remains review-only. Production
+mode reserves each call, persists the validated body and metadata independently,
+and permits one metadata-only retry from the body checkpoint without rewriting
+it. Failure is branch-local and never changes or regenerates canonical content.
+
 ## Admission and model spending
+
+**Implementation split:** v4 implements `gemini_budget_v1` reservations and
+settlement. Positive price, warning, daily-hard, and per-job-hard values come
+from validated production environment settings; each phase also has a positive
+input/output token maximum. Reservation occurs before the provider call, daily
+hard-limit exhaustion defers the claim to the next UTC day, and job-cap
+exhaustion fails it. The capacity/slot allocator described next is still target
+design and is not an eligibility condition in the current runner.
 
 `production_admission_v2` separates bounded execution from unreviewed-output
 capacity. The proposed initial execution limit is one active GenerationRun and
@@ -178,9 +210,10 @@ stale-claim rejection, restart checkpoints, uncertain model cost, cap exhaustion
 capacity acquisition/release, scoped rework, duplicate content across revisions,
 and independent approval/cancellation of sibling destinations.
 
-This is an accepted target design with draft executable contracts. Before
-workers are enabled, add exact SQL/JSON schemas for routes, canonical content,
-output requests, adaptation attempts, reservations, reuse links, and domain
-extensions, plus positive/negative fixtures. The current detection SQL must not
-be edited in place. The [target plan](../plans/target-implementation.md) tracks
-this implementation-readiness work.
+This remains the accepted production target. The v4 implementation completes
+the bounded paid-call, checkpoint, render, exact-approval, and single-post
+delivery slice while keeping closed in-code Gemini schemas over the v2 creative
+records. It does not complete capacity slots, cross-revision reuse, recurrence,
+or full domain/reference validation. Those additions need forward contracts and
+fixtures; existing migration bytes must not be edited. The
+[target plan](../plans/target-implementation.md) tracks that remaining work.

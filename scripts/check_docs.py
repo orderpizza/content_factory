@@ -32,6 +32,7 @@ REQUIRED = [
     ROOT / "docs" / "contracts" / "detection-dashboard-schema-v1.sql",
     ROOT / "docs" / "contracts" / "editorial-workflow-schema-v2.sql",
     ROOT / "docs" / "contracts" / "detection-safety-schema-v3.sql",
+    ROOT / "docs" / "contracts" / "production-workflow-schema-v4.sql",
     ROOT / "docs" / "contracts" / "configuration-manifest-v2.schema.json",
     ROOT / "docs" / "contracts" / "configuration-manifest-v3.schema.json",
     ROOT / "config" / "releases" / "detection-normalized-v3.json",
@@ -41,6 +42,8 @@ REQUIRED = [
     ROOT / "config" / "releases" / "detection-dashboard-v1.json",
     ROOT / "docs" / "archive" / "decisions.md",
     ROOT / ".env.example",
+    ROOT / "scripts" / "check_smoke_readiness.py",
+    ROOT / "src" / "workflow" / "preflight.py",
 ]
 TIER_TWO_CONTRACTS = [
     ROOT / "docs" / "specs" / "detection.md",
@@ -142,6 +145,22 @@ DETECTION_DASHBOARD_TABLES = (
     "thread_evidence_events",
     "worker_heartbeats",
     "worker_runs",
+)
+PRODUCTION_WORKFLOW_TABLES = (
+    "social_destinations",
+    "production_configurations",
+    "posting_policies",
+    "capability_readiness",
+    "capability_readiness_checks",
+    "post_attempts",
+    "publication_resources",
+    "delivery_cleanup_tasks",
+    "reconciliation_requests",
+    "reconciliation_checks",
+    "human_reconciliation_decisions",
+    "storage_samples",
+    "maintenance_runs",
+    "artifact_reconciliations",
 )
 
 
@@ -315,6 +334,14 @@ def main() -> None:
                 errors.append(f"detection dashboard SQL contract is missing table `{table}`")
         if "PRAGMA user_version = 1;" not in sql_text:
             errors.append("detection dashboard SQL contract does not set user_version 1")
+    production_contract = ROOT / "docs" / "contracts" / "production-workflow-schema-v4.sql"
+    if production_contract.is_file():
+        sql_text = production_contract.read_text(encoding="utf-8")
+        for table in PRODUCTION_WORKFLOW_TABLES:
+            if f"CREATE TABLE {table} (" not in sql_text:
+                errors.append(f"production workflow SQL contract is missing table `{table}`")
+        if "PRAGMA user_version = 4;" not in sql_text:
+            errors.append("production workflow SQL contract does not set user_version 4")
     manifest = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
     if manifest.is_file():
         try:

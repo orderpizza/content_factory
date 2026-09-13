@@ -9,11 +9,18 @@ cadence, claim behavior, startup/shutdown, or backlog handling. Read
 [the system guide](../system.md) first, then [the data model](data-model.md)
 and [reliability specification](reliability.md) for state and safety rules.
 
-**Current implementation:** only Collector/Scout one-shot scheduling and the
-read-only dashboard have current service templates. V2 editorial workers are
-local placeholders; production supervision, maintenance and storage gates below
-are target requirements. [Current operations](../current-state.md) owns the
-actual command/settings inventory and legacy warnings.
+**Current implementation:** Collector, Scout, dashboard, v4 production workflow,
+readiness, and maintenance have reviewable `launchd` templates. The workflow
+uses fixtures by default; `--gemini`, `--review-preview`, `--production`, and
+`--delivery` progressively opt into model, render, real-catalog, and provider
+workers. `--poll` provides the implemented process loop. The templates are not
+installed by the repository. Detection, workflow stages, readiness/storage,
+and maintenance update the existing heartbeat rows; successful substantive
+workflow results append run summaries and idle polls do not. Initial lease
+durations match the envelope below. Workers still lack mid-call lease renewal,
+capacity admission, and full supervision behavior required below.
+[Current operations](../current-state.md) owns the actual command/settings
+inventory and legacy warnings.
 
 ## Runtime model
 
@@ -98,7 +105,17 @@ for scheduler isolation:
 | --- | --- | ---: |
 | Trend Source Collector | `scripts/run_collector.py` | 5 minutes |
 | Trend Scout + Shortlist | `scripts/run_scout.py` | 15 minutes |
-| Read-only dashboard | `scripts/serve_dashboard.py` | kept alive |
+| Loopback dashboard/HAI | `scripts/serve_dashboard.py` | kept alive |
+| Production workflow/posting | `scripts/run_workflow.py --gemini --review-preview --production --delivery --poll` | kept alive; internal 5-second poll |
+| Destination readiness | `scripts/check_production_readiness.py --live --confirm-transient-r2-write --only-due` | 5 minutes; current ready checks reused up to 6 hours |
+| Maintenance | `scripts/run_maintenance.py --prune-backups` | daily 03:30 local scheduler time |
+
+`scripts/check_smoke_readiness.py --mode preview|production|delivery` is an
+operator-invoked, read-only preflight rather than a scheduled worker. It makes
+no provider call and exits nonzero while local configuration, dependency,
+storage, backup, secret-reference, or persisted readiness gates are incomplete.
+It cannot verify ADC validity, provider entitlements, creative quality, or a
+public-delivery result.
 
 `scripts/run_detection.py` runs the due collector pass and one Scout evaluation
 sequentially for local development only; it is not the unattended scheduler
@@ -109,16 +126,31 @@ entrypoint for v1 detection setup and is always operator-invoked.
 the optional v3 scoring safety extension and hybrid configuration release.
 Neither worker nor dashboard performs
 implicit migration. The corresponding `com.contentfactory.*.plist` templates
-must have their placeholder paths replaced during Mac Mini installation.
-Do not install `com.contentfactory.maintenance.plist` as current maintenance:
-it points at retired legacy retention, not `maintenance_v1`. Importing the
-cleanup utility is harmless; executing it now refuses without deletion.
+must have their placeholder paths replaced during Mac Mini installation. The
+workflow template also depends on database/artifact/backup and credential
+settings in the process environment or repository `.env`. The maintenance
+template targets the v4 audited service, but `--prune-backups` should be retained
+only after the owner accepts its 14-newest/eight-weekly policy.
 
 The local workflow scaffold recovers expired no-model claims within attempt
 limits, rejects expired/stale finalizers, records processing failures and checks
 thread cancellation under the finalization lock. Claims with model history or
-delivery risk fail closed. This is not the complete production retry/backoff,
-heartbeat, storage-admission and supervision envelope specified below.
+delivery risk fail closed. This is not the complete production heartbeat,
+lease-renewal, capacity, or supervision envelope specified below.
+
+`scripts/run_workflow.py` executes one sequential pass by default. `--poll`
+repeats that pass every five seconds unless `--poll-interval` overrides it and
+stops cleanly on Ctrl+C. `--gemini` swaps only the Intake and Determination
+workers and registers the five synthetic domain/Instagram/X fixture bindings;
+it neither changes downstream fixture workers nor enables delivery.
+`--review-preview` requires `--gemini` and replaces generation, adaptation, and
+rendering with their real implementations. Synthetic bindings stay review-only.
+`--production` additionally requires schema v4, real immutable bindings, a
+backup root, priced model policy, production checkpoints/profiles, and current
+storage evidence. `--delivery` composes credentialed Posting, R2 cleanup, and
+reconciliation workers; it still cannot post without an exact dashboard Post
+now record. `com.contentfactory.workflow.plist` is an uninstalled template for
+this explicit composition.
 
 ## Eligibility, pickup, and “change detection”
 
@@ -150,32 +182,28 @@ disk-space decision.
 
 ## Maintenance Worker — `maintenance_v1`
 
-`com.contentfactory.maintenance` is a single `launchd` service. Its schedule
-is fixed by the activated release: daily 03:30 `Asia/Seoul`; the first Sunday
-of each month additionally performs restore verification at 04:15. It acquires
-a local advisory lock before starting; an existing live lock means the run is
-recorded as `skipped_overlap`, with no deletion or checkpoint. The process is
-not a general worker supervisor and never processes content work.
+The current `run_maintenance.py`/`com.contentfactory.maintenance` subset is one
+daily 03:30 local-time invocation. It takes a nonblocking local advisory lock;
+overlap records `skipped_overlap`. One invocation:
 
-In this order, each operation receives its own append-only `maintenance_runs`
-row and may fail without suppressing the later non-destructive operations:
+1. creates an online SQLite backup, fsyncs it, and audits its SHA-256 after
+   SQLite integrity and migration validation;
+2. requests a passive WAL checkpoint and truncates only when no claimed/running/
+   publishing workflow row exists;
+3. optionally (`--prune-backups`) retains the 14 newest plus up to eight older
+   weekly representatives, deleting only tracked/hash-matching surplus files;
+4. optionally (`--restore-verify`, or the current first-Sunday run) restores the
+   new audited backup into a temporary directory and verifies integrity,
+   migrations, and trace counts; and
+5. records a current storage sample after the maintenance sequence.
 
-1. create an online SQLite backup, verify its checksum and close it;
-2. request the passive WAL checkpoint, requesting `TRUNCATE` only under the
-   Reliability preconditions;
-3. retain 14 daily and 8 weekly backups, deleting only a verified surplus
-   snapshot after the new backup succeeds;
-4. execute verified artifact cleanup and SQLite retention batches; and
-5. on the monthly trigger, restore the newest backup in a new temporary
-   directory and perform the required integrity, migration, and trace checks.
-
-Backup transport or verification failure retries once after 30 minutes; a
-second failure is terminal for that scheduled operation and is red on the
-dashboard. Retention and artifact cleanup may retry safely on their next daily
-run; neither retries by deleting more broadly. A maintenance heartbeat is
-written at start, after every operation, and on completion. The dashboard
-shows each operation's last result, age, counts, exact safe failure, next due
-time, and whether the shared storage gate is blocking new work.
+Artifact cleanup, SQL-row retention, off-device copies, internal retry timers,
+and a separate 04:15 monthly launchd trigger are not implemented. Maintenance
+does persist success/failure/overlap heartbeat state. A failed invocation exits
+nonzero for launchd/operator visibility
+and can be rerun safely after inspection. The dashboard shows the latest storage
+gate and delivery/cleanup summary, not the full maintenance portfolio described
+by the target design.
 
 Storage admission uses the single action matrix in Reliability; a heartbeat is
 not a storage sample. A missing/stale sample fails closed for new business work;
@@ -189,9 +217,10 @@ For current installation reproducibility, `uv.lock` freezes resolved dependency
 versions and artifact hashes across supported markers; build tools are pinned in
 `pyproject.toml`. Use an isolated environment and `uv sync --locked --extra dev`,
 then the documented test/check commands. `--locked` rejects stale project metadata
-instead of silently changing the lock. The current repair verifies Windows and
-installed-package execution; actual Mac/launchd and production renderer/font
-acceptance remain separate rollout gates. See the official
+instead of silently changing the lock. Locked/install portability has Windows
+fixture evidence, and the current Mac host passes the offline suite including
+the review renderer. Installed launchd behavior and owner-approved production
+font/profile output remain separate rollout gates. See the official
 [uv locking documentation](https://docs.astral.sh/uv/concepts/projects/sync/).
 
 Every worker claims one item per poll in the POC. The following table is the
@@ -229,14 +258,17 @@ validation failures are retryable. A stale Gemini `started` invocation is
 cost-uncertain and is never retried automatically. A final social-publication
 request that may have been sent becomes `publication_unknown`, never retryable.
 
-Every process updates its single `worker_heartbeats` row on each poll. It adds
-an append-only `worker_runs` row only when it substantively claims or processes
-work, preventing an unbounded audit row for every empty poll. The dashboard
-computes health from current heartbeats, substantive runs, active leases,
-backlog, and the thresholds above; it never infers worker health from browser
-activity.
+**Implemented subset and target gap:** detection records heartbeat/run evidence;
+the shared workflow poller updates one heartbeat per logical stage on every pass
+and appends `worker_runs` only for returned substantive results. Readiness,
+storage, and maintenance also update heartbeat state. The dashboard applies the
+stage-specific freshness thresholds above. A swallowed stage failure remains
+visible on its business record but may leave the last heartbeat as idle, and a
+process crash before result recording has no durable workflow-run row. Full
+active-claim correlation, restart counts, mid-call renewal, and capacity-aware
+supervision remain target work.
 
-For every worker, the dashboard must show enabled state, configured interval,
+For every worker, the complete target dashboard must show enabled state, configured interval,
 last start/success/failure/no-work poll, next expected poll, active claim,
 backlog, restart count, stale reason, and the safe operator action. Worker logs
 are local diagnostic output; SQLite is the audit source of truth.

@@ -14,6 +14,7 @@ import json
 from functools import wraps
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
+from .model_budget import ModelBudgetExceeded
 
 
 def local_operation(table: str, key: str):
@@ -23,6 +24,12 @@ def local_operation(table: str, key: str):
         def execute(self, row):
             try:
                 return function(self, row)
+            except ModelBudgetExceeded as error:
+                try:
+                    self.store.defer_model_budget_claim(table, key, row, str(error))
+                except RuntimeError:
+                    pass
+                return None
             except Exception as error:
                 # Exception bodies may contain operator text or secrets.
                 reason = "input_too_large" if isinstance(error, ValueError) and str(error).startswith("input_too_large:") else f"local operation failed ({type(error).__name__})"
@@ -135,7 +142,9 @@ class PipelineRunner:
         self.store, self.instance_id = store, instance_id
 
     def run_once(self) -> int | None:
-        run = self.store.claim("generation_runs", "generation_run_id", self.instance_id)
+        run = self.store.claim(
+            "generation_runs", "generation_run_id", self.instance_id, lease_seconds=600
+        )
         if run is None: return None
         return self._process(run)
 
@@ -152,7 +161,9 @@ class AdaptationWorker:
         self.store, self.instance_id = store, instance_id
 
     def run_once(self) -> int | None:
-        run=self.store.claim("adaptation_runs","adaptation_run_id",self.instance_id)
+        run=self.store.claim(
+            "adaptation_runs", "adaptation_run_id", self.instance_id, lease_seconds=600
+        )
         if run is None: return None
         return self._process(run)
 
@@ -169,7 +180,9 @@ class VisualRenderer:
         self.store,self.artifact_root,self.instance_id=store,Path(artifact_root),instance_id
 
     def run_once(self) -> int | None:
-        run=self.store.claim("render_runs","render_run_id",self.instance_id)
+        run=self.store.claim(
+            "render_runs", "render_run_id", self.instance_id, lease_seconds=600
+        )
         if run is None:return None
         return self._process(run)
 

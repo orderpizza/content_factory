@@ -5,7 +5,7 @@ verify implementation conformance from code and tests.
 **Owner:** SQLite persistence, migrations, boundary models, and their tests.
 **Read this for:** Schema, migrations, worker state, IDs, audit records, or any
 change to a persisted handoff. Read [the system guide](../system.md) first.
-For the exact executable schema of the current detection/dashboard milestone,
+For the exact executable schema of the current v1–v4 implementation,
 continue to the [SQLite record contract](data/records.md).
 
 SQLite is the authoritative state store. Every worker claims work from and
@@ -708,12 +708,12 @@ time. No reconciliation path silently retries the final publication call.
 
 ## Target record inventory and transition rules
 
-The executable schema for the current implementation milestone is owned by the
-[SQLite record contract](data/records.md) and its linked canonical SQL. The
-catalog below is the complete future target inventory used to plan forward
-migrations; it is not a second DDL definition. When a later stage becomes
-implementation work, its exact columns and indexes move into a new executable
-schema migration before code is written.
+The executable schema for the current implementation is owned by the
+[SQLite record contract](data/records.md) and its linked v1–v4 canonical SQL.
+The catalog below is the complete target inventory; some records are implemented
+in those migrations and others remain planned. It is not a second DDL
+definition. Any missing record/field/index requires a new forward migration
+before dependent code is enabled.
 
 The machine-contract maturity and schema versions are listed in
 [Machine-checkable contracts](../contracts/README.md). Every named `*_json`
@@ -924,16 +924,13 @@ record; a resource belongs to its creating attempt.
 
 ## Migration and cutover
 
-This strategy change is documentation-only; do not modify the checksum or table
-definitions of applied `detection_dashboard_schema_v1`, rebuild the live
-development database, or start downstream workers as part of it.
-
-Before implementation, review exact forward migrations in
-[SQLite records](data/records.md) for domain routes, canonical content, output
-requests, adaptation, changed uniqueness, and capacity/reuse audit. Preserve the
-existing selected thread/Intake handoff and detection evidence. A deliberately
-disposable development database may be rebuilt only by a separate explicit
-operator command naming the exact path and offering a timestamped backup.
+V1–v4 are implemented as immutable forward SQL; never modify their checksums or
+table definitions. Decision 035 authorizes a fresh normalized Option B database,
+not an in-place identity conversion or a reset of the legacy database. V4 is
+explicitly refused unless that database has active `canonicalization_v2` and
+`attention_v2`. Future capacity/reuse/recovery/retention records still require
+new reviewed migrations. Preserve every selected thread, Intake handoff,
+creative record, approval, attempt, and detection evidence.
 
 Migrate legacy `o2_english_instagram` lineage as legacy evidence, not as a second
 active domain ID. The new domain is `english`; its old account remains a

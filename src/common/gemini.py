@@ -35,15 +35,60 @@ def estimated_cost_usd(usage: GeminiUsage) -> float | None:
 class VertexGeminiClient:
     """Generate validated JSON without leaking Vertex SDK calls across modules."""
 
-    def __init__(self, *, project: str | None = None, location: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        *,
+        project: str | None = None,
+        location: str | None = None,
+        model: str | None = None,
+        max_output_tokens: int | None = None,
+    ):
         self.project = project or os.getenv("GOOGLE_CLOUD_PROJECT")
         self.location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.model = model or configured_model()
+        if max_output_tokens is not None and (
+            type(max_output_tokens) is not int or max_output_tokens < 1
+        ):
+            raise GeminiConfigurationError("Gemini max output tokens must be a positive integer")
+        self.max_output_tokens = max_output_tokens
         self.last_usage: GeminiUsage | None = None
         if not self.project:
             raise GeminiConfigurationError("GOOGLE_CLOUD_PROJECT must be configured for Vertex Gemini")
 
     def generate_json(self, prompt: str, schema: dict[str, Any], *, temperature: float = 0.2) -> dict[str, Any]:
-        from common.legacy import refuse_legacy_operation
         self.last_usage = None
-        refuse_legacy_operation("Legacy Gemini generation")
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as error:
+            raise GeminiConfigurationError(
+                "google-genai is not installed; install the project dependencies before using Gemini"
+            ) from error
+
+        client = genai.Client(vertexai=True, project=self.project, location=self.location)
+        response = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                response_mime_type="application/json",
+                response_json_schema=schema,
+                max_output_tokens=self.max_output_tokens,
+            ),
+        )
+        if not response.text:
+            raise RuntimeError("Vertex Gemini returned no JSON content")
+        try:
+            value = json.loads(response.text)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Vertex Gemini returned invalid JSON") from error
+        if not isinstance(value, dict):
+            raise RuntimeError("Vertex Gemini JSON response must be an object")
+        usage = response.usage_metadata
+        self.last_usage = GeminiUsage(
+            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
+            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            total_tokens=int(getattr(usage, "total_token_count", 0) or 0),
+            model=self.model,
+        )
+        return value

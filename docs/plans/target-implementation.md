@@ -6,14 +6,15 @@ truth; when this plan conflicts with one of them, the contract wins.
 
 **Plan status:** Active Phase 1 target plan, not implementation status.
 Actual completion, demo-only exceptions and legacy paths are recorded in
-[Current state](../current-state.md); genuine review and rollout items are in the
-[repository audit](../../audit_report.md).
+[Current state](../current-state.md); the [repository audit](../../audit_report.md)
+retains repair and verification evidence.
 **Owner:** System architecture.
-**Created:** 2026-09-07. **Last reviewed:** 2026-09-10.
-**Current milestone contract:** `detection_dashboard_schema_v1` and the routed
-Detection, Dashboard, Configuration, Runtime, and Data Model contracts current
-at the review date. Later stages extend the database through forward migrations
-toward the complete target record model. Update this plan only after a
+**Created:** 2026-09-07. **Last reviewed:** 2026-09-13.
+**Current milestone contracts:** immutable SQLite schemas v1–v4 and the routed
+Detection, Intake/Determination, Production, Rendering, Dashboard, Posting,
+Configuration, Runtime, Reliability, and Data Model contracts current at the
+review date. Later work uses forward migrations toward the complete target
+record model. Update this plan only after a
 canonical contract changes; it must never override one.
 
 **Use this for:** Planning a cohesive implementation slice and its boundary
@@ -38,75 +39,78 @@ behavior.
 | 12. Operational and routing-quality acceptance | Stages 5–10 (11 only when enabled) | Shared launchd workers, current readiness/storage, backup/restore/retention, fan-out capacity, scoped cancellation, labeled routing replay and observed generation/review/delivery loop. | All five domains and required Instagram/X outputs exercised; routing quality reviewed, forced connections rejected, paid call counts/cost bounded, migrations/restart/restore safe. |
 
 
-Stages 1–4 are the current implementation milestone. Later stages remain
-architecturally routed but must not delay a working, observable trend-ingestion
-feed unless the first slice depends on their persisted boundary.
+Stages 1–4 remain the stable detection milestone. Schemas v2–v4 now implement a
+bounded path through Stages 6–10: Gemini Intake/five-domain Determination,
+closed domain generation, Instagram/X adaptation, checkpointed priced calls,
+pinned-font static rendering, exact review/Post now, fake-tested Instagram/X
+single-post delivery, cleanup/reconciliation, storage admission, and local
+backup/restore. Default/synthetic modes remain non-deliverable, and production
+requires explicit Option B migration/configuration/readiness/authorization.
+Stage 5 is only partially closed because model payload schemas remain in code
+and target reuse/capacity records are absent. Stage 12 and live-provider/visual
+quality acceptance remain open; Stage 11 remains disabled.
 
-## Implementation-readiness work, in order
+## Remaining work, in order
 
-1. **Payloads and persistence:** define new versioned brief/routing/domain-angle/
-   canonical/output payloads, exact five domain extensions, reuse references,
-   parent budget ownership, forward SQL, and all status/uniqueness tests. The
-   current schemas are detection-only or legacy drafts; do not implement the
-   old one-job-per-request / one-package-per-job model.
-2. **Editorial evidence and policies:** prepare bounded, approved evidence and
-   English sense/usage assertions; freeze domain audience/jurisdiction and
-   claim-validation fixtures. Detection headlines alone will not support every
-   new pipeline. No research service is added implicitly.
-3. **Configuration choices:** choose actual accounts and destination bindings,
-   which optional English/Psychology X outputs are enabled, explicit per-account
-   posting policy, supported domain reference sets, and priced per-phase limits.
-   These are operator release choices, not hard-coded domain IDs.
-4. **Review proposed internal defaults:** one angle/domain/revision, one
-   Instagram plus one X output/domain, execution and unreviewed-capacity limits,
-   shared per-job adaptation budget, output copy limits, and proposed canvases
-   are conservative starting parameters in the owning contracts. Freeze and
-   validate them in the first production release before any paid/public work.
-5. **Native platform and profile validation:** reverify Meta and establish X's
-   exact auth/media/text/error/reconciliation contract from official sources.
-   Create new profile geometry, binding schemas, pinned fonts/runtime, and
-   regression assets. Existing 1080×1920 geometry is not silently reused as
-   1080×1350 Instagram or 1200×675 X output.
-6. **Optional-thread design:** finalize per-step states, partial publication,
-   expiry and cadence accounting, and human resolution before enabling threads.
-   This is not required to deliver the default X image + single post.
-7. **Routing evaluation:** curate operator-labeled fixtures and agree the
-   acceptable routes/angles/skip rationales. Evaluate forced-route false
-   positives, missed useful domains, source support, duplicate avoidance, and
-   actual cost. Publication count alone does not prove the central experiment.
+1. **Owner configuration and live acceptance:** choose prices/budgets, accounts,
+   cadence, destination bindings, font/profile quality, and R2 custom-domain/
+   lifecycle policy; use the implemented non-network preflight, then run
+   explicit readiness and first-post acceptance per destination. These are
+   genuine human/external gates, not code defaults.
+2. **Routing and reference quality:** curate operator-labeled one/many/weak-skip/
+   whole-reject fixtures and domain evidence standards. Measure forced routes,
+   missed value, support quality, duplicate angles, and actual cost. Add a
+   research service only through a separate bounded design.
+3. **Runtime hardening:** basic stage heartbeats and contract-aligned initial
+   leases are implemented. Add mid-call lease renewal, per-stage process
+   isolation or equivalent supervision evidence, active-claim/restart
+   visibility, and execution/output capacity admission. Complete unattended Mac
+   Mini restart/sleep/load checks.
+4. **Identity, reuse, and recurrence:** add forward records/serializers for
+   cross-revision canonical reuse, material-new-evidence recurrence, cooldown,
+   and consumption without weakening confirmed/uncertain publication guards.
+5. **Retention and recovery:** add safe artifact/high-volume SQLite retention,
+   off-device backup/runbook, operational maintenance views, and explicit local
+   recovery requests. Never revive the destructive legacy cleanup path.
+6. **Standalone contracts and goldens:** promote the closed in-code model
+   payloads to independently versioned artifacts where operationally useful and
+   add accepted visual goldens. Existing validators remain authoritative until
+   a forward version replaces them.
+7. **Optional X threads:** design/test ordered per-step publication, partial
+   prefixes, cadence, and reconciliation before enabling the format.
 
 ## Audit-to-plan disposition
 
-On 2026-09-09 the user chose current-system repairs, retaining unbuilt production
-features here. These items are **not implemented** merely because legacy hazards
-are retired or local scaffold tests pass. The [audit history](../archive/audits/repository-audit-2026-09.md)
-preserves findings; the [active audit](../../audit_report.md) contains genuine
-review/rollout items, not this technical feature backlog.
+The [audit history](../archive/audits/repository-audit-2026-09.md) preserves the
+original findings. The table below now lists only gaps that remain after the v4
+bounded production implementation; the [active audit](../../audit_report.md)
+retains historical repair verification rather than this backlog.
 
 | Future work | Original findings | Dependency / acceptance |
 | --- | --- | --- |
-| Production identity, five-domain payloads, reservations, canonical reuse, consumption/cooldown/material-evidence recurrence | H10–H12, D7, D10 implementation | Versioned schemas and migration/identity fixtures before real workers. Placeholder identities are not production contracts. |
-| Model invocation/budget/capacity accounting and real Intake/Determination/domain generation | H12–H13; production part of H6 | Frozen releases/schemas, bounded fake-provider tests, then editorial/model-budget approval. |
-| Production supervision, lease renewal/backoff and admission | Production part of H6; M14 | Runtime/reliability envelope; no automatic repeats of unknown paid/public work. Local recovery/fencing is already tested. |
-| Real static adaptation, artifact promotion/quarantine and exact manifest/asset review | H8, H14 | Output/profile schemas and real visual/hash fixtures. HTML previews remain non-deliverable. |
-| Browser idea/review/rework/cancellation/Post now and full portfolio/lease/storage visibility | Future parts of H7, M7–M9 | Persisted commands, CSRF/version/receipt tests, independent exact destination approval. Current read-model/CLI repairs do not enable these. |
-| Delivery, uncertainty, cleanup and reconciliation | Replacements for C1, H15, M10 | New posting protocol, fake-provider boundary tests, provider verification and exact authorization; legacy remains retired. |
-| Backup/restore/storage admission and crash-safe retention | H16, M2 replacement, M11 replacement | Maintenance records/workers, evidence preservation and restore verification before unattended operation. Do not revive legacy cleanup. |
-| Mac deployment, font/profile and full production acceptance | Remaining deployment aspects of M13, M14, D12 | Locked Windows/package tests exist; actual Mac/launchd/provider/visual/load/restore acceptance remains a deployment gate. |
+| Canonical reuse, consumption/cooldown/material-evidence recurrence | Remaining H10–H12, D7, D10 | New identity/reuse/recurrence records and fixtures. V4 preserves duplicate publication guards but does not claim creative reuse. |
+| Capacity accounting and production supervision | Remaining H13 and production H6/M14 | Basic workflow heartbeats now exist; add slot admission, mid-call lease renewal, full claim/restart visibility, and unattended restart/load evidence. Unknown paid/public work already fails closed. |
+| Reference/routing quality | Remaining H12/H14 quality work | Operator-labeled semantic fixtures, supported reference policy, and observed costs; structural schemas alone do not prove editorial quality. |
+| Visual/provider acceptance | Remaining H8/H14/H15 | Pinned production font/profile and adapters are implemented/fake-tested; the owner must approve visual output and verify live Meta/X/R2 behavior. |
+| Full operations portfolio and recovery | Remaining H7, M7–M11, H16 | Dashboard shows core production state and supports Post now/cancel/reconciliation; add full worker/maintenance health, local recovery commands, artifact/SQL retention, and off-device recovery. |
+| Mac deployment and full production acceptance | Remaining M13/M14/D12 | Templates exist but are not installed; actual launchd/provider/visual/load/restore acceptance remains a deployment gate. |
 | Optional optimizations or later migrations | M3 follow-on | Conditional feed cache/304 reuse and in-place historical normalization conversion are not prerequisites for the unconditional collector/separate-DB corrected experiment. No automatic identity rewrite. |
 
 ## Integration gates
 
 1. Run `py scripts/check_docs.py` for docs-only work and both that command and
    `py scripts/run_tests.py` for implementation or documentation-checker changes.
-2. Do not enable a worker until its input/output schema, migration, configuration,
-   readiness checks, and boundary fixtures are present and approved.
+2. Do not enable an unattended production worker until its input/output schema,
+   migration, configuration, readiness checks, and boundary fixtures are present
+   and approved. The v4 path is opt-in and remains blocked until owner/live gates
+   in [Current state](../current-state.md#genuine-human-review-and-external-gates)
+   are completed.
 3. Use local fakes/fixtures for Gemini, Meta, X, and R2 by default. Live publishing
    requires explicit authorization for each exact package/account.
 4. Preserve the existing detection/dashboard milestone and SQLite handoffs.
    These strategy changes do not authorize a DB reset or runtime activation.
 5. Complete at least one observed end-to-end path per domain, the four routing
-   cases (one/many/weak-skip/whole-reject), and canonical reuse across Instagram/X.
+   cases (one/many/weak-skip/whole-reject), and—after it is implemented—canonical reuse across Instagram/X.
    Record versions, validation and cost evidence, human review, and delivery
    outcome; missing optional destinations are explicit, not false failures.
 6. A later domain or output must reuse shared persistence, renderer, review,

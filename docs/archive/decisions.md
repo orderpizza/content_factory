@@ -518,3 +518,17 @@ Consequence: Pipelines provide high-level visual intent and allowed profiles;
 the visual layer selects an eligible renderer and records assets. New template,
 image, video, or specialized tools must not alter pipeline-owned content,
 captions, tags, hashtags, or posting policy.
+
+## 035 - Development Database Uses Fresh Normalized Experiment
+
+Date: 2026-09-12
+
+Decision: Active development uses a fresh database created by
+`setup_normalized_detection.py` with `canonicalization_v2` and `attention_v2`
+(Option B). The original legacy database and its conversation history are
+preserved but not migrated. Cross-normalization activation is refused in both
+directions.
+
+Rationale: A fresh database enables corrected title/URL canonicalization and
+hybrid scoring without rewriting historical identities. Development work
+proceeds with clean data; the legacy database remains available for reference.
