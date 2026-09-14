@@ -1,4 +1,4 @@
-"""Deterministic v3 / attention_v2 regressions; temporary SQLite, no providers."""
+"""Deterministic normalized detection regressions; temporary SQLite, no providers."""
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -15,6 +15,7 @@ from detection.configuration import load_manifest
 from detection.hybrid import activity, health, WIKI, HN
 from detection.models import CollectedItem, CollectionResult, ItemEvent, SourceCollectionError
 from detection.scout import DetectionScout
+from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,10 +29,11 @@ class HybridDetectionTests(unittest.TestCase):
         migrate_detection_dashboard(self.path)
         migrate_editorial_workflow(self.path)
         migrate_detection_safety(self.path)
-        self.manifest = load_manifest(ROOT / "config/releases/detection-hybrid-v2.json")
+        self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         self.at = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
+        upgrade_semantic_fixture(self.path)
 
     def collect(self, store, source_id, *, at=None, empty=False):
         at = at or self.at
@@ -46,8 +48,8 @@ class HybridDetectionTests(unittest.TestCase):
         self.assertFalse(migrate_detection_safety(self.path))
         self.assertFalse(migrate_editorial_workflow(self.path))
         with DetectionStore(self.path) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 3)
-            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 3)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 5)
 
     def test_midday_daily_report_and_live_feed_both_contribute(self):
         with DetectionStore(self.path) as store:
@@ -57,7 +59,7 @@ class HybridDetectionTests(unittest.TestCase):
             self.assertEqual(result["candidate_count"], 1)
             row = store.connection.execute("SELECT * FROM trend_candidates").fetchone()
             breakdown = json.loads(row["score_breakdown_json"])
-            self.assertEqual(row["score_formula_version"], "attention_v2")
+            self.assertEqual(row["score_formula_version"], "attention_v3")
             self.assertEqual(len(breakdown["source_components"]), 2)
             self.assertAlmostEqual(breakdown["breadth"], 2 / 3)
             self.assertEqual(row["last_seen_at"], self.at.isoformat())

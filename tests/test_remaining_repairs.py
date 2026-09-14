@@ -15,7 +15,7 @@ import unittest
 
 from common.diagnostics import safe_diagnostic
 from common.legacy import RetiredOperationError
-from database.migrations import connect, migrate_detection_dashboard, migrate_editorial_workflow
+from database.migrations import connect, migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
 from dashboard import render_detection_dashboard, render_workflow_trace
 from dashboard.detection import AUTO_REFRESH_SCRIPT, AUTO_REFRESH_CSP, _worker_freshness
 from detection.collector import DetectionCollector
@@ -23,6 +23,7 @@ from detection.configuration import ConfigurationError, load_manifest, validate_
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
 from detection.normalization import canonical_link
 from detection.scout import DetectionScout
+from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 from posting.agent import BlueskyPublisher
 from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, VisualRenderer, WorkflowStore
@@ -101,11 +102,13 @@ class RemainingRepairTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "fixture.db"
-        self.manifest = load_manifest(ROOT / "config/releases/detection-dashboard-v1.json")
+        self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         migrate_detection_dashboard(self.path)
+        migrate_editorial_workflow(self.path)
+        migrate_detection_safety(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
-        migrate_editorial_workflow(self.path)
+        upgrade_semantic_fixture(self.path)
 
     def route(self, store):
         return store.register_capability("english", enabled=True, generation_ready=True, outputs=[{
@@ -274,7 +277,7 @@ class RemainingRepairTests(unittest.TestCase):
             with self.assertRaises(RetiredOperationError):
                 BlueskyPublisher("fixture", "secret").publish("text")
 
-    def test_numeric_booleans_and_duplicate_inactive_aliases_are_rejected(self):
+    def test_numeric_booleans_and_obsolete_cluster_configuration_are_rejected(self):
         for key in ("trust_weight", "quota_limit"):
             value = deepcopy(self.manifest)
             value["components"]["detection"]["sources"][0][key] = True
@@ -285,8 +288,7 @@ class RemainingRepairTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             validate_manifest(value)
         value = deepcopy(self.manifest)
-        alias = {"alias_key": "source", "target_cluster_key": "target", "active": False, "reason": "fixture"}
-        value["components"]["detection"]["cluster_aliases"] = [alias, alias]
+        value["components"]["detection"]["cluster_aliases"] = []
         with self.assertRaises(ConfigurationError):
             validate_manifest(value)
 
@@ -297,18 +299,6 @@ class RemainingRepairTests(unittest.TestCase):
         text = safe_diagnostic('Authorization: Bearer SECRET https://example.com/?token=PRIVATE api_key="KEY" password=PASS')
         for secret in ("SECRET", "PRIVATE", "KEY", "PASS"):
             self.assertNotIn(secret, text)
-
-    def test_setup_refuses_rebuild_and_accepts_v2_without_downgrade(self):
-        module = runpy.run_path(str(ROOT / "scripts/setup_detection.py"))
-        before = self.path.read_bytes()
-        with patch("sys.argv", ["setup", "--database", str(self.path), "--rebuild"]), patch.dict(module["main"].__globals__, {"load_environment_file": lambda _: None}):
-            with self.assertRaises(SystemExit):
-                module["main"]()
-        self.assertEqual(self.path.read_bytes(), before)
-        with patch("sys.argv", ["setup", "--database", str(self.path)]), patch.dict(module["main"].__globals__, {"load_environment_file": lambda _: None}):
-            module["main"]()
-        with WorkflowStore(self.path):
-            pass
 
     def test_wikimedia_retry_keeps_original_report_date(self):
         start = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
@@ -353,6 +343,9 @@ class RemainingRepairTests(unittest.TestCase):
             run = scout._materialize_run(start, release, start)
             claim = scout._claim(run, start)
             attempts = scout._freeze_inputs(run, release, start, claim)
+            from detection.semantic import freeze_resolution
+            freeze_resolution(store.connection, run, manifest["components"]["detection"]["semantic_resolution"],
+                              scout.encoder, owner=scout.instance_id, claim_version=claim)
             original = scout._evaluate(run, release, manifest, start, attempts)
             collector.run_due(now=start + timedelta(minutes=1), source_ids={"nasa_recently_published_rss_v1"})
             self.assertEqual(tuple(store.connection.execute("SELECT * FROM trend_observations ORDER BY trend_observation_id LIMIT 1").fetchone()), before)

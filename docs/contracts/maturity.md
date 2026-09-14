@@ -41,9 +41,8 @@ Maturity applies to the stated scope, not a claim that code exists:
 | `contracts/editorial-workflow-schema-v2.sql` | Forward SQLite workflow scaffold | approved_for_implementation (local fixtures plus opt-in Gemini review-preview path) | data/records, workflow/fake-Gemini/renderer boundary tests | no |
 | `contracts/detection-safety-schema-v3.sql` | Forward immutable scoring evidence | approved_for_implementation (offline tested; explicit migration only) | data/records, hybrid detection tests | no |
 | `contracts/production-workflow-schema-v4.sql` | Forward production workflow subset | approved_for_implementation (offline migration/boundary tested; explicit Option B migration only) | data/records, production workflow tests | live providers unverified |
-| `contracts/configuration-manifest-v1.schema.json` | Detection configuration | approved_for_implementation (detection only) | configuration | no |
-| `contracts/configuration-manifest-v2.schema.json` | Hybrid detection configuration | approved_for_implementation (user-approved live/daily policy) | configuration, safety schema v3 | source facts reverify |
-| `contracts/configuration-manifest-v3.schema.json` | Corrected normalization configuration | approved_for_implementation (separate development DB only; no implicit identity conversion) | configuration, normalized boundary tests, safety schema v3 | no provider change |
+| `contracts/semantic-events-schema-v5.sql` | Immutable event-resolution evidence | approved_for_implementation (explicit setup only) | data/records, semantic boundary/replay tests | no |
+| `contracts/configuration-manifest-v4.schema.json` | Lexical normalization, local semantic policy, attention and shortlist configuration | approved_for_implementation | configuration, semantic boundary tests, schema v5 Scout | no inference API |
 | `contracts/brief-v1.schema.json` | Former Intake payload | superseded draft | needs route-neutral coverage/rework scope version | no |
 | `contracts/determination-result-v1.schema.json` | Former single-route payload | superseded draft | needs multi-route/angle result version | no |
 | `contracts/recipe-v1.schema.json` | Former platform-bound job | superseded draft | needs domain job and separate output-request versions | no |

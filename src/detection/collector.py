@@ -541,7 +541,7 @@ class DetectionCollector:
         observed_at: str,
         payload: dict[str, Any],
         updated_at: str,
-        normalization_version: str = "canonicalization_v1",
+        normalization_version: str = "canonicalization_v2",
     ) -> int:
         self.store.connection.execute(
             "INSERT INTO trends "

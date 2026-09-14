@@ -104,7 +104,7 @@ class GeminiDeterminationWorker:
 
     @local_operation("determination_requests", "determination_request_id")
     def _process(self, request: Any) -> int | None:
-        snapshot = json.loads(request["input_snapshot_json"])
+        request, snapshot = self.store.resolve_determination_catalog(request)
         if not isinstance(snapshot, dict) or not all(
             key in snapshot for key in ("brief", "source_context", "catalog")
         ):

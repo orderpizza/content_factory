@@ -1,7 +1,8 @@
 """Run or poll the persisted v2 workflow workers.
 
-The default workers are local placeholders. ``--gemini`` opts Intake and
-Determination into Vertex Gemini. ``--review-preview`` additionally enables
+The default workers are local placeholders. ``--gemini`` opts human Idea Intake
+and Determination into Vertex Gemini; detected trends already arrive at
+Determination with a source-backed brief. ``--review-preview`` additionally enables
 Gemini canonical generation/adaptation and real local static rendering.
 ``--production`` switches to the immutable v4 real-destination catalog and
 delivery profiles; ``--delivery`` additionally runs credentialed posting and

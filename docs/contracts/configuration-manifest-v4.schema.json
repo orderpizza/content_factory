@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "content_factory/configuration_manifest_v3",
-  "title": "Detection dashboard configuration release",
+  "$id": "content_factory/configuration_manifest_v4",
+  "title": "Detection semantic event configuration",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,10 +21,10 @@
       "const": "global"
     },
     "schema_id": {
-      "const": "configuration_manifest_v3"
+      "const": "configuration_manifest_v4"
     },
     "schema_version": {
-      "const": 3
+      "const": 4
     },
     "created_at": {
       "type": "string",
@@ -52,14 +52,14 @@
         "score_formula_version",
         "shortlist",
         "sources",
-        "cluster_aliases"
+        "semantic_resolution"
       ],
       "properties": {
         "canonicalization_version": {
           "const": "canonicalization_v2"
         },
         "score_formula_version": {
-          "const": "attention_v2"
+          "const": "attention_v3"
         },
         "shortlist": {
           "$ref": "#/$defs/shortlist"
@@ -72,12 +72,8 @@
             "$ref": "#/$defs/source"
           }
         },
-        "cluster_aliases": {
-          "type": "array",
-          "maxItems": 500,
-          "items": {
-            "$ref": "#/$defs/cluster_alias"
-          }
+        "semantic_resolution": {
+          "$ref": "#/$defs/semantic_resolution"
         }
       }
     },
@@ -96,7 +92,7 @@
       ],
       "properties": {
         "policy_version": {
-          "const": "shortlist_v1"
+          "const": "shortlist_v2"
         },
         "minimum_score": {
           "const": 0.6
@@ -111,7 +107,11 @@
           "const": 6
         },
         "deferred_fresh_hours": {
-          "const": 48
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
         },
         "cooldown_days": {
           "const": 3
@@ -280,35 +280,146 @@
         }
       }
     },
-    "cluster_alias": {
+    "semantic_resolution": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "alias_key",
-        "target_cluster_key",
-        "active",
-        "reason"
+        "model_id",
+        "model_revision",
+        "dimensions",
+        "cpu_threads",
+        "batch_size",
+        "recent_hours",
+        "max_pair_hours",
+        "max_clusters",
+        "max_pairs",
+        "max_neighbors",
+        "max_group_size",
+        "similarity_decimals",
+        "link_threshold",
+        "separate_threshold",
+        "entity_aliases",
+        "entity_stopwords",
+        "negation_terms",
+        "event_terms"
       ],
       "properties": {
-        "alias_key": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500
+        "model_id": {
+          "const": "sentence-transformers/all-MiniLM-L6-v2"
         },
-        "target_cluster_key": {
+        "model_revision": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 500
+          "pattern": "^[a-f0-9]{40}$"
         },
-        "active": {
-          "type": "boolean"
+        "dimensions": {
+          "const": 384
         },
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000
+        "cpu_threads": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "recent_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168
+        },
+        "max_pair_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 72
+        },
+        "max_clusters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "max_pairs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "max_neighbors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_group_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "similarity_decimals": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "link_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "separate_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "entity_aliases": {
+          "type": "object",
+          "maxProperties": 500,
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "entity_stopwords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 500
+        },
+        "negation_terms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 500
+        },
+        "event_terms": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 50,
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
-      }
+      },
+      "description": "Runtime validation additionally enforces lowercase and cross-category vocabulary uniqueness, separate_threshold < link_threshold and max_pair_hours <= recent_hours."
     }
   },
   "x-owner": "docs/specs/configuration.md"

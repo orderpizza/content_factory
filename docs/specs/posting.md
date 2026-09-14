@@ -30,14 +30,10 @@ approved ReviewRequest
   → cleanup / reconciliation records
 ```
 
-**Current implementation:** schema v4 and `CredentialedPostingAgent` implement
-this lifecycle for one Instagram static carousel or one X static image + post.
-The dashboard is the only Post now/cancel/reconciliation command surface;
-adapters, cleanup, and read-only reconciliation are selected only by the
-explicit `--production --delivery` composition. Offline fakes cover ordering,
-hash binding, pre-final cancellation, the final-send marker, uncertainty, and
-cleanup. Live account permissions/provider behavior remain unverified, and X
-threads plus fresh-review republishing/recovery flows below remain future work.
+**Implementation status:** [Current implementation and operations](../current-state.md)
+owns available delivery modes, operational gates, and unverified provider
+behavior. This target contract does not assert that a credentialed adapter is
+composed or a public destination is enabled.
 
 The dashboard creates authorization and its initial delivery record, or
 cancels an eligible pre-publication record, but never calls the agent or a

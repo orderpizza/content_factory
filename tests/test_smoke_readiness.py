@@ -38,8 +38,8 @@ from workflow.store import now
 
 
 ROOT = Path(__file__).resolve().parents[1]
-NORMALIZED_MANIFEST = ROOT / "config" / "releases" / "detection-normalized-v3.json"
-FIXTURE_MANIFEST = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+NORMALIZED_MANIFEST = ROOT / "config" / "releases" / "detection.json"
+FIXTURE_MANIFEST = ROOT / "config" / "releases" / "detection.json"
 _run_pass = runpy.run_path(str(ROOT / "scripts" / "run_workflow.py"))["_run_pass"]
 
 
@@ -84,8 +84,7 @@ class SmokeReadinessTests(unittest.TestCase):
     def migrate(self, *, production: bool) -> None:
         migrate_detection_dashboard(self.database)
         migrate_editorial_workflow(self.database)
-        if production:
-            migrate_detection_safety(self.database)
+        migrate_detection_safety(self.database)
         with DetectionStore(self.database) as store:
             store.apply_manifest(load_manifest(
                 NORMALIZED_MANIFEST if production else FIXTURE_MANIFEST

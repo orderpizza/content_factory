@@ -12,21 +12,21 @@ contracts for their respective boundaries.
 
 ## Two distinct workers, one specification
 
-This specification covers two separate Gemini-powered workers that share a
-common editorial planning responsibility:
+This specification covers two separate editorial workers that share a common
+planning boundary:
 
-1. **Idea Intake Agent** — claims `IntakeRequest`s, interprets evidence or
+1. **Idea Intake Agent** — claims human-origin `IntakeRequest`s, interprets
    conversation, freezes immutable `BriefRevision`s, and assigns coverage
-   identity.
+   identity when clarification or revision is needed.
 2. **Determination Worker** — claims `DeterminationRequest`s, evaluates frozen
    briefs against the five-domain catalog, produces decisions with five route
    dispositions, and creates `ContentJob`s for selected routes.
 
-They communicate only through SQLite. Idea Intake produces `BriefRevision` +
-`DeterminationRequest`; Determination consumes `DeterminationRequest`. They are
-separate workers with separate polling, separate Gemini calls, and separate
-claim lifecycles. They are grouped here because they share the editorial
-planning boundary and the `ContentThread` lifecycle.
+They communicate only through SQLite. Human Idea Intake produces
+`BriefRevision` + `DeterminationRequest`; Detection creates the same two records
+directly for a selected trend. Determination consumes both kinds of request.
+Idea Intake is therefore optional for trend-origin work and remains separate
+because human conversation may require clarification or rework.
 
 ## Purpose and boundary
 
@@ -37,19 +37,20 @@ auditable production decision:
 - a human's unconstrained free-text conversation in the dashboard.
 
 It does not require a human form and it does not generate creative content.
-Idea Intake turns conversation or trend context into an immutable
-`BriefRevision`. Determination evaluates that frozen revision against the
-five-domain catalog and separately determines domain fit and a credible angle.
-Only selected routes create jobs; one revision may create zero to five jobs.
+Detection creates a minimal source-backed `BriefRevision` for a selected trend;
+Idea Intake interprets human conversation into a richer brief when needed.
+Determination evaluates either frozen brief against the five-domain catalog and
+separately determines domain fit and a credible angle. Only selected routes
+create jobs; one revision may create zero to five jobs.
 
 ```mermaid
 flowchart TB
-    trend[Selected TrendCandidate] --> thread[ContentThread]
-    human[Human free-text message] --> thread
+    trend[Selected TrendCandidate] -->|source-backed brief| revision[BriefRevision]
+    human[Human free-text message] --> thread[ContentThread]
     thread --> request[IntakeRequest]
     request --> intake[Idea Intake Agent]
     intake -->|clarification or suggestion| thread
-    intake -->|freeze BriefRevision| revision[BriefRevision]
+    intake -->|freeze BriefRevision| revision
     revision --> determination[Determination]
     catalog[Enabled capability catalog] --> determination
     determination -->|accepted: decision + routes + per-selected-route job/run| state[(SQLite)]
@@ -104,9 +105,10 @@ request; there is no untracked in-memory handoff.
 ### Editorial coverage identity and collision — `coverage_normalization_v2`
 
 Detection's `trend:<canonicalization_version>:<cluster_key>` is an opportunity
-identity, not editorial coverage. When freezing Revision 1, Idea Intake derives
-the thread's route-neutral editorial coverage identity from the normalized brief
-tuple:
+identity, not editorial coverage. For a detected trend, the shortlist derives
+the thread's route-neutral editorial coverage identity from the deterministic
+source brief. For a human idea, Idea Intake derives it while freezing Revision 1.
+Both use the normalized brief tuple:
 
 ```text
 coverage:<coverage_normalization_version>:<coverage_kind>:<canonical_target>
@@ -129,8 +131,9 @@ The same transaction checks the unique non-null identity on `ContentThread`:
   the pending Determination Request normally.
 - For a trend seed collision, it appends the candidate's frozen evidence as a
   `ThreadEvidenceEvent` to the existing owning thread, closes the unused seed
-  thread with reason `coverage_collision_merged`, and creates a new Intake
-  request on the owner only when the normal material-evidence rule permits it.
+  thread with reason `coverage_collision_merged`, and creates a new direct
+  Determination request on the owner only when the normal material-evidence rule
+  permits it.
   The candidate and its seed lineage remain auditable.
 - For a human seed collision, it records an Intake-agent message directing the
   human to continue the existing thread, then closes the unused seed thread
@@ -142,13 +145,13 @@ itself. It cannot be a different tone, format, account, or wording workaround.
 The POC has no separate qualifier syntax; a materially different subject gets
 a different `canonical_target` or Intake asks for clarification.
 
-Selected trends use the same thread/revision model. Intake may freeze a
-trend-seeded Revision 1 without a conversational question when the frozen
-evidence is already sufficient. A human can later continue that thread and
-create an intentional rework revision. After a trend is `not_recommended`, a
-material evidence change approved by the deterministic recurrence policy
-creates a `ThreadEvidenceEvent` and Intake request on the same thread. A
-resulting revision uses `revision_reason=evidence_refresh`.
+Selected trends use the same thread/revision model, but do not require an Intake
+worker. Detection creates Revision 1 when the frozen evidence is sufficient. A
+human can later continue that thread and create an intentional rework revision.
+After a trend is `not_recommended`, a material evidence change approved by the
+deterministic recurrence policy creates a `ThreadEvidenceEvent` and direct
+Determination request on the same thread. A resulting revision uses
+`revision_reason=evidence_refresh`.
 
 ### Thread closure, cancellation, and route re-evaluation
 
@@ -270,7 +273,9 @@ evade duplicate prevention by renaming the same claim or thesis. Deterministic
 identity is an exact guard, not proof of semantic novelty: compare proposed
 angles with retained same-domain coverage, include bounded relevant prior
 summaries in routing input, and expose uncertain equivalence for human review.
-No vector database or semantic work inside deterministic detection is required.
+Detection's local event resolver handles source-event identity, not editorial
+novelty or angle reuse. It uses no vector database; see
+[Detection](detection.md#semantic-event-resolution).
 
 Phase 1 selects at most one angle per domain per revision. Different selected
 domains must offer substantively different reader value; changing the hook of

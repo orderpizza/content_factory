@@ -135,8 +135,9 @@ surface, rather than a `Trend Opportunities` header or configuration summary.
 Its first row places the live **Ingestion feed** beside **Opportunities** across
 the full viewport width. The feed shows newly persisted normalized observations;
 the opportunities list is limited to candidates that passed shortlist selection
-and created the next `ContentThread` / `IntakeRequest` handoff. This makes the
-incoming signal and the work handed downstream visible together.
+and created the next `ContentThread` / `BriefRevision` / `DeterminationRequest`
+handoff. This makes the incoming signal and the work handed downstream visible
+together.
 
 The compact detection slice uses `YYYY-MM-DDTHH:MM:SS` for all persisted UTC
 timestamps, without fractional seconds or a rendered timezone suffix. It shows
@@ -273,7 +274,7 @@ approved/in-flight siblings remain untouched unless an explicit permitted
 cancellation wins. A blocked sibling can be rechecked without regenerating
 completed routes under the Intake preconditions.
 
-The current dashboard implements the human boundary for the bounded production
+The dashboard must implement the human boundary for the bounded production
 slice. It renders Detection/workflow state in one read-only transaction, while a
 separate loopback POST executes only new-idea, thread-reply, preview
 accept/reject/request-changes, exact production Post now, eligible pre-final
@@ -284,12 +285,12 @@ PNG/JPEG files below the artifact root and shows the exact review text/images.
 Editorial acceptance alone creates no PostRequest; the separately displayed Post
 now button requires a production-ready package and current destination readiness.
 Messages appear once per thread. Recovery requests, configuration editing,
-routing replay/quality evaluation, and the full portfolio/lease controls above
-remain unimplemented. Opportunity counts/list rows remain one per selected
-candidate, independent of its number of Intake requests.
-See [current implementation](../current-state.md) for operational limitations.
+routing replay/quality evaluation, and the full portfolio/lease controls are
+outside this bounded dashboard contract. Opportunity counts/list rows remain one
+per selected candidate, independent of its number of Intake requests. See
+[current implementation](../current-state.md) for operational limitations.
 
-The current read view pauses automatic refresh while hidden and refreshes on
+The read view pauses automatic refresh while hidden and refreshes on
 return, using a fixed CSP-hashed script. Editing a filter pauses automatic
 reload to preserve input. Detection worker heartbeat age is labeled separately
 from its last reported state using the runtime's 20/45-minute thresholds. The

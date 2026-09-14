@@ -162,10 +162,10 @@ def _source_config(row: Any) -> dict[str, Any]:
 
 
 def collect_source(row: Any) -> CollectionResult:
-    return _validate_result(_collect_source(row), dict(row).get("canonicalization_version", "canonicalization_v1"))
+    return _validate_result(_collect_source(row), dict(row).get("canonicalization_version", "canonicalization_v2"))
 
 
-def _validate_result(result: CollectionResult, normalization_version: str = "canonicalization_v1") -> CollectionResult:
+def _validate_result(result: CollectionResult, normalization_version: str = "canonicalization_v2") -> CollectionResult:
     """Reject invalid metadata before any normalized evidence can enter SQLite."""
     items = []
     events = [replace(e, reason=safe_diagnostic(e.reason), source_item_key=None if e.source_item_key and len(e.source_item_key) > 1000 else e.source_item_key) for e in result.events]
@@ -235,7 +235,7 @@ def _collect_source(row: Any) -> CollectionResult:
 
 def _collect_feed(row: Any) -> CollectionResult:
     config = _source_config(row)
-    normalization_version = dict(row).get("canonicalization_version", "canonicalization_v1")
+    normalization_version = dict(row).get("canonicalization_version", "canonicalization_v2")
     started = time.monotonic()
     body, _headers, final_url, redirects = _bounded_get(
         row["endpoint_url"], allowed_hosts=config["allowed_redirect_hosts"]
@@ -368,7 +368,7 @@ def _collect_wikimedia(row: Any) -> CollectionResult:
         display = title.replace("_", " ")
         items.append(CollectedItem(
             source_item_key=title, source_item_id=title, title=display,
-            canonical_url=canonical_link(f"https://en.wikipedia.org/wiki/{quote(title)}", dict(row).get("canonicalization_version", "canonicalization_v1")),
+            canonical_url=canonical_link(f"https://en.wikipedia.org/wiki/{quote(title)}", dict(row).get("canonicalization_version", "canonicalization_v2")),
             provider_time=datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
             activity=float(views), rank=rank,
             payload={"views": views, "provider_rank": int(article.get("rank", rank)), "report_date": day.isoformat()},
@@ -533,7 +533,7 @@ def _collect_hacker_news(row: Any) -> CollectionResult:
                 provider_time = None
         items.append(CollectedItem(
             source_item_key=str(story_id), source_item_id=str(story_id), title=title,
-            canonical_url=canonical_link(str(record.get("url", "")), dict(row).get("canonicalization_version", "canonicalization_v1")), provider_time=provider_time,
+            canonical_url=canonical_link(str(record.get("url", "")), dict(row).get("canonicalization_version", "canonicalization_v2")), provider_time=provider_time,
             activity=float(score), rank=position,
             payload={"score": score, "by": record.get("by"), "list_count": len(story_ids)},
         ))

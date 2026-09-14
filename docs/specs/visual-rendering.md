@@ -65,17 +65,10 @@ only after its purpose, local runtime dependency, licensing, reproducibility,
 and validation rules are approved. Adding one must not change the pipeline or
 Posting Agent contract.
 
-The current `--review-preview` implementation is an acceptance slice of
-`html_playwright_v1`. It renders escaped fixed templates to
-1080×1350 Instagram or 1200×675 X HTML/PNG/JPEG sets, verifies dimensions and
-overflow, promotes a run-specific directory without overwrite, and records
-browser/Pillow versions and asset hashes. Synthetic `static_*_review_v1`
-profiles use system Arial and remain non-deliverable. V4 production profiles
-require a regular absolute font file no larger than 20 MB, freeze its SHA-256,
-verify the hash again at render, embed it in CSS, fsync promoted assets, and
-quarantine failed promoted directories. The configuration command also requires
-an explicit owner assertion that the current static profiles were visually
-reviewed. Golden baselines and broad visual-quality acceptance remain human work.
+**Implementation status:** [Current implementation and operations](../current-state.md)
+owns the available renderer modes, profile gates, and known acceptance gaps.
+This specification defines the target renderer behavior; it does not establish
+that a profile is approved for public delivery.
 
 ## Core concepts
 

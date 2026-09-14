@@ -1,12 +1,9 @@
-"""Freeze source evidence, calculate attention_v1, and persist the shortlist."""
+"""Freeze source evidence, calculate versioned attention, and persist the shortlist."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-from math import log2
-from statistics import median
 from typing import Any
 import json
 import socket
@@ -15,6 +12,7 @@ from common.diagnostics import safe_diagnostic
 
 from .configuration import canonical_json
 from .store import DetectionStore, utc_now
+from .semantic import LocalEmbeddingEncoder, freeze_resolution
 
 
 def _parse_time(value: str) -> datetime:
@@ -26,16 +24,13 @@ def _evaluation_slot(value: datetime) -> datetime:
     return datetime.fromtimestamp(epoch - epoch % 900, timezone.utc)
 
 
-def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
-    return max(lower, min(upper, value))
-
-
 class DetectionScout:
     WORKER_TYPE = "trend_scout_shortlist"
 
-    def __init__(self, store: DetectionStore, *, instance_id: str | None = None):
+    def __init__(self, store: DetectionStore, *, instance_id: str | None = None, encoder=None):
         self.store = store
         self.instance_id = instance_id or f"scout-{socket.gethostname().casefold()}"
+        self.encoder = encoder if encoder is not None else LocalEmbeddingEncoder()
 
     def run(self, *, now: datetime | None = None) -> dict[str, Any]:
         frozen_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -43,6 +38,10 @@ class DetectionScout:
         release = self.store.active_release()
         release_id = int(release["configuration_release_id"])
         manifest = json.loads(release["manifest_json"])
+        if self.store.connection.execute("PRAGMA user_version").fetchone()[0] < 5:
+            raise RuntimeError("Scout requires semantic schema v5; run scripts/setup_semantic_detection.py")
+        from .configuration import validate_manifest
+        validate_manifest(manifest)
         run_id = self._materialize_run(slot, release_id, frozen_at)
         row = self.store.connection.execute(
             "SELECT status, aggregate_counts_json FROM scout_evaluation_runs "
@@ -91,6 +90,9 @@ class DetectionScout:
                 "SELECT input_frozen_at FROM scout_evaluation_runs WHERE scout_evaluation_run_id=?",
                 (run_id,),
             ).fetchone()["input_frozen_at"])
+            freeze_resolution(self.store.connection, run_id,
+                              manifest["components"]["detection"]["semantic_resolution"], self.encoder,
+                              owner=self.instance_id, claim_version=claim_version, execution_time=frozen_at)
             result = self._evaluate(run_id, release_id, manifest, evaluation_time, attempt_ids)
             # Selection budgets use this execution's time, not the older input clock.
             self._finalize(run_id, claim_version, result, manifest, frozen_at)
@@ -192,10 +194,6 @@ class DetectionScout:
     def _freeze_inputs(
         self, run_id: int, release_id: int, frozen_at: datetime, claim_version: int
     ) -> list[int]:
-        current_start = frozen_at - timedelta(hours=24)
-        baseline_start = current_start - timedelta(days=14)
-        frozen_description: list[dict[str, Any]] = []
-        attempt_ids: list[int] = []
         with self.store.connection:
             # Acquire the write lock and validate ownership before reading/writing
             # the freeze boundary. A completed empty input still has an input_hash.
@@ -218,98 +216,8 @@ class DetectionScout:
                     "WHERE scout_evaluation_run_id=? ORDER BY scout_evaluation_attempt_id",
                     (run_id,),
                 )]
-            release_manifest = json.loads(self.store.connection.execute(
-                "SELECT manifest_json FROM configuration_releases WHERE configuration_release_id=?", (release_id,)
-            ).fetchone()[0])
-            if release_manifest["components"]["detection"]["score_formula_version"] == "attention_v2":
-                from .hybrid import freeze
-                return freeze(self.store.connection, run_id, release_id, frozen_at)
-            sources = self.store.connection.execute(
-                "SELECT * FROM detection_source_instances "
-                "WHERE configuration_release_id=? AND enabled=1 ORDER BY stable_id",
-                (release_id,),
-            ).fetchall()
-            for source_ordinal, source in enumerate(sources, start=1):
-                attempts = self.store.connection.execute(
-                    "SELECT a.*, h.source_health_id, h.classification AS health_classification, "
-                    "h.reason AS health_reason FROM source_collection_attempts a "
-                    "LEFT JOIN source_health h ON h.source_collection_attempt_id=a.source_collection_attempt_id "
-                    "WHERE a.source_instance_id=? AND a.status='completed' AND a.complete=1 "
-                    "AND a.collected_at>=? AND a.collected_at<=? ORDER BY a.collected_at",
-                    (
-                        source["detection_source_instance_id"], baseline_start.isoformat(),
-                        frozen_at.isoformat(),
-                    ),
-                ).fetchall()
-                latest = attempts[-1] if attempts else None
-                latest_any = self.store.connection.execute(
-                    "SELECT * FROM source_collection_attempts WHERE source_instance_id=? "
-                    "AND created_at<=? ORDER BY created_at DESC, source_collection_attempt_id DESC LIMIT 1",
-                    (source["detection_source_instance_id"], frozen_at.isoformat()),
-                ).fetchone()
-                state, reason = self._input_state(source, latest, latest_any, frozen_at)
-                self.store.connection.execute(
-                    "INSERT INTO scout_evaluation_inputs "
-                    "(scout_evaluation_run_id, source_instance_id, source_collection_attempt_id, "
-                    "source_health_id, input_state, reason, ordinal, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (
-                        run_id, source["detection_source_instance_id"],
-                        latest["source_collection_attempt_id"] if latest else None,
-                        latest["source_health_id"] if latest else None,
-                        state, reason, source_ordinal, frozen_at.isoformat(),
-                    ),
-                )
-                role_counts = {"current_window": 0, "baseline_window": 0}
-                for attempt in attempts:
-                    collected = _parse_time(attempt["collected_at"])
-                    role = "current_window" if collected >= current_start else "baseline_window"
-                    role_counts[role] += 1
-                    attempt_id = int(attempt["source_collection_attempt_id"])
-                    attempt_ids.append(attempt_id)
-                    self.store.connection.execute(
-                        "INSERT INTO scout_evaluation_attempts "
-                        "(scout_evaluation_run_id, source_instance_id, source_collection_attempt_id, "
-                        "measurement_role, ordinal, created_at) VALUES (?,?,?,?,?,?)",
-                        (
-                            run_id, source["detection_source_instance_id"], attempt_id, role,
-                            role_counts[role], frozen_at.isoformat(),
-                        ),
-                    )
-                frozen_description.append({
-                    "source": source["stable_id"], "state": state,
-                    "attempt_ids": [int(item["source_collection_attempt_id"]) for item in attempts],
-                })
-            input_json = canonical_json(frozen_description)
-            input_hash = sha256(input_json.encode("utf-8")).hexdigest()
-            self.store.connection.execute(
-                "UPDATE scout_evaluation_runs SET input_frozen_at=?, input_hash=? "
-                "WHERE scout_evaluation_run_id=? AND status='running' "
-                "AND claim_owner=? AND claim_version=?",
-                (frozen_at.isoformat(), input_hash, run_id, self.instance_id, claim_version),
-            )
-        return attempt_ids
-
-    @staticmethod
-    def _input_state(
-        source: sqlite3.Row,
-        latest: sqlite3.Row | None,
-        latest_any: sqlite3.Row | None,
-        frozen_at: datetime,
-    ) -> tuple[str, str]:
-        if latest is None:
-            if latest_any is not None and latest_any["failure_category"] == "quota_limited":
-                return "quota_limited", "local quota ceiling reached"
-            if latest_any is not None and latest_any["status"] in {"failed", "retry_wait"}:
-                return "failed", latest_any["failure_category"] or "latest collection failed"
-            return "unavailable", "no complete collection is available"
-        age = (frozen_at - _parse_time(latest["collected_at"])).total_seconds()
-        availability = int(source["availability_seconds"])
-        later_bad = latest_any is not None and int(latest_any["source_collection_attempt_id"]) != int(latest["source_collection_attempt_id"])
-        if age <= 1.5 * availability and not later_bad:
-            return "current", "latest complete collection is within the healthy window"
-        if age <= 3 * availability:
-            return "degraded" if later_bad else "reused", "using a prior complete collection within the degraded window"
-        return "unavailable", "latest complete collection is outside the degraded window"
+            from .hybrid import freeze
+            return freeze(self.store.connection, run_id, release_id, frozen_at)
 
     def _evaluate(
         self,
@@ -319,229 +227,159 @@ class DetectionScout:
         frozen_at: datetime,
         attempt_ids: list[int],
     ) -> dict[str, Any]:
-        if manifest["components"]["detection"]["score_formula_version"] == "attention_v2":
-            from .hybrid import evaluate
-            return evaluate(self.store.connection, run_id, release_id, manifest)
-        if not attempt_ids:
-            return {"candidate_count": 0, "selected_count": 0, "candidates": []}
-        placeholders = ",".join("?" for _ in attempt_ids)
-        observations = self.store.connection.execute(
-            f"SELECT o.*, t.canonical_key, s.source_kind, s.stable_id, "
-            f"s.independence_group, s.trust_weight "
-            f"FROM trend_observations o JOIN detection_source_instances s "
-            f"ON s.detection_source_instance_id=o.source_instance_id "
-            f"JOIN trends t ON t.trend_id=o.trend_id "
-            f"WHERE o.source_collection_attempt_id IN ({placeholders}) "
-            f"ORDER BY o.effective_observed_at, o.trend_observation_id",
-            tuple(attempt_ids),
+        from .hybrid import evaluate
+        return evaluate(self.store.connection, run_id, release_id, manifest)
+
+    def _workflow_catalog(self) -> list[dict[str, Any]]:
+        """Freeze the active domain/output catalog into a trend handoff."""
+        tables = {
+            row[0]
+            for row in self.store.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not {"pipeline_capabilities", "output_bindings"}.issubset(tables):
+            return []
+        rows = self.store.connection.execute(
+            "SELECT c.pipeline_id, c.enabled, c.generation_ready, "
+            "b.output_binding_id, b.platform, b.account, b.content_format, "
+            "b.output_contract_version, b.ready, b.safe_reason "
+            "FROM pipeline_capabilities c "
+            "JOIN configuration_activations a "
+            "ON a.configuration_release_id=c.configuration_release_id "
+            "AND a.scope_key='global' AND a.status='active' "
+            "LEFT JOIN output_bindings b "
+            "ON b.pipeline_capability_id=c.pipeline_capability_id "
+            "WHERE c.pipeline_version IN "
+            "('domain_pipeline_catalog_v1','domain_pipeline_catalog_production_v1') "
+            "ORDER BY c.pipeline_capability_id, b.output_binding_id"
         ).fetchall()
-        # Never trust a mutable/global collection-time contributor flag for
-        # replay. Resolve the documented winner using only these frozen rows.
-        observations = [dict(row) for row in observations]
-        winners = {}
-        for row in observations:
-            item = (row["canonical_url"] or row["canonical_key"]) if row["source_kind"] == "publisher_feed_collector_v1" else row["source_item_key"]
-            group = (row["independence_group"], row["window_start"], row["window_end"], item)
-            pair = (row["source_instance_id"], row["source_item_key"])
-            winners[group] = min(winners.get(group, pair), pair)
-        for row in observations:
-            item = (row["canonical_url"] or row["canonical_key"]) if row["source_kind"] == "publisher_feed_collector_v1" else row["source_item_key"]
-            group = (row["independence_group"], row["window_start"], row["window_end"], item)
-            row["activity_contributor"] = int((row["source_instance_id"], row["source_item_key"]) == winners[group])
-        aliases = {
-            row["alias_key"]: row["target_cluster_key"]
-            for row in self.store.connection.execute(
-                "SELECT alias_key, target_cluster_key FROM detection_cluster_aliases "
-                "WHERE configuration_release_id=? AND active=1",
-                (release_id,),
+        catalog: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            item = catalog.setdefault(
+                row["pipeline_id"],
+                {
+                    "pipeline_id": row["pipeline_id"],
+                    "enabled": bool(row["enabled"]),
+                    "generation_ready": bool(row["generation_ready"]),
+                    "outputs": [],
+                },
             )
-        }
-        health = {
-            int(row["source_instance_id"]): row["input_state"]
-            for row in self.store.connection.execute(
-                "SELECT source_instance_id, input_state FROM scout_evaluation_inputs "
-                "WHERE scout_evaluation_run_id=?",
-                (run_id,),
-            )
-        }
-        current_start = frozen_at - timedelta(hours=24)
-        windowed: dict[tuple[str, str, int], list[sqlite3.Row]] = defaultdict(list)
-        current_members: dict[str, list[sqlite3.Row]] = defaultdict(list)
-        for observation in observations:
-            measured = _parse_time(observation["effective_observed_at"])
-            if measured < current_start - timedelta(days=14) or measured > frozen_at:
-                continue
-            cluster = observation["canonical_key"]
-            while cluster in aliases:
-                cluster = aliases[cluster]
-            age_days = int((frozen_at - measured).total_seconds() // 86400)
-            windowed[(cluster, observation["source_kind"], age_days)].append(observation)
-            if measured >= current_start:
-                current_members[cluster].append(observation)
-
-        activity: dict[tuple[str, str], float] = {}
-        historical_activity: dict[tuple[str, str, int], float] = {}
-        valid_history_days: dict[str, set[int]] = defaultdict(set)
-        for (cluster, kind, age_days), items in windowed.items():
-            value = self._source_activity(kind, items)
-            if age_days == 0:
-                activity[(cluster, kind)] = value
-            elif 1 <= age_days <= 14:
-                historical_activity[(cluster, kind, age_days)] = value
-                valid_history_days[kind].add(age_days)
-
-        prominence: dict[tuple[str, str], float] = {}
-        prominence_meta: dict[tuple[str, str], dict[str, Any]] = {}
-        kinds = {kind for _, kind in activity}
-        for kind in kinds:
-            values = [(cluster, value) for (cluster, source_kind), value in activity.items() if source_kind == kind]
-            values.sort(key=lambda item: (-item[1], item[0]))
-            count = len(values)
-            index = 0
-            while index < count:
-                end = index + 1
-                while end < count and values[end][1] == values[index][1]:
-                    end += 1
-                midrank = ((index + 1) + end) / 2
-                score = 0.5 if count == 1 else 1 - ((midrank - 1) / (count - 1))
-                for tied in range(index, end):
-                    cluster = values[tied][0]
-                    prominence[(cluster, kind)] = score
-                    prominence_meta[(cluster, kind)] = {
-                        "population_size": count,
-                        "midrank": round(midrank, 6),
-                        "tie_size": end - index,
-                    }
-                index = end
-
-        candidates: list[dict[str, Any]] = []
-        for cluster, members in current_members.items():
-            source_kinds = sorted({row["source_kind"] for row in members})
-            source_components: list[dict[str, Any]] = []
-            weighted_g = weighted_p = weighted_r = weight_sum = 0.0
-            history_ready = False
-            independence_groups = {row["independence_group"] for row in members if row["activity_contributor"]}
-            for kind in source_kinds:
-                kind_members = [row for row in members if row["source_kind"] == kind]
-                a_value = activity[(cluster, kind)]
-                history_days = sorted(valid_history_days.get(kind, set()))
-                baselines = [
-                    historical_activity.get((cluster, kind, age_days), 0.0)
-                    for age_days in history_days
-                ]
-                ready = len(baselines) >= 7
-                history_ready = history_ready or ready
-                baseline = median(baselines) if baselines else 0.0
-                p_value = prominence[(cluster, kind)]
-                g_value = _clamp(log2((a_value + 1) / (baseline + 1)) / 2) if ready else 0.5 * p_value
-                reliability_values = []
-                for row in kind_members:
-                    state = health.get(int(row["source_instance_id"]), "unavailable")
-                    multiplier = 1.0 if state in {"current", "reused"} else 0.5 if state == "degraded" else 0.0
-                    reliability_values.append(float(row["trust_weight"]) * multiplier)
-                r_value = max(reliability_values, default=0.0)
-                weight = max(r_value, 0.000001)
-                weighted_g += g_value * weight
-                weighted_p += p_value * weight
-                weighted_r += r_value * weight
-                weight_sum += weight
-                source_components.append({
-                    "source_kind": kind, "activity": round(a_value, 6),
-                    "baseline": round(baseline, 6), "history_windows": len(baselines),
-                    "history_day_offsets": history_days,
-                    "history_ready": ready, "momentum": round(g_value, 6),
-                    "prominence": round(p_value, 6), "reliability": round(r_value, 6),
-                    "prominence_population": prominence_meta[(cluster, kind)],
-                    "attempt_ids": sorted({
-                        int(row["source_collection_attempt_id"]) for row in kind_members
-                    }),
-                    "observation_ids": sorted({
-                        int(row["trend_observation_id"]) for row in kind_members
-                    }),
-                    "measurement_windows": sorted({
-                        (row["window_start"], row["window_end"]) for row in kind_members
-                    }),
+            if row["output_binding_id"] is not None:
+                item["outputs"].append({
+                    "output_binding_id": int(row["output_binding_id"]),
+                    "platform": row["platform"],
+                    "account": row["account"],
+                    "content_format": row["content_format"],
+                    "output_contract_version": row["output_contract_version"],
+                    "ready": bool(row["ready"]),
+                    "safe_reason": row["safe_reason"],
                 })
-            momentum = weighted_g / weight_sum if weight_sum else 0.0
-            prominent = weighted_p / weight_sum if weight_sum else 0.0
-            reliability = weighted_r / weight_sum if weight_sum else 0.0
-            breadth = min(1.0, len(independence_groups) / 3)
-            persistence_windows = len({
-                int((frozen_at - _parse_time(row["effective_observed_at"])).total_seconds() // 86400)
-                for row in observations
-                if row["trend_id"] in {item["trend_id"] for item in members}
-                and _parse_time(row["effective_observed_at"]) >= frozen_at - timedelta(hours=72)
-            })
-            persistence = min(1.0, persistence_windows / 3)
-            newest = max(_parse_time(row["effective_observed_at"]) for row in members)
-            freshness = _clamp(1 - (frozen_at - newest).total_seconds() / 3600 / 48)
-            final = round(
-                momentum * 0.30 + prominent * 0.20 + breadth * 0.20
-                + persistence * 0.10 + freshness * 0.10 + reliability * 0.10,
-                4,
-            )
-            breakdown = {
-                "formula_version": "attention_v1", "source_components": source_components,
-                "momentum": round(momentum, 6), "prominence": round(prominent, 6),
-                "breadth": round(breadth, 6), "persistence": round(persistence, 6),
-                "freshness": round(freshness, 6), "reliability": round(reliability, 6),
-                "history_ready": history_ready, "score": final,
-            }
-            evidence = [{
-                "observation_id": int(row["trend_observation_id"]), "source": row["stable_id"],
-                "title": row["title"], "activity": row["activity"], "rank": row["rank"],
-            } for row in members]
-            evidence_json = canonical_json(evidence)
-            fingerprint = sha256(evidence_json.encode("utf-8")).hexdigest()
-            policy = manifest["components"]["detection"]["shortlist"]
-            eligible = (
-                final >= policy["minimum_score"] and reliability >= policy["minimum_reliability"]
-                and (history_ready or len(independence_groups) >= 2)
-            )
-            failed_gates = []
-            if final < policy["minimum_score"]:
-                failed_gates.append("score_below_threshold")
-            if reliability < policy["minimum_reliability"]:
-                failed_gates.append("reliability_below_threshold")
-            if not history_ready and len(independence_groups) < 2:
-                failed_gates.append("bootstrap_requires_two_independent_groups")
-            candidates.append({
-                "cluster_key": cluster,
-                "opportunity_identity": f"trend:canonicalization_v1:{cluster}",
-                "canonical_subject": members[0]["title"], "score": final,
-                "breakdown": breakdown, "evidence": evidence,
-                "evidence_json": evidence_json, "evidence_fingerprint": fingerprint,
-                "members": members, "eligible": eligible,
-                "eligibility_reason": "eligible" if eligible else ",".join(failed_gates),
-                "breadth": breadth, "prominence": prominent, "freshness": freshness,
-            })
-        candidates.sort(key=lambda item: (-item["score"], -item["breadth"], -item["prominence"], -item["freshness"], item["opportunity_identity"]))
-        return {"candidate_count": len(candidates), "selected_count": 0, "candidates": candidates}
+        return [catalog[key] for key in sorted(catalog)]
 
-    @staticmethod
-    def _source_activity(kind: str, items: list[sqlite3.Row]) -> float:
-        if kind == "publisher_feed_collector_v1":
-            return float(len({row["independence_group"] for row in items if row["activity_contributor"]}))
-        if kind == "wikimedia_enwiki_pageviews_v1":
-            return float(sum(row["activity"] for row in items if row["activity_contributor"]))
-        if kind == "youtube_most_popular_v1":
-            return float(max(
-                (
-                    51 - int(row["rank"]) for row in items
-                    if row["rank"] is not None and row["activity_contributor"]
-                ),
-                default=0,
-            ))
-        if kind == "hacker_news_top_stories_v1":
-            return max(
-                (
-                    ((101 - int(row["rank"])) / 100) * log2(float(row["activity"]) + 1)
-                    for row in items
-                    if row["rank"] is not None and row["activity_contributor"]
-                ),
-                default=0.0,
+    def _create_trend_determination_handoff(
+        self,
+        *,
+        candidate: dict[str, Any],
+        candidate_id: int,
+        run_id: int,
+        snapshot_id: int,
+        thread_id: int,
+        frozen_at: datetime,
+    ) -> None:
+        """Create the source-backed brief and direct Determination handoff."""
+        tables = {
+            row[0]
+            for row in self.store.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
             )
-        raise ValueError(f"Unsupported source kind: {kind}")
+        }
+        required = {"brief_revisions", "determination_requests"}
+        if not required.issubset(tables):
+            raise RuntimeError(
+                "selected trend requires the explicit editorial workflow migration; "
+                "run scripts/setup_workflow.py before selecting trend work"
+            )
+
+        subject = str(candidate["canonical_subject"]).strip()
+        normalized = " ".join(subject.casefold().split())
+        coverage_identity = (
+            f"coverage:coverage_normalization_v2:trend_topic:{normalized}"
+        )
+        collision = self.store.connection.execute(
+            "SELECT thread_id FROM content_threads "
+            "WHERE coverage_identity=? AND thread_id<>?",
+            (coverage_identity, thread_id),
+        ).fetchone()
+        if collision is not None:
+            raise RuntimeError(
+                "selected trend conflicts with an existing editorial coverage thread"
+            )
+        self.store.connection.execute(
+            "UPDATE content_threads SET coverage_identity=?, updated_at=?, "
+            "row_version=row_version+1 WHERE thread_id=?",
+            (coverage_identity, frozen_at.isoformat(), thread_id),
+        )
+
+        source_snapshot = {
+            "kind": "selected_trend",
+            "detection_run_id": run_id,
+            "topic_snapshot_id": snapshot_id,
+            "candidate": {
+                "candidate_id": candidate_id,
+                "opportunity_identity": candidate["opportunity_identity"],
+                "topic": subject,
+                "score": candidate["score"],
+                "evidence_fingerprint": candidate["evidence_fingerprint"],
+            },
+            "evidence": candidate["evidence"],
+        }
+        brief = {
+            "editorial_goal": f"Assess whether {subject} merits useful content.",
+            "topic": subject,
+            "coverage_kind": "trend_topic",
+            "canonical_target": subject,
+            "revision_scope": "whole_brief",
+            "audience": "general audience",
+            "desired_outcome": "inform",
+            "constraints": {"origin": "detected_trend"},
+            "source_context": (
+                "This source-backed brief was created from a selected deterministic "
+                "detection candidate; the frozen evidence is attached separately."
+            ),
+            "open_questions": [],
+        }
+        revision = self.store.connection.execute(
+            "INSERT INTO brief_revisions "
+            "(thread_id, revision_number, brief_json, source_snapshot_json, "
+            "revision_reason, created_by, created_at) "
+            "VALUES (?, 1, ?, ?, 'initial', 'system', ?) ",
+            (
+                thread_id,
+                canonical_json(brief),
+                canonical_json(source_snapshot),
+                frozen_at.isoformat(),
+            ),
+        )
+        revision_id = int(revision.lastrowid)
+        request_snapshot = {
+            "brief": brief,
+            "source_context": source_snapshot,
+            "catalog": self._workflow_catalog(),
+            "catalog_version": "domain_pipeline_catalog_v1",
+            "routing_policy_version": "determination_policy_v1",
+        }
+        self.store.connection.execute(
+            "INSERT INTO determination_requests "
+            "(revision_id, input_snapshot_json, input_fingerprint, status, "
+            "attempt_limit, created_at) VALUES (?, ?, ?, 'pending', 3, ?)",
+            (
+                revision_id,
+                canonical_json(request_snapshot),
+                sha256(canonical_json(request_snapshot).encode("utf-8")).hexdigest(),
+                frozen_at.isoformat(),
+            ),
+        )
 
     def _finalize(
         self,
@@ -556,9 +394,6 @@ class DetectionScout:
         normalization_version = manifest["components"]["detection"]["canonicalization_version"]
         six_hours = (frozen_at - timedelta(hours=6)).isoformat()
         day = (frozen_at - timedelta(hours=24)).isoformat()
-        deferred_stale_before = (
-            frozen_at - timedelta(hours=policy["deferred_fresh_hours"])
-        ).isoformat()
         with self.store.connection:
             for kind, population in result.get("prominence_populations", {}).items():
                 encoded_population = canonical_json(population)
@@ -566,13 +401,6 @@ class DetectionScout:
                     "INSERT INTO scout_prominence_populations(scout_evaluation_run_id,source_kind,population_json,population_hash,created_at) VALUES (?,?,?,?,?)",
                     (run_id, kind, encoded_population, sha256(encoded_population.encode()).hexdigest(), frozen_at.isoformat()),
                 )
-            self.store.connection.execute(
-                "UPDATE trend_candidates SET eligibility_status='deferred_stale', "
-                "eligibility_reason='deferred_evidence_older_than_policy_window', "
-                "updated_at=? WHERE eligibility_status='deferred_by_budget' "
-                "AND last_seen_at<=?",
-                (frozen_at.isoformat(), deferred_stale_before),
-            )
             selected_6h = int(self.store.connection.execute(
                 "SELECT COUNT(*) FROM trend_candidates WHERE selected_at>=?", (six_hours,)
             ).fetchone()[0])
@@ -602,6 +430,17 @@ class DetectionScout:
                 ).fetchone()
                 desired_status = "eligible" if candidate["eligible"] else "observed"
                 reason = candidate["eligibility_reason"]
+                for key in candidate.get("lexical_keys", []):
+                    owner = self.store.connection.execute(
+                        "SELECT DISTINCT c.selected_thread_id FROM trend_candidates c "
+                        "JOIN candidate_observation_memberships m ON m.trend_candidate_id=c.trend_candidate_id "
+                        "JOIN trend_observations o ON o.trend_observation_id=m.trend_observation_id "
+                        "JOIN trends t ON t.trend_id=o.trend_id "
+                        "WHERE t.canonical_key=? AND c.selected_thread_id IS NOT NULL ORDER BY c.selected_thread_id LIMIT 1",
+                        (key,),
+                    ).fetchone()
+                    if owner and (not existing or existing["selected_thread_id"] != owner[0]):
+                        desired_status, reason = "observed", "resolved_event_already_owned"
                 if existing and existing["eligibility_status"] in {
                     "selected", "consumed", "rejected_cooldown", "reconsiderable",
                     "migration_hold",
@@ -670,22 +509,19 @@ class DetectionScout:
                         (candidate_id, frozen_at.isoformat(), frozen_at.isoformat()),
                     )
                     thread_id = int(thread_cursor.lastrowid)
-                    context = {
-                        "candidate_id": candidate_id, "topic_snapshot_id": snapshot_id,
-                        "opportunity_identity": candidate["opportunity_identity"],
-                        "evidence_fingerprint": candidate["evidence_fingerprint"],
-                    }
-                    self.store.connection.execute(
-                        "INSERT INTO intake_requests "
-                        "(thread_id, source_candidate_id, context_json, context_version, status, "
-                        "attempt_limit, created_at) VALUES (?, ?, ?, 'trend_intake_context_v1', 'pending', 3, ?)",
-                        (thread_id, candidate_id, canonical_json(context), frozen_at.isoformat()),
+                    self._create_trend_determination_handoff(
+                        candidate=candidate,
+                        candidate_id=candidate_id,
+                        run_id=run_id,
+                        snapshot_id=snapshot_id,
+                        thread_id=thread_id,
+                        frozen_at=frozen_at,
                     )
                     self.store.connection.execute(
                         "UPDATE trend_candidates SET eligibility_status='selected', "
-                        "eligibility_reason='selected_by_shortlist_v1', selected_at=?, "
+                        "eligibility_reason=?, selected_at=?, "
                         "selected_thread_id=?, updated_at=? WHERE trend_candidate_id=?",
-                        (frozen_at.isoformat(), thread_id, frozen_at.isoformat(), candidate_id),
+                        (f"selected_by_{policy['policy_version']}", frozen_at.isoformat(), thread_id, frozen_at.isoformat(), candidate_id),
                     )
                     selected_count += 1
                     selected_6h += 1

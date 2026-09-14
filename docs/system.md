@@ -15,6 +15,11 @@ requirements below are not proof that a component or safeguard is implemented.
   reusable visual contracts; source-provider facts currently live in Detection;
   `plans/` is derived sequencing; `archive/` is historical rationale only.
 
+`current-state.md` is the sole as-built status map and operational command
+inventory. Tier 2 documents define target contracts, current policy, and
+contract maturity; they may link to current state, but must not duplicate an
+implementation-status inventory.
+
 **Must** is mandatory, **should** requires a recorded exception, and **may** is
 permitted discretion. The [Contract Registry](contracts/maturity.md) declares
 maturity, dependencies, and verification requirements. An accepted architecture
@@ -48,9 +53,13 @@ primary Instagram destination is `o2_english`; other destination names remain
 configuration choices. The [domain catalog](pipelines/domains.md) owns remit,
 angle eligibility, content extensions, and distribution intent.
 
-The existing detection milestone remains deterministic ingestion and its local
-dashboard, ending at selected `ContentThread` + `IntakeRequest`. Forward schemas
-v2 and v3 provide the editorial and detection-safety handoffs. Schema v4 adds an
+Detection consists of lexical canonicalization, local semantic event resolution,
+frozen resolved membership, deterministic attention scoring and its local
+dashboard, ending at selected `ContentThread` + source-backed `BriefRevision` +
+`DeterminationRequest` for detected trends. Human ideas still enter through an
+`IntakeRequest`. Forward schemas v2 and v3 provide the editorial and
+detection-safety handoffs. Schema v5 persists immutable semantic resolution;
+MiniLM runs locally without an LLM or external inference API. Schema v4 adds an
 immutable real-destination catalog, current-readiness facts, priced model
 reservations, production rendering checkpoints, exact Post now authorization,
 delivery attempts/resources, cleanup/reconciliation, and storage/maintenance
@@ -152,7 +161,8 @@ state and writes only narrow human commands; it never invokes a worker or API.
 
 ```text
 External sources → Collector → observations in SQLite
-  → deterministic Scout + shortlist → selected ContentThread + IntakeRequest
+  → lexical clusters → local semantic resolution → frozen event clusters
+  → deterministic attention + shortlist → selected ContentThread + BriefRevision + DeterminationRequest
 Human idea/rework → message + IntakeRequest in SQLite
   → Idea Intake → immutable BriefRevision + DeterminationRequest
   → Determination → decision + five domain route assessments
@@ -184,16 +194,17 @@ adapters are in-process dispatch within the Adaptation Worker; delivery adapters
 are in-process dispatch within the Posting Agent. These internal strategies are
 not separately scheduled services.
 
-- Detection measures attention deterministically and uses no LLM. It never
+- Detection resolves events with local embeddings, freezes the partition, then
+  measures attention deterministically without pooling semantic-link scoring credit. It uses no LLM and never
   determines editorial value or pipeline selection.
-- Intake freezes a route-neutral brief and coverage identity. It does not turn
-  every trend into an English expression.
-- Idea Intake is a Gemini-powered agent that claims `IntakeRequest`s on its own
-  polling cycle. It interprets raw trend evidence or human conversation into a
-  structured, route-neutral `BriefRevision`, may ask the human for clarification,
-  assigns editorial coverage identity, and is a distinct stage between Detection
-  and Determination. The local v2 runner retains a non-Gemini fixture worker by
-  default and selects the implemented Gemini worker only with `--gemini`.
+- Detection creates a minimal source-backed brief and direct Determination
+  request for a selected trend. It does not choose a pipeline or angle.
+- Idea Intake is a Gemini-powered agent that claims human-origin `IntakeRequest`s
+  on its own polling cycle. It interprets conversation, may ask for
+  clarification, and creates a structured `BriefRevision` + `DeterminationRequest`.
+  It is optional for detected trends. The local v2 runner retains a non-Gemini
+  fixture worker by default and selects the implemented Gemini worker only with
+  `--gemini`.
 - Determination separately records editorial worth, domain fit, a supported
   angle for each selected domain, skipped domains with reasons, and operational
   blockers. One trend may select one, several, or no pipelines.
@@ -217,7 +228,7 @@ The [current-state map](current-state.md) identifies which paths actually run.
 
 | Boundary | Durable result | Detailed owner |
 | --- | --- | --- |
-| Detection → Idea Intake | Selected thread + IntakeRequest, frozen evidence reference | [Detection](specs/detection.md) |
+| Detection → Determination | Selected thread + source-backed BriefRevision + DeterminationRequest | [Detection](specs/detection.md) |
 | Human idea → Idea Intake | Thread message + IntakeRequest | [Intake](specs/idea-intake-and-determination.md), [Dashboard](specs/dashboard.md) |
 | Idea Intake → Determination | Immutable BriefRevision + DeterminationRequest, or clarification | [Intake and Determination](specs/idea-intake-and-determination.md) |
 | Determination → Pipeline Runner | Decision + five routes + zero-to-five jobs/runs, or reuse links | [Intake and Determination](specs/idea-intake-and-determination.md) |

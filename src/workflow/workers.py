@@ -117,7 +117,8 @@ class DeterminationWorker:
 
     @local_operation("determination_requests", "determination_request_id")
     def _process(self, request):
-        snapshot = json.loads(request["input_snapshot_json"]); catalog = snapshot["catalog"]
+        request, snapshot = self.store.resolve_determination_catalog(request)
+        catalog = snapshot["catalog"]
         routes: list[dict[str, Any]] = []
         selected = False
         for pipeline in WORKFLOW_PIPELINES:

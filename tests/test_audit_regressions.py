@@ -11,6 +11,7 @@ import unittest
 
 from database.migrations import (
     SchemaError, connect, migrate_detection_dashboard, migrate_editorial_workflow,
+    migrate_detection_safety,
 )
 from database.sqlite import Database
 from dashboard import render_detection_dashboard
@@ -18,6 +19,7 @@ from detection.collector import DetectionCollector
 from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult
 from detection.scout import DetectionScout
+from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 from workflow import IdeaIntakeWorker, WorkflowStore
 
@@ -31,27 +33,33 @@ class AuditRegressionTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "audit.db"
         migrate_detection_dashboard(self.path)
+        migrate_editorial_workflow(self.path)
+        migrate_detection_safety(self.path)
         with DetectionStore(self.path) as store:
-            store.apply_manifest(load_manifest(ROOT / "config/releases/detection-dashboard-v1.json"))
+            store.apply_manifest(load_manifest(ROOT / "config/releases/detection.json"))
+        upgrade_semantic_fixture(self.path)
         self.start = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
 
-    def collect_fixture(self, store, *, two_sources=False):
+    def collect_fixture(self, store, *, two_sources=False, at=None, activity=100):
+        at = at or self.start
         def collect(source):
             items = [CollectedItem(
-                "shared", "Shared audit opportunity", 100,
-                source_item_id="shared", rank=1, provider_time=self.start.isoformat(),
+                "shared", "Shared audit opportunity", activity,
+                source_item_id="shared", rank=1, provider_time=at.isoformat(),
             )]
-            if source["source_kind"] == "hacker_news_top_stories_v1":
-                items.append(CollectedItem("other", "Other audit opportunity", 1, rank=100))
+            items.append(CollectedItem(
+                "other", "Other audit opportunity", 1, rank=100,
+                provider_time=at.isoformat(),
+            ))
             return CollectionResult(
                 items=tuple(items), events=(), complete=True,
                 response_hash="a" * 64, latency_ms=1,
             )
         sources = {"hacker_news_top_stories_v1"}
         if two_sources:
-            sources.add("nasa_recently_published_rss_v1")
+            sources.update({"nasa_recently_published_rss_v1", "youtube_us_most_popular_v1"})
         with patch("detection.collector.collect_source", side_effect=collect):
-            DetectionCollector(store).run_due(now=self.start, source_ids=sources)
+            DetectionCollector(store).run_due(now=at, source_ids=sources)
 
     def retry_after_freeze(self, store, scout):
         with patch.object(scout, "_finalize", side_effect=RuntimeError("injected after freeze")):
@@ -161,7 +169,9 @@ class AuditRegressionTests(unittest.TestCase):
     def test_dashboard_counts_one_candidate_after_thread_continuation(self):
         migrate_editorial_workflow(self.path)
         with DetectionStore(self.path) as store:
-            self.collect_fixture(store, two_sources=True)
+            for days in range(7, 0, -1):
+                self.collect_fixture(store, two_sources=True, at=self.start - timedelta(days=days), activity=1)
+            self.collect_fixture(store, two_sources=True, activity=1000)
             self.assertEqual(DetectionScout(store).run(now=self.start)["selected_count"], 1)
         with WorkflowStore(self.path) as store:
             IdeaIntakeWorker(store).run_once()

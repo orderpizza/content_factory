@@ -33,13 +33,11 @@ REQUIRED = [
     ROOT / "docs" / "contracts" / "editorial-workflow-schema-v2.sql",
     ROOT / "docs" / "contracts" / "detection-safety-schema-v3.sql",
     ROOT / "docs" / "contracts" / "production-workflow-schema-v4.sql",
-    ROOT / "docs" / "contracts" / "configuration-manifest-v2.schema.json",
-    ROOT / "docs" / "contracts" / "configuration-manifest-v3.schema.json",
-    ROOT / "config" / "releases" / "detection-normalized-v3.json",
-    ROOT / "config" / "releases" / "detection-hybrid-v2.json",
+    ROOT / "docs" / "contracts" / "semantic-events-schema-v5.sql",
+    ROOT / "docs" / "contracts" / "configuration-manifest-v4.schema.json",
+    ROOT / "config" / "releases" / "detection.json",
     ROOT / "docs" / "profiles" / "editorial-clean-v1.md",
     ROOT / "docs" / "plans" / "target-implementation.md",
-    ROOT / "config" / "releases" / "detection-dashboard-v1.json",
     ROOT / "docs" / "archive" / "decisions.md",
     ROOT / ".env.example",
     ROOT / "scripts" / "check_smoke_readiness.py",
@@ -73,6 +71,7 @@ DATA_MODEL_REQUIRED_HEADINGS = (
     "### Claimable-record transition matrix",
 )
 CANONICAL_RECORDS = (
+    "scout_event_resolutions",
     "detection_source_instances",
     "trend_candidates",
     "content_threads",
@@ -117,9 +116,7 @@ REQUIRED_SCHEMA_IDS = (
     "content_factory/visual_spec_v1",
     "content_factory/render_manifest_v1",
     "content_factory/provider_attempt_v1",
-    "content_factory/configuration_manifest_v1",
-    "content_factory/configuration_manifest_v2",
-    "content_factory/configuration_manifest_v3",
+    "content_factory/configuration_manifest_v4",
     "content_factory/o2_creative_v1",
 )
 DETECTION_DASHBOARD_TABLES = (
@@ -342,23 +339,29 @@ def main() -> None:
                 errors.append(f"production workflow SQL contract is missing table `{table}`")
         if "PRAGMA user_version = 4;" not in sql_text:
             errors.append("production workflow SQL contract does not set user_version 4")
-    manifest = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+    semantic_contract = ROOT / "docs" / "contracts" / "semantic-events-schema-v5.sql"
+    if semantic_contract.is_file():
+        sql_text = semantic_contract.read_text(encoding="utf-8")
+        for required in ("CREATE TABLE scout_event_resolutions (", "BEFORE UPDATE", "BEFORE DELETE", "PRAGMA user_version = 5;"):
+            if required not in sql_text:
+                errors.append(f"semantic event SQL contract is missing {required!r}")
+    manifest = ROOT / "config" / "releases" / "detection.json"
     if manifest.is_file():
         try:
             manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
         except json.JSONDecodeError as error:
             errors.append(f"{manifest.relative_to(ROOT)} is not valid JSON: {error.msg}")
         else:
-            if manifest_data.get("schema_id") != "configuration_manifest_v1":
-                errors.append("detection dashboard manifest has the wrong schema_id")
+            if manifest_data.get("schema_id") != "configuration_manifest_v4":
+                errors.append("normalized detection manifest has the wrong schema_id")
             sources = manifest_data.get("components", {}).get("detection", {}).get("sources", [])
             source_ids = [source.get("stable_id") for source in sources if isinstance(source, dict)]
             if len(source_ids) != len(set(source_ids)):
-                errors.append("detection dashboard manifest has duplicate source stable IDs")
+                errors.append("normalized detection manifest has duplicate source stable IDs")
             detection_text = (ROOT / "docs" / "specs" / "detection.md").read_text(encoding="utf-8")
             for source_id in source_ids:
                 if not isinstance(source_id, str) or f"`{source_id}`" not in detection_text:
-                    errors.append(f"detection dashboard manifest source is not documented: {source_id!r}")
+                    errors.append(f"normalized detection manifest source is not documented: {source_id!r}")
     for path in (ROOT / "README.md", ROOT / "docs" / "system.md"):
         if path.is_file() and "daily_expression" in path.read_text(encoding="utf-8"):
             errors.append(f"Removed reference project is still mentioned in {path.relative_to(ROOT)}")

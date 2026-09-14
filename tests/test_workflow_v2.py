@@ -3,7 +3,7 @@ import unittest
 import json
 from pathlib import Path
 
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow
+from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from dashboard import render_workflow_trace
@@ -11,7 +11,7 @@ from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, Pi
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+MANIFEST = ROOT / "config" / "releases" / "detection.json"
 
 
 class WorkflowV2Tests(unittest.TestCase):
@@ -19,9 +19,10 @@ class WorkflowV2Tests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "content.db"
         migrate_detection_dashboard(self.path)
+        migrate_editorial_workflow(self.path)
+        migrate_detection_safety(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
-        self.assertTrue(migrate_editorial_workflow(self.path))
 
     def test_full_placeholder_lineage_and_disabled_delivery(self):
         with WorkflowStore(self.path) as store:

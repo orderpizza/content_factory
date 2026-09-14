@@ -781,6 +781,41 @@ class WorkflowStore:
                 item["outputs"].append(output)
         return [by_pipeline[key] for key in WORKFLOW_PIPELINES if key in by_pipeline]
 
+    def resolve_determination_catalog(self, request: Any) -> tuple[Any, dict[str, Any]]:
+        """Resolve the current catalog for a direct trend handoff if needed.
+
+        Detection freezes trend evidence before the workflow runner may register
+        its fixture or production capabilities. A direct trend request therefore
+        starts with an empty catalog marker and resolves the catalog once the
+        Determination worker claims it. Human-origin requests already contain a
+        frozen catalog and are returned unchanged.
+        """
+        snapshot = json.loads(request["input_snapshot_json"])
+        source_context = snapshot.get("source_context", {})
+        if snapshot.get("catalog") or source_context.get("kind") != "selected_trend":
+            return request, snapshot
+        snapshot["catalog"] = self.catalog()
+        encoded = canonical(snapshot)
+        with self.transaction():
+            updated = self.connection.execute(
+                "UPDATE determination_requests SET input_snapshot_json=?, input_fingerprint=? "
+                "WHERE determination_request_id=? AND status='claimed' AND claim_owner=? "
+                "AND claim_version=?",
+                (
+                    encoded,
+                    digest(snapshot),
+                    request["determination_request_id"],
+                    request["claim_owner"],
+                    request["claim_version"],
+                ),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("stale determination claim cannot resolve its catalog")
+        refreshed = dict(request)
+        refreshed["input_snapshot_json"] = encoded
+        refreshed["input_fingerprint"] = digest(snapshot)
+        return refreshed, snapshot
+
     def _cancel_if_closed(self, table: str, row: Any, moment: str) -> bool:
         """Called under the finalization write lock before any child insert."""
         joins = {

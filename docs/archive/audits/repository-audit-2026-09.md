@@ -724,7 +724,7 @@ work and must not be marked resolved merely because dangerous paths are disabled
   credentials or repeat already accepted architecture.
 - **Deployment and live verification:** approve the concrete database backup/migration
   and separately scoped live provider/paid tests when ready. The current hybrid
-  rollout is documented in [Current state](../../../docs/current-state.md#explicit-hybrid-scoring-rollout);
+  rollout is documented in [Current state](../../../docs/current-state.md#detection-database-setup);
   it has not been applied to the user's development database in this repair.
 - **Public content:** every destination still requires exact human approval. No
   general audit/repair instruction authorizes posting.

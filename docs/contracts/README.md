@@ -20,9 +20,8 @@ alone cannot enforce that policy; a shared semantic/redaction boundary is still 
 | `editorial-workflow-schema-v2.sql` | `docs/specs/data/records.md` | Explicit v1→v2 local workflow scaffold; default fixtures plus opt-in Gemini Intake/Determination/generation/adaptation and local review rendering with in-code validation. |
 | `detection-safety-schema-v3.sql` | `docs/specs/data/records.md` | Explicit v2→v3 immutable scoring/partial-response evidence; preserves editorial handoffs. |
 | `production-workflow-schema-v4.sql` | `docs/specs/data/records.md` | Explicit v3→v4 real destinations, budgets, checkpoints, delivery, reconciliation, storage, and maintenance records. |
-| `configuration-manifest-v1.schema.json` | `docs/specs/configuration.md` | Non-secret release manifest. |
-| `configuration-manifest-v2.schema.json` | `docs/specs/configuration.md` | Non-secret hybrid `attention_v2` release; requires database v3. |
-| `configuration-manifest-v3.schema.json` | `docs/specs/configuration.md` | Hybrid scoring with corrected normalization; separate-database activation only. |
+| `semantic-events-schema-v5.sql` | `docs/specs/data/records.md` | Immutable per-evaluation semantic partition, source hash and model/pair evidence. |
+| `configuration-manifest-v4.schema.json` | `docs/specs/configuration.md` | Lexical normalization, bounded local semantic resolver policy, recency-neutral `attention_v3`, and durable `shortlist_v2`. |
 | `brief-v1`, `determination-result-v1`, `recipe-v1`, `o2-creative-v1`, `visual-spec-v1` schemas | Their retained historical owner | Superseded, unimplemented drafts; do not use for Phase 1 production. |
 | Remaining `*.schema.json` files | Their `x-owner` field | Draft later-stage boundaries; check Phase 1 conformance before adoption. |
 

@@ -5,7 +5,7 @@ verify implementation conformance from code and tests.
 **Owner:** SQLite persistence, migrations, boundary models, and their tests.
 **Read this for:** Schema, migrations, worker state, IDs, audit records, or any
 change to a persisted handoff. Read [the system guide](../system.md) first.
-For the exact executable schema of the current v1–v4 implementation,
+For the exact executable schema of the current v1–v5 implementation,
 continue to the [SQLite record contract](data/records.md).
 
 SQLite is the authoritative state store. Every worker claims work from and
@@ -49,8 +49,10 @@ including an immediate `PostRequest` for **Post now**.
 ## Relationship map
 
 ```text
-Candidate/evidence or human messages → ContentThread → IntakeRequest
-  → BriefRevision → DeterminationRequest → DeterminationDecision
+Selected candidate → ContentThread → source-backed BriefRevision
+  → DeterminationRequest → DeterminationDecision
+Human messages → ContentThread → IntakeRequest → BriefRevision
+  → DeterminationRequest → DeterminationDecision
     → five DeterminationRoutes (selected/skipped/blocked/reused)
       → each selected route: ContentJob → GenerationRun → CanonicalContent
         → each frozen destination: OutputRequest → AdaptationRun → ContentPackage
@@ -78,7 +80,7 @@ second record.
 | Trigger and creator | Atomic persisted result | Uniqueness guard | Failure behavior |
 | --- | --- | --- | --- |
 | New human idea/rework — Dashboard command | New/continued thread, appended message, pending Intake Request, command receipt | client command ID; message sequence; one active Intake Request/thread | No message or request persists on a failed command. Duplicate submission returns its receipt. |
-| Selected candidate — Trend Scout shortlist | candidate selection audit, seed trend thread, pending Intake Request, frozen candidate/evidence linkage | candidate can be selected once; `UNIQUE(seed_candidate_id)`; shortlist budget transaction | Candidate remains persisted/unselected or deferred; no worker call occurs. |
+| Selected candidate — Trend Scout shortlist | candidate selection audit, seed trend thread, source-backed Brief Revision, pending Determination Request, frozen candidate/evidence linkage | candidate can be selected once; `UNIQUE(seed_candidate_id)`; shortlist budget transaction | Candidate remains persisted/unselected or deferred; no worker call occurs. |
 | Completed normal Intake — Idea Intake Agent | immutable Brief Revision, pending Determination Request, completed Intake Request | revision number/thread; `UNIQUE(revision_id)` determination request | Request stays claimed/retryable or fails safely; no partial revision. Coverage collision follows the separate merge transaction. |
 | Determination completion — Determination Worker | completed request, immutable decision and five route rows; one ContentJob and initial GenerationRun per selected route; explicit reuse links | one decision/request, one route/decision/domain, one job/selected route, unique canonical content identity | All route/job creation rolls back together. Skipped/blocked routes create no job. |
 | Successful generation — Pipeline Runner | succeeded GenerationRun, immutable CanonicalContent, all frozen OutputRequests and initial AdaptationRuns; slot transfer | canonical/run and canonical/job uniqueness; unique output identity | No partial canonical/output fan-out; no RenderRun yet. |
@@ -101,15 +103,16 @@ owner when permitted. It is never a second editorial handoff.
 | --- | --- | --- |
 | Evidence | Observations/snapshots and decision | Frozen normalized evidence fingerprint; cooldown alone does not imply material change. |
 | Opportunity | Candidate | `trend:<canonicalization_version>:<cluster_key>`; detection attention, not editorial coverage. |
-| Coverage | Thread and revisions | Route-neutral editorial subject under `coverage_normalization_v2`, assigned by Intake; immutable unique non-null thread key. |
+| Coverage | Thread and revisions | Route-neutral editorial subject under `coverage_normalization_v2`, assigned from the source brief for trends or by Intake for human ideas; immutable unique non-null thread key. |
 | Domain-angle coverage | Route and coverage reservation | Pipeline + normalized angle kind/target/sense/event scope; excludes account/platform/hook wording. Guards repeat treatment across threads/revisions. |
 | Canonical content | ContentJob and CanonicalContent | Domain-angle identity + creative-input fingerprint (brief's creative scope, frozen evidence/reference versions, domain/content contract); excludes revision number alone, account/platform, retry number, and metadata/layout. |
 | Output | OutputRequest and ContentPackage | Canonical ID/hash + explicit destination/platform/format + output contract and adapted-input version/fingerprint. No duplicate output because a worker restarted or a revision merely reused content. |
 | Publication | PostRequest/PostRecord | Exact package/render/destination and explicit review cycle. At most one possible final send per publication identity; confirmed or uncertain output cannot silently re-enter another cycle. |
 
 Identity serializers are deterministic over structured fields and persist their
-versions and source components. Intake owns shared coverage; Determination owns
-domain-angle selection. One shared topic can legitimately have several different
+versions and source components. Detection assigns the deterministic source
+coverage for trend-origin work; Intake owns coverage interpretation for human
+ideas; Determination owns domain-angle selection. One shared topic can legitimately have several different
 domain angles. Conversely, teaching the same expression/sense from a new trend
 does not automatically justify a new English job.
 
@@ -150,12 +153,15 @@ safe configuration JSON/fingerprint, required `configuration_release_id`, and au
 every observation/run link to this record. A run stores the exact enabled-source
 configuration snapshot it used; credentials never enter the database.
 
-Add append-only `detection_cluster_aliases` with its exact normalized alias key,
-target cluster key, canonicalization version, active state, recorded reason,
-configuration version, and audit timestamps. An alias is operator-managed
-deterministic configuration, never an LLM output or inference. Retain the
-observation-to-cluster membership that was used for every scored candidate so a
-later alias change cannot rewrite historical evidence.
+`scout_event_resolutions` freezes one hashed semantic-resolution record per
+evaluation, bound to its source snapshot hash. It contains lexical keys, exact
+observation IDs, resolved membership, model ID/revision, full resolver policy,
+entity/number/event/time signals, embedding hashes, similarities, outcomes and
+reasons. UPDATE and DELETE are refused. Scoring consumes this partition without
+re-embedding; later observations/configuration never rewrite it. No active
+cluster-alias model participates in resolution. The
+[Detection contract](detection.md#semantic-event-resolution) owns matching and
+the single-lexical-constituent scoring-credit policy.
 
 Each evaluation appends an immutable `topic_snapshots` row for every scored
 cluster. `trend_candidates` is the stable current lifecycle row, unique by
@@ -171,7 +177,7 @@ Extend candidate/snapshot records with:
 - normalized score breakdown and cluster membership linked to exact observation
   IDs;
 - cluster key, candidate opportunity identity, canonicalization version, and the
-  exact alias-configuration version used;
+  owning frozen semantic-resolution record and scoring lexical key;
 - stable source-adapter/source-item IDs when a provider exposes them, canonical
   URL, provider timestamp, collection time, measurement window, and normalized
   activity; and
@@ -184,7 +190,9 @@ meaning from nullable timestamps: `observed`, `eligible`, `selected`,
 `deferred_by_budget`, `rejected_cooldown`, `reconsiderable`, `consumed`, and
 `migration_hold`.
 `observed` means the opportunity is retained but currently fails one or more
-score, reliability, history, or freshness gates; its exact reason is required.
+score, reliability, history, or evidence-recency gates; its exact reason is required.
+`deferred_by_budget` is a durable shortlist-queue state in the active
+`shortlist_v2` policy and does not silently expire merely because time passed.
 `selected` means an Intake request was durably created; `consumed` means an
 accepted route already owns that automatic opportunity. A `not_recommended`
 decision moves the candidate to `rejected_cooldown`. Expiry alone makes it
@@ -238,7 +246,7 @@ revision’s `source_snapshot_json`.
 | `thread_id` | Primary key. |
 | `origin` | `trend`, `human`, or migration-only `legacy`. |
 | `seed_candidate_id` | Nullable FK to `trend_candidates`; required for `trend`. |
-| `coverage_identity` | Canonical editorial coverage key. Null for a new seed thread; assigned atomically with Revision 1 under `coverage_normalization_v2`, then immutable and unique when present. |
+| `coverage_identity` | Canonical editorial coverage key. Assigned atomically with a source-backed or Intake-created Revision 1 under `coverage_normalization_v2`, then immutable and unique when present. |
 | `status` | `open`, `cancelled`, or `closed`. This is administrative, not worker state. |
 | `created_at`, `updated_at`, `closed_at`, `cancelled_at` | Audit timestamps. |
 | `row_version` | Positive monotonic dashboard concurrency version; starts at 1 and increments on close, reopen, cancel, or collision closure. |
@@ -246,8 +254,9 @@ revision’s `source_snapshot_json`.
 
 Enforce `origin != 'trend' OR seed_candidate_id IS NOT NULL` and
 `UNIQUE(seed_candidate_id)`. Both trend and human seed threads begin without
-coverage identity. Idea Intake assigns it atomically with Revision 1 under
-`coverage_normalization_v2`; it is immutable thereafter. A rework stays in its
+coverage identity. Detection assigns it for trend-origin Revision 1; Idea Intake
+assigns it for human-origin Revision 1, under `coverage_normalization_v2`. It is
+immutable thereafter. A rework stays in its
 existing thread and creates another revision. On collision, the transaction
 attaches a trend candidate as evidence to the existing owner or directs a human
 to continue it, then closes the unused seed thread with
@@ -709,7 +718,7 @@ time. No reconciliation path silently retries the final publication call.
 ## Target record inventory and transition rules
 
 The executable schema for the current implementation is owned by the
-[SQLite record contract](data/records.md) and its linked v1–v4 canonical SQL.
+[SQLite record contract](data/records.md) and its linked v1–v5 canonical SQL.
 The catalog below is the complete target inventory; some records are implemented
 in those migrations and others remain planned. It is not a second DDL
 definition. Any missing record/field/index requires a new forward migration
@@ -776,7 +785,7 @@ delete only the referenced physical bytes under its documented conditions.
 | `source_item_events` | source ordinal/key nullable, closed rejection/exclusion disposition, safe reason, payload hash | source collection attempt and source instance; one event per rejected/excluded item/ordinal | Detection / audit |
 | `topic_snapshots` | normalized cluster/key, score inputs, evidence snapshot/hash, formula/canonicalization version | scout evaluation run; unique cluster within its owning run | Detection / audit |
 | `trend_history` | candidate/trend state event, old/new status, reason, score/rank snapshot | trend and candidate nullable | Detection / audit |
-| `detection_cluster_aliases` | normalized alias, target key, canonicalization/config version, active, reason | `UNIQUE(alias_key, canonicalization_version, configuration_version)` | Detection configuration / audit |
+| `scout_event_resolutions` | source snapshot hash, model/policy, lexical members, pair evidence/outcomes, resolved partition, resolution hash | unique Scout run; immutable, no delete | Scout resolution / audit |
 | `trend_candidates` | stable opportunity identity, latest snapshot/evidence, current score/rank/breakdown, eligibility/status, cooldown, shortlist and consumption audit | latest topic snapshot and selected seed thread optional; `UNIQUE(opportunity_identity)` | Detection / audit |
 | `candidate_observation_memberships` | ordinal, contribution, frozen observation snapshot | candidate, topic snapshot, and observation; unique observation and ordinal within the topic snapshot | Detection / audit |
 | `content_threads` | origin, seed candidate nullable, coverage identity nullable, administrative status, closure audit, row version | seed candidate optional; `UNIQUE(seed_candidate_id)`, unique non-null coverage identity | Idea Intake / audit |
@@ -924,12 +933,12 @@ record; a resource belongs to its creating attempt.
 
 ## Migration and cutover
 
-V1–v4 are implemented as immutable forward SQL; never modify their checksums or
-table definitions. Decision 035 authorizes a fresh normalized Option B database,
-not an in-place identity conversion or a reset of the legacy database. V4 is
-explicitly refused unless that database has active `canonicalization_v2` and
-`attention_v2`. Future capacity/reuse/recovery/retention records still require
-new reviewed migrations. Preserve every selected thread, Intake handoff,
+V1–v5 are immutable forward SQL; never modify their checksums or
+table definitions. Active Detection requires `canonicalization_v2`, `attention_v3`
+and schema v5. Semantic setup refuses unfinished frozen Scout evaluations;
+completed evaluations and all handoffs are untouched. Future capacity/reuse/recovery/retention records still require
+new reviewed migrations. Preserve every selected thread, source or human
+editorial handoff,
 creative record, approval, attempt, and detection evidence.
 
 Migrate legacy `o2_english_instagram` lineage as legacy evidence, not as a second

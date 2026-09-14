@@ -1,72 +1,116 @@
 # Detection Specification
 
-**Document role:** Tier 2 target design contract. It defines required behavior;
-verify implementation conformance from code and tests.
-**Owner:** Trend Scout, source adapters, aggregation, scoring, shortlist
-selection, candidate evidence, and automatic recurrence.
+**Document role:** Tier 2 active Detection contract.
+**Contract owner:** Detection subsystem.
+**Owned components and responsibilities:** source adapters, collection,
+normalization, lexical clustering, semantic event resolution, scoring, shortlist selection, candidate evidence,
+and automatic recurrence.
 **Read this for:** Any detection source, signal, algorithm, score, threshold,
 candidate lifecycle, shortlist, evidence, or source-health change. Read
 [the system guide](../system.md) first and [the data model](data-model.md) for
 the exact persisted records and constraints.
 
-## Scope and boundary
+## Purpose and boundary
 
-Detection finds and measures system-wide, externally observable attention. It
-is deterministic, explainable, and LLM-free. It does not generate content,
-choose creative, select a pipeline, or call a downstream component.
+Detection measures externally observable attention from configured sources. The
+active implementation uses local embedding inference and deterministic scoring
+over frozen resolved membership. It is LLM-free. It does not make
+editorial judgments, choose a domain or angle, generate content, or call a
+downstream worker. Its output is a persisted handoff for Determination when a
+candidate passes the shortlist policy.
 
-The database is the durable handoff boundary, not a scoring component. The
-Trend Detector calculates scores from observations and persists all resulting
-`TrendCandidate` records. The Trend Shortlist then reads those persisted
-candidates and, for selected work, atomically creates a source-backed
-`ContentThread` and pending `IntakeRequest`. The shared Idea Intake flow claims
-that request and freezes the thread's first `BriefRevision` before it creates a
-`DeterminationRequest`.
+Detection has two active workers:
+
+- `DetectionCollector` collects provider data and persists source evidence.
+- `DetectionScout` evaluates persisted evidence, writes candidate records, and
+  creates the direct trend handoff when a candidate is selected.
+
+## Implementation map
+
+The following table maps documentation terms to their implementation. “Code”
+means a Python module or callable. “Record” means a durable SQLite row. An
+in-memory value is only an implementation detail between two calls; the SQLite
+records are the cross-worker interface.
+
+| Element | Implementation | Role |
+| --- | --- | --- |
+| Source adapter | Code in `src/detection/adapters.py`, exposed through `collect_source()` | Reads one configured provider and returns normalized adapter data. |
+| `CollectedItem`, `CollectionResult` | Python dataclasses in `src/detection/models.py` | In-memory adapter results passed to the Collector. |
+| `DetectionCollector` | Class in `src/detection/collector.py`; entry point `run_due()` | Claims due source attempts and persists observations, item events, and source health. |
+| Source collection attempt | SQLite record | One scheduled attempt for one source instance. |
+| Trend observation | SQLite record | One measured source item with provenance and measurement window. |
+| Trend | SQLite record | The normalized subject shared by matching observations. |
+| `DetectionScout` | Class in `src/detection/scout.py`; entry point `run()` | Freezes collection inputs, clusters observations, computes scores, persists candidates, and applies shortlist rules. |
+| Semantic resolver | `src/detection/semantic.py`; `scout_event_resolutions` record | Bounded local MiniLM comparisons, event gates, complete-link partition and immutable evidence before scoring. |
+| Topic snapshot | SQLite record | Immutable score and evidence for one subject in one evaluation run. |
+| Trend candidate | SQLite record in `trend_candidates` | The subject's current lifecycle state, rank, score, and selection status. |
+| Shortlist | Policy implemented inside `DetectionScout` | Threshold, reliability, breadth, evidence recency, and selection-budget queue checks. |
+| Trend handoff | `ContentThread`, `BriefRevision`, and `DeterminationRequest` rows | Direct persisted input for Determination after selection. |
+| Human Intake handoff | `IntakeRequest` row | Separate path for human conversation; not created for detected trends. |
+
+## Execution path
+
+The active trend path is:
 
 ```text
-Source adapters
-  → observations
-  → Trend Scout / Detector: normalize, cluster, score
-  → SQLite: every TrendCandidate and evidence snapshot
-  → Trend Shortlist: eligibility, threshold, budget selection
-  → SQLite: ContentThread + IntakeRequest only for selected candidates
-  → Idea Intake claims request and freezes BriefRevision
-  → SQLite: DeterminationRequest
+provider response
+  → source adapter (`collect_source`)
+  → `CollectionResult` / `CollectedItem` in memory
+  → `DetectionCollector.run_due()`
+  → source collection attempt + trends + trend observations in SQLite
+  → `DetectionScout.run()`
+  → lexical clusters → local resolution → immutable resolved membership in SQLite
+  → topic snapshots + trend candidates + candidate memberships in SQLite
+  → if selected: ContentThread + BriefRevision + DeterminationRequest
+  → DeterminationWorker.run_once() or GeminiDeterminationWorker.run_once()
+  → determination decision/routes + ContentJob(s)
+```
+
+The arrows after collection represent SQLite handoffs. Determination does not
+read raw provider responses or query by topic title; it consumes the frozen
+`DeterminationRequest` created for the selected candidate.
+
+The human-origin path is separate:
+
+```text
+dashboard human message
+  → ContentThread + IntakeRequest
+  → IdeaIntakeWorker.run_once() or GeminiIntakeWorker.run_once()
+  → BriefRevision + DeterminationRequest
   → Determination
 ```
 
-An unselected candidate remains visible in SQLite and the dashboard. It is not
-lost and it has not been handed to Determination.
-Candidates that do not currently meet every eligibility gate use
-`eligibility_status=observed` with a specific reason; `eligible` is reserved
-for a candidate that can enter the shortlist budget transaction now.
+The same `ContentThread`, `BriefRevision`, and `DeterminationRequest` records
+support both paths. The difference is whether the brief is created directly
+from frozen detection evidence or interpreted from human conversation.
 
-## Detection lifecycle
+## Evaluation and selection lifecycle
 
 1. Source adapters collect observations with source-instance identity,
    measurement window, collection time, raw unit, and safe provenance.
-2. The detector canonicalizes and clusters related observations, retaining the
-   exact cluster membership and source evidence.
-3. The detector normalizes each source in its own unit, calculates a versioned
+2. The Scout freezes the completed collection attempts used for an evaluation,
+   forms lexical clusters, resolves plausible events locally, and freezes the
+   exact resolved membership and decision evidence before scoring.
+3. It normalizes each source in its own unit, calculates a versioned attention
    score, and persists every candidate with its score breakdown and evidence
    fingerprint.
 4. After the complete scored set is durable, the shortlist applies the active
    deterministic policy to persisted candidates.
-5. In one transaction, the shortlist marks the selection and creates one
-   seed `ContentThread` with `origin=trend` plus its pending `IntakeRequest`.
-   The records retain the candidate ID, producing detection run, evidence
-   fingerprint, and exact evidence snapshot. The seed thread has no editorial
-   coverage identity yet.
-6. Idea Intake claims that request and freezes a source-backed Revision 1. It
-   assigns editorial coverage under `coverage_normalization_v2`, or performs
-   the documented collision merge. Its `source_snapshot_json` carries the
-   selected candidate evidence and producing detection run; Determination never
-   performs a later topic-string lookup.
+5. In one transaction, the shortlist marks each selection and creates one seed
+   `ContentThread` with `origin=trend`, a source-backed `BriefRevision`, and its
+   pending `DeterminationRequest`. The records retain the candidate ID,
+   producing detection run, evidence fingerprint, and exact evidence snapshot.
+6. Determination claims the request and evaluates the frozen brief and source
+   evidence. It never performs a later topic-string lookup and does not require
+   an `IntakeRequest` for a trend-origin thread.
 
-No source, detector, or shortlist process calls Idea Intake or Determination
-directly.
+An unselected candidate remains visible in SQLite and the dashboard. It is not
+handed to Determination. Candidates that fail an eligibility gate remain
+`observed` with an explicit reason; `eligible` means the candidate can enter the
+selection-budget transaction. Detection writes the downstream request as a
+SQLite handoff; it does not invoke Determination synchronously.
 
-### Collection and evaluation boundary — `scout_evaluation_v1`
+### Collection and evaluation boundary
 
 Detection persists two different work records. A `SourceCollectionAttempt` is
 one scheduled, claimable provider operation for exactly one enabled source
@@ -94,7 +138,7 @@ Detection sources are system-wide attention signals. They are not owned by O2
 or any other content pipeline; Determination decides which enabled domain pipelines, if
 any, can use a selected opportunity.
 
-Source instances and aliases are immutable records materialized from the active
+Source instances and resolver policies are immutable configuration from the active
 non-secret configuration release. The Scout reads only that release; it never
 adds, edits, enables, or disables a feed/API source itself. Each collection and
 evaluation freezes the release fingerprint that supplied its source/scoring
@@ -164,20 +208,19 @@ applicable, configuration fingerprint, and audit timestamps. An
 `independence_group` represents one underlying publisher or platform: multiple
 feeds from NASA share `nasa`; every regional YouTube chart shares `youtube`.
 It never stores credentials. A run freezes the enabled source-instance
-configuration it used so historical observations remain interpretable.
+configuration it used so every observation remains interpretable.
 
 Initial static trust weight is `1.00` for every initial source kind. This is not an
 editorial-quality assertion: source-health reliability is calculated separately
 from successful collection, timeliness, and completeness. A future change to a
 source's static trust weight must be versioned and justified here.
 
-## Canonicalization and clustering — `canonicalization_v1`
+## Canonicalization and clustering — `canonicalization_v2`
 
-This is the original intended algorithm. Historical v1 implementation preserves
-typographic apostrophes/dashes but drops their ASCII equivalents, and its link
-normalizer collapses empty/trailing path segments. Those historical serializers
-remain unchanged for replay. The corrected implementation is explicitly versioned
-below; old keys are not silently rewritten.
+The active detector uses one deterministic canonicalization algorithm. It
+preserves the provider title as evidence and creates a separate normalized key
+for matching observations. Cross-source wording differences are evaluated by the separate semantic event
+resolver after lexical clusters have been formed.
 
 The detector creates a candidate cluster from source observations without an
 LLM. It preserves the original provider title/identity unchanged as evidence;
@@ -201,7 +244,7 @@ YouTube uses video ID; Hacker News uses item ID; publisher feeds use GUID, then
 canonical link, then the normalized title. These item keys de-duplicate source
 observations but do not by themselves determine cross-source clustering.
 
-### Input, URL, and timestamp canonicalization — `collection_input_v1`
+### Input, URL, and timestamp canonicalization
 
 Current adapters reject oversized title/key/payload fields instead of truncating
 them, reject invalid UTF-8 and encoded XML entity declarations, and preserve valid
@@ -225,7 +268,7 @@ source-instance configuration. Any other status, scheme, host, loop, or fourth
 hop is a rejected collection attempt. This policy applies to the configured
 feed endpoint only, not item links.
 
-When a feed item lacks a GUID, the collector uses a `canonical_link_v1` key if
+When a feed item lacks a GUID, the collector uses a canonical URL key if
 its link is an absolute HTTPS URL of at most 2,048 characters: lowercase scheme
 and host; remove the default port and fragment; normalize dot path segments;
 retain the path's percent encoding; remove `utm_*`, `gclid`, `fbclid`,
@@ -278,53 +321,112 @@ In particular, the HN Top-100 attempt remains complete when a returned item is e
 dead, deleted, or non-story and has a corresponding excluded event; an absent
 or unparsable required item response is incomplete.
 
-Observations with the same `canonicalization_v1` title key join one cluster.
-Non-identical keys join only through an active, versioned
-`DetectionClusterAlias` mapping from an exact normalized alias key to a target
-cluster key. Alias mappings are explicit configuration with a recorded reason
-and audit history; the detector never proposes or creates an alias. When a
-provider supplies a canonical identity, use it; otherwise do not crawl or
-follow article redirects. Different language variants remain different clusters
-unless an explicit alias maps them. The candidate's immutable **opportunity
-identity** is `trend:<canonicalization_version>:<cluster_key>`. It identifies
-the observed attention cluster only; it is never called editorial coverage and
-is not a pipeline choice. A selected candidate creates a seed thread with that
-opportunity retained through its candidate FK. Idea Intake later assigns the
-distinct editorial coverage identity from the frozen brief.
+## Semantic event resolution
 
-Cluster membership is append-only evidence. Changing an alias configuration
-affects future scoring under its new version and never rewrites previously
-frozen candidate evidence, selection, revision, or decision records.
+The active Scout path is:
 
-### Corrected normalization — `canonicalization_v2`
+```text
+observations → canonicalization_v2 → lexical clusters
+  → local semantic event resolution → frozen resolved event clusters
+  → attention_v3 scoring → shortlist_v2
+```
 
-The normalized configuration-v3 release keeps `attention_v2` and the existing
-shortlist policy but selects `canonicalization_v2`. Title normalization applies
-apostrophe/dash substitution before punctuation removal, so ASCII and typographic
-variants yield the same key. Link normalization removes dot segments while
-preserving repeated/trailing slashes and percent-encoded path content. Title-only
-feed item fallback keys include the frozen collection day; GUID and valid URL
-keys remain durable across polls. No semantic/fuzzy matching is added.
+`src/detection/semantic.py` owns the in-process resolver. It is not a separate
+worker, generative model, external API, editorial judge, or pipeline router.
+Its encoder is `sentence-transformers/all-MiniLM-L6-v2`, pinned to the exact
+revision in the activated manifest. CPU inference uses two threads and batches
+of 32 by default. Scout loads local safetensors only, disables remote code and
+network model fetching, and embeds one representative title per lexical cluster,
+never each repeated observation. Missing model files or invalid vectors fail the
+run visibly; they do not silently turn inference off.
 
-This version changes identity. It is allowed only in an explicitly created
-separate development database, not as an in-place configuration switch over old
-releases. Old observations, selected threads and handoffs remain untouched in the
-original database. Configuration activation enforces that boundary in both
-directions. See [Configuration](configuration.md) and
-[Current state](../current-state.md#normalized-detection-experiment) for rollout.
+### Candidate and event gates
 
-## Scoring model — `attention_v1`
+The active manifest owns all thresholds, windows, resource ceilings, entity
+aliases/stopwords, event-action vocabulary, and negation terms. Defaults:
 
+- recent evidence within 48 hours; pairwise evidence gap at most 24 hours;
+- at most 256 recent lexical clusters, 16 peers per cluster, 2,048 pairs and
+  eight lexical clusters per resolved group;
+- cosine similarity rounded to six decimals; link at or above 0.82, separate
+  at or below 0.55, unresolved between those thresholds;
+- a shared extracted entity or exact stored canonical URL is required to
+  consider a pair. Peers are ordered by time gap and lexical key, not activity.
 
-**Historical version:** retained for old releases/replays. New explicit rollout
-uses `attention_v2` below, selected by the operator on 2026-09-09. Do not edit
-old release manifests or historical topic snapshots to relabel their scores.
+Signals come only from stored titles, timestamps and canonical URLs. Capitalized
+name tokens outside the configured stopword/action lists form conservative entity
+sets; aliases normalize individual entity tokens. This is a heuristic, not a
+full named-entity model. Entity tokens before/after the first event verb must
+also agree. Reversed actor roles and passive-voice ambiguities remain unresolved
+even at high similarity. Digits, decimals, magnitudes and percentages are retained;
+missing numbers on one side leave the comparison unresolved. Incompatible
+nonempty numeric sets, entity sets, action categories or negation signals veto
+a link. A time gap over the configured bound is separate. Generic entity pages
+without event-action context are unresolved, not automatically matched to news
+about that entity. Inconsistent signals within one lexical cluster prevent its
+semantic linking without altering lexical membership.
+
+Similarity is computed only for pairs with equal nonempty entity and event-action
+sets and compatible numeric/negation evidence. A high cosine value cannot
+override a veto. Each evaluated pair records exactly `linked`, `unresolved`, or
+`separate`, with the specific reason and observed signals. Uncompared, old,
+capacity-excluded, and uncertain clusters remain separate singletons with an
+unresolved explanation; capacity exclusion is not proof of a different event.
+
+Grouping uses complete-link compatibility: every pair across two proposed groups
+must independently qualify as linked. A–B and B–C do not imply A–C. Groups are
+formed in deterministic similarity/key order; the resolved identity uses the
+member with the smallest persisted trend ID, then lexical key. Its opportunity
+identity is `trend:canonicalization_v2:<resolved_key>`. A selected constituent
+already owned by another candidate/thread suppresses a second initial handoff.
+Frozen membership, candidates, source observations and handoffs are not rewritten
+when the resolver policy changes.
+
+### Frozen evidence and replay
+
+Scout first freezes its completed source attempts and health. It performs local
+resolution outside a SQLite write transaction, then commits one immutable
+`scout_event_resolutions` row under its running owner/claim-version fence. The
+row binds the exact source snapshot hash to the resolver policy/model/revision,
+lexical titles/keys and observation IDs, extracted signals, compared-pair
+similarities/outcomes/reasons, and final partition. Every node has a reason,
+including candidates excluded by bounds. Embedding hashes and counts are audit
+information; scoring never requires the vectors to be regenerated.
+
+Only a durable resolution can be scored. Once committed, retries and replay
+read the same resolution without calling an encoder or consulting a new policy.
+A crash before resolution commits may repeat inference on the same frozen
+source input; it cannot publish any candidate from an uncommitted partition.
+The SQL record and membership model are owned by [SQLite records](data/records.md).
+
+### Conservative scoring credit
+
+Semantic grouping collects evidence, not new corroboration credit. Each resolved
+event inherits the entire score, source contributions, breadth, momentum,
+persistence, prominence, reliability and eligibility of its strongest lexical
+constituent. An eligible constituent sorts first, followed by score, breadth,
+prominence and lexical key. Prominence populations are lexical populations, so
+merging other events cannot boost an unrelated candidate's rank. The remaining
+members are retained as inferred support with zero scoring contribution.
+
+This means even a false semantic link cannot manufacture independent-source
+breadth, cross-source growth, prominence or shortlist eligibility. It also means
+a true semantic match across two otherwise uncorroborated sources cannot by
+itself pass the bootstrap gate. This conservative recall tradeoff is explicit;
+entity/title heuristics and MiniLM similarity are not proof of real-world identity.
+The score breakdown names the scoring lexical key, resolved key, member keys and
+resolution-run reference. It does not imply that inferred support was independently
+verified.
+
+## Scoring model — `attention_v3`
 
 The score measures externally observable attention only. It does not decide
 whether a topic is useful, safe, factual, or suitable for any pipeline; those
 are Determination responsibilities.
 
-All scoring calculations use completed 24-hour UTC windows, denoted `W`.
+Fast-source activity uses the trailing 24-hour UTC window; Wikimedia uses the
+latest completed report day. Baselines use completed equivalent daily windows,
+denoted `W`.
 Fast provider collections remain individual immutable snapshots for audit,
 health, and freshness; they do not multiply activity merely because the Scout
 polled again. A candidate with no valid observation for a source kind in an
@@ -364,7 +466,7 @@ source's provider rank/score or view count remains its own source-local input.
 
 ### Source-specific activity and collection rules
 
-The following table is part of `attention_v1`. Every source contribution
+The following table is part of `attention_v3`. Every source contribution
 records its source instance, UTC measurement window, referenced collection
 attempt IDs and observation IDs, completeness state, and the resulting
 `A_s/B_s/G_s/P_s/R_s`. `B_s` is always the median of the preceding 14 valid
@@ -375,8 +477,8 @@ same source kind, never a cross-source population.
 
 | Source kind | Window, raw observation, and exact `A_s` | Baseline, prominence, and repeat handling | Complete collection / stopping rule | Missing, degraded, and persistence treatment |
 | --- | --- | --- | --- | --- |
-| `publisher_feed_collector_v1` | `W` contains feed items with a provider `published_at` in `W`; if absent, use first `collected_at`. `A_s` is the number of distinct contributing `independence_group` values for the candidate, after per-item de-duplication. | `B_s` is the stated daily median. Rank clusters by `A_s` for `P_s`. The same GUID (or fallback item key) contributes once per `W`, even if returned by many polls; a different item from the same group does not increase `A_s`. | One HTTPS GET of each configured feed URL per scheduled attempt. A `200` response must parse with no fatal parser error and all returned entries must be processed; a `304` reuses the last complete snapshot and is not a new observation. The collector does not follow linked article pages or feed pagination/`rel=next`. | A failed/invalid/incomplete feed attempt degrades that source instance. A valid earlier complete snapshot may support a degraded contribution only within the shared health window. Persistence counts `W` once when it has at least one valid matching item. |
-| `wikimedia_enwiki_pageviews_v1` | `W` is the single completed UTC report day `D`; raw observation is the provider row's article title, rank, and pageviews for `D`. `A_s` is that reported pageview count (one canonical article per cluster; if an explicit alias joins several rows, use their sum). | `B_s` is the daily median for the same article/cluster. `P_s` ranks rows by `A_s`, with provider rank only as the deterministic tie-breaker. Re-fetching the same report date reuses its stored content-hash snapshot and contributes no second observation. | Request exactly the completed-day English Wikipedia Top Pageviews report. It is complete only when the response declares the requested report date and every returned content/article row has been parsed; do not fetch article bodies, redirects, or another date to fill gaps. The endpoint has no client pagination in this contract. | A missing, malformed, late, or partial report is degraded/unavailable under the shared health rule; its missing day is excluded from `B_s`. Persistence counts each valid report day once. |
+| `publisher_feed_collector_v1` | `W` contains feed items with a provider `published_at` in `W`; if absent, use first `collected_at`. `A_s` is the number of distinct contributing `independence_group` values for the candidate, after per-item de-duplication. | `B_s` is the stated daily median. Rank clusters by `A_s` for `P_s`. The same GUID (or fallback item key) contributes once per `W`, even if returned by many polls; a different item from the same group does not increase `A_s`. | One HTTPS GET of each configured feed URL per scheduled attempt. A `200` response must parse with no fatal parser error and all returned entries must be processed; an unexpected `304` fails because requests are unconditional and no cache body is available. The collector does not follow linked article pages or feed pagination/`rel=next`. | A failed/invalid/incomplete feed attempt degrades that source instance. A valid earlier complete snapshot may support a degraded contribution only within the shared health window. Persistence counts `W` once when it has at least one valid matching item. |
+| `wikimedia_enwiki_pageviews_v1` | `W` is the single completed UTC report day `D`; raw observation is the provider row's article title, rank, and pageviews for `D`. `A_s` is that reported pageview count (distinct article/day rows within the scoring lexical cluster; repeated polls do not add views). | `B_s` is the daily median for the same article/cluster. `P_s` ranks rows by `A_s`, with provider rank only as the deterministic tie-breaker. Re-fetching the same report date reuses its stored content-hash snapshot and contributes no second observation. | Request exactly the completed-day English Wikipedia Top Pageviews report. It is complete only when the response declares the requested report date and every returned content/article row has been parsed; do not fetch article bodies, redirects, or another date to fill gaps. The endpoint has no client pagination in this contract. | A missing, malformed, late, or partial report is degraded/unavailable under the shared health rule; its missing day is excluded from `B_s`. Persistence counts each valid report day once. |
 | `youtube_most_popular_v1` | `W` contains all complete 30-minute chart snapshots. Raw observation is a video ID, rank `r` in `1..50`, and returned `viewCount`, `likeCount`, and `commentCount` when present. For a candidate, `A_s = max(51-r)` over its matching video observations in `W`; provider counters are retained as evidence but do not change `A_s`. | `B_s` is the daily median of this best-rank activity. `P_s` ranks clusters by `A_s`; the best rank, then video ID, breaks an equal-activity tie before the shared midrank calculation. The same video may appear in many snapshots but supplies only its best rank in `W`; separate videos in one cluster likewise use the best rank, not a sum. | Reserve one local quota unit before one request with exactly `part=snippet,statistics`, `chart=mostPopular`, `regionCode=US`, `maxResults=50`, no category, and no page token. Exactly 50 unique, ranked video records are required for completeness. `maxResults=50` is the intended chart limit, so no pagination is attempted. Every outbound request, including a retry that reaches YouTube, consumes one local reserved unit; no request starts after the 1,000-unit UTC-day ceiling. | A provider error, fewer than 50 valid ranked records, duplicate/missing ranks, or exhausted local ceiling makes the attempt incomplete; quota exhaustion is unavailable, not a zero-activity observation. A valid prior chart can contribute only while degraded under the shared health rule. Persistence counts `W` once if it has at least one valid matching chart observation. |
 | `hacker_news_top_stories_v1` | `W` contains all complete 30-minute top-100 snapshots. Raw observation is HN item ID, rank `r` in `1..100`, and nonnegative score `q`. For a candidate, `A_s = max((101-r)/100 * log2(q+1))` over matching story observations in `W`, rounded to six decimals before ranking. | `B_s` is the daily median of that activity. `P_s` ranks clusters by `A_s`; best rank, then highest score, then lowest HN item ID breaks an equal-activity tie before shared midrank. A repeated item across polls contributes its single greatest calculated activity in `W`; multiple matching stories use the maximum, not a sum. | Fetch the Top Stories ID list once; preserve its full count/hash; select first 100 IDs in list order; request each selected item once in the same attempt. The intended chart limit is 100, so no further IDs/pages are fetched. Complete means list plus all 100 item responses arrived and every position is accounted for; deleted/dead/non-story items are recorded as excluded diagnostics rather than candidates. | Any missing list/item response, unaccounted rank, malformed score, or timeout makes the attempt incomplete. A valid prior snapshot can contribute only while degraded under the shared health rule. Persistence counts `W` once if it has at least one valid matching story observation. |
 
@@ -395,106 +497,41 @@ Candidate-level components are all in `[0, 1]`:
 
 | Component | Definition | Weight |
 | --- | --- | --- |
-| Momentum | Reliability-weighted mean of contributing `G_s`. | 0.30 |
-| Prominence | Reliability-weighted mean of contributing `P_s`. | 0.20 |
-| Breadth | `min(1, contributing independence groups / 3)`. | 0.20 |
-| Persistence | `min(1, distinct completed windows observed in the last 72 hours / 3)`. | 0.10 |
-| Freshness | `clamp(1 - age_hours / 48, 0, 1)` using the most recent source evidence. | 0.10 |
-| Reliability | Reliability-weighted mean `R_s` for contributing sources. | 0.10 |
+| Momentum | Reliability-weighted mean of contributing `G_s`. | 1/3 |
+| Prominence | Reliability-weighted mean of contributing `P_s`. | 2/9 |
+| Breadth | `min(1, contributing independence groups / 3)`. | 2/9 |
+| Persistence | `min(1, distinct completed windows observed in the last 72 hours / 3)`. | 1/9 |
+| Evidence recency | Persisted diagnostic value from the most recent source evidence; it is not included in the score. | 0.00 |
+| Reliability | Reliability-weighted mean `R_s` for contributing sources. | 1/9 |
 
-`attention_v1_score` is the weighted sum of those components, rounded to four
+`attention_v3_score` is the weighted sum of the five weighted components, rounded to four
 decimals. The persisted score breakdown includes each source-kind input,
 history readiness/bootstrap state, every component, formula version, and final
 score. No database query or dashboard calculation is allowed to alter it.
 
-### Implementation status
-
-The current detection path is `src/detection/`. The original release still runs
-historical `attention_v1`; its window/health limitations are not silently patched
-under the same formula ID. The explicit hybrid release and v3 migration enable
-`attention_v2` as defined below. Offline regressions cover live/daily alignment,
-frozen historical health, empty healthy baseline days, completed empty reports,
-immutable contributions, quota continuity and compatible release history.
-Full prominence populations are stored once per run/source kind and referenced
-by hash from candidate breakdowns, avoiding quadratic database growth.
-
-Both paths fence input freezing, preserve empty freezes and keep the original
-evaluation clock across retries; selection budgets use current execution time.
-Editorial consumption/recurrence integration remains implementation work, not
-something the scoring repair enables. See the dated
-[audit follow-up](../../audit_report.md#follow-up-repairs--2026-09-09) and
-[current state](../current-state.md) for activation and verification boundaries.
-
-The older `src/intelligence/` modules remain compatibility code for legacy
-fixtures and must not be used as evidence of the active detection contract or
-as a new worker entrypoint. Any future change to `attention_v1` still requires
-the boundary tests listed below.
-
 ## Algorithm and evidence principles
-
-### Hybrid scoring — `attention_v2`
-
-The operator selected live fast-source signals plus completed Wikimedia reports.
-`configuration_manifest_v2` / `detection-hybrid-v2.json` selects this version;
-the explicit safety-v3 migration is required before activation. V1/v2 SQL is
-unchanged. No setup/worker automatically upgrades or activates the live database.
-
-- NASA, YouTube and Hacker News use the trailing interval `(now - 24h, now]`.
-  Wikimedia uses each source's latest complete reported UTC day, never a moving
-  timestamp test that drops a daily report at midday. Daily evidence freshness
-  is its report-window end, not the later time it was fetched.
-- Fast-source baselines use the 14 completed UTC days ending at midnight at or
-  before the live window's start, excluding any overlap with live evidence.
-  Wikimedia's baseline is the 14 UTC report days preceding its current report.
-  Seven valid days establish history readiness. Empty healthy days count as
-  zero; missing/degraded days are excluded, not manufactured from observations.
-- Freeze source configuration, current health and per-day historical health in
-  `scout_frozen_evidence`, and enumerate every complete attempt used through the
-  existing attempt-link table. Compatible releases share history only when
-  stable ID and exact source-configuration fingerprint match. Observations are
-  immutable; retries reuse this frozen health and attempt set without rereading
-  current health. Incompatible configurations have separate baselines.
-- Current healthy age is at most 1.5 availability intervals; late/error-backed
-  evidence is degraded through three intervals. Quota exhaustion is unavailable
-  even if a previous chart exists. Exclude unavailable/zero-trust sources from
-  activity, prominence population, breadth, bootstrap and reliability weighting.
-- Compute feed group deduplication from frozen rows, not global mutable flags.
-  Repeated Wikimedia article/report rows contribute once, with deterministic
-  earliest-observation tie-break; aliased distinct articles sum. HN activity is
-  rounded to six decimals before ranking. Persist complete activity/rank/tie
-  populations and the source/date health decisions used by the score.
-- Persistence counts distinct completed UTC days in the preceding 72 hours;
-  the live partial day does not count as a completed day. Candidate last-seen
-  records actual newest evidence time, never the Scout execution time.
-- Keep the existing component formulas/weights, score rounding, shortlist
-  thresholds/budgets and 72-hour material-evidence recurrence requirements.
-  A scoring-version change is not a new opportunity identity or permission to
-  duplicate an existing selected/consumed thread.
-
-Local quota admission counts every reserved execution for the same stable
-YouTube source ID across releases, even if its nonsecret configuration changes;
-release activation must not reset the UTC-day safety ceiling.
 
 - Normalize heterogeneous inputs before combining them. Publisher-feed item
   counts and Wikimedia page views are not directly comparable.
-- Score momentum, prominence, corroboration breadth, persistence, freshness,
-  and source reliability as distinct explainable factors. Persist score and
-  canonicalization versions.
+- Score momentum, prominence, corroboration breadth, persistence, evidence
+  recency, and source reliability as distinct explainable factors. Evidence
+  recency is diagnostic and a ranking tie-breaker; it is not part of the active
+  normalized score. Persist score and canonicalization versions.
 - Define first-observation behavior and deterministic tie-breakers:
-  corroboration breadth, prominence, freshness, then stable candidate ID.
+  corroboration breadth, prominence, evidence recency, then stable candidate ID.
 - Preserve source-instance identity, measurement windows, latency, fallback or
   degradation, and structured collection errors. A source’s stale/degraded
   state is visible and can be deterministically penalized or excluded.
 - Retention is not selection: persist the complete scored set before applying
   any threshold or budget.
 - Change an algorithm through versioned configuration and migration-aware
-  records so historical candidates remain interpretable.
+  records so immutable candidate evidence remains interpretable.
 
 The detailed candidate/evidence fields, indexes, and uniqueness constraints
 belong in [the data model](data-model.md). The dashboard presentation and
 freshness rules belong in [the dashboard specification](dashboard.md).
 
-## Shortlist policy — `shortlist_v1`
+## Shortlist policy — `shortlist_v2`
 
 The shortlist is a separate deterministic policy, not an implication of a
 candidate's score. It evaluates persisted candidates against the configured
@@ -504,7 +541,7 @@ durable.
 An automatic candidate is eligible for its **initial selection** only when all
 of these are true:
 
-- `attention_v1_score >= 0.6000`;
+- `attention_v3_score >= 0.6000` for the normalized release;
 - candidate reliability is at least `0.70`;
 - it has either one history-ready contributing source kind or evidence from at
   least two independent contributing `independence_group` values;
@@ -516,27 +553,27 @@ of these are true:
   hours.
 
 Eligible candidates are ordered by final score descending, then breadth,
-prominence, freshness, and stable candidate ID. The shortlist selects only as
-many candidates as remaining budget permits. Budget windows are half-open UTC
+prominence, evidence recency, and stable candidate ID. The shortlist selects
+only as many candidates as remaining budget permits. Budget windows are half-open UTC
 intervals `[now - 6h, now)` and `[now - 24h, now)` and count prior
 `selected_at` timestamps, not candidate creation time. The shortlisted
-candidate, current budget count, selection audit, trend thread, and Intake
+candidate, current budget count, selection audit, trend thread, source-backed BriefRevision, and Determination
 request are revalidated and committed in one SQLite write transaction; a
 concurrent Scout cannot consume the same slot or candidate twice.
 
-The shortlist cannot test editorial coverage identity because that identity
-does not exist until Idea Intake freezes Revision 1. Duplicate editorial
-coverage is resolved later by the `coverage_normalization_v2` collision
-transaction: it preserves this candidate as evidence, closes an unused seed
-thread, and creates no duplicate revision or content job.
+The shortlist assigns the deterministic route-neutral coverage identity while
+creating the source-backed Revision 1. Duplicate editorial coverage is resolved
+by the `coverage_normalization_v2` collision transaction: it preserves this
+candidate as evidence, closes an unused seed thread, and creates no duplicate
+revision or content job.
 
 The shortlist records the policy version, eligibility result/reason, rank,
 selected time, and selected thread ID on the candidate audit trail. Candidates
-that meet the score threshold but lose to the budget remain persisted and
-visible as `deferred_by_budget`; they are re-evaluated only while their newest
-evidence is less than 48 hours old. At 48 hours, the audit records
-`deferred_stale`; the stale evidence cannot later receive an automatic initial
-selection.
+that meet the gates but lose to the budget remain persisted as a durable
+priority queue with `deferred_by_budget`. They are reconsidered whenever their
+opportunity appears in a later evaluation; the queue does not silently expire
+after 48 hours. The current source-evidence window still prevents old evidence
+from being newly selected without a fresh observation.
 
 - A candidate with an `accepted` Determination decision is consumed for
   automatic routing permanently, including an accepted multi-domain or reuse
@@ -549,9 +586,9 @@ selection.
   one contributing independence group was absent from the frozen evidence of
   the prior determination, or (b) its final attention score increased by at
   least `0.1500` from that frozen score. A fingerprint change alone is not
-  material. The shortlist appends a `ThreadEvidenceEvent` and pending
-  `IntakeRequest` to its existing trend thread. Idea Intake may then create an
-  `evidence_refresh` Brief Revision; no duplicate thread is created.
+  material. The shortlist appends a `ThreadEvidenceEvent` and a direct
+  Determination request to its existing trend thread. No duplicate thread is
+  created.
 - Worker recovery resumes the same persisted selection/thread; it does not
   create a replacement from unchanged evidence.
 - A human may continue an existing content thread and make an intentional new
@@ -566,7 +603,7 @@ reused as a shortcut for all of them.
 ## Change and acceptance requirements
 
 Before changing a detection algorithm or source, document the score/version,
-input units, normalization, selection impact, and rollout/migration treatment
+input units, normalization, selection impact, and immutable evidence requirements
 in this specification. Add boundary tests for:
 
 - source registry/allowlist, normalization, source degradation, and retained

@@ -18,7 +18,7 @@ import tempfile
 import unittest
 
 from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow
+from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from workflow import (
@@ -36,7 +36,7 @@ from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+MANIFEST = ROOT / "config" / "releases" / "detection.json"
 
 
 class FakeGeminiClient:
@@ -73,9 +73,10 @@ class GeminiWorkflowTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "content.db"
         migrate_detection_dashboard(self.path)
+        migrate_editorial_workflow(self.path)
+        migrate_detection_safety(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
-        migrate_editorial_workflow(self.path)
 
     def register_catalog(self, store: WorkflowStore) -> None:
         for pipeline in WORKFLOW_PIPELINES:

@@ -1,8 +1,9 @@
 # Meta: Facebook and Instagram
 
 **Document role:** Tier 2 platform reference. It records provider account/API
-facts and required configuration. Current conformance is stated explicitly
-below; unqualified protocol detail remains the target contract.
+facts and required configuration. [Current implementation and operations](../current-state.md)
+owns observed local conformance and live-check results; unqualified protocol
+detail remains the target contract.
 
 **Provider facts verified:** Facebook-Login authorization route and carousel
 constraints, 2026-09-05; Cloudflare R2 public-media facts, 2026-09-13. The
@@ -10,20 +11,12 @@ configured Graph API version is a pinned local policy, not a claim that it is
 Meta's newest version; recheck provider support before live activation or an
 adapter change.
 
-**Current adapter subset:** schema v4 freezes the numeric Instagram account,
-Graph version, token reference, dedicated R2 HTTPS origin, and posting policy.
-The fake-tested adapter stages exact reviewed JPEGs, creates/polls ordered child
-and parent containers, commits the final-send marker, calls `media_publish`, and
-audits results/resources/cleanup. Readiness makes one account-identity GET and an
-explicit transient R2 put/head/public-get/delete probe. The September 2026 Mac
-check passed that complete relay probe through the owner's `r2.dev` origin;
-the read-only Meta identity check returned OAuth 190 (token could not be
-decrypted) with both Bearer and query-token authentication. See
-[current operational evidence](../current-state.md#genuine-human-review-and-external-gates).
-Current readiness does not inspect token
-expiry/scopes, app-review state, quota, optional custom-domain cache rules, or
-the bucket lifecycle setting; those remain operator gates. No live public
-publication has been verified.
+**Implementation status:** See [current operational evidence](../current-state.md#genuine-human-review-and-external-gates)
+for adapter/readiness results and unresolved operator gates. Nothing in this
+reference asserts that a live token, account authorization, or public delivery
+path is currently available. The target adapter freezes the numeric Instagram
+account, Graph version, token reference, dedicated R2 HTTPS origin, and posting
+policy.
 
 ## Account Model
 

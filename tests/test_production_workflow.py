@@ -49,7 +49,7 @@ from workflow.readiness import CapabilityReadinessMonitor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "config" / "releases" / "detection-normalized-v3.json"
+MANIFEST = ROOT / "config" / "releases" / "detection.json"
 
 
 class FakeGeminiClient:
@@ -352,20 +352,6 @@ class ProductionWorkflowTests(unittest.TestCase):
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 4)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
-
-    def test_v4_refuses_a_legacy_normalization_database(self):
-        legacy = Path(self.temporary.name) / "legacy.db"
-        migrate_detection_dashboard(legacy)
-        with DetectionStore(legacy) as store:
-            store.apply_manifest(load_manifest(
-                ROOT / "config" / "releases" / "detection-dashboard-v1.json"
-            ))
-        migrate_editorial_workflow(legacy)
-        migrate_detection_safety(legacy)
-        with self.assertRaisesRegex(SchemaError, "Option B"):
-            migrate_production_workflow(legacy)
-        with connect(legacy) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
 
     def test_production_catalog_is_blocked_until_readiness_is_current(self):
         with WorkflowStore(self.path, catalog_kind="production") as store:

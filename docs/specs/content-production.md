@@ -51,21 +51,10 @@ meaning, naturalness, and support, but cannot fetch facts or silently repair.
 Validation never declares an unsupported factual claim verified merely because
 a model repeated it. Unsupported required claims fail before canonical commit.
 
-**Current implementation:** `GeminiPipelineRunner` claims the existing v2
-GenerationRun, audits one model invocation, and validates a closed common body
-plus the matching extension for each of the five registered domains. Claims are
-limited to `source_bound_fact`, `qualified_inference`, or `generated_example`;
-source-bound references must exist in the frozen job snapshot. Successful commit
-creates the frozen Instagram/X OutputRequests atomically. Synthetic mode is
-review-only. In v4 production mode, the same call must first reserve its priced
-worst case under daily and per-job limits. The structural evidence check is
-implemented; deeper reference-quality validation, canonical reuse, and the
-execution/capacity reservations below are not.
-
-The shared client projects array cardinalities into provider-facing descriptions
-to avoid Vertex constrained-decoder complexity errors. The full local validators
-still reject out-of-range lists; see the
-[Gemini boundary](reliability.md#configuration-and-gemini-accounting).
+**Implementation status:** [Current implementation and operations](../current-state.md)
+owns the available worker subset, gates, and known validation gaps. This
+contract defines the required admission and validation behavior; as-built gaps
+do not relax it.
 
 ## Immutable job and output plan
 
@@ -124,13 +113,9 @@ the canonical content. The adaptation run may retry its own bounded metadata
 attempts using the already-checkpointed adapted body. Canonical content is
 committed before any adaptation begins.
 
-**Current implementation:** `GeminiAdaptationWorker` validates either an
-Instagram 5–8-unit carousel or one X post/card, normalizes tags/hashtags, maps
-every canonical claim, freezes a visual specification, and creates one
-independent package/render run. Synthetic mode remains review-only. Production
-mode reserves each call, persists the validated body and metadata independently,
-and permits one metadata-only retry from the body checkpoint without rewriting
-it. Failure is branch-local and never changes or regenerates canonical content.
+**Implementation status:** [Current implementation and operations](../current-state.md)
+owns the current adaptation subset and its gaps. This target contract requires
+the checkpoint and branch-isolation behavior below.
 
 Adaptation prompt v2 states the existing local copy/CTA/tag/alt-text limits
 explicitly; in particular an Instagram CTA is optional and capped at 12 words.
@@ -138,18 +123,17 @@ The wire schema also constrains that CTA to at most 12 whitespace-separated
 words and 120 characters. Gemini 3 adaptation uses the bounded thinking and
 temperature policy in [Configuration](configuration.md); local validation
 remains authoritative and failed output is never silently repaired or published.
-The initial prompt omitted that limit and a live response failed validation.
-This changes model guidance, not the persisted package limits or review rules.
 
 ## Admission and model spending
 
-**Implementation split:** v4 implements `gemini_budget_v1` reservations and
+**V4 admission baseline:** `gemini_budget_v1` requires reservation and
 settlement. Positive price, warning, daily-hard, and per-job-hard values come
 from validated production environment settings; each phase also has a positive
 input/output token maximum. Reservation occurs before the provider call, daily
 hard-limit exhaustion defers the claim to the next UTC day, and job-cap
-exhaustion fails it. The capacity/slot allocator described next is still target
-design and is not an eligibility condition in the current runner.
+exhaustion fails it. The capacity/slot allocator described next is an additional
+target design. See [current implementation](../current-state.md) for available
+admission behavior.
 
 `production_admission_v2` separates bounded execution from unreviewed-output
 capacity. The proposed initial execution limit is one active GenerationRun and

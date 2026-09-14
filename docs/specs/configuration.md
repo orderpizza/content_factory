@@ -5,50 +5,46 @@ versioned configuration release and activation boundary; verify implementation
 conformance from code and tests.
 **Owner:** Local Configuration Operator, repository manifests, validation,
 activation, and configuration audit.
-**Read this for:** Source instances, cluster aliases, capabilities, visual
+**Read this for:** Source instances, semantic resolver policy, capabilities, visual
 profiles/templates, posting policies, teaching references, or non-secret runtime
 policy. Read [the system guide](../system.md) first, then [the data model](data-model.md).
 
-The current milestone manifest is
-[`config/releases/detection-dashboard-v1.json`](../../config/releases/detection-dashboard-v1.json)
-and its intended shape is defined by
-[`configuration_manifest_v1`](../contracts/configuration-manifest-v1.schema.json).
-That schema intentionally admits only the detection section required by the
-current milestone. Later domain sections require a new schema version before
-their release is activated; an unvalidated free-form component is forbidden.
-Current detection activation uses the explicit validator in
-`src/detection/configuration.py`, not a general JSON Schema runtime. V2 fixture
-capabilities are a separate local demo exception, not an activated production
-domain/output configuration release.
+[Current implementation and operations](../current-state.md) owns command
+availability and activated releases. This contract names
+versioned releases and required behavior; it does not assert that a release is
+currently active.
+
+The active detection manifest is
+[`config/releases/detection.json`](../../config/releases/detection.json)
+and its shape is defined by
+[`configuration_manifest_v4`](../contracts/configuration-manifest-v4.schema.json).
+It contains only the detection component; later domain and destination
+configuration remains in the workflow and production configuration boundaries.
+Activation uses the explicit validator in `src/detection/configuration.py`, not
+a general JSON Schema runtime.
 When `run_workflow.py --gemini` is selected, it idempotently registers all five
 domains with synthetic Instagram/X fixture bindings for routing evaluation only.
 Those bindings cannot authorize delivery. `--review-preview` may consume them
 for real local content/adaptation/rendering, but synthetic packages remain
 review-only and record `delivery_ready=false`.
 
-The optional [hybrid release](../../config/releases/detection-hybrid-v2.json) uses
-[`configuration_manifest_v2`](../contracts/configuration-manifest-v2.schema.json)
-and `attention_v2`, requiring the explicit v3 safety migration. V1 remains
-unchanged for historical operation/replay. Compatible logical source IDs and
-identical source fingerprints retain scoring history; quota reservations are
-counted across releases by logical source ID regardless of fingerprint changes.
-Activation checks and writes are serialized. Fixture registration is immutable,
-idempotent for identical input, and limited to the active release; reactivation
-does not silently carry old fixture capabilities into a new release.
+The active release uses
+[`configuration_manifest_v4`](../contracts/configuration-manifest-v4.schema.json):
+hybrid evidence with recency-neutral `attention_v3`, lexical
+`canonicalization_v2`, local semantic event resolution, and durable `shortlist_v2`
+queue semantics. Scout requires schema v5. Activation refuses crossing lexical
+normalization namespaces in either direction. The manifest freezes model ID and
+revision, similarity thresholds, recent/pair windows, comparison and group caps,
+CPU threads/batch size, and entity/action/negation extraction vocabulary under
+`components.detection.semantic_resolution`. Exact rules and conservative scoring
+credit belong to [Detection](detection.md#semantic-event-resolution).
+There is no operator-managed cluster-alias configuration or network inference.
+Model provisioning is explicit; a missing local model fails resolution closed.
+Use `setup_normalized_detection.py --database <new-path>` for a fresh database;
+[operations](../current-state.md#detection-database-setup) owns explicit setup.
 
-The [normalized release](../../config/releases/detection-normalized-v3.json) uses
-[`configuration_manifest_v3`](../contracts/configuration-manifest-v3.schema.json):
-hybrid `attention_v2` with corrected `canonicalization_v2`. It requires database
-schema v3, not a new SQL migration. Activation rejects any database with a prior
-validated release using another normalization version, in either direction.
-Use `setup_normalized_detection.py --database <new-path>` to create an isolated
-development database explicitly. Existing data/identities are never merged,
-renamed, reset or copied into that experiment automatically. In-place historical
-identity conversion is outside this repair; choose the rollout before switching
-workers. Compatible same-normalization releases still share history normally.
-
-**Current production subset:** the explicit v4 migration is allowed only on an
-active normalized release with `canonicalization_v2` and `attention_v2`.
+**V4 production configuration boundary:** the explicit v4 migration is allowed only on an
+active release with `canonicalization_v2` and `attention_v3`.
 `configure_production.py` then validates and freezes
 `production_configuration_v1`: operator/time, all five domain bindings, enabled
 real destinations, numeric provider account IDs, safe secret references,
@@ -59,8 +55,8 @@ chosen the Cloudflare-managed `r2.dev` origin for this PoC. Its rate limits are
 accepted under the [Meta public-media policy](../platforms/meta.md#public-media-environments),
 and a custom-domain purchase is not an activation requirement. X is
 frozen to the implemented v2 media/single-post endpoints. Configuration rows,
-destinations, and posting policies are immutable. The current implementation has
-no in-place edit or activation pointer for a second production configuration;
+destinations, and posting policies are immutable. This contract permits no
+in-place edit or activation pointer for a second production configuration;
 changed real-account/profile policy needs a new forward release mechanism.
 
 ## Purpose and boundary
@@ -83,9 +79,10 @@ wins, so launchd or an operator can override the file without editing it. The
 loader accepts literal `KEY=VALUE` records only, performs no interpolation or
 command expansion, and never logs values. A malformed file fails startup with
 its line number but without echoing secret content.
-This is implemented by versioned setup/detection/reporting, workflow,
-production-configuration, readiness, maintenance, and dashboard commands; legacy
-entrypoints do not uniformly use it. Explicit CLI paths override defaults.
+Versioned setup/detection/reporting, workflow, production-configuration,
+readiness, maintenance, and dashboard commands must use this loader. See
+[Current state](../current-state.md#configuration-actually-consumed) for actual
+entrypoint and legacy coverage. Explicit CLI paths override defaults.
 `run_workflow.py` and `serve_dashboard.py` honor
 `CONTENT_FACTORY_ARTIFACT_ROOT` unless `--artifacts` is supplied. The opt-in v2
 Gemini path resolves project, location and model at the composition root and
@@ -147,7 +144,7 @@ One release is a canonical JSON manifest with a stable release name, schema ID,
 SHA-256 fingerprint, and versioned domain sections. The current schema contains
 only `detection`. Later schema versions may add:
 
-- `detection`: source instances, source limits, cluster aliases, and scoring /
+- `detection`: source instances, source limits, semantic resolver policy, and scoring /
   shortlist versions;
 - `capabilities`: the five domain IDs, domain/content contract versions,
   enabled state, editorial remit, and generation/reference prerequisites;
@@ -170,7 +167,7 @@ The release itself is immutable. Its validation outcome is exactly `validated`
 or `rejected`; a rejected manifest is retained with safe diagnostics but cannot
 be activated. A validated release materializes immutable domain records that
 all name its `configuration_release_id`. Existing source instances,
-capabilities, policies, aliases, profiles, and references are never edited in
+capabilities, policies, profiles, and references are never edited in
 place to represent a new release.
 
 `configuration_activations` is the sole mutable pointer: `scope_key`, active

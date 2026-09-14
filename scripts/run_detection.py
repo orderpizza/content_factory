@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
 from detection import DetectionCollector, DetectionScout
+from detection.reporting import summarize_scout
 from detection.store import DetectionStore
 
 
@@ -40,6 +41,8 @@ def main() -> None:
         scout = None
         if not args.skip_scout:
             scout = DetectionScout(store).run()
+        if scout is not None:
+            scout = summarize_scout(store, scout)
     print(json.dumps({"collection": collection, "scout": scout}, indent=2, default=str))
 
 

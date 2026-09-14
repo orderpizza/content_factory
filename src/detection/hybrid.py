@@ -1,4 +1,4 @@
-"""attention_v2: frozen live/daily windows, health-aware baselines and ranking."""
+"""Versioned hybrid attention evaluation for frozen live/daily evidence."""
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -8,6 +8,7 @@ from statistics import median
 import json
 
 from .configuration import canonical_json
+from .semantic import load_resolution, observation_rows
 
 WIKI = "wikimedia_enwiki_pageviews_v1"
 FEED = "publisher_feed_collector_v1"
@@ -87,7 +88,7 @@ def freeze(connection, run_id, release_id, at):
             source["history_health"][day.date().isoformat()] = status
         connection.execute(
             "INSERT INTO scout_evaluation_inputs(scout_evaluation_run_id,source_instance_id,source_collection_attempt_id,input_state,reason,ordinal,created_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, source["detection_source_instance_id"], source["latest_attempt_id"], state, "attention_v2 frozen source availability", ordinal, at.isoformat()),
+            (run_id, source["detection_source_instance_id"], source["latest_attempt_id"], state, "hybrid attention inputs frozen", ordinal, at.isoformat()),
         )
         for attempt_ordinal, attempt in enumerate(complete, 1):
             attempt_id = attempt["source_collection_attempt_id"]
@@ -123,6 +124,12 @@ def activity(kind, rows):
 
 
 def evaluate(connection, run_id, release_id, manifest):
+    release = connection.execute(
+        "SELECT r.configuration_release_id,c.manifest_json FROM scout_evaluation_runs r "
+        "JOIN configuration_releases c USING(configuration_release_id) WHERE scout_evaluation_run_id=?", (run_id,)
+    ).fetchone()
+    if release is None or release["configuration_release_id"] != release_id or canonical_json(manifest) != canonical_json(json.loads(release["manifest_json"])):
+        raise ValueError("scoring requires the evaluation's frozen configuration release")
     normalization_version = manifest["components"]["detection"]["canonicalization_version"]
     record = connection.execute("SELECT * FROM scout_frozen_evidence WHERE scout_evaluation_run_id=?", (run_id,)).fetchone()
     if record is None or sha256(record["snapshot_json"].encode()).hexdigest() != record["snapshot_hash"]:
@@ -130,22 +137,13 @@ def evaluate(connection, run_id, release_id, manifest):
     frozen = json.loads(record["snapshot_json"])
     at = moment(frozen["at"])
     sources = {s["stable_id"]: s for s in frozen["sources"]}
-    aliases = {r["alias_key"]: r["target_cluster_key"] for r in connection.execute(
-        "SELECT alias_key,target_cluster_key FROM detection_cluster_aliases WHERE configuration_release_id=? AND active=1", (release_id,)
-    )}
-    rows = [dict(r) for r in connection.execute(
-        "SELECT o.*,t.canonical_key,s.stable_id,s.source_kind,s.independence_group,s.trust_weight "
-        "FROM scout_evaluation_attempts f JOIN trend_observations o ON o.source_collection_attempt_id=f.source_collection_attempt_id "
-        "JOIN trends t ON t.trend_id=o.trend_id JOIN detection_source_instances s ON s.detection_source_instance_id=o.source_instance_id "
-        "WHERE f.scout_evaluation_run_id=? ORDER BY o.trend_observation_id", (run_id,)
-    )]
+    resolution = load_resolution(connection, run_id)
+    rows = observation_rows(connection, run_id)
     report_days = {name: set(source["report_days"]) for name, source in sources.items()}
     latest_report = {name: max(days) for name, days in report_days.items() if days}
     winners = {}
     for row in rows:
         cluster = row["canonical_key"]
-        while cluster in aliases:
-            cluster = aliases[cluster]
         row["cluster"] = cluster
         row["day"] = row["window_start"][:10]
         identity = (row["canonical_url"] or row["canonical_key"]) if row["source_kind"] == FEED else row["source_item_key"]
@@ -230,13 +228,18 @@ def evaluate(connection, run_id, release_id, manifest):
         groups = {r["independence_group"] for r in members}
         persistence_days = persistence_by_cluster[cluster]
         newest = max((moment(r["evidence_time"]) for r in members), default=None)
+        evidence_recency = min(1, max(0, 1 - (at - newest).total_seconds() / 172800)) if newest else 0
         parts = {"momentum": weighted_g / total_weight if total_weight else 0,
                  "prominence": weighted_p / total_weight if total_weight else 0,
                  "reliability": weighted_r / total_weight if total_weight else 0,
                  "breadth": min(1, len(groups) / 3), "persistence": min(1, len(persistence_days) / 3),
-                 "freshness": min(1, max(0, 1 - (at - newest).total_seconds() / 172800)) if newest else 0}
-        score = round(sum(parts[name] * weight for name, weight in {"momentum": .3, "prominence": .2, "breadth": .2, "persistence": .1, "freshness": .1, "reliability": .1}.items()), 4)
-        breakdown = {**parts, "formula_version": "attention_v2", "source_components": components, "score": score,
+                 "evidence_recency": evidence_recency}
+        formula_version = manifest["components"]["detection"]["score_formula_version"]
+        weights = {"momentum": 1 / 3, "prominence": 2 / 9, "breadth": 2 / 9,
+                   "persistence": 1 / 9, "reliability": 1 / 9}
+        ranking_recency = parts["evidence_recency"]
+        score = round(sum(parts[name] * weight for name, weight in weights.items()), 4)
+        breakdown = {**parts, "formula_version": formula_version, "source_components": components, "score": score,
                      "history_ready": ready, "persistence_days": sorted(persistence_days),
                      "excluded_observation_ids": [r["trend_observation_id"] for r in all_members if r not in members]}
         evidence = [{"observation_id": r["trend_observation_id"], "source": r["stable_id"], "title": r["title"],
@@ -251,8 +254,39 @@ def evaluate(connection, run_id, release_id, manifest):
                            "canonical_subject": all_members[0]["title"], "score": score, "breakdown": breakdown,
                            "evidence": evidence, "evidence_json": encoded, "evidence_fingerprint": sha256(encoded.encode()).hexdigest(),
                            "members": all_members, "eligible": not reasons, "eligibility_reason": ",".join(reasons) or "eligible",
-                           "breadth": parts["breadth"], "prominence": parts["prominence"], "freshness": parts["freshness"],
+                           "breadth": parts["breadth"], "prominence": parts["prominence"],
+                           "evidence_recency": ranking_recency,
                            "last_seen_at": last_seen.isoformat()})
-    candidates.sort(key=lambda c: (-c["score"], -c["breadth"], -c["prominence"], -c["freshness"], c["opportunity_identity"]))
-    return {"candidate_count": len(candidates), "selected_count": 0, "candidates": candidates,
+    candidates.sort(key=lambda c: (-c["score"], -c["breadth"], -c["prominence"], -c["evidence_recency"], c["opportunity_identity"]))
+    # Score credit belongs to the strongest lexical constituent. Inferred
+    # membership cannot manufacture source breadth, momentum or eligibility.
+    mapping = {n["lexical_key"]: n["resolved_key"] for n in resolution["clusters"]}
+    frozen_members = sorted((n["lexical_key"], oid) for n in resolution["clusters"] for oid in n["observation_ids"])
+    actual_members = sorted((r["canonical_key"], r["trend_observation_id"]) for r in rows)
+    if set(mapping) != {r["canonical_key"] for r in rows} or frozen_members != actual_members:
+        raise ValueError("frozen event partition does not cover the source input")
+    events = defaultdict(list)
+    for candidate in candidates:
+        events[mapping[candidate["cluster_key"]]].append(candidate)
+    resolved = []
+    for event, constituents in events.items():
+        anchor = min(constituents, key=lambda c: (not c["eligible"], -c["score"], -c["breadth"], -c["prominence"], c["cluster_key"]))
+        result = dict(anchor)
+        keys = sorted(c["cluster_key"] for c in constituents)
+        all_members = sorted([m for c in constituents for m in c["members"]], key=lambda m: m["trend_observation_id"])
+        scoring_ids = {e["observation_id"] for e in anchor["evidence"] if e["contributing"]}
+        evidence = [{**e, "lexical_key": c["cluster_key"], "contributing": e["observation_id"] in scoring_ids}
+                    for c in sorted(constituents, key=lambda c: c["cluster_key"]) for e in c["evidence"]]
+        encoded = canonical_json(evidence)
+        result.update(cluster_key=event, opportunity_identity=f"trend:{normalization_version}:{event}",
+                      members=all_members, lexical_keys=keys, evidence=evidence, evidence_json=encoded,
+                      evidence_fingerprint=sha256(encoded.encode()).hexdigest())
+        result["breakdown"] = {**anchor["breakdown"],
+            "semantic_resolution": {"scout_evaluation_run_id": run_id, "resolved_key": event,
+                                    "lexical_keys": keys, "scoring_lexical_key": anchor["cluster_key"],
+                                    "credit_policy": "strongest_lexical_constituent"},
+            "excluded_observation_ids": [m["trend_observation_id"] for m in all_members if m["trend_observation_id"] not in scoring_ids]}
+        resolved.append(result)
+    resolved.sort(key=lambda c: (-c["score"], -c["breadth"], -c["prominence"], -c["evidence_recency"], c["opportunity_identity"]))
+    return {"candidate_count": len(resolved), "selected_count": 0, "candidates": resolved,
             "prominence_populations": populations}

@@ -1,9 +1,18 @@
 # Current implementation and operations
 
-**As-built snapshot:** 2026-09-13. Code and boundary tests establish actual
+**As-built snapshot:** 2026-09-14. Code and boundary tests establish actual
 behavior. [System guide](system.md) routes target requirements; the root
 [audit report](../audit_report.md) preserves repair and verification history.
 Neither migration nor a green offline suite enables public posting.
+
+## Status ownership
+
+This is the sole repository-local map of as-built capability, partial paths,
+available entrypoints, and recorded operational evidence. Tier 2
+documents define the target contract and link here for implementation status;
+their maturity does not establish that a capability is installed, configured,
+or active. Update this page whenever implemented behavior or an operational
+entrypoint changes.
 
 ## Current state
 
@@ -22,7 +31,7 @@ editorial approval authorizes a public post.
 
 | Capability | State today |
 | --- | --- |
-| Detection | **Implemented.** Bounded NASA RSS, Wikimedia, YouTube, and HN adapters feed deterministic normalization, evidence snapshots, scoring, and shortlist handoffs. Active development uses `canonicalization_v2` + hybrid `attention_v2` in a fresh Option B database. Detection remains LLM-free. |
+| Detection | **Implemented.** Bounded NASA RSS, Wikimedia, YouTube, and HN adapters feed `canonicalization_v2` lexical clusters, local MiniLM semantic event resolution, frozen event membership, recency-neutral `attention_v3`, and a durable shortlist. Semantic links never pool scoring credit across lexical constituents. Schema v5 and an explicitly provisioned pinned model are required. Detection remains LLM-free and makes no inference API calls. `run_detection.py` reports candidates while retaining full audit evidence in SQLite. |
 | Human idea and refinement | **Implemented.** CLI and CSRF-protected loopback dashboard commands persist new ideas or versioned replies. Gemini Intake creates a route-neutral brief or records a clarification question; Gemini Determination evaluates exactly five domains and may create zero, one, or several jobs. |
 | Generation and adaptation | **Implemented with bounded gaps.** Gemini workers validate five domain payloads, source-claim links, Instagram 5–8-card carousel packages, and weighted X single-post text. Production adaptation checkpoints the body before independent bounded metadata attempts. Full research/reference-quality verification and cross-revision canonical reuse remain future work. |
 | Rendering and review | **Implemented.** Playwright renders exact 1080×1350 Instagram or 1200×675 X assets; Pillow produces delivery JPEGs. Production rendering uses a pinned, fingerprinted local font, verifies dimensions/hashes, fsyncs before promotion, quarantines failed runs, and never overwrites a completed directory. Review decisions remain per destination. |
@@ -42,7 +51,9 @@ editorial approval authorizes a public post.
 The current production chain is:
 
 ```text
-source or human message
+detected trend
+  -> ContentThread -> source-backed BriefRevision -> DeterminationRequest
+human message
   -> ContentThread -> IntakeRequest -> immutable BriefRevision
   -> DeterminationRequest -> five route assessments
   -> selected domain/angle ContentJob -> GenerationRun -> CanonicalContent
@@ -57,8 +68,8 @@ the sequential development runner merely polls the stages in a convenient order.
 
 | Location | Current responsibility |
 | --- | --- |
-| `src/detection/` | Source configuration, bounded collection, immutable evidence, canonicalization, deterministic scoring, clustering, and shortlist. |
-| `src/database/migrations.py`, `docs/contracts/*schema-v*.sql` | Explicit v1 detection, v2 editorial, v3 detection-safety, and v4 production forward migrations with recorded checksums and validation. |
+| `src/detection/` | Source configuration, bounded collection, lexical canonicalization, `semantic.py` local event resolution and frozen evidence, deterministic attention scoring and shortlist. |
+| `src/database/migrations.py`, `docs/contracts/*schema-v*.sql` | Explicit v1 detection, v2 editorial, v3 detection-safety, v4 production, and v5 immutable event-resolution schemas with recorded checksums and validation. |
 | `src/workflow/store.py`, `workers.py`, `gemini_*.py` | Persisted commands/claims, fixture workers, and opt-in Gemini Intake, Determination, generation, and adaptation. |
 | `src/workflow/static_renderer.py` | Shared local HTML/CSS + Playwright/Pillow renderer, profile enforcement, artifact validation/promotion. |
 | `src/workflow/model_budget.py`, `readiness.py` | Priced Gemini admission and expiring destination readiness. |
@@ -82,36 +93,58 @@ the sequential development runner merely polls the stages in a convenient order.
 | add `--delivery` | Also polls credentialed Posting, R2 cleanup, and reconciliation workers. Only a separately authorized Post now record is eligible. |
 | add `--poll` | Repeats passes until Ctrl+C; `--poll-interval` defaults to five seconds. |
 
-## Explicit hybrid scoring rollout
+## Detection database setup
 
-`setup_scoring.py --database <exact-existing-path>` remains the in-place path
-for a deliberately retained same-normalization database. It adds safety v3 and
-activates hybrid `attention_v2` without relabeling old observations. It is not
-the active development-data choice and does not convert canonical identities.
+`setup_normalized_detection.py --database <new-path>` creates schema v5 and
+activates `detection-semantic-events`: `canonicalization_v2`, local semantic
+resolution, `attention_v3`, and `shortlist_v2`. It refuses an existing file.
+The Option B development-data decision remains [decision 035](archive/decisions.md#035---development-database-uses-fresh-normalized-experiment).
 
-## Normalized detection experiment
+Stop Scout and back up an existing v4 database before explicit semantic setup:
 
-`setup_normalized_detection.py --database <new-path>` creates the selected
-Option B database with `canonicalization_v2` and `attention_v2`. It refuses an
-existing file and never migrates or alters the legacy database. Production v4
-is allowed only on this active normalized experiment.
+```sh
+.venv/bin/python scripts/setup_semantic_detection.py --database data/dev-normalized.db --download-model
+```
+
+The command also provisions the pinned public MiniLM model in the local cache;
+no observations are uploaded. It refuses unfinished frozen evaluations rather
+than altering their meaning. Workers never migrate automatically. The current
+development database has **not** been changed during implementation verification.
+
+Scout resolves recent lexical clusters, freezes membership and pair evidence,
+then scores using one eligible-first strongest lexical constituent per event.
+This prevents inferred matches from manufacturing breadth/momentum/eligibility,
+but genuine paraphrases alone cannot satisfy the two-source bootstrap gate.
+Entity/action extraction is conservative and English-title-oriented; unmatched
+or ambiguous clusters remain separate candidates. Threshold calibration against
+a human-labeled event corpus and sustained unattended load remain outstanding.
+
+Local arm64 CPU verification: pinned model cold start 10.35 seconds, warm batch
+of 256 short titles 0.18 seconds, peak process RSS 474 MiB (two CPU threads).
+This is a local microbenchmark, not end-to-end collector/scheduler acceptance.
+An isolated SQLite Scout pass with the real local encoder also linked the
+paraphrase fixture (cosine 0.912366), persisted one candidate and correctly
+created no shortlist handoff from semantic-only corroboration. A warm resolver
+stress pass over 25,600 repeated observations / 512 lexical clusters took 0.43
+seconds, embedded 255 clusters, evaluated 2,040 bounded pairs and peaked at
+492 MiB process RSS. Fixtures are synthetic, not semantic-quality acceptance.
 
 ## Production setup and operation
 
 ### 1. Create the active development database
 
-Decision 035 selected Option B: active development uses a fresh normalized
-experiment and preserves the legacy database without migration.
+The active development database is created as a fresh normalized database;
+existing SQLite files are never rewritten by setup.
 
 ```sh
 .venv/bin/python scripts/setup_normalized_detection.py --database data/dev-normalized.db
 .venv/bin/python scripts/setup_production.py --database data/dev-normalized.db
 ```
 
-The first command creates v1–v3 including the editorial workflow, activates
-`detection-normalized-v3`, and refuses an existing file. The second command
-refuses a database whose active release is not both `canonicalization_v2` and
-`attention_v2`, then applies v4. It never converts a legacy identity namespace.
+The first command creates schema v5, activates `detection-semantic-events`, and
+refuses an existing file. The second validates the production-capable schema
+idempotently; it does not create destinations or authorize delivery. Provision
+the local model using the Detection setup command above before running Scout.
 See [decision 035](archive/decisions.md#035---development-database-uses-fresh-normalized-experiment).
 
 Install the pinned browser once in the selected Python environment:
@@ -164,7 +197,10 @@ one random transient put/head/public-get/delete probe. They do not publish:
   --artifacts data/artifacts --backups data/backups --mode delivery
 ```
 
-Readiness must stay current. A scheduler may use `--only-due`. Backup pruning is
+Each manual `--live` invocation is a one-time operator authorization for those
+external requests. A recurring `--live --only-due` monitor is a separate,
+explicit operator authorization for ongoing provider checks; it is not enabled
+by ordinary tests, preflight, or routine Codex verification. Backup pruning is
 never implicit; `--prune-backups` removes only surplus files that match prior
 successful audit records and hashes. Unknown files are left alone.
 The final command is offline and read-only: it checks schema/integrity,
@@ -347,7 +383,7 @@ artifact/SQL retention, and sustained load/restart evidence.
 
 ## Retired paths and verification
 
-`run_intake.py`, `run_determination.py`, `run_pipeline.py`, `run_poc.py`,
+`run_intake.py`, `run_determination.py`, `run_pipeline.py`,
 `run_posting.py`, `smoke_test_o2_instagram.py`, and `cleanup_data.py` refuse their
 superseded operational paths. Old Instagram/Bluesky publisher writes remain
 blocked by `refuse_legacy_operation()`. The shared Vertex JSON client is restored
@@ -370,6 +406,8 @@ identity authentication failed as recorded above. Public Meta delivery, X,
 owner visual-quality approval, installed launchd behavior, and sustained
 unattended operation remain unverified.
 
-Final Mac regression verification on 2026-09-14: **172 tests passed**;
-`scripts/check_docs.py` and `git diff --check` passed. Historical Windows test
-counts in archived audit evidence are intentionally not rewritten.
+Mac regression verification on 2026-09-14: **186 tests passed**, including 14
+semantic boundary/replay/migration tests and the installed-wheel schema-v5
+check. `scripts/check_docs.py`, `git diff --check`, dependency consistency and
+offline lockfile validation passed. Local Chromium/loopback tests require an
+execution context that permits local processes and sockets.

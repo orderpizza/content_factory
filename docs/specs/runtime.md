@@ -9,18 +9,10 @@ cadence, claim behavior, startup/shutdown, or backlog handling. Read
 [the system guide](../system.md) first, then [the data model](data-model.md)
 and [reliability specification](reliability.md) for state and safety rules.
 
-**Current implementation:** Collector, Scout, dashboard, v4 production workflow,
-readiness, and maintenance have reviewable `launchd` templates. The workflow
-uses fixtures by default; `--gemini`, `--review-preview`, `--production`, and
-`--delivery` progressively opt into model, render, real-catalog, and provider
-workers. `--poll` provides the implemented process loop. The templates are not
-installed by the repository. Detection, workflow stages, readiness/storage,
-and maintenance update the existing heartbeat rows; successful substantive
-workflow results append run summaries and idle polls do not. Initial lease
-durations match the envelope below. Workers still lack mid-call lease renewal,
-capacity admission, and full supervision behavior required below.
-[Current operations](../current-state.md) owns the actual command/settings
-inventory and legacy warnings.
+**Implementation status:** [Current implementation and operations](../current-state.md)
+is the sole as-built map for available workers, templates, commands, and known
+gaps. This specification is a target runtime contract and does not assert that
+a worker or supervisor is installed or active.
 
 ## Runtime model
 
@@ -72,14 +64,14 @@ directly.
 | Worker | Default cadence and trigger | SQLite input and claim | Output / no-work behavior | Fresh / warn / stale |
 | --- | --- | --- | --- | --- |
 | Trend Source Collector | Every 5 min; materializes due source-instance collection attempts at their configured cadences | Pending/retry-ready `SourceCollectionAttempt`; conditional fenced attempt claim | Makes one bounded provider operation, then persists immutable observations and source-health evidence. A completed attempt is never fetched again; no due source: heartbeat only. | ≤20 min / >20 min / >45 min for a due source |
-| Trend Scout + Shortlist | Every 15 min; materializes one evaluation slot, then claims it | Pending/retry-ready `ScoutEvaluationRun`; conditional fenced evaluation claim | Freezes the latest usable collection attempt or explicit health state for every enabled source, scores/persists every `TrendCandidate`, then atomically creates source-backed `ContentThread` + `IntakeRequest` only for selected candidates. It makes no provider call. | ≤20 min / >20 min / >45 min |
-| Idea Intake Agent | Every 30 s when pending input exists; 5 min idle health poll | Pending/retry-ready `IntakeRequest`; conditional fenced request claim | Persist a clarification message and `needs_clarification`, or atomically persist immutable `BriefRevision` + pending `DeterminationRequest`. No eligible request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending input |
+| Trend Scout + Shortlist | Every 15 min; materializes one evaluation slot, then claims it | Pending/retry-ready `ScoutEvaluationRun`; conditional fenced evaluation claim | Freezes the latest usable collection attempt or explicit health state for every enabled source, scores/persists every `TrendCandidate`, then atomically creates source-backed `ContentThread` + `BriefRevision` + `DeterminationRequest` only for selected candidates. It makes no provider call. | ≤20 min / >20 min / >45 min |
+| Idea Intake Agent | Every 30 s when pending human input exists; 5 min idle health poll | Pending/retry-ready human `IntakeRequest`; conditional fenced request claim | Persist a clarification message and `needs_clarification`, or atomically persist immutable `BriefRevision` + pending `DeterminationRequest`. No eligible request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending input |
 | Determination Worker | Every 30 s | Pending `DeterminationRequest`; conditional request claim | Persist one `accepted`, `not_recommended`, or `blocked` decision. Completion atomically creates five route assessments and one immutable domain job/run per selected route; reuse creates no duplicate job. No pending request: heartbeat only; do not call Gemini. | ≤1 min / >1 min / >3 min with pending work |
 | Production Admission Gate | Every 30 s and after any slot release | Waiting GenerationRuns/AdaptationRuns under frozen production policy; no provider call | Atomically reserves required execution/downstream slots and promotes eligible work to `pending`; human-origin first. Full capacity remains `waiting_capacity` without paid work. | ≤1 min / >1 min / >3 min while capacity wait exists |
 | Pipeline Runner | Every 30 s | Pending/retry-ready `GenerationRun`; conditional fenced run claim, with immutable parent `ContentJob` recipe | Invoke the selected in-process pipeline strategy, checkpoint validated domain content, then persist one immutable `CanonicalContent` and every frozen OutputRequest/AdaptationRun, or safe retry/failure on that same run. No pending work: heartbeat only. | ≤1 min / >1 min / >3 min with pending work |
 | Adaptation Worker | Every 30 s | Pending/retry-ready `AdaptationRun` with immutable canonical content and OutputRequest, required reservations, and fenced claim | Invoke the selected in-process Instagram/X output adapter; checkpoint native content/metadata; atomically create one immutable ContentPackage and first RenderRun. No work: heartbeat only, no Gemini call. | ≤1 min / >1 min / >3 min with pending work |
 | Visual Renderer | Every 30 s | Pending `RenderRun`; conditional run claim | Persist verified manifest/assets and create review availability, or a safe failure. No pending run: heartbeat only. | ≤1 min / >1 min / >3 min with pending work |
-| Capability Readiness Monitor | Every 5 min; immediately after configuration activation | No work claim; active configuration plus safe local/provider dependency checks | Upsert each current `CapabilityReadiness` row and append its check evidence. Local config/renderer checks run every poll; read-only provider/account/token checks run at most every 6 h unless activation/startup requires one. It never changes configuration or posts. | ≤10 min / >10 min / >20 min |
+| Capability Readiness Monitor | Every 5 min after explicit installation; immediately after configuration activation only when live readiness is operator-authorized | No work claim; active configuration plus safe local/provider dependency checks | Upsert each current `CapabilityReadiness` row and append its check evidence. Local config/renderer checks run every poll. Provider/account/token checks occur only in an explicitly operator-approved installed live monitor, at most every 6 h; a manual `--live` run is one-time authorization. It never changes configuration or posts. | ≤10 min / >10 min / >20 min |
 | Posting Agent | Every 15 s; **Post now** creates an immediate-mode record whose due time is resolved by the active posting policy | Due/retry-ready `PostRecord`; conditional fenced record claim. `PostRequest` remains immutable authorization. | Persist attempt/result and cleanup tasks. No due post: heartbeat only. A policy-eligible Post now record is normally claimed within one poll interval; provider processing time is additional. | ≤30 s / >30 s / >90 s when due work exists |
 | Cleanup Worker | Every 5 min | Pending safe `DeliveryCleanupTask`; conditional task claim | Persist R2 cleanup outcome. No task: heartbeat only. | ≤10 min / >10 min / >20 min with pending cleanup |
 | Publication Reconciliation Worker | On explicit human request; optional 15-min check while unresolved requests exist | Pending/retry-ready `ReconciliationRequest` for `publication_unknown`; conditional fenced claim | Append a read-only `ReconciliationCheck`; resolve only an unambiguous match or mark `needs_human`. It never publishes or retries. | Show last check; warning until resolved |
@@ -107,7 +99,7 @@ for scheduler isolation:
 | Trend Scout + Shortlist | `scripts/run_scout.py` | 15 minutes |
 | Loopback dashboard/HAI | `scripts/serve_dashboard.py` | kept alive |
 | Production workflow/posting | `scripts/run_workflow.py --gemini --review-preview --production --delivery --poll` | kept alive; internal 5-second poll |
-| Destination readiness | `scripts/check_production_readiness.py --live --confirm-transient-r2-write --only-due` | 5 minutes; current ready checks reused up to 6 hours |
+| Destination readiness | `scripts/check_production_readiness.py --live --confirm-transient-r2-write --only-due` | 5 minutes only in an explicitly operator-approved recurring live monitor; otherwise, run manually once |
 | Maintenance | `scripts/run_maintenance.py --prune-backups` | daily 03:30 local scheduler time |
 
 `scripts/check_smoke_readiness.py --mode preview|production|delivery` is an
@@ -117,13 +109,24 @@ storage, backup, secret-reference, or persisted readiness gates are incomplete.
 It cannot verify ADC validity, provider entitlements, creative quality, or a
 public-delivery result.
 
+`check_production_readiness.py --live` is not a routine verification command.
+An operator may authorize a one-time live check. Installing a `launchd` monitor
+with `--live --only-due` is a separate authorization for recurring external
+requests and must not be inferred from ordinary preflight, testing, or worker
+installation.
+
 `scripts/run_detection.py` runs the due collector pass and one Scout evaluation
 sequentially for local development only; it is not the unattended scheduler
-boundary. `scripts/setup_detection.py` is the only schema/configuration setup
-entrypoint for v1 detection setup and is always operator-invoked.
+boundary. `scripts/setup_normalized_detection.py` is the schema/configuration
+setup entrypoint and is always operator-invoked. Scout requires schema v5 and
+the pinned MiniLM model provisioned with `setup_semantic_detection.py
+--database <path> --download-model`. The download is explicit setup traffic;
+Scout uses offline CPU inference only, capped by the activated manifest's
+recent-cluster, pair, batch and thread limits. Inference runs outside SQLite
+write transactions; the resolution commit checks owner, claim version and
+lease expiry. Frozen retries never embed again. See
+[Detection](detection.md#semantic-event-resolution) for the exact stage contract.
 `scripts/setup_workflow.py` separately applies the optional local v2 scaffold.
-`scripts/setup_scoring.py --database <exact-existing-path>` explicitly applies
-the optional v3 scoring safety extension and hybrid configuration release.
 Neither worker nor dashboard performs
 implicit migration. The corresponding `com.contentfactory.*.plist` templates
 must have their placeholder paths replaced during Mac Mini installation. The
@@ -182,8 +185,8 @@ disk-space decision.
 
 ## Maintenance Worker — `maintenance_v1`
 
-The current `run_maintenance.py`/`com.contentfactory.maintenance` subset is one
-daily 03:30 local-time invocation. It takes a nonblocking local advisory lock;
+The initial `run_maintenance.py`/`com.contentfactory.maintenance` contract is
+one daily 03:30 local-time invocation. It takes a nonblocking local advisory lock;
 overlap records `skipped_overlap`. One invocation:
 
 1. creates an online SQLite backup, fsyncs it, and audits its SHA-256 after

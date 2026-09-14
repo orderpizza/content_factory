@@ -1,9 +1,9 @@
 # SQLite Record Contract
 
 **Document role:** Tier 2 exact persistence router for detection v1, editorial
-workflow v2, detection safety v3, and the bounded production v4 extension.
+workflow v2, detection safety v3, production v4, and semantic event resolution v5.
 **Contract IDs:** `detection_dashboard_schema_v1`, `editorial_workflow_schema_v2`,
-`detection_safety_schema_v3`, `production_workflow_schema_v4`.
+`detection_safety_schema_v3`, `production_workflow_schema_v4`, `semantic_events_schema_v5`.
 **Owner:** SQLite schema, migrations, constraints, and persistence boundary
 tests. Read the [Data Model](../data-model.md) first for identity, lineage, and
 cross-record semantics.
@@ -13,17 +13,15 @@ The executable canonical DDL is
 The application migration must execute those statements without maintaining a
 second handwritten table definition. Each recorded migration checksum is the
 SHA-256 of the UTF-8 SQL bytes. `PRAGMA user_version` advances from `1` through
-explicit v2, v3, and v4 migrations. Every applied SQL file/checksum remains
+explicit v2, v3, v4, and v5 migrations. Every applied SQL file/checksum remains
 immutable.
 
 Checkout execution reads the canonical SQL in `docs/contracts`. Distribution
 builds copy those exact bytes into `content_factory_resources/contracts`; an
 installed wheel loads that resource when no checkout contract exists. There is
 one editable DDL source, not a separate handwritten package schema. The installed
-wheel regression applies v1→v2→v3 outside the checkout and compares every
-packaged v1–v4 SQL checksum. A separate Option B fixture applies and validates
-v4 because production migration intentionally requires the active normalized
-release.
+wheel regression applies all five schemas with the active manifest outside the
+checkout and compares every packaged SQL checksum.
 
 This contract deliberately contains only the records needed to collect,
 evaluate, shortlist, and display trend opportunities. It remains immutable for
@@ -34,9 +32,24 @@ startup. The optional [v3 safety migration](../../contracts/detection-safety-sch
 then sets `user_version=3` without replacing either earlier migration or handoff.
 
 The explicit [v4 production migration](../../contracts/production-workflow-schema-v4.sql)
-requires an active Option B release (`canonicalization_v2` + `attention_v2`). It
+requires an active Option B release (`canonicalization_v2` + the current
+normalized attention formula). It
 refuses a legacy normalization release without writing, then advances the same
 database to `user_version=4`.
+
+### Semantic resolution persistence
+
+[`semantic-events-schema-v5.sql`](../../contracts/semantic-events-schema-v5.sql)
+adds `scout_event_resolutions`: a unique Scout-run FK, source snapshot hash,
+canonical resolution JSON and hash, and creation timestamp. The JSON contains
+the exact lexical observation membership, resolved partition, model/policy and
+pair outcomes/signals. Both update and delete are forbidden. Local inference
+finishes before the fenced write transaction; scoring requires the committed
+record and does not invoke the encoder on replay. Setup requires schema v4 and
+refuses unfinished frozen evaluations inside the exclusive migration transaction.
+Applied SQL checksums and frozen records remain intact. The applied v1 SQL's
+alias table is audit storage only, with no active reader, writer or configuration
+path; `scout_event_resolutions` is the sole current event-resolution model.
 
 ### V3 evidence extension
 
@@ -131,7 +144,8 @@ a separate per-step publication schema and remain disabled until it is tested.
 | Group | Records | Responsibility |
 | --- | --- | --- |
 | Migration and configuration | `schema_migrations`, `configuration_releases`, `configuration_activations` | Establish one validated active non-secret release and an auditable schema version. |
-| Source registry and collection | `detection_source_instances`, `detection_cluster_aliases`, `source_collection_attempts`, `source_request_executions`, `source_health` | Freeze enabled source configuration, audit every reserved outbound execution (including retry quota), and record one bounded collection attempt plus its terminal health result. |
+| Source registry and collection | `detection_source_instances`, `source_collection_attempts`, `source_request_executions`, `source_health` | Freeze enabled source configuration, audit every reserved outbound execution (including retry quota), and record one bounded collection attempt plus its terminal health result. |
+| Semantic resolution | `scout_event_resolutions` | Immutable lexical-to-resolved partition and model/pair evidence bound to one frozen Scout source snapshot. |
 | Evidence | `trends`, `trend_observations`, `source_item_events` | Preserve canonical subjects, immutable observation snapshots, and explicit exclusions/rejections. |
 | Evaluation | `scout_evaluation_runs`, `scout_evaluation_inputs`, `scout_evaluation_attempts`, `topic_snapshots`, `trend_candidates`, `candidate_observation_memberships` | Freeze source-level health plus every collection attempt used, append each score/evidence snapshot, and maintain one current candidate lifecycle per opportunity identity. |
 | Selected handoff | `content_threads`, `intake_requests`, `thread_evidence_events` | Persist trend/human handoff and route-neutral Intake conversation. |
@@ -176,7 +190,7 @@ when validation fails; read-only file URIs encode filesystem path characters.
 ### Configuration activation
 
 Applying a manifest validates it before opening the write transaction. The
-transaction inserts one immutable release and its materialized source/alias
+transaction inserts one immutable release and its materialized source
 rows, supersedes the prior active `global` activation, creates the new active
 activation, and commits. Reapplying the same release name and byte-equivalent
 manifest returns the existing release; the same name with different bytes is
@@ -222,18 +236,21 @@ For one 15-minute UTC slot and active release:
 2. claim it and freeze exactly one `scout_evaluation_inputs` health/availability
    row for every enabled source instance plus one `scout_evaluation_attempts`
    row for every current or baseline collection attempt used by the score;
-3. calculate all clusters, immutable `topic_snapshots`, and observation
-   memberships outside the write transaction from that frozen input;
-4. atomically append snapshots/memberships, insert or update the stable
+3. compare plausible recent lexical clusters locally outside the write
+   transaction, then freeze the event partition and resolver evidence under
+   the running owner/version/lease fence in `scout_event_resolutions`;
+4. calculate scores from that committed partition without inference, then
+   atomically append snapshots/memberships, insert or update the stable
    candidate rows, apply deterministic shortlist results, and complete the run;
    and
-5. if selected, atomically create one trend `content_threads` row and one
-   pending `intake_requests` row before setting the candidate to `selected`.
+5. if selected, atomically create one trend `content_threads` row, immutable
+   source-backed `brief_revisions` row and pending `determination_requests`
+   row before setting the candidate to `selected`. No trend Intake is created.
 
 Freeze creation is fenced by running state, owner and claim version under a
 write transaction. A non-null input hash marks a completed freeze even when
 there are zero attempt rows. A retry reuses both that list and `input_frozen_at`
-for score windows/freshness; selection budget accounting uses the retry execution
+plus its frozen event resolution for score windows/recency; selection budget accounting uses the retry execution
 time. Contribution winners are resolved from the frozen set without rewriting
 observations; v3 additionally enforces evidence immutability in SQLite.
 
@@ -249,9 +266,9 @@ evidence but does not silently become a new initial selection.
 | `source_collection_attempts` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Trend Source Collector |
 | `source_request_executions` | `reserved → succeeded/failed`; append-only and never retried in place | Trend Source Collector |
 | `scout_evaluation_runs` | `pending/retry_wait → claimed → running → completed/retry_wait/failed/cancelled` | Trend Scout + Shortlist |
-| `trend_candidates` | `observed ↔ eligible`; `eligible → selected/deferred_by_budget`; `deferred_by_budget → observed/eligible/deferred_stale`; new current evidence may move `deferred_stale → observed/eligible`; `selected → consumed/rejected_cooldown`; `rejected_cooldown → reconsiderable`; `reconsiderable → selected/rejected_cooldown`; any pre-consumption state may enter `migration_hold` only during cutover | Trend Scout for observation/eligibility/selection; Determination later records consumption outcome |
-| `content_threads` | `open → closed/cancelled`; `closed → open`; `cancelled` terminal | Idea Intake/dashboard in later stages; current Scout only creates `open` trend seeds |
-| `intake_requests` | `pending/retry_wait → claimed → completed/needs_clarification/retry_wait/failed/cancelled` | Idea Intake; current Scout only creates `pending` |
+| `trend_candidates` | `observed ↔ eligible`; `eligible → selected/deferred_by_budget`; active `shortlist_v2` keeps `deferred_by_budget` as a durable queue entry; `selected → consumed/rejected_cooldown`; `rejected_cooldown → reconsiderable`; `reconsiderable → selected/rejected_cooldown`; any pre-consumption state may enter `migration_hold` only during cutover | Trend Scout for observation/eligibility/selection; Determination later records consumption outcome |
+| `content_threads` | `open → closed/cancelled`; `closed → open`; `cancelled` terminal | Detection creates open trend seeds; Dashboard/Idea Intake own human continuation and later lifecycle actions |
+| `intake_requests` | `pending/retry_wait → claimed → completed/needs_clarification/retry_wait/failed/cancelled` | Idea Intake for human conversations; Detection does not create trend Intake requests |
 
 The dashboard keeps reporting on a read-only connection and opens a separate
 short write transaction only for human commands: new/continued Intake,

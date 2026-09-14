@@ -1,20 +1,20 @@
 {
-  "release_name": "detection-normalized-v3",
+  "release_name": "detection-semantic-events",
   "scope_key": "global",
-  "schema_id": "configuration_manifest_v3",
-  "schema_version": 3,
+  "schema_id": "configuration_manifest_v4",
+  "schema_version": 4,
   "created_at": "2026-09-09T00:00:00+00:00",
   "components": {
     "detection": {
       "canonicalization_version": "canonicalization_v2",
-      "score_formula_version": "attention_v2",
+      "score_formula_version": "attention_v3",
       "shortlist": {
-        "policy_version": "shortlist_v1",
+        "policy_version": "shortlist_v2",
         "minimum_score": 0.6,
         "minimum_reliability": 0.7,
         "max_selected_6h": 2,
         "max_selected_24h": 6,
-        "deferred_fresh_hours": 48,
+        "deferred_fresh_hours": null,
         "cooldown_days": 3,
         "material_score_delta": 0.15
       },
@@ -125,7 +125,139 @@
           }
         }
       ],
-      "cluster_aliases": []
+      "semantic_resolution": {
+        "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+        "model_revision": "ee8519ce6a28a61c9190da0a16e199d262197a1b",
+        "dimensions": 384,
+        "cpu_threads": 2,
+        "batch_size": 32,
+        "recent_hours": 48,
+        "max_pair_hours": 24,
+        "max_clusters": 256,
+        "max_pairs": 2048,
+        "max_neighbors": 16,
+        "max_group_size": 8,
+        "similarity_decimals": 6,
+        "link_threshold": 0.82,
+        "separate_threshold": 0.55,
+        "entity_aliases": {},
+        "entity_stopwords": [
+          "a",
+          "an",
+          "the",
+          "new",
+          "latest",
+          "breaking",
+          "report",
+          "reports",
+          "how",
+          "why",
+          "what",
+          "when",
+          "with",
+          "for",
+          "to",
+          "in",
+          "on",
+          "at",
+          "of",
+          "and",
+          "after",
+          "before",
+          "first",
+          "second",
+          "third",
+          "this",
+          "that",
+          "its",
+          "as",
+          "is",
+          "are",
+          "will",
+          "has",
+          "have",
+          "from",
+          "by",
+          "into",
+          "over",
+          "under",
+          "it",
+          "today",
+          "yesterday",
+          "update",
+          "show",
+          "hn"
+        ],
+        "negation_terms": [
+          "not",
+          "never",
+          "no",
+          "denies",
+          "denied",
+          "rumor",
+          "rumour"
+        ],
+        "event_terms": {
+          "launch": [
+            "launch",
+            "launches",
+            "launched",
+            "launching",
+            "unveils",
+            "unveiled",
+            "debuts",
+            "releases",
+            "released",
+            "introduces",
+            "introduced"
+          ],
+          "acquisition": [
+            "acquires",
+            "acquired",
+            "buys",
+            "bought",
+            "acquisition",
+            "purchases"
+          ],
+          "funding": [
+            "raises",
+            "raised",
+            "funding",
+            "fundraise"
+          ],
+          "recall": [
+            "recalls",
+            "recalled",
+            "recall"
+          ],
+          "cancellation": [
+            "cancels",
+            "cancelled",
+            "canceled",
+            "cancellation"
+          ],
+          "approval": [
+            "approves",
+            "approved",
+            "approval"
+          ],
+          "rejection": [
+            "rejects",
+            "rejected",
+            "rejection"
+          ],
+          "resignation": [
+            "resigns",
+            "resigned",
+            "resignation"
+          ],
+          "appointment": [
+            "appoints",
+            "appointed",
+            "appointment"
+          ]
+        }
+      }
     }
   }
 }

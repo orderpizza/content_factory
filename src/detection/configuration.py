@@ -22,7 +22,7 @@ ROOT_FIELDS = {
     "release_name", "scope_key", "schema_id", "schema_version", "created_at", "components"
 }
 DETECTION_FIELDS = {
-    "canonicalization_version", "score_formula_version", "shortlist", "sources", "cluster_aliases"
+    "canonicalization_version", "score_formula_version", "shortlist", "sources", "semantic_resolution"
 }
 SOURCE_FIELDS = {
     "stable_id", "source_kind", "adapter_version", "provider_name", "endpoint_url",
@@ -31,19 +31,18 @@ SOURCE_FIELDS = {
     "secret_ref", "allowed_redirect_hosts", "options",
 }
 SHORTLIST_VALUES = {
-    "policy_version": "shortlist_v1",
+    "policy_version": "shortlist_v2",
     "minimum_score": 0.6,
     "minimum_reliability": 0.7,
     "max_selected_6h": 2,
     "max_selected_24h": 6,
-    "deferred_fresh_hours": 48,
+    "deferred_fresh_hours": None,
     "cooldown_days": 3,
     "material_score_delta": 0.15,
 }
 
-
 class ConfigurationError(ValueError):
-    """Raised when a release does not satisfy configuration_manifest_v1."""
+    """Raised when a release does not satisfy configuration_manifest_v4."""
 
 
 def load_manifest(path: str | Path) -> dict[str, Any]:
@@ -78,8 +77,8 @@ def validate_manifest(manifest: Any) -> None:
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", str(manifest["release_name"])):
         raise ConfigurationError("release_name is invalid")
     if manifest["scope_key"] != "global":
-        raise ConfigurationError("configuration_manifest_v1 supports only global scope")
-    if not isinstance(manifest["schema_id"], str) or type(manifest["schema_version"]) is not int or (manifest["schema_id"], manifest["schema_version"]) not in {("configuration_manifest_v1", 1), ("configuration_manifest_v2", 2), ("configuration_manifest_v3", 3)}:
+        raise ConfigurationError("configuration_manifest_v4 supports only global scope")
+    if (manifest["schema_id"], manifest["schema_version"]) != ("configuration_manifest_v4", 4):
         raise ConfigurationError("Unsupported manifest schema identity/version")
     try:
         created_at = datetime.fromisoformat(
@@ -92,51 +91,19 @@ def validate_manifest(manifest: Any) -> None:
 
     components = manifest["components"]
     if not isinstance(components, dict) or set(components) != {"detection"}:
-        raise ConfigurationError("configuration_manifest_v1 contains exactly the detection component")
+        raise ConfigurationError("configuration_manifest_v4 contains exactly the detection component")
     detection = components["detection"]
     if not isinstance(detection, dict):
         raise ConfigurationError("components.detection must be an object")
     _exact_fields(detection, DETECTION_FIELDS, "components.detection")
-    normalization_version = "canonicalization_v2" if manifest["schema_version"] == 3 else "canonicalization_v1"
+    normalization_version = "canonicalization_v2"
     if detection["canonicalization_version"] != normalization_version:
         raise ConfigurationError("Unsupported canonicalization version")
-    if detection["score_formula_version"] != ("attention_v2" if manifest["schema_version"] >= 2 else "attention_v1"):
+    if detection["score_formula_version"] != "attention_v3":
         raise ConfigurationError("Unsupported score formula version")
     if canonical_json(detection["shortlist"]) != canonical_json(SHORTLIST_VALUES):
-        raise ConfigurationError("shortlist must exactly match shortlist_v1")
-    if not isinstance(detection["cluster_aliases"], list) or len(detection["cluster_aliases"]) > 500:
-        raise ConfigurationError("cluster_aliases must be an array")
-    alias_targets: dict[str, str] = {}
-    seen_aliases: set[str] = set()
-    for alias in detection["cluster_aliases"]:
-        if not isinstance(alias, dict) or set(alias) != {"alias_key", "target_cluster_key", "active", "reason"}:
-            raise ConfigurationError("Every cluster alias must use the exact v1 fields")
-        _require_string(alias["alias_key"], "alias_key")
-        _require_string(alias["target_cluster_key"], "target_cluster_key")
-        _require_string(alias["reason"], "alias reason")
-        if not isinstance(alias["active"], bool):
-            raise ConfigurationError("alias active must be boolean")
-        if canonical_title(alias["alias_key"], normalization_version) != alias["alias_key"]:
-            raise ConfigurationError("alias_key must already be canonicalization_v1 normalized")
-        if canonical_title(alias["target_cluster_key"], normalization_version) != alias["target_cluster_key"]:
-            raise ConfigurationError(
-                "target_cluster_key must already be canonicalization_v1 normalized"
-            )
-        if alias["alias_key"] in seen_aliases:
-            raise ConfigurationError(f"Duplicate alias_key: {alias['alias_key']}")
-        seen_aliases.add(alias["alias_key"])
-        if alias["active"]:
-            if alias["alias_key"] == alias["target_cluster_key"]:
-                raise ConfigurationError("An active cluster alias cannot target itself")
-            alias_targets[alias["alias_key"]] = alias["target_cluster_key"]
-    for start in alias_targets:
-        visited: set[str] = set()
-        current = start
-        while current in alias_targets:
-            if current in visited:
-                raise ConfigurationError("Active cluster aliases cannot contain a cycle")
-            visited.add(current)
-            current = alias_targets[current]
+        raise ConfigurationError("shortlist does not match the supported policy for this release")
+    _validate_semantic(detection["semantic_resolution"])
 
     sources = detection["sources"]
     if not isinstance(sources, list) or not 1 <= len(sources) <= 32:
@@ -147,6 +114,51 @@ def validate_manifest(manifest: Any) -> None:
         if source["stable_id"] in stable_ids:
             raise ConfigurationError(f"Duplicate source stable_id: {source['stable_id']}")
         stable_ids.add(source["stable_id"])
+
+
+def _validate_semantic(policy: Any) -> None:
+    fields = {"model_id", "model_revision", "dimensions", "cpu_threads", "batch_size",
+              "recent_hours", "max_pair_hours", "max_clusters", "max_pairs", "max_neighbors",
+              "max_group_size", "similarity_decimals", "link_threshold", "separate_threshold",
+              "entity_aliases", "entity_stopwords", "negation_terms", "event_terms"}
+    if not isinstance(policy, dict):
+        raise ConfigurationError("semantic_resolution must be an object")
+    _exact_fields(policy, fields, "semantic_resolution")
+    if policy["model_id"] != "sentence-transformers/all-MiniLM-L6-v2" or policy["dimensions"] != 384:
+        raise ConfigurationError("semantic_resolution requires the supported 384-dimensional MiniLM model")
+    if not isinstance(policy["model_revision"], str) or not re.fullmatch(r"[a-f0-9]{40}", policy["model_revision"]):
+        raise ConfigurationError("semantic model revision must be a pinned commit SHA")
+    limits = {"cpu_threads": 4, "batch_size": 64, "recent_hours": 168, "max_pair_hours": 72,
+              "max_clusters": 1024, "max_pairs": 16384, "max_neighbors": 64, "max_group_size": 16,
+              "similarity_decimals": 9}
+    for key, ceiling in limits.items():
+        if type(policy[key]) is not int or not 1 <= policy[key] <= ceiling:
+            raise ConfigurationError(f"semantic {key} is outside the supported resource envelope")
+    if policy["max_pair_hours"] > policy["recent_hours"]:
+        raise ConfigurationError("semantic pair window cannot exceed candidate recency")
+    for key in ("link_threshold", "separate_threshold"):
+        if type(policy[key]) not in (int, float) or not 0 <= policy[key] <= 1:
+            raise ConfigurationError(f"semantic {key} must be a finite similarity")
+    if policy["separate_threshold"] >= policy["link_threshold"]:
+        raise ConfigurationError("semantic separate threshold must be below link threshold")
+    for key in ("entity_stopwords", "negation_terms"):
+        words = policy[key]
+        if not isinstance(words, list) or not words or len(words) > 500 or any(not isinstance(w, str) or not w or w != w.casefold() for w in words) or len(set(words)) != len(words):
+            raise ConfigurationError(f"semantic {key} must contain unique lowercase words")
+    aliases = policy["entity_aliases"]
+    if not isinstance(aliases, dict) or len(aliases) > 500 or any(not isinstance(k, str) or not isinstance(v, str) or not k or not v or k != k.casefold() or v != v.casefold() for k, v in aliases.items()):
+        raise ConfigurationError("semantic entity_aliases must be a bounded lowercase mapping")
+    events = policy["event_terms"]
+    if not isinstance(events, dict) or not 1 <= len(events) <= 50:
+        raise ConfigurationError("semantic event_terms must be a bounded action vocabulary")
+    seen = set()
+    for kind, words in events.items():
+        if not isinstance(kind, str) or not kind or not isinstance(words, list) or not 1 <= len(words) <= 100:
+            raise ConfigurationError("invalid semantic event category")
+        for word in words:
+            if not isinstance(word, str) or not word or word != word.casefold() or word in seen:
+                raise ConfigurationError("semantic event terms must be unique lowercase words")
+            seen.add(word)
 
 
 def _validate_source(source: Any) -> None:

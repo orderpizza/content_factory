@@ -1,6 +1,6 @@
 """Current-slice corrections, using temporary SQLite and provider fakes only."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from io import BytesIO
@@ -20,6 +20,7 @@ from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
 from detection.normalization import canonical_title, canonical_link
 from detection.scout import DetectionScout
+from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,26 +34,20 @@ class CurrentSystemRepairTests(unittest.TestCase):
         migrate_detection_dashboard(self.path)
         migrate_editorial_workflow(self.path)
         migrate_detection_safety(self.path)
-        self.manifest = load_manifest(ROOT / "config/releases/detection-normalized-v3.json")
+        self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
+        upgrade_semantic_fixture(self.path)
 
     def test_normalization_equivalence_is_versioned(self):
         for a, b in (("NASA’s launch", "NASA's launch"), ("test–flight", "test-flight"), ("A—B", "A-B")):
             self.assertEqual(canonical_title(a, "canonicalization_v2"), canonical_title(b, "canonicalization_v2"))
-            self.assertNotEqual(canonical_title(a), canonical_title(b))
+            self.assertEqual(canonical_title(a), canonical_title(b))
         for path in ("/a/", "/a//b", "/a/%2F/b", "//a///b/"):
             self.assertEqual(canonical_link("https://example.com" + path, "canonicalization_v2"), "https://example.com" + path)
         self.assertEqual(canonical_link("https://example.com/a/./b/../", "canonicalization_v2"), "https://example.com/a/")
         punctuation = CollectionResult((CollectedItem("id", "‘—’", 1),), (), True, "a" * 64, 1)
         self.assertFalse(_validate_result(punctuation, "canonicalization_v2").complete)
-
-    def test_normalization_release_cannot_rewrite_existing_database(self):
-        with DetectionStore(self.path) as store:
-            before = "\n".join(store.connection.iterdump())
-            with self.assertRaisesRegex(ValueError, "fresh database"):
-                store.apply_manifest(load_manifest(ROOT / "config/releases/detection-hybrid-v2.json"))
-            self.assertEqual(before, "\n".join(store.connection.iterdump()))
 
     def test_normalized_setup_cli_creates_only_a_new_database(self):
         path = self.path.parent / "new-cli-experiment.db"
@@ -60,7 +55,7 @@ class CurrentSystemRepairTests(unittest.TestCase):
         created = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(created.returncode, 0, created.stderr)
         with DetectionStore(path) as store:
-            self.assertEqual(json.loads(store.active_release()["manifest_json"])["schema_version"], 3)
+            self.assertEqual(json.loads(store.active_release()["manifest_json"])["schema_version"], 4)
         before = path.read_bytes()
         refused = subprocess.run(command, capture_output=True, text=True)
         self.assertNotEqual(refused.returncode, 0)
@@ -80,6 +75,52 @@ class CurrentSystemRepairTests(unittest.TestCase):
             self.assertEqual(trend["canonicalization_version"], "canonicalization_v2")
             self.assertEqual(candidate["opportunity_identity"], "trend:canonicalization_v2:nasa s test flight")
             self.assertEqual(candidate["canonicalization_version"], "canonicalization_v2")
+
+    def test_normalized_score_keeps_recency_diagnostic_but_not_weighted(self):
+        at = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
+        result = CollectionResult(items=(CollectedItem("id", "A durable topic", 1, provider_time=at.isoformat()),),
+                                  events=(), complete=True, response_hash="a" * 64, latency_ms=1)
+        with DetectionStore(self.path) as store, patch("detection.collector.collect_source", return_value=result):
+            DetectionCollector(store).run_due(now=at, source_ids={"nasa_recently_published_rss_v1"})
+            DetectionScout(store).run(now=at)
+            row = store.connection.execute("SELECT score, score_formula_version, score_breakdown_json FROM trend_candidates").fetchone()
+            breakdown = json.loads(row["score_breakdown_json"])
+            self.assertEqual(row["score_formula_version"], "attention_v3")
+            self.assertIn("evidence_recency", breakdown)
+            self.assertNotIn("freshness", breakdown)
+            expected = round(
+                breakdown["momentum"] / 3
+                + breakdown["prominence"] * 2 / 9
+                + breakdown["breadth"] * 2 / 9
+                + breakdown["persistence"] / 9
+                + breakdown["reliability"] / 9,
+                4,
+            )
+            self.assertEqual(row["score"], expected)
+
+    def test_semantic_resolution_does_not_change_lexical_canonicalization(self):
+        self.assertNotEqual(
+            canonical_title("OpenAI launches a browser", "canonicalization_v2"),
+            canonical_title("ChatGPT maker enters the browser market", "canonicalization_v2"),
+        )
+
+    def test_budget_deferred_candidates_remain_in_the_queue(self):
+        at = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
+        result = CollectionResult(items=(CollectedItem("id", "Queued topic", 1, provider_time=at.isoformat()),),
+                                  events=(), complete=True, response_hash="a" * 64, latency_ms=1)
+        with DetectionStore(self.path) as store, patch("detection.collector.collect_source", return_value=result):
+            DetectionCollector(store).run_due(now=at, source_ids={"nasa_recently_published_rss_v1"})
+            DetectionScout(store).run(now=at)
+            with store.connection:
+                store.connection.execute(
+                    "UPDATE trend_candidates SET eligibility_status='deferred_by_budget', "
+                    "eligibility_reason='selection_budget_exhausted', selected_at=NULL, "
+                    "selected_thread_id=NULL, last_seen_at=?",
+                    ((at - timedelta(days=7)).isoformat(),),
+                )
+            DetectionScout(store).run(now=at + timedelta(days=7))
+            status = store.connection.execute("SELECT eligibility_status FROM trend_candidates").fetchone()[0]
+            self.assertEqual(status, "deferred_by_budget")
 
     def test_oversized_metadata_is_rejected_not_truncated(self):
         result = CollectionResult(items=(CollectedItem("id", "x" * 513, 1), CollectedItem("good", "Good title", 1)),

@@ -7,18 +7,28 @@ import json
 import os
 
 from common.environment import EnvironmentFileError, load_environment_file
-from database.migrations import SchemaError, connect, migrate_detection_dashboard, validate_detection_dashboard
+from database.migrations import (
+    SchemaError,
+    connect,
+    migrate_detection_dashboard,
+    migrate_detection_safety,
+    migrate_editorial_workflow,
+    validate_detection_dashboard,
+)
 from dashboard import render_detection_dashboard
 from detection.adapters import collect_source
 from detection.collector import DetectionCollector
 from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
+from detection.reporting import summarize_scout
 from detection.scout import DetectionScout
+from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
+from workflow import DeterminationWorker, WorkflowStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "config" / "releases" / "detection-dashboard-v1.json"
+MANIFEST = ROOT / "config" / "releases" / "detection.json"
 
 
 class DetectionDashboardSliceTests(unittest.TestCase):
@@ -26,14 +36,17 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.database_path = Path(self.directory.name) / "content.db"
         migrate_detection_dashboard(self.database_path)
+        migrate_editorial_workflow(self.database_path)
+        migrate_detection_safety(self.database_path)
         with DetectionStore(self.database_path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
+        upgrade_semantic_fixture(self.database_path)
 
     def tearDown(self):
         self.directory.cleanup()
 
     def test_migration_is_idempotent_and_dashboard_connection_is_read_only(self):
-        self.assertFalse(migrate_detection_dashboard(self.database_path))
+        self.assertFalse(migrate_editorial_workflow(self.database_path))
         connection = connect(self.database_path, read_only=True)
         try:
             validate_detection_dashboard(connection)
@@ -218,20 +231,29 @@ class DetectionDashboardSliceTests(unittest.TestCase):
     def test_collection_scout_selection_and_dashboard_feed_share_sqlite_boundary(self):
         now = datetime(2026, 9, 7, 12, 7, tzinfo=timezone.utc)
 
+        collection_time = now
+        shared_activity = 1000.0
+
         def fake_collect(source):
             if source["stable_id"] == "nasa_recently_published_rss_v1":
                 items = (
                     CollectedItem(
-                        "nasa-shared", "Shared Opportunity", 1.0,
+                        "nasa-shared", "Shared Opportunity", shared_activity,
                         rank=1, source_item_id="nasa-shared",
                         canonical_url="https://www.nasa.gov/shared",
-                        provider_time=now.isoformat(),
+                        provider_time=collection_time.isoformat(),
+                    ),
+                    CollectedItem(
+                        "nasa-other", "Other Topic", 1.0,
+                        rank=100, source_item_id="nasa-other",
+                        canonical_url="https://www.nasa.gov/other",
+                        provider_time=collection_time.isoformat(),
                     ),
                 )
             else:
                 items = (
                     CollectedItem(
-                        "101", "Shared Opportunity", 100.0,
+                        "101", "Shared Opportunity", shared_activity,
                         rank=1, source_item_id="101",
                         canonical_url="https://news.ycombinator.com/item?id=101",
                     ),
@@ -251,28 +273,57 @@ class DetectionDashboardSliceTests(unittest.TestCase):
 
         with DetectionStore(self.database_path) as store:
             with patch("detection.collector.collect_source", side_effect=fake_collect):
+                collection_time = now
+                shared_activity = 1000.0
                 collection = DetectionCollector(store, instance_id="collector-test").run_due(
                     now=now,
                     source_ids={
                         "nasa_recently_published_rss_v1",
                         "hacker_news_top_stories_v1",
+                        "youtube_us_most_popular_v1",
                     },
                 )
             result = DetectionScout(store, instance_id="scout-test").run(now=now)
+            summary = summarize_scout(store, result)
             selected = store.connection.execute(
-                "SELECT c.*, t.thread_id, i.intake_request_id "
+                "SELECT c.*, t.thread_id, r.revision_id, d.determination_request_id "
                 "FROM trend_candidates c "
                 "JOIN content_threads t ON t.thread_id=c.selected_thread_id "
-                "JOIN intake_requests i ON i.thread_id=t.thread_id "
+                "JOIN brief_revisions r ON r.thread_id=t.thread_id "
+                "JOIN determination_requests d ON d.revision_id=r.revision_id "
                 "WHERE c.canonical_subject='Shared Opportunity'"
             ).fetchone()
 
-        self.assertEqual([item["status"] for item in collection], ["completed", "completed"])
+        self.assertEqual([item["status"] for item in collection], ["completed", "completed", "completed"])
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["selected_count"], 1)
+        self.assertEqual(summary["top_candidates"][0]["subject"], "Shared Opportunity")
+        self.assertNotIn("prominence_populations", summary)
         self.assertEqual(selected["eligibility_status"], "selected")
         self.assertIsNotNone(selected["thread_id"])
-        self.assertIsNotNone(selected["intake_request_id"])
+        self.assertIsNotNone(selected["revision_id"])
+        self.assertIsNotNone(selected["determination_request_id"])
+
+        with WorkflowStore(self.database_path) as workflow:
+            workflow.register_capability(
+                "english",
+                enabled=True,
+                generation_ready=True,
+                outputs=[{
+                    "platform": "instagram",
+                    "account": "fixture_english",
+                    "content_format": "instagram_static_carousel_v2",
+                    "ready": True,
+                }],
+            )
+            decision_id = DeterminationWorker(workflow).run_once()
+            self.assertIsNotNone(decision_id)
+            self.assertEqual(
+                workflow.connection.execute(
+                    "SELECT COUNT(*) FROM intake_requests"
+                ).fetchone()[0],
+                0,
+            )
 
         connection = connect(self.database_path, read_only=True)
         try:

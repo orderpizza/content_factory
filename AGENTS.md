@@ -9,7 +9,9 @@
   runtime, SQLite is the POC state store, and GCP is used for Vertex Gemini.
 - Preserve persisted SQLite handoffs. Do not introduce direct module-to-module
   calls, distributed queues, or unnecessary infrastructure.
-- Keep detection deterministic and LLM-free. Gemini belongs only in
+- Keep lexical canonicalization and frozen Detection scoring deterministic and
+  LLM-free. Local MiniLM event resolution freezes its evidence before scoring;
+  it never invokes an inference API. Gemini belongs only in
   Idea Intake, Determination, domain generation, and bounded output adaptation.
 - Respect the responsibility chain: a selected trend or human idea becomes a
   `ContentThread` and immutable `BriefRevision`; then
@@ -71,7 +73,7 @@
   routine change log.
 - Do not modify unrelated dirty-worktree files.
 - Never run legacy publishing, live provider checks, public posting, or
-  non-temporary retention as routine checks. V1–v4 workers use
+  non-temporary retention as routine checks. V1–v5 workers use
   `database.migrations`; `database.sqlite` is incompatible legacy.
 - Update `docs/current-state.md` when implemented capabilities or entrypoints
   change; keep future requirements in their focused specifications.

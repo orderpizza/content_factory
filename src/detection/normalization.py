@@ -13,8 +13,8 @@ APOSTROPHES = {"’", "‘", "‛", "＇", "`"}
 DASHES = {"‐", "‑", "‒", "–", "—", "―", "﹘", "﹣", "－"}
 
 
-def canonical_title(value: str, version: str = "canonicalization_v1") -> str:
-    if version not in {"canonicalization_v1", "canonicalization_v2"}:
+def canonical_title(value: str, version: str = "canonicalization_v2") -> str:
+    if version != "canonicalization_v2":
         raise ValueError("unsupported canonicalization version")
     normalized = unicodedata.normalize("NFKC", value).casefold()
     if version == "canonicalization_v2":
@@ -34,8 +34,8 @@ def canonical_title(value: str, version: str = "canonicalization_v1") -> str:
     return re.sub(r"\s+", " ", "".join(characters)).strip()
 
 
-def canonical_link(value: str, version: str = "canonicalization_v1") -> str | None:
-    if version not in {"canonicalization_v1", "canonicalization_v2"}:
+def canonical_link(value: str, version: str = "canonicalization_v2") -> str | None:
+    if version != "canonicalization_v2":
         raise ValueError("unsupported canonicalization version")
     if not value or len(value) > 2048:
         return None

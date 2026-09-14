@@ -52,8 +52,8 @@ class DetectionStore:
         if self.read_only:
             raise RuntimeError("A read-only store cannot apply configuration")
         validate_manifest(manifest)
-        if manifest["schema_version"] >= 2 and int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 3:
-            raise SchemaError("attention_v2 requires the explicit detection safety v3 migration")
+        if int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 3:
+            raise SchemaError("The normalized detection release requires detection safety schema v3")
         manifest_json = canonical_json(manifest)
         manifest_hash = sha256(manifest_json.encode("utf-8")).hexdigest()
         now = utc_now()
@@ -132,18 +132,6 @@ class DetectionStore:
                     source_json, fingerprint, release_id, now, now,
                 ),
             )
-        for alias in detection["cluster_aliases"]:
-            self.connection.execute(
-                "INSERT INTO detection_cluster_aliases "
-                "(alias_key, target_cluster_key, canonicalization_version, configuration_version, "
-                "active, reason, configuration_release_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    alias["alias_key"], alias["target_cluster_key"],
-                    detection["canonicalization_version"], manifest["release_name"],
-                    int(alias["active"]), alias["reason"], release_id, now,
-                ),
-            )
-
     def active_release(self) -> sqlite3.Row:
         row = self.connection.execute(
             "SELECT r.* FROM configuration_activations a "

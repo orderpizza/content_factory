@@ -7,6 +7,10 @@ post, access, and character-counting references on 2026-09-13. The configured
 application/account entitlements, live quota, token, and write behavior remain
 unverified.
 
+[Current implementation and operations](../current-state.md) owns as-built
+adapter status and operational evidence. This reference defines provider facts
+and target integration requirements; it does not assert live enablement.
+
 ## Approved architecture
 
 X is a Phase 1 output/distribution target. The output adapter creates native
@@ -19,12 +23,12 @@ Credentials stay local behind named secret references. Configure the actual
 X account separately from the domain pipeline and any Instagram destination.
 Do not invent handles or reuse the Instagram identity as an X account ID.
 
-## Current adapter subset
+## Target adapter contract
 
-Schema v4 freezes one numeric user ID, `X_USER_ACCESS_TOKEN`, the
+The target contract freezes one numeric user ID, `X_USER_ACCESS_TOKEN`, the
 `https://api.x.com` origin, v2 media/post paths, a 5 MB image ceiling, and a
 finite posting policy. Readiness calls `GET /2/users/me` and requires the exact
-configured user ID. The fake-tested delivery adapter:
+configured user ID. The delivery adapter must:
 
 1. revalidates the one reviewed 1200×675 JPEG and its hash/byte manifest;
 2. rejects locally weighted text above 280;

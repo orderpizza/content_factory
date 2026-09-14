@@ -81,7 +81,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "<!doctype html><meta charset='utf-8'><title>Setup required</title>"
                 "<h1>Detection dashboard setup required</h1>"
                 f"<p>{escape(str(error))}</p>"
-                "<p>Run <code>py scripts/setup_detection.py</code> explicitly.</p>"
+                "<p>Run <code>py scripts/setup_normalized_detection.py --database &lt;path&gt;</code> explicitly.</p>"
             ).encode("utf-8")
             status = 503
         self.send_response(status)

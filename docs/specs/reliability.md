@@ -45,6 +45,14 @@ attempts and source-health states before scoring. Its retry reuses exactly that
 frozen input. A later source response is evaluated only by a later evaluation
 slot, never substituted into a completed or retrying run.
 
+Before scoring, Scout commits a second immutable boundary:
+`scout_event_resolutions`, bound to that source snapshot. Local CPU embeddings
+run outside the write transaction with the pinned, locally cached model. A
+missing model, invalid vector, or expired/stolen claim prevents the resolution
+commit; there is no silent lexical-only fallback. A completed resolution is
+reused without inference on retry. Its strongest-lexical-constituent credit
+policy prevents semantic links from increasing corroboration or eligibility.
+
 Thread cancellation is an additional fenced finalization condition for every
 pre-publication worker. A cancellation that commits first prevents a worker
 from creating its next downstream handoff or an external delivery attempt. A
@@ -171,16 +179,10 @@ is disabled under [Platform outputs](platform-outputs.md).
 
 ## Storage, backup, and retention — `storage_safety_v1`
 
-**Current implementation boundary:** v4 samples the database volume every five
-minutes and enforces this gate for workflow claims and dashboard work-creating
-commands. It implements local online backup, checksum/integrity/migration
-validation, safe WAL checkpoint, temporary restore verification, and optional
-retention of tracked/hash-matching backups. Collector/Scout admission, artifact
-and high-volume SQL retention, off-device copies, maintenance-age dashboard
-warnings, mid-call lease renewal, and the complete capacity/supervision envelope
-remain target work. Detection, workflow-stage, readiness/storage, and maintenance
-heartbeats now use the existing v1 runtime tables; they do not by themselves
-prove unattended health.
+**Implementation status:** [Current implementation and operations](../current-state.md)
+owns the current storage and maintenance subset, evidence, and gaps. The rules
+below are target requirements; a sample, backup, or heartbeat does not by
+itself establish unattended reliability.
 
 SQLite is the operational source of truth. Once daily at 03:30 `Asia/Seoul`, a
 maintenance process takes a consistent SQLite online-backup snapshot to the
@@ -258,8 +260,8 @@ state; a degraded storage condition never authorizes deleting audit history.
 
 Already-started work must preserve its outcome when possible; especially a
 possibly sent publication can only finish published/unknown, never become a
-safe retry because storage degraded. The v4 WorkflowStore implements these
-workflow action classes; the current DetectionStore does not yet consume them.
+safe retry because storage degraded. See
+[current implementation](../current-state.md) for available store coverage.
 
 The Storage Monitor samples available space and database/WAL/artifact/backup
 sizes every five minutes. Normal operation requires both at least 15 percent
@@ -312,15 +314,15 @@ payloads, and full model prompts/responses must never enter SQLite, backups,
 packages, manifests, or logs.
 
 The target `gemini_budget_v1` examples use a USD 5.00 daily warning and USD 8.00
-hard stop. The current v4 implementation deliberately has no assumed dollar
-defaults: the owner must provide positive warning, daily-hard, and per-job-hard
-values before production startup. The target unified configuration release must
+hard stop. The production boundary has no assumed dollar defaults: the owner
+must provide positive warning, daily-hard, and per-job-hard values before
+production startup. The target unified configuration release must
 supply a nonempty, versioned price snapshot for each permitted model:
 model/provider ID, effective timestamp, input and output prices in integer
 micro-USD per token, and maximum input/output tokens for each named invocation
 phase. As a bounded v4 exception, these values are validated from the process
 environment and their complete policy hash and limits are frozen in every
-reservation. Current production operation is **priced-required**: an absent,
+reservation. Production operation is **priced-required**: an absent,
 zero, malformed, or mismatched price snapshot blocks new Gemini-backed claims;
 there is no token-only fallback mode.
 
@@ -346,8 +348,8 @@ Load local `.env` secrets/composition settings once at each process composition
 root. Domain modules receive validated settings and never read environment
 variables. Non-secret source, capability, renderer, posting, teaching, and
 runtime policy belongs in an activated persisted release owned by the
-[Configuration control plane](configuration.md). The current v4 Gemini
-price/budget environment exception is documented there and must not spread.
+[Configuration control plane](configuration.md). The v4 Gemini price/budget
+environment exception is documented there and must not spread.
 Check all required/numeric values and secret references at startup. A missing
 Gemini price snapshot blocks a new model call before admission; it never causes
 a successful prior model operation to be repeated or reclassified.
