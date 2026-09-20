@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SchemaError, validate_production_workflow
+from database.current import SchemaError, validate_database
 from workflow import WorkflowStore
 from workflow.readiness import CapabilityReadinessMonitor
 
@@ -19,7 +19,7 @@ def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv(
-        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")
+        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")
     ))
     parser.add_argument(
         "--live", action="store_true",
@@ -38,7 +38,7 @@ def main() -> None:
         parser.error("--confirm-transient-r2-write requires --live")
     try:
         with WorkflowStore(args.database, catalog_kind="production") as store:
-            validate_production_workflow(store.connection)
+            validate_database(store.connection)
             store.heartbeat(
                 "capability_readiness", "capability-readiness-v1", "polling",
                 "destination readiness poll started",

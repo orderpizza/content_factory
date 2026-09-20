@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SchemaError, validate_production_workflow
+from database.current import SchemaError, validate_database
 from workflow import WORKFLOW_PIPELINES, WorkflowStore
 
 
@@ -48,7 +48,7 @@ def _account_id(parser: ArgumentParser, value: str | None, name: str) -> str:
 def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))
+    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--instagram-account-key", default=os.getenv("INSTAGRAM_ACCOUNT_KEY"))
     parser.add_argument("--instagram-user-id", default=os.getenv("INSTAGRAM_USER_ID"))
     parser.add_argument("--graph-api-version", default=os.getenv("META_GRAPH_API_VERSION", "v24.0"))
@@ -169,7 +169,7 @@ def main() -> None:
     }
     try:
         with WorkflowStore(args.database, catalog_kind="production") as store:
-            validate_production_workflow(store.connection)
+            validate_database(store.connection)
             configuration_id = store.register_production_configuration(value)
     except (SchemaError, RuntimeError, ValueError) as error:
         raise SystemExit(f"Production configuration refused: {error}")

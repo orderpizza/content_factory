@@ -1,4 +1,4 @@
-"""Gemini-backed five-domain Determination worker for the v2 workflow."""
+"""Gemini-backed five-domain Determination worker for the workflow."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from common.gemini import VertexGeminiClient
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
+from .planning_context import model_context
 
 
-DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v1"
+DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v2"
 DETERMINATION_SCHEMA_VERSION = "workflow_gemini_determination_result_v1"
 ANGLE_FIELDS = (
     "angle_kind", "canonical_target", "audience", "thesis", "reader_value",
@@ -104,11 +105,12 @@ class GeminiDeterminationWorker:
 
     @local_operation("determination_requests", "determination_request_id")
     def _process(self, request: Any) -> int | None:
-        request, snapshot = self.store.resolve_determination_catalog(request)
+        snapshot = json.loads(request["input_snapshot_json"])
         if not isinstance(snapshot, dict) or not all(
             key in snapshot for key in ("brief", "source_context", "catalog")
         ):
             raise ValueError("Determination request has an incomplete frozen input snapshot")
+        model_input = model_context(snapshot)
         invocation_id = self.store.begin_model_invocation(
             phase="determination",
             table="determination_requests",
@@ -117,12 +119,12 @@ class GeminiDeterminationWorker:
             request_version=str(snapshot.get("routing_policy_version", "determination_policy_v1")),
             prompt_version=DETERMINATION_PROMPT_VERSION,
             schema_version=DETERMINATION_SCHEMA_VERSION,
-            request_value=snapshot,
+            request_value=model_input,
             model_id=str(getattr(self.client, "model", "gemini")),
         )
         try:
             response = self.client.generate_json(
-                _determination_prompt(snapshot), DETERMINATION_SCHEMA, temperature=0.2
+                _determination_prompt(model_input), DETERMINATION_SCHEMA, temperature=0.2
             )
         except Exception as error:
             outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"

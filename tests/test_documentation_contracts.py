@@ -1,88 +1,67 @@
-"""Regression guards for Phase 1 documentation routing and schema maturity."""
-
-import importlib.util
-import json
+"""Current-documentation guards; no compatibility payloads are required."""
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
+import runpy
+import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_docs.py"
-SPEC = importlib.util.spec_from_file_location("documentation_checks", SCRIPT)
-checks = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(checks)
-
-
-class PhaseOneDocumentationTests(unittest.TestCase):
+class DocumentationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.domains = sorted(checks.PHASE_ONE_DOMAINS)
-        self.write("docs/pipelines/domains.md", "\n".join(
-            f"| `{domain}` | Instagram | X | configured |" for domain in self.domains
-        ))
-        names = " ".join(f"`{domain}`" for domain in self.domains)
-        self.write("AGENTS.md", names)
-        self.write("docs/system.md", names)
-        self.write("docs/specs/content-production.md", "# Production owner\n")
-        self.write_schema()
-        root_patch = patch.object(checks, "ROOT", self.root)
-        root_patch.start()
-        self.addCleanup(root_patch.stop)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        for directory in ('docs','config','src','scripts'):
+            shutil.copytree(ROOT/directory,self.root/directory,ignore=shutil.ignore_patterns('__pycache__'))
+        for path in [*ROOT.glob('*.md'),ROOT/'.env.example']:
+            shutil.copy2(path,self.root/path.name)
+        self.main = runpy.run_path(str(ROOT/'scripts/check_docs.py'))['main']
 
-    def write(self, relative, content):
-        path = self.root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+    def run_check(self):
+        documents = [*self.root.glob('*.md'),*(self.root/'docs').rglob('*.md')]
+        with patch.dict(self.main.__globals__,{'ROOT':self.root,'DOCUMENTS':documents,'CONTRACT_PATH':self.root/'docs/contracts/application-schema.sql'}), redirect_stdout(StringIO()) as output:
+            try:
+                self.main()
+            except SystemExit:
+                pass
+        return output.getvalue()
 
-    def write_schema(self, maturity="superseded", owner="docs/specs/content-production.md"):
-        self.write("docs/contracts/recipe-v1.schema.json", json.dumps({
-            "$id": "content_factory/recipe_v1",
-            "x-maturity": maturity,
-            "x-replacement-owner": owner,
-        }))
+    def alter(self,path,transform):
+        target=self.root/path
+        target.write_text(transform(target.read_text()))
 
-    def errors(self):
-        result = []
-        checks.check_phase_one_contracts(result)
-        return result
+    def test_current_documents_pass(self):
+        self.assertIn('check passed',self.run_check())
 
-    def test_valid_domain_map_and_retired_schema(self):
-        self.assertEqual(self.errors(), [])
+    def test_missing_local_link_is_rejected(self):
+        self.alter('README.md',lambda text:text+'\n[missing](docs/missing.md)\n')
+        self.assertIn('missing local link',self.run_check())
 
-    def test_duplicate_domain_row_rejected(self):
-        path = self.root / "docs/pipelines/domains.md"
-        self.write("docs/pipelines/domains.md", path.read_text(encoding="utf-8")
-                   + "\n| `english` | duplicate | X | configured |")
-        self.assertTrue(any("exactly the five" in error for error in self.errors()))
+    def test_unrouted_focused_document_is_rejected(self):
+        self.alter('docs/system.md',lambda text:text.replace('[Visual rendering](specs/visual-rendering.md)', 'Visual rendering'))
+        self.assertIn('Unrouted focused document: docs/specs/visual-rendering.md',self.run_check())
 
-    def test_platform_suffixed_domain_rejected(self):
-        path = self.root / "docs/pipelines/domains.md"
-        self.write("docs/pipelines/domains.md", path.read_text(encoding="utf-8")
-                   .replace("`english`", "`o2_english_instagram`"))
-        self.assertTrue(any("exactly the five" in error for error in self.errors()))
+    def test_root_readme_broken_anchor_is_rejected(self):
+        self.alter('README.md',lambda text:text+'\n[bad](docs/current-state.md#missing-section)\n')
+        self.assertIn('missing anchor',self.run_check())
 
-    def test_old_agent_responsibility_rejected(self):
-        path = self.root / "AGENTS.md"
-        self.write("AGENTS.md", path.read_text(encoding="utf-8")
-                   + "\nPipelines are platform- and format-specific.")
-        self.assertTrue(any("platform-specific pipelines" in error for error in self.errors()))
+    def test_duplicate_or_platform_specific_domain_is_rejected(self):
+        self.alter('docs/pipelines/domains.md',lambda text:text.replace('`english`','`english_instagram`'))
+        self.assertIn('exactly five',self.run_check())
 
-    def test_unmarked_superseded_schema_rejected(self):
-        self.write_schema(maturity="approved_for_implementation")
-        self.assertTrue(any("x-maturity" in error for error in self.errors()))
+    def test_schema_version_disagreement_is_rejected(self):
+        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 6','user_version = 99'))
+        self.assertIn('schema version disagrees',self.run_check())
 
-    def test_missing_replacement_owner_rejected(self):
-        self.write_schema(owner="docs/specs/missing.md")
-        self.assertTrue(any("x-replacement-owner" in error for error in self.errors()))
+    def test_undocumented_table_is_rejected(self):
+        self.alter('docs/contracts/application-schema.sql',lambda text:text+'\nCREATE TABLE undocumented_record(id INTEGER);\n')
+        self.assertIn('does not name undocumented_record',self.run_check())
 
-    def test_missing_router_domain_rejected(self):
-        path = self.root / "docs/system.md"
-        self.write("docs/system.md", path.read_text(encoding="utf-8").replace("`english`", ""))
-        self.assertTrue(any("does not name domain `english`" in error for error in self.errors()))
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_undocumented_environment_variable_is_rejected(self):
+        self.alter('.env.example',lambda text:text+'\nNEW_UNDOCUMENTED_KEY=\n')
+        self.assertIn('Undocumented environment variable',self.run_check())

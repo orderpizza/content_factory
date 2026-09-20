@@ -1,4 +1,4 @@
-"""Gemini-backed Idea Intake worker for the persisted v2 workflow."""
+"""Gemini-backed Idea Intake worker for the persisted workflow."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from common.gemini import VertexGeminiClient
 
 from .store import WorkflowStore
 from .workers import local_operation
+from .planning_context import model_context
 
 
-INTAKE_PROMPT_VERSION = "workflow_gemini_intake_prompt_v1"
+INTAKE_PROMPT_VERSION = "workflow_gemini_intake_prompt_v2"
 INTAKE_SCHEMA_VERSION = "workflow_gemini_intake_result_v1"
 BRIEF_FIELDS = (
     "editorial_goal",
@@ -71,7 +72,7 @@ class GeminiIntakeWorker:
 
     @local_operation("intake_requests", "intake_request_id")
     def _process(self, request: Any) -> int | None:
-        snapshot = self._input_snapshot(request)
+        snapshot = model_context(self._input_snapshot(request))
         invocation_id = self.store.begin_model_invocation(
             phase="intake",
             table="intake_requests",
@@ -127,10 +128,7 @@ class GeminiIntakeWorker:
     def _input_snapshot(self, request: Any) -> dict[str, Any]:
         context = json.loads(request["context_json"])
         if context.get("kind") == "human_conversation":
-            source = self.store.conversation_snapshot(
-                int(request["thread_id"]),
-                context.get("last_message_id") or context.get("message_id"),
-            )
+            source = self.store.intake_source_snapshot(request)
             previous = self.store.connection.execute(
                 "SELECT brief_json FROM brief_revisions WHERE thread_id=? "
                 "ORDER BY revision_number DESC LIMIT 1",
@@ -142,7 +140,7 @@ class GeminiIntakeWorker:
                 "previous_brief": None if previous is None else json.loads(previous["brief_json"]),
                 "intake_context": context,
             }
-        return self.store.trend_snapshot(request)
+        raise ValueError("Intake requires a human conversation context")
 
 
 def _validate_intake_response(value: Any) -> tuple[dict[str, Any], str | None]:

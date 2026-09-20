@@ -8,6 +8,8 @@ from typing import Any
 import json
 import socket
 import sqlite3
+from time import monotonic
+from common.operation_log import emit
 from common.diagnostics import safe_diagnostic
 
 from .configuration import canonical_json
@@ -33,13 +35,12 @@ class DetectionScout:
         self.encoder = encoder if encoder is not None else LocalEmbeddingEncoder()
 
     def run(self, *, now: datetime | None = None) -> dict[str, Any]:
+        started = monotonic()
         frozen_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         slot = _evaluation_slot(frozen_at)
         release = self.store.active_release()
         release_id = int(release["configuration_release_id"])
         manifest = json.loads(release["manifest_json"])
-        if self.store.connection.execute("PRAGMA user_version").fetchone()[0] < 5:
-            raise RuntimeError("Scout requires semantic schema v5; run scripts/setup_semantic_detection.py")
         from .configuration import validate_manifest
         validate_manifest(manifest)
         run_id = self._materialize_run(slot, release_id, frozen_at)
@@ -52,7 +53,7 @@ class DetectionScout:
             counts = json.loads(row["aggregate_counts_json"])
             self.store.heartbeat(
                 self.WORKER_TYPE, self.instance_id, "idle",
-                f"slot already completed; {counts.get('candidate_count', 0)} candidate(s)",
+                f"slot already completed; {counts.get('candidate_count', 0)} cluster(s)",
             )
             return {
                 "run_id": run_id,
@@ -96,14 +97,20 @@ class DetectionScout:
             result = self._evaluate(run_id, release_id, manifest, evaluation_time, attempt_ids)
             # Selection budgets use this execution's time, not the older input clock.
             self._finalize(run_id, claim_version, result, manifest, frozen_at)
-            summary = f"{result['candidate_count']} candidate(s), {result['selected_count']} selected"
+            summary = f"{result['candidate_count']} cluster(s), {result['selected_count']} selected"
             self.store.finish_worker_run(worker_run_id, "completed", summary=summary)
             self.store.heartbeat(self.WORKER_TYPE, self.instance_id, "idle", summary)
             public_result = {
                 key: value for key, value in result.items() if key != "candidates"
             }
+            emit('detection', 'scout', worker=self.WORKER_TYPE, evaluation_id=run_id,
+                 claim_version=claim_version, scheduled_slot=slot.isoformat(), status='completed',
+                 candidate_count=result['candidate_count'], selected_count=result['selected_count'],
+                 duration_ms=round((monotonic()-started)*1000))
             return {"run_id": run_id, "status": "completed", **public_result}
         except Exception as error:
+            emit('detection', 'scout', evaluation_id=run_id, status='failed', error_type=type(error).__name__,
+                 duration_ms=round((monotonic()-started)*1000))
             detail = f"unexpected Scout error ({type(error).__name__})"
             self._fail(run_id, claim_version, detail)
             self.store.finish_worker_run(worker_run_id, "failed", error=detail)
@@ -231,51 +238,9 @@ class DetectionScout:
         return evaluate(self.store.connection, run_id, release_id, manifest)
 
     def _workflow_catalog(self) -> list[dict[str, Any]]:
-        """Freeze the active domain/output catalog into a trend handoff."""
-        tables = {
-            row[0]
-            for row in self.store.connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        if not {"pipeline_capabilities", "output_bindings"}.issubset(tables):
-            return []
-        rows = self.store.connection.execute(
-            "SELECT c.pipeline_id, c.enabled, c.generation_ready, "
-            "b.output_binding_id, b.platform, b.account, b.content_format, "
-            "b.output_contract_version, b.ready, b.safe_reason "
-            "FROM pipeline_capabilities c "
-            "JOIN configuration_activations a "
-            "ON a.configuration_release_id=c.configuration_release_id "
-            "AND a.scope_key='global' AND a.status='active' "
-            "LEFT JOIN output_bindings b "
-            "ON b.pipeline_capability_id=c.pipeline_capability_id "
-            "WHERE c.pipeline_version IN "
-            "('domain_pipeline_catalog_v1','domain_pipeline_catalog_production_v1') "
-            "ORDER BY c.pipeline_capability_id, b.output_binding_id"
-        ).fetchall()
-        catalog: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            item = catalog.setdefault(
-                row["pipeline_id"],
-                {
-                    "pipeline_id": row["pipeline_id"],
-                    "enabled": bool(row["enabled"]),
-                    "generation_ready": bool(row["generation_ready"]),
-                    "outputs": [],
-                },
-            )
-            if row["output_binding_id"] is not None:
-                item["outputs"].append({
-                    "output_binding_id": int(row["output_binding_id"]),
-                    "platform": row["platform"],
-                    "account": row["account"],
-                    "content_format": row["content_format"],
-                    "output_contract_version": row["output_contract_version"],
-                    "ready": bool(row["ready"]),
-                    "safe_reason": row["safe_reason"],
-                })
-        return [catalog[key] for key in sorted(catalog)]
+        from workflow.catalog import read_catalog
+        production = self.store.connection.execute("SELECT 1 FROM production_configurations LIMIT 1").fetchone()
+        return read_catalog(self.store.connection, "production" if production else "fixture")
 
     def _create_trend_determination_handoff(
         self,
@@ -288,19 +253,6 @@ class DetectionScout:
         frozen_at: datetime,
     ) -> None:
         """Create the source-backed brief and direct Determination handoff."""
-        tables = {
-            row[0]
-            for row in self.store.connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        required = {"brief_revisions", "determination_requests"}
-        if not required.issubset(tables):
-            raise RuntimeError(
-                "selected trend requires the explicit editorial workflow migration; "
-                "run scripts/setup_workflow.py before selecting trend work"
-            )
-
         subject = str(candidate["canonical_subject"]).strip()
         normalized = " ".join(subject.casefold().split())
         coverage_identity = (
@@ -321,6 +273,7 @@ class DetectionScout:
             (coverage_identity, frozen_at.isoformat(), thread_id),
         )
 
+        member_index = {member['trend_observation_id']: member for member in candidate['members']}
         source_snapshot = {
             "kind": "selected_trend",
             "detection_run_id": run_id,
@@ -332,7 +285,12 @@ class DetectionScout:
                 "score": candidate["score"],
                 "evidence_fingerprint": candidate["evidence_fingerprint"],
             },
-            "evidence": candidate["evidence"],
+            "evidence": [
+                {**entry,
+                 "canonical_url": member_index[entry['observation_id']].get('canonical_url'),
+                 "evidence_time": member_index[entry['observation_id']].get('evidence_time')}
+                for entry in candidate["evidence"]
+            ],
         }
         brief = {
             "editorial_goal": f"Assess whether {subject} merits useful content.",
@@ -344,8 +302,8 @@ class DetectionScout:
             "desired_outcome": "inform",
             "constraints": {"origin": "detected_trend"},
             "source_context": (
-                "This source-backed brief was created from a selected deterministic "
-                "detection candidate; the frozen evidence is attached separately."
+                "This source-backed brief was created from an Opportunity after "
+                "complete Detection Selection; the frozen Cluster evidence is attached separately."
             ),
             "open_questions": [],
         }
@@ -441,10 +399,7 @@ class DetectionScout:
                     ).fetchone()
                     if owner and (not existing or existing["selected_thread_id"] != owner[0]):
                         desired_status, reason = "observed", "resolved_event_already_owned"
-                if existing and existing["eligibility_status"] in {
-                    "selected", "consumed", "rejected_cooldown", "reconsiderable",
-                    "migration_hold",
-                }:
+                if existing and existing["selected_thread_id"] is not None:
                     desired_status = existing["eligibility_status"]
                     reason = existing["eligibility_reason"]
                 if existing:

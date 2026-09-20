@@ -1,10 +1,10 @@
-"""Run or poll the persisted v2 workflow workers.
+"""Run or poll the persisted workflow workers.
 
 The default workers are local placeholders. ``--gemini`` opts human Idea Intake
 and Determination into Vertex Gemini; detected trends already arrive at
 Determination with a source-backed brief. ``--review-preview`` additionally enables
 Gemini canonical generation/adaptation and real local static rendering.
-``--production`` switches to the immutable v4 real-destination catalog and
+``--production`` switches to the immutable real-destination catalog and
 delivery profiles; ``--delivery`` additionally runs credentialed posting and
 R2 cleanup. Every public post still requires a dashboard Post now command.
 """
@@ -16,13 +16,14 @@ from pathlib import Path
 import os
 import sys
 import time
+import math
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
 from common.gemini import GeminiConfigurationError, configured_model
-from database.migrations import SchemaError, validate_production_workflow
+from database.current import SchemaError, validate_database
 from workflow import (
     WORKFLOW_PIPELINES,
     AdaptationWorker,
@@ -131,6 +132,7 @@ def _run_pass(workers: tuple[object, ...]) -> None:
         instance_id = str(getattr(worker, "instance_id", worker_type))
         started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         store.heartbeat(worker_type, instance_id, "polling", "poll started")
+        worker.last_operation = None
         try:
             result = worker.run_once()
         except Exception as error:
@@ -138,12 +140,26 @@ def _run_pass(workers: tuple[object, ...]) -> None:
                 worker_type, instance_id, "failed",
                 f"poll raised {type(error).__name__}",
             )
+            if worker_type == 'storage_monitor':
+                # Observability must not become an indirect planning gate.
+                from common.operation_log import emit
+                emit('storage', 'sample_failed', status='failed', error_type=type(error).__name__)
+                continue
             raise
         message = (
             "no output (idle, clarification, cancellation or failure; see dashboard)"
             if result is None else result
         )
-        if result is None:
+        operation = getattr(worker, "last_operation", None)
+        if result is None and operation:
+            state = operation["status"]
+            message = f'{operation["table"]} #{operation["id"]}: {state} — {operation["reason"]}'
+            store.record_worker_result(worker_type, instance_id, operation["table"], operation["id"],
+                                       started_at=started_at, summary=message,
+                                       status="failed" if state == "failed" else "completed")
+            store.heartbeat(worker_type, instance_id, state, message,
+                            claim_type=operation["table"], claim_id=operation["id"])
+        elif result is None:
             store.heartbeat(
                 worker_type, instance_id, "idle",
                 "no output; inspect persisted stage state for clarification or failure",
@@ -167,7 +183,7 @@ def _run_pass(workers: tuple[object, ...]) -> None:
 def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))
+    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument("-gemini", "--gemini", action="store_true", help="use Gemini for Intake and Determination only")
@@ -178,7 +194,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--production", action="store_true",
-        help="use schema-v4 real destinations, priced Gemini admission, and delivery-ready profiles",
+        help="use real destinations, priced Gemini admission, and delivery-ready profiles",
     )
     parser.add_argument(
         "--delivery", action="store_true",
@@ -186,9 +202,14 @@ def main() -> None:
     )
     parser.add_argument("-poll", "--poll", action="store_true", help="keep polling until interrupted")
     parser.add_argument("--poll-interval", type=float, default=5.0, metavar="SECONDS")
+    parser.add_argument("--planning-only", action="store_true", help="stop at ContentJobs; no generation, rendering or posting")
     args = parser.parse_args()
-    if args.poll_interval <= 0:
+    from common.operation_log import configure_logging
+    configure_logging('workflow')
+    if not math.isfinite(args.poll_interval) or args.poll_interval <= 0:
         parser.error("--poll-interval must be greater than zero")
+    if args.planning_only and (args.review_preview or args.production or args.delivery):
+        parser.error("--planning-only cannot compose downstream workers")
     if args.review_preview and not args.gemini:
         parser.error("--review-preview requires --gemini")
     if args.production and not (args.gemini and args.review_preview):
@@ -198,7 +219,7 @@ def main() -> None:
     if args.production and not args.backups:
         parser.error("--production requires --backups or CONTENT_FACTORY_BACKUP_ROOT")
     try:
-        budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.production else None
+        budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
         store_context = (
             WorkflowStore(
                 args.database,
@@ -206,11 +227,11 @@ def main() -> None:
                 model_budget_policy=budget_policy,
                 enforce_storage=True,
             )
-            if args.production else WorkflowStore(args.database)
+            if args.production else WorkflowStore(args.database, model_budget_policy=budget_policy, enforce_storage=True)
         )
         with store_context as store:
             if args.production:
-                validate_production_workflow(store.connection)
+                validate_database(store.connection)
                 catalog = store.catalog()
                 if len(catalog) != len(WORKFLOW_PIPELINES):
                     raise ValueError("production catalog must register all five domains")
@@ -220,29 +241,31 @@ def main() -> None:
             determination_worker = (
                 GeminiDeterminationWorker(store) if args.gemini else DeterminationWorker(store)
             )
-            pipeline_worker = (
-                GeminiPipelineRunner(store) if args.review_preview else PipelineRunner(store)
-            )
-            adaptation_worker = (
-                GeminiAdaptationWorker(store, production=args.production)
-                if args.review_preview else AdaptationWorker(store)
-            )
-            renderer_worker = (
-                StaticVisualRenderer(store, args.artifacts, production=args.production)
-                if args.review_preview else VisualRenderer(store, args.artifacts)
-            )
-            workers = (
-                intake_worker, determination_worker, pipeline_worker,
-                adaptation_worker, renderer_worker,
-            )
+            workers = (intake_worker, determination_worker)
+            if not args.planning_only:
+                pipeline_worker = (
+                    GeminiPipelineRunner(store) if args.review_preview else PipelineRunner(store)
+                )
+                adaptation_worker = (
+                    GeminiAdaptationWorker(store, production=args.production)
+                    if args.review_preview else AdaptationWorker(store)
+                )
+                renderer_worker = (
+                    StaticVisualRenderer(store, args.artifacts, production=args.production)
+                    if args.review_preview else VisualRenderer(store, args.artifacts)
+                )
+                workers = (
+                    intake_worker, determination_worker, pipeline_worker,
+                    adaptation_worker, renderer_worker,
+                )
+            workers = (StorageMonitor(store, args.artifacts, args.backups or ROOT / "data/backups"),) + workers
             if args.production:
-                workers = (StorageMonitor(store, args.artifacts, args.backups),) + workers
                 if args.delivery:
                     workers += (
                         CredentialedPostingAgent(store, artifact_root=args.artifacts), R2CleanupWorker(store),
                         PublicationReconciliationWorker(store),
                     )
-            else:
+            elif not args.planning_only:
                 workers += (PostingAgent(store),)
             if not args.poll:
                 _run_pass(workers)

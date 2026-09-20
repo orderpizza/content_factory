@@ -23,7 +23,7 @@ def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--pipeline", choices=WORKFLOW_PIPELINES, default="english")
-    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")))
+    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--confirm-local-placeholder", action="store_true")
     args = parser.parse_args()
     if not args.confirm_local_placeholder:

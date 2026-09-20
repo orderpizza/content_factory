@@ -17,14 +17,14 @@ def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv(
-        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")
+        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")
     ))
     parser.add_argument("--artifacts", default=os.getenv(
         "CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")
     ))
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument(
-        "--mode", choices=("preview", "production", "delivery"), default="preview",
+        "--mode", choices=("planning", "preview", "production", "delivery"), default="planning",
         help="preview checks Gemini/rendering; later modes add production and delivery gates",
     )
     args = parser.parse_args()

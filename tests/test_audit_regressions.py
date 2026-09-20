@@ -9,17 +9,14 @@ import sqlite3
 import tempfile
 import unittest
 
-from database.migrations import (
-    SchemaError, connect, migrate_detection_dashboard, migrate_editorial_workflow,
-    migrate_detection_safety,
+from database.current import (
+    SchemaError, connect, initialize_database,
 )
-from database.sqlite import Database
 from dashboard import render_detection_dashboard
 from detection.collector import DetectionCollector
 from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult
 from detection.scout import DetectionScout
-from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 from workflow import IdeaIntakeWorker, WorkflowStore
 
@@ -32,12 +29,10 @@ class AuditRegressionTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "audit.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(ROOT / "config/releases/detection.json"))
-        upgrade_semantic_fixture(self.path)
+
         self.start = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
 
     def collect_fixture(self, store, *, two_sources=False, at=None, activity=100):
@@ -113,39 +108,13 @@ class AuditRegressionTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM scout_evaluation_inputs"
             ).fetchone()[0], 0)
 
-    def test_legacy_initializer_refuses_versioned_schema_without_mutation(self):
-        for version in (1, 2):
-            if version == 2:
-                migrate_editorial_workflow(self.path)
-            database = Database(self.path)
-            try:
-                before = list(database.connection.iterdump())
-                with self.assertRaises(SchemaError):
-                    database.initialize()
-                self.assertEqual(list(database.connection.iterdump()), before)
-            finally:
-                database.close()
-
-    def test_legacy_initializer_refuses_unknown_version_before_creating_tables(self):
-        path = Path(self.temporary.name) / "future.db"
-        database = Database(path)
-        try:
-            database.connection.execute("PRAGMA user_version=99")
-            with self.assertRaises(SchemaError):
-                database.initialize()
-            self.assertEqual(database.connection.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            ).fetchone()[0], 0)
-        finally:
-            database.close()
-
     def test_read_only_connection_encodes_hash_and_unicode_in_paths(self):
         directory = Path(self.temporary.name) / "audit # 한글 %"
-        path = directory / "content.db"
-        migrate_detection_dashboard(path)
+        path = directory / "development.db"
+        initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -153,8 +122,8 @@ class AuditRegressionTests(unittest.TestCase):
 
     def test_failed_store_validation_closes_its_connection(self):
         for module_name, class_name, validator in (
-            ("detection.store", "DetectionStore", "validate_detection_dashboard"),
-            ("workflow.store", "WorkflowStore", "validate_editorial_workflow"),
+            ("detection.store", "DetectionStore", "validate_database"),
+            ("workflow.store", "WorkflowStore", "validate_database"),
         ):
             with self.subTest(module=module_name):
                 module = importlib.import_module(module_name)
@@ -167,7 +136,7 @@ class AuditRegressionTests(unittest.TestCase):
                 connection.close.assert_called_once_with()
 
     def test_dashboard_counts_one_candidate_after_thread_continuation(self):
-        migrate_editorial_workflow(self.path)
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             for days in range(7, 0, -1):
                 self.collect_fixture(store, two_sources=True, at=self.start - timedelta(days=days), activity=1)
@@ -186,12 +155,9 @@ class AuditRegressionTests(unittest.TestCase):
         self.assertNotIn("2 selected", html)
 
     def test_utility_imports_do_not_open_databases_or_load_environment(self):
-        with patch("database.sqlite.Database") as database, patch(
-            "database.migrations.connect"
-        ) as connection, patch("common.environment.load_environment_file") as environment:
-            for name in ("cleanup_data.py", "dashboard.py"):
+        with patch("database.current.connect") as connection, patch("common.environment.load_environment_file") as environment:
+            for name in ("dashboard.py",):
                 runpy.run_path(str(ROOT / "scripts" / name), run_name="audit_import")
-            database.assert_not_called()
             connection.assert_not_called()
             environment.assert_not_called()
 
@@ -214,14 +180,14 @@ class AuditRegressionTests(unittest.TestCase):
                     if name == "run_workflow.py":
                         factories = {key: MagicMock() for key in (
                             "IdeaIntakeWorker", "DeterminationWorker", "PipelineRunner",
-                            "AdaptationWorker", "VisualRenderer", "PostingAgent",
+                            "AdaptationWorker", "VisualRenderer", "PostingAgent", "StorageMonitor",
                         )}
                         with patch.dict(module["main"].__globals__, factories):
                             module["main"]()
                         self.assertEqual(factories["VisualRenderer"].call_args.args[1], os.environ["CONTENT_FACTORY_ARTIFACT_ROOT"])
                     else:
                         module["main"]()
-                worker_store.assert_called_once_with(str(self.path))
+                self.assertEqual(worker_store.call_args.args[0], str(self.path))
 
 
 if __name__ == "__main__":

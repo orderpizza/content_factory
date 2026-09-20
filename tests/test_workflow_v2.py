@@ -3,7 +3,7 @@ import unittest
 import json
 from pathlib import Path
 
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
+from database.current import initialize_database
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from dashboard import render_workflow_trace
@@ -17,10 +17,8 @@ MANIFEST = ROOT / "config" / "releases" / "detection.json"
 class WorkflowV2Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
-        self.path = Path(self.tmp.name) / "content.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        self.path = Path(self.tmp.name) / "development.db"
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
 

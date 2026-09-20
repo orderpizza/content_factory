@@ -1,122 +1,101 @@
-# Target Implementation Plan and Acceptance Matrix
+# Roadmap and Acceptance
 
-**Document role:** Noncanonical implementation sequencing aid. The Tier 1
-[system guide](../system.md) and its routed Tier 2 contracts remain the source of
-truth; when this plan conflicts with one of them, the contract wins.
+This is the sole backlog for unimplemented capabilities and future acceptance.
+[Operations](../current-state.md) describes what runs now; focused specs describe
+current contracts. Priorities below are not authorization to spend, publish,
+delete evidence or change external accounts.
 
-**Plan status:** Active Phase 1 target plan, not implementation status.
-Actual completion, demo-only exceptions and legacy paths are recorded in
-[Current state](../current-state.md); the [repository audit](../../audit_report.md)
-retains repair and verification evidence.
-**Owner:** System architecture.
-**Created:** 2026-09-07. **Last reviewed:** 2026-09-13.
-**Current milestone contracts:** immutable SQLite schemas v1–v4 and the routed
-Detection, Intake/Determination, Production, Rendering, Dashboard, Posting,
-Configuration, Runtime, Reliability, and Data Model contracts current at the
-review date. Later work uses forward migrations toward the complete target
-record model. Update this plan only after a
-canonical contract changes; it must never override one.
+## 1. Planning acceptance
 
-**Use this for:** Planning a cohesive implementation slice and its boundary
-tests. Do not use it to invent a schema field, status, provider fact, or product
-behavior.
+Run Detection, Gemini planning-only and dashboard against one development database.
 
-## Delivery sequence
-
-| Stage | Implement only after | Scope | Acceptance evidence |
-| --- | --- | --- | --- |
-| 1. Detection state and configuration foundation | No prerequisite | Forward SQLite migrations for the configuration, source, collection, health, observation, evaluation, candidate, worker-health, seed-thread, and Intake-handoff records needed by the first slice; foreign keys, status validation, fenced claims, and a read-only reporting connection. | A fresh development database migrates deterministically; invalid FK/status/duplicate source schedule is rejected; two collectors cannot both finalize; the dashboard connection cannot write or migrate. |
-| 2. Source ingestion | Stage 1 | Activated source registry and one adapter at a time: NASA RSS, Wikimedia pageviews, YouTube US popular, then Hacker News; bounded collection, immutable observations/item events, quota accounting, and source health. | Recorded fixtures and adapter fakes prove provenance, completeness, canonical input handling, idempotent retry, typed degradation, and zero Gemini invocation. A local run produces inspectable observations in SQLite. |
-| 3. Scout evaluation and shortlist | Stages 1–2 | Lexical clusters, bounded local MiniLM event resolution, immutable `ScoutEvaluationRun` membership/evidence, `attention_v3`, candidate persistence, ranking, selection budget and selected `ContentThread` + source-backed `BriefRevision` + `DeterminationRequest`. | Frozen replay does not embed; semantic-only links cannot manufacture scoring credit; complete-link/entity/number/time boundaries are tested. Human-labeled semantic precision/recall calibration and editorial recurrence policy remain acceptance work. |
-| 4. Detection dashboard | Stages 1–3 | Loopback service, read-only reporting model, Trend Opportunities landing page, source health/freshness, observation/evidence drill-down, score breakdown, shortlist status, filters, pagination, and worker state. | Running collection and Scout commands causes the browser feed to update from SQLite without a dashboard-triggered worker/API call; stale/error states are visible; browser refresh cannot mutate state. This completes the first observable milestone. |
-| 5. Freeze Phase 1 executable contracts | Stages 1–4 preserved | Multi-route/angle/brief schemas, domain extensions, canonical/output/adaptation records, separate domain/destination registries, capacity/reuse/identity constraints; reviewed forward migrations. Retire single-route draft consumers. | Positive/negative schema fixtures cover all five domains and zero/one/many jobs; SQL uniqueness permits multiple jobs/request and packages/canonical while rejecting duplicates. Existing detection v1 checksum and handoffs stay unchanged. |
-| 6. Intake and five-domain routing | Stage 5 | Human commands, route-neutral briefs/coverage, source/reference context, deterministic identity serialization, Gemini ledger, five explicit route assessments, distinct angles, skips/rejection/block/reuse, atomic fan-out. | Operator-labeled fixtures prove one domain, several domains, weak-domain skip, whole-trend reject, disabled/unbound cases, duplicate/uncertain-cost guards, and no mandatory five-way output. |
-| 7. Canonical domain production | Stages 5–6 | Implement English first to preserve teaching validation, then AI/Tools, Personal Finance, Business/Side Hustles, Psychology/Behavior. One shared runner with domain strategies; canonical checkpoints, evidence/claim validation, reservations and cost caps. | Each domain validates its own extension; unchanged creative is generated once; failures/restarts do not repeat paid work; no account/caption/slide geometry in canonical payload. |
-| 8. Instagram/X output adaptation and static renderer | Stages 5–7 | Shared Adaptation Worker, Instagram carousel and X image + native text, immutable output packages, versioned static profiles/geometry/fonts/runtime, manifests, new visual schemas and golden fixtures. Verify provider native limits before enabling bindings. | One canonical result yields two distinct native outputs without a second generation call; adaptation/metadata retry preserves checkpoints; sibling failure is isolated; all five domains fit supported templates; exact bytes/text pass validation. |
-| 9. Branch-aware dashboard and human review | Stages 6–8 | Five-domain routing trace, canonical/output portfolio, independent review cards, scoped rework, exact package/manifest/text binding, CSRF/version/idempotency commands, cost attribution. | Approving Instagram grants no X authority; scoped rework preserves unaffected siblings; source-to-output trace, skips, blockers, reuse, and costs remain visible. |
-| 10. Instagram and X single-post delivery | Stage 9 plus separately verified provider contracts | Shared Posting Agent with platform-specific delivery adapters, account-scoped cadence, Meta R2 relay where required, X media workflow, attempt/resource audit, cancellation, uncertainty, cleanup/reconciliation. | Fake-provider tests cover every pre-final/final boundary; no posting-generated content; live exact-package Post now checks require separate explicit authorization for each destination. |
-| 11. Optional X thread gate | Stages 8–10; optional, default disabled | Exact PublicationStep schema/state extension, ordered frozen reply text, per-step markers/IDs, partial-prefix outcomes, per-step cadence accounting, reconciliation and UI. | Fault injection at every reply boundary proves no repeated published/uncertain step, no whole-thread retry after a prefix, no false complete/unpublished status, and no unreviewed text. |
-| 12. Operational and routing-quality acceptance | Stages 5–10 (11 only when enabled) | Shared launchd workers, current readiness/storage, backup/restore/retention, fan-out capacity, scoped cancellation, labeled routing replay and observed generation/review/delivery loop. | All five domains and required Instagram/X outputs exercised; routing quality reviewed, forced connections rejected, paid call counts/cost bounded, migrations/restart/restore safe. |
-
-
-Stages 1–4 remain the stable detection milestone. Schemas v2–v4 now implement a
-bounded path through Stages 6–10: Gemini Intake/five-domain Determination,
-closed domain generation, Instagram/X adaptation, checkpointed priced calls,
-pinned-font static rendering, exact review/Post now, fake-tested Instagram/X
-single-post delivery, cleanup/reconciliation, storage admission, and local
-backup/restore. Default/synthetic modes remain non-deliverable, and production
-requires explicit Option B migration/configuration/readiness/authorization.
-Stage 5 is only partially closed because model payload schemas remain in code
-and target reuse/capacity records are absent. Stage 12 and live-provider/visual
-quality acceptance remain open; Stage 11 remains disabled.
-
-## Remaining work, in order
-
-1. **Remaining owner configuration and live acceptance:** Gemini configuration,
-   prices/budgets, native Mac execution, and the owner-selected `r2.dev` relay
-   have been checked; a purchased domain is not required for this PoC. Resolve
-   the Meta effective-token mismatch, approve destination bindings/cadence and
-   visual quality, verify bucket lifecycle policy, then freeze the production
-   catalog and obtain fresh persisted readiness before one exact Post now.
-   YouTube and X credentials are on hold, not Instagram-only blockers. The
-   [current-state register](../current-state.md#genuine-human-review-and-external-gates)
-   owns observed evidence and remaining gates.
-2. **Routing and reference quality:** curate operator-labeled one/many/weak-skip/
-   whole-reject fixtures and domain evidence standards. Measure forced routes,
-   missed value, support quality, duplicate angles, and actual cost. Add a
-   research service only through a separate bounded design.
-3. **Runtime hardening:** basic stage heartbeats and contract-aligned initial
-   leases are implemented. Add mid-call lease renewal, per-stage process
-   isolation or equivalent supervision evidence, active-claim/restart
-   visibility, and execution/output capacity admission. Complete unattended Mac
-   Mini restart/sleep/load checks.
-4. **Identity, reuse, and recurrence:** add forward records/serializers for
-   cross-revision canonical reuse, material-new-evidence recurrence, cooldown,
-   and consumption without weakening confirmed/uncertain publication guards.
-5. **Retention and recovery:** add safe artifact/high-volume SQLite retention,
-   off-device backup/runbook, operational maintenance views, and explicit local
-   recovery requests. Never revive the destructive legacy cleanup path.
-6. **Standalone contracts and goldens:** promote the closed in-code model
-   payloads to independently versioned artifacts where operationally useful and
-   add accepted visual goldens. Existing validators remain authoritative until
-   a forward version replaces them.
-7. **Optional X threads:** design/test ordered per-step publication, partial
-   prefixes, cadence, and reconciliation before enabling the format.
-
-## Audit-to-plan disposition
-
-The [audit history](../archive/audits/repository-audit-2026-09.md) preserves the
-original findings. The table below now lists only gaps that remain after the v4
-bounded production implementation; the [active audit](../../audit_report.md)
-retains historical repair verification rather than this backlog.
-
-| Future work | Original findings | Dependency / acceptance |
+| Check | Acceptance evidence | Owner |
 | --- | --- | --- |
-| Canonical reuse, consumption/cooldown/material-evidence recurrence | Remaining H10–H12, D7, D10 | New identity/reuse/recurrence records and fixtures. V4 preserves duplicate publication guards but does not claim creative reuse. |
-| Capacity accounting and production supervision | Remaining H13 and production H6/M14 | Basic workflow heartbeats now exist; add slot admission, mid-call lease renewal, full claim/restart visibility, and unattended restart/load evidence. Unknown paid/public work already fails closed. |
-| Reference/routing quality | Remaining H12/H14 quality work | Operator-labeled semantic fixtures, supported reference policy, and observed costs; structural schemas alone do not prove editorial quality. |
-| Visual/provider acceptance | Remaining H8/H14/H15 | Pinned production font/profile and adapters are implemented/fake-tested; the owner must approve visual output and verify live Meta/X/R2 behavior. |
-| Full operations portfolio and recovery | Remaining H7, M7–M11, H16 | Dashboard shows core production state and supports Post now/cancel/reconciliation; add full worker/maintenance health, local recovery commands, artifact/SQL retention, and off-device recovery. |
-| Mac deployment and full production acceptance | Remaining M13/M14/D12 | Templates exist but are not installed; actual launchd/provider/visual/load/restore acceptance remains a deployment gate. |
-| Optional optimizations or later migrations | M3 follow-on | Conditional feed cache/304 reuse and in-place historical normalization conversion are not prerequisites for the unconditional collector/separate-DB corrected experiment. No automatic identity rewrite. |
+| Vertex access and budget fit | Explicitly authorized bounded real calls; inspect usage/reservations and failures | Human operator |
+| Human idea → job | Review clarification, brief fidelity, five domain reasons, selected angles and job recipes | Human editorial review |
+| Detection → job | Inspect source health, frozen grouping/scoring and selected handoff lineage; respect baseline warm-up | Human + developer |
+| Dashboard usefulness | Read both origins, follow item/Cluster/Opportunity/job links and refine conversations without losing drafts | Human operator |
 
-## Integration gates
+Do not lower conservative Selection gates merely to produce jobs. Offline tests
+establish boundary behavior, not editorial truth or live provider access.
 
-1. Run `.venv/bin/python scripts/check_docs.py` for docs-only work and both that command and
-   `.venv/bin/python scripts/run_tests.py` for implementation or documentation-checker changes.
-2. Do not enable an unattended production worker until its input/output schema,
-   migration, configuration, readiness checks, and boundary fixtures are present
-   and approved. The v4 path is opt-in and remains blocked until owner/live gates
-   in [Current state](../current-state.md#genuine-human-review-and-external-gates)
-   are completed.
-3. Use local fakes/fixtures for Gemini, Meta, X, and R2 by default. Live publishing
-   requires explicit authorization for each exact package/account.
-4. Preserve the existing detection/dashboard milestone and SQLite handoffs.
-   These strategy changes do not authorize a DB reset or runtime activation.
-5. Complete at least one observed end-to-end path per domain, the four routing
-   cases (one/many/weak-skip/whole-reject), and—after it is implemented—canonical reuse across Instagram/X.
-   Record versions, validation and cost evidence, human review, and delivery
-   outcome; missing optional destinations are explicit, not false failures.
-6. A later domain or output must reuse shared persistence, renderer, review,
-   posting and runtime boundaries. No future-video infrastructure belongs in
-   the Phase 1 work list.
+## 2. Content quality and validation
+
+Before unattended production, strengthen evidence checking beyond structural
+reference IDs. Add an approved, versioned teaching-reference catalog if English
+quality requires it, and evaluate target/sense compatibility and natural examples.
+Other domains need dated evidence, jurisdiction/context and qualified-claim
+checks. Do not give generation unbounded research tools.
+
+Acceptance: labeled fixtures for unsupported claims, misleading references,
+unsafe domain advice and adaptation loss of qualifications, plus human quality
+review of all five domains and both output profiles. A schema-valid response
+must not be labeled fact-verified.
+
+## Reliability and scale
+
+Prioritize observed reliability needs before queue infrastructure:
+
+- **Budget bounds:** validate actual input tokens against reserved phase maxima,
+  including prompt/schema overhead. Current admission uses configured maxima and
+  a character-size guard, not exact input token counting. Test that accepted
+  calls cannot silently exceed the intended reservation assumptions.
+- **Audited recovery:** define explicit operator handling for failed/uncertain
+  paid calls, closed threads and expired reviews. No blind replay or approval
+  reuse. A renewed review must revalidate exact bytes/destination and get fresh
+  Post now authorization.
+- **Coverage/reuse:** define immutable reuse links and duplicate publication
+  guards before reusing canonical content across revisions. Output-only rework
+  should eventually avoid generation while keeping the original job's spend.
+  Test preserved siblings, changed evidence and uncertain publication.
+- **Capacity/fairness:** add bounded local execution/unreviewed-output admission
+  only when measured backlog warrants it. Specify slot acquisition/release and
+  starvation tests; no distributed queue is justified.
+- **Semantic quality:** build a labeled event corpus measuring false merges and
+  missed equivalents across sources, entities, numbers and languages. Do not
+  pool inferred cross-cluster scoring credit without a separately validated design.
+- **Visibility:** extend historical search and summarized semantic-pair inspection
+  when retained evidence becomes cumbersome; preserve bounded read-only views.
+
+## Storage measurement and retention
+
+Inspect actual component sizes, table counts and JSON-byte growth after 7 and
+30 days. Missing/partial measurements are not zero growth. Only then choose
+bounded, audited retention rules separately for database rows and rendered assets.
+Preserve selected source evidence, frozen handoffs, conversations, briefs,
+decisions and jobs. Backup pruning/WAL checkpoints are not database retention.
+Planning must remain independent of sample freshness or measured free space.
+
+## Delivery acceptance
+
+Preview and production exist but need separate domain/profile quality acceptance.
+Before enabling a real destination, review account bindings, font/profile,
+prices/budgets, backup/restore and live readiness. A public smoke test needs exact
+per-destination Post now; credentials alone do not authorize it.
+
+Remaining integration work:
+
+- Validate X text-weight boundaries against the provider and configured account
+  entitlements; X delivery remains on hold.
+- Verify Meta permissions/token lifecycle and R2 public-byte availability.
+  Keep the selected r2.dev origin unless measured reliability requires a change;
+  verify a bucket lifecycle backstop before unattended operation.
+- Strengthen provider reconciliation with bounded pagination/time filtering and
+  identity evidence. Current one-page text matching always needs human resolution.
+- Consider a whole-attempt delivery deadline covering R2 and final publication,
+  not only Meta container staging/polling.
+- Token renewal, expiry warnings and off-device backup scheduling need explicit
+  operations work; they are not installed by the pollers.
+
+YouTube collection remains disabled/on hold unless explicitly enabled.
+
+## Optional expansion
+
+X threads require a persisted step per public post, exact reviewed text/reply
+links, a final-send marker per step, published-prefix audit, cadence accounting
+and explicit uncertain/partial recovery. They cannot be enabled by looping the
+single-post adapter. No automatic resend, deletion or restart of a published prefix.
+
+Additional sources, regional coverage and visual families require measured value
+and focused contracts before implementation. Human scheduling, unattended
+editorial approval and video are outside the current scope.

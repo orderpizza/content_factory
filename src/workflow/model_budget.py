@@ -1,4 +1,4 @@
-"""Integer-micro-USD admission policy for opt-in production Gemini calls."""
+"""Integer-micro-USD admission policy for opt-in Gemini calls."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ DEFAULT_PHASE_LIMITS = {
 def _decimal(name: str, environment: Mapping[str, str]) -> Decimal:
     raw = environment.get(name)
     if raw is None or not raw.strip():
-        raise ModelBudgetConfigurationError(f"{name} is required for production model admission")
+        raise ModelBudgetConfigurationError(f"{name} is required for priced model admission")
     try:
         value = Decimal(raw)
     except InvalidOperation as error:

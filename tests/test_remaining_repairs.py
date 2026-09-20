@@ -14,8 +14,7 @@ import tempfile
 import unittest
 
 from common.diagnostics import safe_diagnostic
-from common.legacy import RetiredOperationError
-from database.migrations import connect, migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
+from database.current import connect, initialize_database
 from dashboard import render_detection_dashboard, render_workflow_trace
 from dashboard.detection import AUTO_REFRESH_SCRIPT, AUTO_REFRESH_CSP, _worker_freshness
 from detection.collector import DetectionCollector
@@ -23,9 +22,7 @@ from detection.configuration import ConfigurationError, load_manifest, validate_
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
 from detection.normalization import canonical_link
 from detection.scout import DetectionScout
-from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
-from posting.agent import BlueskyPublisher
 from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, VisualRenderer, WorkflowStore
 
 
@@ -80,7 +77,9 @@ class RemainingRepairTests(unittest.TestCase):
         self.assertEqual(AUTO_REFRESH_CSP, expected)
         self.assertIn("document.hidden", AUTO_REFRESH_SCRIPT)
         self.assertIn("visibilitychange", AUTO_REFRESH_SCRIPT)
-        self.assertIn("clearTimeout(timer)", AUTO_REFRESH_SCRIPT)
+        self.assertIn("clearTimeout(timeout)", AUTO_REFRESH_SCRIPT)
+        self.assertNotIn("location.reload", AUTO_REFRESH_SCRIPT)
+        self.assertIn("fetch('/snapshot'", AUTO_REFRESH_SCRIPT)
         with DetectionStore(self.path, read_only=True) as store:
             html = render_detection_dashboard(store.connection)
         self.assertNotIn("http-equiv='refresh'", html)
@@ -103,12 +102,10 @@ class RemainingRepairTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "fixture.db"
         self.manifest = load_manifest(ROOT / "config/releases/detection.json")
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
-        upgrade_semantic_fixture(self.path)
+
 
     def route(self, store):
         return store.register_capability("english", enabled=True, generation_ready=True, outputs=[{
@@ -253,7 +250,7 @@ class RemainingRepairTests(unittest.TestCase):
             html = render_workflow_trace(store.connection)
             self.assertIn("needs_clarification", html)
             self.assertIn("What topic", html)
-            self.assertEqual(html.count("<article>"), 1)
+            self.assertEqual(html.count("<article "), 1)
 
     def test_outer_dashboard_snapshot_is_preserved(self):
         connection = connect(self.path, read_only=True)
@@ -271,11 +268,6 @@ class RemainingRepairTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "does not exist"):
                     store.approve_review(review_id, row_version=1, command_id="approve")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
-
-    def test_legacy_publishing_boundary_fails_before_network(self):
-        with patch("socket.socket.connect", side_effect=AssertionError("network forbidden")):
-            with self.assertRaises(RetiredOperationError):
-                BlueskyPublisher("fixture", "secret").publish("text")
 
     def test_numeric_booleans_and_obsolete_cluster_configuration_are_rejected(self):
         for key in ("trust_weight", "quota_limit"):

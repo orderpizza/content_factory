@@ -1,4 +1,4 @@
-"""Gemini-backed, domain-validated canonical generation for the v2 workflow."""
+"""Gemini-backed, domain-validated canonical generation for the workflow."""
 
 from __future__ import annotations
 

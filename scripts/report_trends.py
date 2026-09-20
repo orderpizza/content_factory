@@ -19,7 +19,7 @@ def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     load_environment_file(ROOT / ".env")
-    database = os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db"))
+    database = os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db"))
     limit = max(1, min(100, int(os.getenv("CONTENT_FACTORY_REPORT_LIMIT", "20"))))
     with DetectionStore(database, read_only=True) as store:
         rows = store.connection.execute(
@@ -29,8 +29,9 @@ def main() -> None:
             (limit,),
         ).fetchall()
     if not rows:
-        print("No trend candidates. Run scripts/run_detection.py first.")
+        print("No scored Clusters. Run scripts/run_detection.py first.")
         return
+    print('Cluster ID · Detection attention score · Detection selection · Subject')
     for row in rows:
         print(
             f"{row['trend_candidate_id']:>4}  {row['score']:.4f}  "

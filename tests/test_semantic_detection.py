@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from database.migrations import SchemaError, migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety, migrate_production_workflow, migrate_semantic_events
+from database.current import SchemaError, initialize_database
 from detection.collector import DetectionCollector
 from detection.configuration import ConfigurationError, load_manifest, validate_manifest
 from detection.hybrid import evaluate
@@ -18,7 +18,6 @@ from detection.normalization import canonical_title
 from detection.scout import DetectionScout
 from detection.semantic import resolve, load_resolution
 from detection.store import DetectionStore
-from semantic_fixture import upgrade_semantic_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 AT = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
@@ -120,12 +119,11 @@ class SemanticScoutTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "semantic.db"
-        for migrate in (migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety):
-            migrate(self.path)
+        initialize_database(self.path)
         self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
-        upgrade_semantic_fixture(self.path)
+
 
     def collect(self, store, titles, *, at=AT):
         def response(source):
@@ -178,7 +176,7 @@ class SemanticScoutTests(unittest.TestCase):
             for sql in ("UPDATE scout_event_resolutions SET resolution_json='{}'", "DELETE FROM scout_event_resolutions"):
                 with self.assertRaises(sqlite3.IntegrityError), store.connection:
                     store.connection.execute(sql)
-            self.assertFalse(migrate_semantic_events(self.path))
+            self.assertFalse(initialize_database(self.path))
 
     def test_linking_does_not_increase_any_scoring_component(self):
         with DetectionStore(self.path) as store:
@@ -257,33 +255,20 @@ class SemanticScoutTests(unittest.TestCase):
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM trend_candidates").fetchone()[0], 0)
 
 
-class SemanticMigrationTests(unittest.TestCase):
-    def test_migration_refuses_unfinished_freeze_and_preserves_completed_evidence(self):
+class CurrentSchemaTests(unittest.TestCase):
+    def test_incompatible_database_is_refused_without_mutation(self):
+        import sqlite3
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "migration.db"
-            for migrate in (migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety):
-                migrate(path)
-            with DetectionStore(path) as store:
-                store.apply_manifest(load_manifest(ROOT / "config/releases/detection.json"))
-            migrate_production_workflow(path)
-            with DetectionStore(path) as store:
-                scout = DetectionScout(store, encoder=FakeEncoder())
-                release_id = store.active_release()["configuration_release_id"]
-                run_id = scout._materialize_run(AT, release_id, AT)
-                claim = scout._claim(run_id, AT)
-                scout._freeze_inputs(run_id, release_id, AT, claim)
-                before = tuple(store.connection.execute("SELECT * FROM scout_frozen_evidence").fetchone())
-                ledger = [tuple(r) for r in store.connection.execute("SELECT * FROM schema_migrations")]
-                with self.assertRaisesRegex(SchemaError, "unfinished frozen"):
-                    migrate_semantic_events(path)
-                self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 4)
-                self.assertIsNone(store.connection.execute("SELECT name FROM sqlite_master WHERE name='scout_event_resolutions'").fetchone())
-                with store.connection:
-                    store.connection.execute("UPDATE scout_evaluation_runs SET status='completed' WHERE scout_evaluation_run_id=?", (run_id,))
-                self.assertTrue(migrate_semantic_events(path))
-                self.assertEqual(before, tuple(store.connection.execute("SELECT * FROM scout_frozen_evidence").fetchone()))
-                self.assertEqual(ledger, [tuple(r) for r in store.connection.execute("SELECT * FROM schema_migrations WHERE version<=4")])
-                self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM scout_event_resolutions").fetchone()[0], 0)
+            path = Path(tmp) / "incompatible.db"
+            connection = sqlite3.connect(path)
+            connection.execute("CREATE TABLE sentinel(value TEXT)")
+            connection.execute("PRAGMA user_version=5")
+            connection.commit()
+            before = list(connection.iterdump())
+            with self.assertRaises(SchemaError):
+                initialize_database(path)
+            self.assertEqual(before, list(connection.iterdump()))
+            connection.close()
 
 
 if __name__ == "__main__":

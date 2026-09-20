@@ -19,14 +19,12 @@ import unittest
 
 from PIL import Image
 
-from database.migrations import (
+from database.current import (
     SchemaError,
     connect,
-    migrate_detection_dashboard,
-    migrate_detection_safety,
-    migrate_editorial_workflow,
-    migrate_production_workflow,
-    validate_production_workflow,
+    initialize_database,
+    initialize_database,
+    validate_database,
 )
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
@@ -127,13 +125,11 @@ class ProductionWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.path = Path(self.temporary.name) / "content.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        self.path = Path(self.temporary.name) / "development.db"
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
-        migrate_production_workflow(self.path)
+        initialize_database(self.path)
 
     def configuration(self, *, platforms=("instagram", "x"), max_posts_per_day=1,
                       min_post_interval_minutes=1200):
@@ -345,12 +341,12 @@ class ProductionWorkflowTests(unittest.TestCase):
         review_id = store.complete_render(run, manifest, assets)
         return review_id
 
-    def test_v4_migration_is_forward_only_valid_and_idempotent(self):
-        self.assertFalse(migrate_production_workflow(self.path))
+    def test_current_schema_supports_production_and_is_idempotent(self):
+        self.assertFalse(initialize_database(self.path))
         with connect(self.path) as connection:
-            validate_production_workflow(connection)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
-            self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 4)
+            validate_database(connection)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_production_catalog_is_blocked_until_readiness_is_current(self):
@@ -754,10 +750,10 @@ class ProductionWorkflowTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM capability_readiness_checks WHERE status='ready'"
             ).fetchone()[0], 2)
 
-    def test_storage_state_fails_closed_for_new_work(self):
+    def test_storage_state_only_gates_downstream_work(self):
         with WorkflowStore(self.path, enforce_storage=True) as store:
-            with self.assertRaisesRegex(RuntimeError, "storage safety"):
-                store.create_human_idea("This is blocked.", command_id="missing-storage")
+            store.create_human_idea("Planning is allowed.", command_id="missing-storage")
+            self.assertFalse(store._storage_action_allowed('model'))
             with store.transaction():
                 store.connection.execute(
                     "INSERT INTO storage_samples(state,free_bytes,total_bytes,database_bytes,wal_bytes,"
@@ -768,7 +764,8 @@ class ProductionWorkflowTests(unittest.TestCase):
             request_id = store.create_human_idea(
                 "This human idea can wait under warning.", command_id="warning-storage",
             )
-            self.assertIsNone(store.claim("intake_requests", "intake_request_id", "worker"))
+            self.assertIsNotNone(store.claim("intake_requests", "intake_request_id", "worker"))
+            self.assertFalse(store._storage_action_allowed('model'))
             self.assertEqual(store.connection.execute(
                 "SELECT status FROM intake_requests WHERE intake_request_id=?", (request_id,),
             ).fetchone()[0], "pending")

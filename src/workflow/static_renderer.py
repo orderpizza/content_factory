@@ -68,8 +68,6 @@ class StaticVisualRenderer:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         final_directory = self.artifact_root / f"render-{run['render_run_id']}"
         if final_directory.exists():
-            if int(self.store.connection.execute("PRAGMA user_version").fetchone()[0]) < 4:
-                raise RuntimeError("immutable render directory already exists; reconciliation is required")
             quarantine_root = self.artifact_root / "quarantine"
             quarantine_root.mkdir(parents=True, exist_ok=True)
             quarantine = quarantine_root / (

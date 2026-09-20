@@ -1,79 +1,59 @@
-# Content Factory Instructions
+# Content Factory Working Instructions
 
-## Project Rules
+## Start here
 
-- The rules below define the target boundaries, not an implementation inventory.
-  Code/tests establish current behavior; `docs/current-state.md` maps implemented,
-  partial and legacy paths. Do not claim a planned safeguard already exists.
-- This is a local-first automated content-factory POC. Mac Mini is the primary
-  runtime, SQLite is the POC state store, and GCP is used for Vertex Gemini.
-- Preserve persisted SQLite handoffs. Do not introduce direct module-to-module
-  calls, distributed queues, or unnecessary infrastructure.
-- Keep lexical canonicalization and frozen Detection scoring deterministic and
-  LLM-free. Local MiniLM event resolution freezes its evidence before scoring;
-  it never invokes an inference API. Gemini belongs only in
-  Idea Intake, Determination, domain generation, and bounded output adaptation.
-- Respect the responsibility chain: a selected trend or human idea becomes a
-  `ContentThread` and immutable `BriefRevision`; then
-  `Determination -> domain/angle routes -> ContentJob -> GenerationRun
-  -> CanonicalContent -> OutputRequest -> AdaptationRun -> ContentPackage
-  -> RenderRun -> Visual Renderer -> ReviewRequest -> PostRequest -> PostRecord
-  -> Posting Agent`. Zero, one, or several domains may be selected.
-- Pipelines are domain/intelligence modules: `english`, `ai_tools`,
-  `personal_finance`, `business_side_hustle`, and `psychology_behavior`.
-  Keep pipeline identity separate from social account identity. Generate
-  platform-neutral canonical content once, then adapt it for Instagram or X.
-- Phase 1 is static: Instagram carousels and X-native image + text; threads are
-  optional and gated. No TikTok, YouTube Shorts, AI video, or Bluesky.
-- Output adaptation owns platform copy/metadata and visual-profile selection;
-  the shared HTML/CSS + Playwright renderer owns assets. Delivery adapters do
-  not generate. Every destination requires its own exact human approval.
-- Posting never generates or changes captions, tags, hashtags, or visual
-  content. Public delivery requires the human-review and explicit
-  delivery-authorization boundary defined by the Tier 2 contracts.
-- The dashboard is the Human–Agent Interface: it persists human ideas, replies,
-  preview decisions, scoped review feedback, and—in schema v4—exact **Post now**,
-  pre-final cancellation, and reconciliation commands. It never invokes a
-  worker or external API directly.
-- The runner keeps deterministic workers as its default. Its explicit
-  `--gemini` mode may use Gemini for Idea Intake and Determination;
-  `--review-preview` also enables canonical generation, output adaptation, and
-  the local Playwright renderer. Synthetic mode remains non-deliverable.
-  `--production` selects the immutable v4 real-destination catalog and priced
-  admission; `--delivery` additionally composes credentialed adapters, but no
-  public call is possible without one exact dashboard Post now authorization.
-- Keep secrets out of the repository. Isolate external API access behind small
-  services or adapters.
+1. Read `docs/system.md` for architecture and document ownership.
+2. Read `docs/current-state.md` for implemented modes and safe operations.
+3. Follow the required-reading matrix in the system guide for the affected boundary.
+   Read provider/domain references only when that detail is relevant.
 
-## How To Start Work
+## System boundaries
 
-1. Read `docs/system.md` first for the target architecture/router, then
-   `docs/current-state.md` for actual implementation and safe operations.
-2. Use the **Required reading for a code change** matrix in `docs/system.md`.
-   Read every Tier 2 document named for the planned change before editing code.
-3. Read the relevant pipeline or platform reference only when its detail is
-   needed.
-4. Consult `docs/archive/decisions.md` only when a specific historical rationale
-   or conflict needs investigation; it is not required working context.
-5. Update `docs/system.md` for current objective/ownership changes and the
-   owning focused specification for detailed design changes.
+- Local-first Mac Mini PoC; SQLite is the persisted cross-worker interface.
+  Do not introduce direct worker calls, distributed queues or cloud workers.
+- Detection is LLM-free: deterministic lexical canonicalization, local MiniLM
+  resolution and frozen deterministic scoring. Gemini is limited to Intake,
+  Determination, canonical generation and output adaptation.
+- Use Source / Feed, Raw Feed Item, Cluster, Opportunity, Determination Decision
+  and ContentJob. An Opportunity requires a committed Detection handoff.
+- A selected domain/angle creates a job. Generate platform-neutral canonical
+  content once per job, then adapt independently for Instagram and X.
+  Domain IDs are not account IDs.
+- Adaptation owns copy/metadata; the shared renderer owns assets; posting only
+  delivers exact reviewed content. Every destination needs its own Post now.
+- The dashboard persists commands and reads evidence; it never invokes workers
+  or providers. Preserve immutable snapshots, lineage and safe uncertain outcomes.
+- Planning through ContentJob creation ignores storage admission. Monitoring is
+  advisory; actual write errors and downstream production gates still apply.
+- Deterministic workers are the default. `--gemini --planning-only` stops at jobs.
+  Preview, production and delivery are separate explicit modes; synthetic
+  destinations cannot publish. No video or X threads are implemented.
 
-## Development Rules
+## Change discipline
 
-- Use explicit models and persisted statuses at component boundaries.
-- Add or update boundary tests for meaningful behavior changes.
-- When code changes a documented contract, update its canonical Tier 2 document
-  in the same change. Update `docs/system.md` only for a routing, ownership, or
-  top-level boundary change.
-- For documentation-only work, run `.venv/bin/python scripts/check_docs.py` before handoff.
-  For implementation work, run both `.venv/bin/python scripts/run_tests.py` and
-  `.venv/bin/python scripts/check_docs.py` before handoff.
-- Keep architecture detail in its owning specification and link rather than
-  duplicate it. Preserve the historical decision archive without using it as a
-  routine change log.
-- Do not modify unrelated dirty-worktree files.
-- Never run legacy publishing, live provider checks, public posting, or
-  non-temporary retention as routine checks. V1–v5 workers use
-  `database.migrations`; `database.sqlite` is incompatible legacy.
-- Update `docs/current-state.md` when implemented capabilities or entrypoints
-  change; keep future requirements in their focused specifications.
+- Explore code/tests before editing; specs must describe current behavior.
+  Do not claim a planned safeguard exists or silently relax an implemented one.
+- Use explicit persisted models/statuses and boundary tests. Preserve unrelated
+  dirty-worktree changes and user data.
+- Secrets stay outside tracked files, diagnostic logs and model inputs.
+  Isolate external API access in small adapters.
+- Do not run live provider checks, paid inference, public posts or non-temporary
+  retention as routine verification.
+- All workers use `database.current`. Setup creates a fresh database;
+  never reset or migrate an existing database as an incidental repair.
+- After documentation-only changes run `.venv/bin/python scripts/check_docs.py`.
+  After code/tooling changes also run `.venv/bin/python scripts/run_tests.py`.
+
+## Documentation maintenance
+
+Keep one owner for each contract, as routed by `docs/system.md`. Update the owner
+in the same change; link to it instead of duplicating its detail. Update
+`docs/current-state.md` when runnable capabilities or operations change.
+Future requirements and genuine human decisions belong in
+`docs/plans/target-implementation.md`, with explicit acceptance criteria.
+
+Keep repository documentation current or forward-looking. Do not add dated
+audit registers, decision archives, migration narratives, verification diaries
+or superseded algorithm descriptions. Retain version identifiers only when used
+by running code, configuration or persisted evidence. Runtime history belongs in
+its immutable records; source-change history belongs in Git.

@@ -18,7 +18,7 @@ import tempfile
 import unittest
 
 from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety
+from database.current import initialize_database
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from workflow import (
@@ -71,10 +71,8 @@ class GeminiWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.path = Path(self.temporary.name) / "content.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        self.path = Path(self.temporary.name) / "development.db"
+        initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
 
@@ -623,6 +621,9 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(before, after)
 
     def test_dashboard_http_command_enforces_csrf_and_only_creates_intake_handoff(self):
+        from workflow.maintenance import StorageMonitor
+        with WorkflowStore(self.path) as store:
+            StorageMonitor(store, self.path.parent / 'artifacts', self.path.parent / 'backups').run_once()
         handler = runpy.run_path(str(ROOT / "scripts" / "serve_dashboard.py"))[
             "DashboardHandler"
         ]
@@ -675,6 +676,7 @@ class GeminiWorkflowTests(unittest.TestCase):
 
     def test_vertex_client_uses_json_schema_and_records_usage_without_network(self):
         calls = []
+        closed = []
 
         class GenerateContentConfig:
             def __init__(self, **values):
@@ -697,6 +699,9 @@ class GeminiWorkflowTests(unittest.TestCase):
             def generate_content(self, **values):
                 calls.append(("generate", values))
                 return response
+
+            def close(self):
+                closed.append(True)
 
         fake_genai.Client = Client
         fake_google = ModuleType("google")
@@ -732,6 +737,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(config["max_output_tokens"], 8000)
             self.assertEqual(config["temperature"], 1.0)
         self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(closed), len([call for call in calls if call[0] == 'client']))
         self.assertEqual(calls[0][1]["project"], "fixture-project")
         self.assertEqual(calls[1][1]["config"].values["response_mime_type"], "application/json")
         self.assertIsNone(calls[1][1]["config"].values["thinking_config"])

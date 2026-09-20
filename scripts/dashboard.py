@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import connect, validate_detection_dashboard
+from database.current import connect, validate_database
 from dashboard import render_detection_dashboard
 
 
@@ -17,11 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     load_environment_file(ROOT / ".env")
     connection = connect(
-        os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")),
+        os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")),
         read_only=True,
     )
     try:
-        validate_detection_dashboard(connection)
+        validate_database(connection)
         output = Path(
             os.getenv(
                 "CONTENT_FACTORY_DASHBOARD_PATH", str(ROOT / "generated" / "dashboard.html")

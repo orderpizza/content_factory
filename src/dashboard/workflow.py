@@ -9,133 +9,7 @@ import sqlite3
 import uuid
 
 
-def render_workflow_trace(
-    connection: sqlite3.Connection,
-    *,
-    limit: int = 20,
-    interactive: bool = False,
-    csrf_token: str = "",
-) -> str:
-    limit = max(1, min(int(limit), 100))
-    production = int(connection.execute("PRAGMA user_version").fetchone()[0]) >= 4
-    rows = connection.execute(
-        "SELECT * FROM content_threads ORDER BY updated_at DESC,thread_id DESC LIMIT ?", (limit,)
-    ).fetchall()
-    delivery_note = (
-        "Post now is available only for exact delivery-ready assets and current destinations."
-        if production else "Public authorization and delivery are disabled in this schema."
-    )
-    parts = ["<section class='workflow'><h2>Editorial workflow</h2>"
-             f"<p>Latest {limit} threads. {delivery_note} "
-             "Messages, requests and branches below are bounded recent history.</p>"]
-    if production:
-        parts.append(_production_status(connection))
-    if interactive:
-        parts.append(
-            "<p><b>Local input:</b> Do not paste credentials, tokens, private URLs, or personal data.</p>"
-            "<form method='post' action='/commands'><h3>Submit an idea</h3>"
-            f"{_hidden('csrf_token', csrf_token)}{_hidden('command_kind', 'new_idea')}"
-            f"{_hidden('command_id', str(uuid.uuid4()))}"
-            "<textarea name='body' maxlength='8000' required "
-            "placeholder='What should the content help someone understand or do?'></textarea>"
-            "<button type='submit'>Submit idea</button></form>"
-        )
-    if not rows:
-        parts.append("<p>No threads yet.</p>")
-    for thread in rows:
-        thread_id = thread["thread_id"]
-        messages = connection.execute(
-            "SELECT author_kind,body,sequence_number FROM thread_messages WHERE thread_id=? "
-            "ORDER BY sequence_number DESC LIMIT 50", (thread_id,)
-        ).fetchall()
-        revisions = connection.execute(
-            "SELECT revision_id,revision_number,brief_json FROM brief_revisions WHERE thread_id=? "
-            "ORDER BY revision_number DESC LIMIT 10", (thread_id,)
-        ).fetchall()
-        topic = json.loads(revisions[0]["brief_json"]).get("topic", "Untitled") if revisions else "Awaiting Intake"
-        parts.append(f"<article><h3>Thread #{thread_id}: {escape(topic)}</h3>"
-                     f"<p>{escape(thread['origin'])} / {escape(thread['status'])}; row version "
-                     f"{thread['row_version']}</p><details><summary>Idea conversation (latest 50)</summary><ol>")
-        parts.extend(f"<li value='{m['sequence_number']}'><b>{escape(m['author_kind'])}</b>: "
-                     f"{escape(m['body'])}</li>" for m in reversed(messages))
-        parts.append("</ol></details><ul>")
-        if interactive and thread["status"] == "open":
-            parts.append(
-                "<form method='post' action='/commands'><h4>Reply or refine</h4>"
-                f"{_hidden('csrf_token', csrf_token)}{_hidden('command_kind', 'continue_thread')}"
-                f"{_hidden('command_id', str(uuid.uuid4()))}{_hidden('thread_id', thread_id)}"
-                f"{_hidden('row_version', thread['row_version'])}"
-                "<textarea name='body' maxlength='8000' required "
-                "placeholder='Answer Intake or request a revision'></textarea>"
-                "<button type='submit'>Send reply</button></form>"
-            )
-        requests = connection.execute(
-            "SELECT intake_request_id,status,failure_detail FROM intake_requests WHERE thread_id=? "
-            "ORDER BY intake_request_id DESC LIMIT 20", (thread_id,)
-        ).fetchall()
-        for request in requests:
-            parts.append(f"<li>Intake #{request['intake_request_id']}: {escape(request['status'])}"
-                         f" — {escape(request['failure_detail'] or '')}</li>")
-        parts.append("</ul>")
-        for revision in revisions:
-            decision = connection.execute(
-                "SELECT q.determination_request_id,q.status,q.failure_reason,d.determination_decision_id,"
-                "d.outcome,d.rationale FROM determination_requests q LEFT JOIN determination_decisions d "
-                "ON d.determination_request_id=q.determination_request_id WHERE q.revision_id=?",
-                (revision["revision_id"],),
-            ).fetchone()
-            parts.append(f"<p>Revision {revision['revision_number']} (#{revision['revision_id']})</p>")
-            if decision is None:
-                parts.append("<p>Missing Determination handoff.</p>")
-                continue
-            parts.append(f"<p>Determination #{decision['determination_request_id']}: "
-                         f"{escape(decision['outcome'] or decision['status'])} — "
-                         f"{escape(decision['rationale'] or decision['failure_reason'] or '')}</p>")
-            if decision["determination_decision_id"] is not None:
-                routes = connection.execute(
-                    "SELECT pipeline_id,disposition,reason FROM determination_routes "
-                    "WHERE determination_decision_id=? ORDER BY pipeline_id LIMIT 5",
-                    (decision["determination_decision_id"],),
-                ).fetchall()
-                parts.append("<details><summary>Five domain routes</summary><ul>")
-                parts.extend(f"<li><b>{escape(r['pipeline_id'])}</b>: {escape(r['disposition'])} — "
-                             f"{escape(r['reason'])}</li>" for r in routes)
-                parts.append("</ul></details>")
-            branches = connection.execute(
-                "SELECT j.content_job_id,j.pipeline_id,g.status generation_status,c.canonical_content_id,"
-                "o.output_request_id,o.platform,o.account,a.status adaptation_status,p.content_package_id,"
-                "rr.render_run_id,rr.status render_status,v.review_request_id,v.status review_status,"
-                "pr.status post_status FROM content_jobs j "
-                "LEFT JOIN generation_runs g ON g.content_job_id=j.content_job_id "
-                "LEFT JOIN canonical_contents c ON c.content_job_id=j.content_job_id "
-                "LEFT JOIN output_requests o ON o.canonical_content_id=c.canonical_content_id "
-                "LEFT JOIN adaptation_runs a ON a.output_request_id=o.output_request_id "
-                "LEFT JOIN content_packages p ON p.output_request_id=o.output_request_id "
-                "LEFT JOIN render_runs rr ON rr.content_package_id=p.content_package_id "
-                "LEFT JOIN review_requests v ON v.render_run_id=rr.render_run_id "
-                "LEFT JOIN post_requests pq ON pq.review_request_id=v.review_request_id "
-                "LEFT JOIN post_records pr ON pr.post_request_id=pq.post_request_id "
-                "WHERE j.brief_revision_id=? ORDER BY j.content_job_id,o.output_request_id,"
-                "g.run_number DESC,a.run_number DESC,rr.run_number DESC,v.review_cycle_number DESC LIMIT 20",
-                (revision["revision_id"],),
-            ).fetchall()
-            if branches:
-                parts.append("<details><summary>Production branches (latest 20 rows)</summary><ul>")
-                for branch in branches:
-                    values = " · ".join(f"{key}: {value}" for key, value in dict(branch).items() if value is not None)
-                    parts.append(f"<li>{escape(values)}</li>")
-                    if branch["review_request_id"] is not None:
-                        parts.append(_review_preview(
-                            connection,
-                            int(branch["review_request_id"]),
-                            interactive=interactive,
-                            csrf_token=csrf_token,
-                            production=production,
-                        ))
-                parts.append("</ul></details>")
-        parts.append("</article>")
-    return "".join(parts) + "</section>"
-
+from .planning import render_threads as render_workflow_trace
 
 def _hidden(name: str, value: object) -> str:
     return f"<input type='hidden' name='{escape(name)}' value='{escape(str(value))}'>"
@@ -267,7 +141,7 @@ def _production_status(connection: sqlite3.Connection) -> str:
         (datetime.now(timezone.utc).date().isoformat(),),
     ).fetchone()
     storage_text = (
-        "missing (new work fails closed)" if storage is None
+        "missing (planning remains available; downstream admission is separate)" if storage is None
         else f"{storage['state']}; {int(storage['free_bytes']) / 1024**3:.1f} GiB free; "
              f"sampled {storage['sampled_at']}"
     )

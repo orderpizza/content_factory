@@ -12,11 +12,9 @@ import runpy
 import tempfile
 import unittest
 
-from database.migrations import (
-    migrate_detection_dashboard,
-    migrate_detection_safety,
-    migrate_editorial_workflow,
-    migrate_production_workflow,
+from database.current import (
+    initialize_database,
+    initialize_database,
 )
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
@@ -77,20 +75,18 @@ class SmokeReadinessTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.database = self.root / "content.db"
+        self.database = self.root / "development.db"
         self.artifacts = self.root / "artifacts"
         self.backups = self.root / "backups"
 
     def migrate(self, *, production: bool) -> None:
-        migrate_detection_dashboard(self.database)
-        migrate_editorial_workflow(self.database)
-        migrate_detection_safety(self.database)
+        initialize_database(self.database)
         with DetectionStore(self.database) as store:
             store.apply_manifest(load_manifest(
                 NORMALIZED_MANIFEST if production else FIXTURE_MANIFEST
             ))
         if production:
-            migrate_production_workflow(self.database)
+            initialize_database(self.database)
 
     def production_configuration(self, font: Path) -> dict:
         font_hash = sha256(font.read_bytes()).hexdigest()

@@ -1,217 +1,101 @@
-# Canonical Content and Production Specification
+# Content Production
 
-**Document role:** Tier 2 target production contract.
-**Owner:** Domain generation, canonical content, output adaptation, bounded
-fan-out, checkpoints, and production admission.
-**Read with:** [Data model](data-model.md), [Intake and Determination](idea-intake-and-determination.md),
-[Domain pipelines](../pipelines/domains.md), [Platform outputs](platform-outputs.md),
-[Reliability](reliability.md), and [Runtime](runtime.md).
+**Owner:** Canonical generation and per-destination adaptation.
+**Implementation:** `src/workflow/gemini_generation.py`,
+`src/workflow/gemini_adaptation.py`, and finalization in `src/workflow/store.py`.
+This document describes the Gemini workers. Default deterministic workers produce
+non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the mode.
 
-## Boundary and lineage
+## Persisted flow
 
 ```text
-selected DeterminationRoute (domain + angle)
-  → immutable ContentJob + first GenerationRun
-  → Pipeline Runner invokes domain strategy
-  → immutable CanonicalContent + frozen OutputRequests + AdaptationRuns
-  → Adaptation Worker invokes platform-output strategy
-  → immutable ContentPackage + first RenderRun
-  → Visual Renderer → exact assets + independent ReviewRequest
+ContentJob + GenerationRun
+  → CanonicalContent + frozen OutputRequests + AdaptationRuns
+  → one ContentPackage + RenderRun per successful output
+  → renderer → assets + ReviewRequest
 ```
 
-Workers communicate through SQLite only. Domain strategies never call output
-adapters, renderers, or social APIs. The Adaptation Worker never calls the
-renderer. Output adaptation is a creative stage; delivery adaptation in the
-Posting Agent is a different, noncreative stage.
+Each handoff is an atomic, fenced SQLite transaction. Workers never invoke the
+next worker. Canonical content, job recipes, output plans and packages are
+immutable. The [data model](data-model.md) owns identities and constraints;
+[visual rendering](visual-rendering.md) owns asset production.
 
-## Canonical content — `canonical_content_v1`
+## Canonical generation
 
-One selected domain/angle job produces at most one successful canonical object.
-The object has a common, versioned envelope and a discriminated domain extension:
+A job freezes the brief, selected domain/angle, source context and at most one
+Instagram plus one X binding. Generation makes one Gemini drafting call for
+the claimed run. Its closed `canonical_content_v1` schema contains:
 
-| Field group | Required meaning |
-| --- | --- |
-| Lineage | Content job, generation run, brief revision, coverage identity, nullable trend/opportunity reference for human ideas, pipeline ID/version |
-| Angle | Frozen angle identity, target, audience, thesis, expected reader value; generation cannot replace it |
-| Content | Hook, context, ordered key points, ordered examples, conclusion/takeaway, optional CTA |
-| Claims and sources | Stable claim IDs, source/reference IDs and versions, as-of context, source type, factual/hypothetical/inference labels, qualification and attribution requirements |
-| Domain payload | Exactly the matching domain extension from the domain catalog |
-| Integrity | Schema/prompt/model policy versions, canonical serialized hash, validation evidence |
+- hook, context, 2–8 key points, 0–8 examples, takeaway and optional CTA;
+- up to 30 claims, each with a unique ID, text, kind, evidence reference IDs
+  and qualification;
+- the matching domain payload defined by `DOMAIN_FIELDS`.
 
-No account, platform caption, hashtag policy, thread segmentation, slide layout,
-HTML/CSS, pixel geometry, or renderer choice belongs in canonical content.
-Human-origin content may have no trend, but must retain its submitted context
-and evidence. Sources are bounded verified inputs; they are not raw provider
-responses or invitations for the model to fetch a URL.
+Claim kinds are `source_bound_fact`, `qualified_inference` and
+`generated_example`. References must belong to the frozen job; a source-bound
+fact requires at least one. Canonical content contains no account-specific
+caption, layout, renderer selection or hashtags.
 
-Claims must reference evidence actually frozen in the job, or be explicitly
-labeled generated examples/qualified inference. A structural validator checks
-references and the domain schema; bounded model-assisted validation may check
-meaning, naturalness, and support, but cannot fetch facts or silently repair.
-Validation never declares an unsupported factual claim verified merely because
-a model repeated it. Unsupported required claims fail before canonical commit.
+Validation enforces structure, cardinality and reference membership. It does
+**not** prove that evidence supports a claim, that an example is natural, or
+that a domain's editorial rules are satisfied. There is no approved teaching
+reference catalog, autonomous research or second semantic-validation model call.
+[Domain policy](../pipelines/domains.md) guides prompts and human review.
 
-**Implementation status:** [Current implementation and operations](../current-state.md)
-owns the available worker subset, gates, and known validation gaps. This
-contract defines the required admission and validation behavior; as-built gaps
-do not relax it.
-
-## Immutable job and output plan
-
-Determination freezes the domain/angle recipe and a bounded list of enabled
-output bindings. Each binding identifies platform, configured account,
-format, output-contract version, renderer compatibility, and policy versions.
-The initial fan-out is at most one Instagram and one X output per selected
-domain (at most ten packages per brief revision), not every account in a catalog.
-X single post and X thread are mutually exclusive formats for that binding.
-
-Changing a platform/account does not change canonical content identity. It does
-change output identity and needs an explicitly authorized new output plan.
-Phase 1 does not automatically backfill newly configured destinations. A later
-human revision may reuse an existing canonical object only when its domain,
-angle, evidence, and creative input fingerprint are unchanged and an immutable
-reuse link records that choice; it must not falsely attribute old content to a
-new generation call. Creative/evidence changes require a new canonical job.
-
-For explicitly scoped output rework with unchanged canonical input,
-Determination finalization atomically persists the reuse link and only the new
-OutputRequest/initial AdaptationRun, starting `waiting_capacity`. Its model calls
-retain the original ContentJob budget owner and prior spend; reuse never starts
-a fresh generation budget. An unchanged existing output request is linked,
-not duplicated. A budget exhausted by earlier work remains exhausted until a
-separately approved policy/recovery design permits more spending.
-
-Generation success is one fenced transaction: persist the unique canonical
-object, complete the run, create every frozen OutputRequest and its initial
-AdaptationRun, and release the generation execution slot. It creates no render
-or review directly. Database uniqueness makes re-finalization idempotent.
+Successful generation commits one canonical result per job, all frozen
+OutputRequests and their initial pending AdaptationRuns together. Failure does
+not create partial fan-out. There is no capacity-slot allocator or
+cross-revision canonical reuse.
 
 ## Output adaptation — `output_adaptation_v1`
 
-The adapter reads the immutable canonical object and one OutputRequest. It may
-select/compress/reorder supported points, write native connective copy and
-metadata, and choose compatible visual templates. It may not change the angle,
-invent facts, drop necessary qualifications, alter source meaning, or fetch new
-evidence. A need for new content returns a typed failure requiring a revision.
+An adaptation reads one canonical object and one frozen destination. It selects
+and arranges supported content, creates platform copy/metadata and selects a
+registered visual profile. It does not fetch evidence or change the approved
+angle. Closed schemas, claim-ID mappings and local limits are defined in
+[platform outputs](platform-outputs.md); semantic fidelity still needs review.
 
-Platform-specific copy, caption/tags/hashtags, alt text, ordered thread text,
-claim mappings, selected profiles, and structured visual bindings are all frozen
-in the package before rendering. The worker may use bounded Gemini adaptation
-under its own recorded phase; deterministic serializers/validators enforce the
-final format. A failure on X does not rerun domain generation or invalidate a
-completed Instagram sibling.
+The first model call returns body and metadata together:
 
-Persist validated adapted body/units and their hash before metadata or a bounded
-repair phase. A metadata retry consumes that checkpoint across process restart
-and cannot rewrite its content. Adaptation success atomically completes the run,
-inserts one ContentPackage per OutputRequest, and creates its first RenderRun.
-After package commit, creative change requires a new human revision/output
-request, never in-place repair. Rendering retries reuse the exact package.
+- In preview mode, invalid output fails the run without a metadata repair call.
+- In production mode, a valid adapted body is checkpointed with its hash.
+  If only metadata validation fails, one metadata-only repair call is permitted
+  for that claim. A persisted body can be used on an explicitly recoverable run;
+  it is not redrafted. Invocation identity and cost-uncertainty guards still apply.
+- Invalid body, failed repair, or unsafe replay fails visibly. There is no
+  unbounded drafting/repair loop.
 
-A metadata validation or generation failure does not discard or regenerate
-the canonical content. The adaptation run may retry its own bounded metadata
-attempts using the already-checkpointed adapted body. Canonical content is
-committed before any adaptation begins.
+A metadata failure does not discard or regenerate canonical content. Canonical
+content commits before adaptation begins. Failure on one output does not rerun
+generation or invalidate a completed sibling.
 
-**Implementation status:** [Current implementation and operations](../current-state.md)
-owns the current adaptation subset and its gaps. This target contract requires
-the checkpoint and branch-isolation behavior below.
+Success atomically persists one ContentPackage per OutputRequest, completes the
+adaptation and creates its first pending RenderRun. Rendering retries use that
+exact package. Synthetic packages remain non-deliverable.
 
-Adaptation prompt v2 states the existing local copy/CTA/tag/alt-text limits
-explicitly; in particular an Instagram CTA is optional and capped at 12 words.
-The wire schema also constrains that CTA to at most 12 whitespace-separated
-words and 120 characters. Gemini 3 adaptation uses the bounded thinking and
-temperature policy in [Configuration](configuration.md); local validation
-remains authoritative and failed output is never silently repaired or published.
+## Spending and recovery
 
-## Admission and model spending
+[Configuration](configuration.md#model-admission) owns model settings and phase
+allowances. [Reliability](reliability.md#gemini-accounting) owns reservation,
+settlement and uncertain-call behavior. Intake/Determination use the daily budget;
+generation and every adaptation/repair also share the original job's USD cap.
 
-**V4 admission baseline:** `gemini_budget_v1` requires reservation and
-settlement. Positive price, warning, daily-hard, and per-job-hard values come
-from validated production environment settings; each phase also has a positive
-input/output token maximum. Reservation occurs before the provider call, daily
-hard-limit exhaustion defers the claim to the next UTC day, and job-cap
-exhaustion fails it. The capacity/slot allocator described next is an additional
-target design. See [current implementation](../current-state.md) for available
-admission behavior.
+A daily-budget deferral makes no provider call. A failed or uncertain invocation
+is not automatically rerun just because the worker polls again. Pending runs
+are claimed sequentially; schema states such as `waiting_capacity` are not
+evidence of an implemented capacity scheduler.
 
-`production_admission_v2` separates bounded execution from unreviewed-output
-capacity. The proposed initial execution limit is one active GenerationRun and
-one active AdaptationRun system-wide. Each configured destination has two
-unreviewed-output slots. These are internal cost/backlog limits, not API quotas.
+## Revisions and limitations
 
-Before admitting canonical generation, reserve one output slot for each frozen
-destination plus the generation slot atomically, in deterministic binding order.
-If any required slot is unavailable, keep the run `waiting_capacity`; make no
-model call and hold no partial reservations. Human-origin work precedes trend
-work, then oldest creation time/ID. Reserved downstream slots survive generation
-success and are transferred to their OutputRequests. Initial AdaptationRuns are `waiting_capacity` until the gate reserves their
-adaptation execution slot; generation-created runs already hold the transferred
-destination reservation. Output-local rework acquires its own destination slot
-at this gate. The Adaptation Worker
-claims only a run with a destination slot and an available adaptation execution
-slot. No output duplicates a reservation on retry/restart.
+Human refinement creates a new immutable brief and decision. Scoped review
+feedback retains its output/domain scope and excludes unchanged sibling routes.
+It does not implement canonical reuse: a newly selected route creates a new job.
+Existing approved or in-flight siblings are not silently cancelled.
 
-Release each destination slot only on its branch's generation/adaptation/render
-failure, cancellation, or terminal review outcome. A fresh review/recovery must
-reacquire a slot. A canonical failure releases all its unused output slots.
-Sibling terminal outcomes release only their own slots. Adaptation success
-releases its execution slot while retaining the destination slot through review;
-failed/cancelled execution releases its execution slot as well. Safe retry wait
-retains its reservations; terminal recovery must reacquire them. All slot changes are
-audited SQLite transactions. Slots are never released merely by browser close
-or a temporary worker outage. Leases and cost-uncertainty rules still apply.
+Checks fence closed/cancelled threads at handoff boundaries, but the dashboard
+does not expose a general cancel-thread command. Exact delivery cancellation
+belongs to [posting](posting.md).
 
-`phase1_model_policy_v1` proposes at most two canonical drafting attempts and
-two adaptation drafting attempts per destination, plus one bounded validation
-call per draft and up to two metadata attempts per destination. Every call,
-including validation, repair, rejected output, and recovery, counts against the
-same domain ContentJob's initial 30,000-token and USD 0.25 caps across generation
-and all its adaptations. These conservative inherited caps must be priced and
-checked against frozen per-phase maxima before activation; they are ceilings,
-not a guarantee every configured phase fits. Never silently raise them or split
-adaptation into a fresh budget to evade the cap.
-
-The shared daily budget in [Reliability](reliability.md) also applies to Intake,
-Determination, generation, and adaptation across all five domains. Missing
-model/price/token policies block calls. A stale started call retains an uncertain
-reservation and cannot be automatically repeated. Waiting work spends nothing.
-Persist stage-level usage so reuse savings and actual fan-out cost are visible.
-
-## Revisions, cancellation, and duplicates
-
-Cooldown expiry is not duplicate permission. The domain-angle coverage guard
-and immutable creative fingerprint are checked before reserving model cost;
-identical creative must reuse the existing canonical record or explicitly skip.
-An output fingerprint and destination publication guard separately prevent
-repeat adaptation and accidental republishing. The Data Model also defines a
-final-public-payload duplicate fingerprint independent of new audit IDs; a new
-package or revision alone cannot bypass confirmed/uncertain publication history. Explicit rework can create a new
-revision but does not erase or bypass a confirmed/uncertain publication.
-
-A platform-local change request records the exact reviewed OutputRequest as
-its scope. Reuse canonical content when unchanged and create a replacement only
-for that branch; leave siblings intact. A domain-level creative change scopes
-the new revision to that domain; changing the common brief/evidence may require
-rerouting all domains. Intake records the scope explicitly before paid work.
-New revisions never silently cancel approved or in-flight sibling deliveries.
-
-Thread cancellation fences every uncompleted branch and prevents new handoffs.
-Public or possibly public work remains in audit. Canonical content and packages
-are immutable and retained even when their branches are rejected/cancelled.
-
-## Acceptance and implementation gate
-
-Boundary tests must cover zero/one/many routes, one canonical record serving two
-outputs, no second canonical call after adaptation failure, atomic full fan-out,
-stale-claim rejection, restart checkpoints, uncertain model cost, cap exhaustion,
-capacity acquisition/release, scoped rework, duplicate content across revisions,
-and independent approval/cancellation of sibling destinations.
-
-This remains the accepted production target. The v4 implementation completes
-the bounded paid-call, checkpoint, render, exact-approval, and single-post
-delivery slice while keeping closed in-code Gemini schemas over the v2 creative
-records. It does not complete capacity slots, cross-revision reuse, recurrence,
-or full domain/reference validation. Those additions need forward contracts and
-fixtures; existing migration bytes must not be edited. The
-[target plan](../plans/target-implementation.md) tracks that remaining work.
+Canonical reuse, evidence-entailment validation, approved reference catalogs,
+capacity scheduling and audited recovery commands are tracked only in
+[the roadmap](../plans/target-implementation.md).

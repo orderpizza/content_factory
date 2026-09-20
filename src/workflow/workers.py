@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 import json
 from functools import wraps
+from time import monotonic
+from common.operation_log import emit
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .model_budget import ModelBudgetExceeded
@@ -22,15 +24,22 @@ def local_operation(table: str, key: str):
     def decorate(function):
         @wraps(function)
         def execute(self, row):
+            self.last_operation = None
+            started = monotonic()
+            error_code = None
+            result = None
             try:
-                return function(self, row)
+                result = function(self, row)
+                return result
             except ModelBudgetExceeded as error:
+                error_code = 'model_budget_exceeded'
                 try:
                     self.store.defer_model_budget_claim(table, key, row, str(error))
                 except RuntimeError:
                     pass
                 return None
             except Exception as error:
+                error_code = type(error).__name__
                 # Exception bodies may contain operator text or secrets.
                 reason = "input_too_large" if isinstance(error, ValueError) and str(error).startswith("input_too_large:") else f"local operation failed ({type(error).__name__})"
                 try:
@@ -39,6 +48,26 @@ def local_operation(table: str, key: str):
                     # A stale owner must neither finalize nor overwrite its successor.
                     pass
                 return None
+            finally:
+                final = self.store.connection.execute(f"SELECT * FROM {table} WHERE {key}=?", (row[key],)).fetchone()
+                if final is not None:
+                    value = dict(final)
+                    self.last_operation = {"table": table, "id": int(row[key]),
+                                           "status": value["status"],
+                                           "reason": value.get("failure_detail") or value.get("failure_reason") or ""}
+                    fields = dict(worker=type(self).__name__, request_id=int(row[key]),
+                                  claim_version=row['claim_version'], attempt_count=row['attempt_count'],
+                                  thread_id=dict(row).get('thread_id'), status=value['status'],
+                                  duration_ms=round((monotonic()-started)*1000), error_code=error_code,
+                                  lease_expires_at=value.get('lease_expires_at'), next_attempt_at=value.get('next_attempt_at'))
+                    if table == 'determination_requests' and result is not None:
+                        routes = self.store.connection.execute('SELECT pipeline_id,disposition FROM determination_routes WHERE determination_decision_id=?', (result,)).fetchall()
+                        jobs = self.store.connection.execute('SELECT content_job_id FROM content_jobs WHERE determination_route_id IN (SELECT determination_route_id FROM determination_routes WHERE determination_decision_id=?)', (result,)).fetchall()
+                        fields.update(decision_id=result, selected_domains=[r['pipeline_id'] for r in routes if r['disposition']=='selected'],
+                                      selected_count=sum(r['disposition']=='selected' for r in routes),
+                                      skipped_count=sum(r['disposition']=='skipped' for r in routes),
+                                      blocked_count=sum(r['disposition']=='blocked' for r in routes), job_ids=[r[0] for r in jobs])
+                    emit(table, 'claim_result', **fields)
         return execute
     return decorate
 
@@ -93,15 +122,7 @@ class IdeaIntakeWorker:
                     "open_questions": [],
                 }
         else:
-            candidate = self.store.trend_snapshot(request)["topic_snapshot"]
-            topic = candidate["canonical_subject"]
-            brief = {
-                "editorial_goal": f"Explain {topic} accurately and usefully.", "topic": topic,
-                "coverage_kind": "editorial_topic", "canonical_target": topic,
-                "revision_scope": "whole_brief", "audience": "general audience",
-                "desired_outcome": "inform", "constraints": {},
-                "source_context": f"Placeholder Intake summary for {topic}.", "open_questions": [],
-            }
+            raise ValueError("Intake requires a human conversation context")
         return self.store.complete_intake(request, brief, actor_message="A route-neutral brief was frozen by the local placeholder policy.")
 
 
@@ -117,7 +138,7 @@ class DeterminationWorker:
 
     @local_operation("determination_requests", "determination_request_id")
     def _process(self, request):
-        request, snapshot = self.store.resolve_determination_catalog(request)
+        snapshot = json.loads(request["input_snapshot_json"])
         catalog = snapshot["catalog"]
         routes: list[dict[str, Any]] = []
         selected = False

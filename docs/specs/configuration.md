@@ -1,231 +1,104 @@
-# Configuration Control Plane Specification
+# Configuration Specification
 
-**Document role:** Tier 2 target design contract. It defines the non-secret,
-versioned configuration release and activation boundary; verify implementation
-conformance from code and tests.
-**Owner:** Local Configuration Operator, repository manifests, validation,
-activation, and configuration audit.
-**Read this for:** Source instances, semantic resolver policy, capabilities, visual
-profiles/templates, posting policies, teaching references, or non-secret runtime
-policy. Read [the system guide](../system.md) first, then [the data model](data-model.md).
+**Document role:** Tier 2 current configuration contract.
+**Owner:** Nonsecret source/capability policy and local composition settings.
 
-[Current implementation and operations](../current-state.md) owns command
-availability and activated releases. This contract names
-versioned releases and required behavior; it does not assert that a release is
-currently active.
+## Releases and catalogs
 
-The active detection manifest is
-[`config/releases/detection.json`](../../config/releases/detection.json)
-and its shape is defined by
-[`configuration_manifest_v4`](../contracts/configuration-manifest-v4.schema.json).
-It contains only the detection component; later domain and destination
-configuration remains in the workflow and production configuration boundaries.
-Activation uses the explicit validator in `src/detection/configuration.py`, not
-a general JSON Schema runtime.
-When `run_workflow.py --gemini` is selected, it idempotently registers all five
-domains with synthetic Instagram/X fixture bindings for routing evaluation only.
-Those bindings cannot authorize delivery. `--review-preview` may consume them
-for real local content/adaptation/rendering, but synthetic packages remain
-review-only and record `delivery_ready=false`.
+The [Detection manifest](../../config/releases/detection.json) implements
+[configuration_manifest_v4](../contracts/configuration-manifest-v4.schema.json).
+It contains `canonicalization_v2`, local semantic resolver parameters,
+`attention_v3` and `shortlist_v2`. Model identity/revision, similarity thresholds,
+time windows, cluster/pair/group caps, CPU/batch limits and event-signal
+vocabulary are configuration, not model guesses. [Detection](detection.md) owns
+the algorithm.
 
-The active release uses
-[`configuration_manifest_v4`](../contracts/configuration-manifest-v4.schema.json):
-hybrid evidence with recency-neutral `attention_v3`, lexical
-`canonicalization_v2`, local semantic event resolution, and durable `shortlist_v2`
-queue semantics. Scout requires schema v5. Activation refuses crossing lexical
-normalization namespaces in either direction. The manifest freezes model ID and
-revision, similarity thresholds, recent/pair windows, comparison and group caps,
-CPU threads/batch size, and entity/action/negation extraction vocabulary under
-`components.detection.semantic_resolution`. Exact rules and conservative scoring
-credit belong to [Detection](detection.md#semantic-event-resolution).
-There is no operator-managed cluster-alias configuration or network inference.
-Model provisioning is explicit; a missing local model fails resolution closed.
-Use `setup_normalized_detection.py --database <new-path>` for a fresh database;
-[operations](../current-state.md#detection-database-setup) owns explicit setup.
+`setup_development.py` creates the current schema and active release, disables
+YouTube unless explicitly requested, and registers all five domains before
+work can arrive. Each has enabled/generation-ready fixture capability and
+synthetic Instagram/X bindings. Their readiness means **planning eligible**,
+not delivery-ready. Remits are frozen from `workflow.catalog.DOMAIN_REMITS`.
+Registration is immutable and idempotent only for matching input.
 
-**V4 production configuration boundary:** the explicit v4 migration is allowed only on an
-active release with `canonicalization_v2` and `attention_v3`.
-`configure_production.py` then validates and freezes
-`production_configuration_v1`: operator/time, all five domain bindings, enabled
-real destinations, numeric provider account IDs, safe secret references,
-adapter/API settings, one finite posting policy per destination, and the absolute
-pinned-font path/hash behind an explicit profile-approval flag. Instagram also
-requires an R2 account/bucket and origin-only HTTPS public domain; the owner has
-chosen the Cloudflare-managed `r2.dev` origin for this PoC. Its rate limits are
-accepted under the [Meta public-media policy](../platforms/meta.md#public-media-environments),
-and a custom-domain purchase is not an activation requirement. X is
-frozen to the implemented v2 media/single-post endpoints. Configuration rows,
-destinations, and posting policies are immutable. This contract permits no
-in-place edit or activation pointer for a second production configuration;
-changed real-account/profile policy needs a new forward release mechanism.
+Determination captures the catalog at request creation. It does not re-read
+readiness while deciding. Production final delivery separately rechecks actual
+destination readiness. Never modify a queued request to switch catalog modes.
 
-## Purpose and boundary
+## Environment loading
 
-Configuration is not a worker-local default and the dashboard does not edit it.
-The Configuration Operator applies a reviewed, repository-local, non-secret
-manifest through an explicit local command. Validation produces an immutable
-`ConfigurationRelease`; activation makes one validated release effective for a
-scope. Workers read the persisted activated release, then freeze its fingerprint
-into every run/decision/package/delivery record that depends on it.
+Runtime entrypoints load repository-root `.env` before resolving settings.
+Existing process environment values win; explicit CLI arguments win over both.
+The loader accepts literal KEY=VALUE records, without interpolation or command
+execution. Invalid input reports a line number, not secret content.
+Fresh setup uses an explicit/default new path and does not inherit a potentially
+incompatible existing database path.
 
-Secrets remain composition-root settings in the local environment or credential
-store. A manifest may name a safe `secret_ref` such as `instagram_o2_token`,
-but never contains a token, access key, account secret, signed URL, or private
-media location.
+`.env.example` is the tracked template; `.env` is ignored local configuration.
+Restart processes after changes. Keep secrets out of manifests, logs and
+conversations.
 
-Local entrypoints load an optional repository-root `.env` before resolving
-their composition settings. An already-present process environment value always
-wins, so launchd or an operator can override the file without editing it. The
-loader accepts literal `KEY=VALUE` records only, performs no interpolation or
-command expansion, and never logs values. A malformed file fails startup with
-its line number but without echoing secret content.
-Versioned setup/detection/reporting, workflow, production-configuration,
-readiness, maintenance, and dashboard commands must use this loader. See
-[Current state](../current-state.md#configuration-actually-consumed) for actual
-entrypoint and legacy coverage. Explicit CLI paths override defaults.
-`run_workflow.py` and `serve_dashboard.py` honor
-`CONTENT_FACTORY_ARTIFACT_ROOT` unless `--artifacts` is supplied. The opt-in v2
-Gemini path resolves project, location and model at the composition root and
-records token usage across Intake, Determination, generation and adaptation.
-Production mode additionally requires positive price/budget values and persists
-a worst-case reservation before each call; fixture/review-preview mode retains
-the simpler token/cost ledger without production admission. Reporting-only settings and legacy
-environment names are cataloged in
-[Current state](../current-state.md#configuration-actually-consumed).
+| Setting | Consumer / purpose |
+| --- | --- |
+| `CONTENT_FACTORY_DB_PATH` | Shared runtime SQLite path; development default data/development.db |
+| `CONTENT_FACTORY_ARTIFACT_ROOT` | Renderer, dashboard asset boundary and storage monitor |
+| `CONTENT_FACTORY_LOG_ROOT` | Local process diagnostic directory, default data/logs |
+| `CONTENT_FACTORY_LOG_MAX_BYTES`, `CONTENT_FACTORY_LOG_BACKUPS` | Rotation: default 2,000,000 bytes and 3 backups per process; seven-day startup retention |
+| `CONTENT_FACTORY_BACKUP_ROOT` | Maintenance and storage monitor; required for production runner |
+| `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server, default 127.0.0.1:8787 |
+| `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex project/location |
+| `GEMINI_MODEL` | Model ID; `VERTEX_AI_MODEL` is also accepted by the client |
+| `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Explicit configured-model prices |
+| `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD` | Shared model spending warning/hard cap |
+| `GEMINI_JOB_HARD_LIMIT_USD` | Per-job generation + all adaptation attempts |
+| `GEMINI_<PHASE>_MAX_INPUT_TOKENS`, `GEMINI_<PHASE>_MAX_OUTPUT_TOKENS` | Optional intake/determination/generation/adaptation phase maxima |
+| `YOUTUBE_API_KEY` | Only enabled YouTube collection; disabled in default development setup |
+| `CONTENT_FACTORY_FONT_PATH`, `CONTENT_FACTORY_FONT_SHA256` | Explicit reviewed production font and optional expected fingerprint |
+| `INSTAGRAM_ACCOUNT_KEY` | Internal account label, not Facebook Page ID |
+| `INSTAGRAM_USER_ID`, `META_GRAPH_API_VERSION` | Instagram Professional ID and Graph API version |
+| `INSTAGRAM_ACCESS_TOKEN` | Instagram adapter credential |
+| `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_PUBLIC_DOMAIN` | Nonsecret R2 staging configuration |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | R2 staging credentials |
+| `X_ACCOUNT_KEY`, `X_USER_ID`, `X_USER_ACCESS_TOKEN` | Optional real X destination and user-context credential |
 
-Default maximum input/output tokens are Intake 8,000/2,000, Determination
-12,000/4,000, generation 12,000/4,000, and adaptation 12,000/8,000. The adaptation
-output allowance includes thinking as well as carousel JSON; the former 4,000
-allowance truncated a live Gemini 3 Flash preview response. Each explicit
-`GEMINI_<PHASE>_MAX_INPUT_TOKENS` / `GEMINI_<PHASE>_MAX_OUTPUT_TOKENS` override
-still takes precedence. Production admission reserves the configured maximum
-under the unchanged owner daily/job dollar caps before each call.
+Planning requires Vertex/ADC and priced budgets, not R2, Instagram or X.
+Google Application Default Credentials are resolved by the SDK; use a configured
+local ADC credential or standard `GOOGLE_APPLICATION_CREDENTIALS`.
 
-For Gemini 3 model IDs, adaptation (including metadata-only retries) requests
-`LOW` thinking and temperature `1.0`; other phases and older models retain
-their existing settings. An 8,000-token trial also exhausted its allowance
-with default high thinking. The lower adaptation thinking level is a relative
-allowance, not a guarantee against truncation; validation and hard admission
-limits still apply. This follows the provider's
-[Gemini 3 guidance](https://ai.google.dev/gemini-api/docs/generate-content/gemini-3).
+## Model admission
 
-`INSTAGRAM_ACCOUNT_KEY` is a stable internal label such as `o2_english`.
-`INSTAGRAM_USER_ID` is the numeric Instagram Professional ID, not its linked
-Facebook Page ID. `test_instagram_credentials.py` uses the same root `.env`
-loader and `META_GRAPH_API_VERSION` as the runner (with the old
-`INSTAGRAM_GRAPH_API_VERSION` as a fallback). Its `--local-only` mode prints
-only effective source, length, and a short SHA-256 fingerprint for comparing
-credentials between machines; it makes no request and never prints the token.
+Every real `run_workflow.py --gemini` mode requires positive prices, daily and
+job limits. Warning must not exceed the daily hard cap. Intake/Determination
+have no ContentJob yet and count toward the daily budget, not the job budget.
+Worst-case phase reservations occur before calls and settle against returned
+usage; missing/uncertain usage does not silently release spend.
 
-The root [`.env.example`](../../.env.example) is the current implementation template
-for this boundary. `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` compose
-the Vertex connection; `YOUTUBE_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`,
-`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `X_USER_ACCESS_TOKEN` resolve
-named credentials;
-`CONTENT_FACTORY_DB_PATH`, `CONTENT_FACTORY_ARTIFACT_ROOT`,
-`CONTENT_FACTORY_BACKUP_ROOT`, `CONTENT_FACTORY_DASHBOARD_HOST`, and
-`CONTENT_FACTORY_DASHBOARD_PORT` compose local process roots. The dashboard
-host must be a loopback address. V4 currently takes Gemini model/prices/budgets
-from validated process settings and freezes each reservation's policy hash; the
-real destination materializer freezes its reviewed non-secret inputs. The longer
-term unified manifest remains the target. Every other behavior-bearing value
-belongs in the release: including model/version and budget, detection sources/scores,
-source quotas, capability/destination IDs, Graph API version, R2 endpoint/
-bucket/public domain, worker policy, retention, and visual profiles.
+| Phase | Default maximum input / output tokens |
+| --- | --- |
+| Intake | 8,000 / 2,000 |
+| Determination | 12,000 / 4,000 |
+| Generation | 12,000 / 4,000 |
+| Adaptation | 12,000 / 8,000 |
 
-## Configuration release — `configuration_release_v1`
+Adaptation's output allowance includes thinking and JSON. Gemini 3 adaptation
+uses LOW thinking and temperature 1.0; local schema/metadata validation still
+bounds acceptance. This is not an automatic paid retry policy.
 
-The initial POC uses one `global` scope. The model supports a future narrower
-scope such as `pipeline:english` only when its precedence and
-compatibility rules are explicitly added; it does not silently override global
-policy.
+## Production configuration
 
-One release is a canonical JSON manifest with a stable release name, schema ID,
-SHA-256 fingerprint, and versioned domain sections. The current schema contains
-only `detection`. Later schema versions may add:
+`configure_production.py` freezes five domain bindings, real destination IDs,
+provider configuration, posting policy and approved renderer/font fingerprints.
+Use `--disable-x` while X is on hold. `--help` lists required local choices.
 
-- `detection`: source instances, source limits, semantic resolver policy, and scoring /
-  shortlist versions;
-- `capabilities`: the five domain IDs, domain/content contract versions,
-  enabled state, editorial remit, and generation/reference prerequisites;
-- `destinations`: stable platform/account identities and safe secret references;
-- `output_bindings`: explicit domain-to-destination/format bindings, output
-  contract and renderer compatibility versions, native validation policy,
-  enabled state, and bounded fan-out intent;
-- `rendering`: renderer providers, profiles, templates, themes, local font and
-  asset fingerprints;
-- `posting`: account/destination policy, public-media domain configuration, and
-  safe secret references;
-- `teaching_references`: approved internal O2 teaching assertions, with no
-  source-attribution or copyright-content requirement; and
-- `runtime_policy`: non-secret worker interval, lease/retry, backup, retention,
-  and budget-policy values, including priced-required Gemini model/phase price
-  snapshots, maximum input/output tokens, UTC-day thresholds, and any frozen
-  per-job limits.
+The R2 public origin accepts an operator-selected HTTPS r2.dev origin for this
+PoC; buying a custom domain is not a planning prerequisite. Meta uses the
+configured graph.facebook.com API version. Current X delivery implements a
+single native image/text post; threads are not supported.
 
-The release itself is immutable. Its validation outcome is exactly `validated`
-or `rejected`; a rejected manifest is retained with safe diagnostics but cannot
-be activated. A validated release materializes immutable domain records that
-all name its `configuration_release_id`. Existing source instances,
-capabilities, policies, profiles, and references are never edited in
-place to represent a new release.
+Production rows are immutable. A changed catalog/account/profile intent needs a
+new development database. Configuration and credentials never authorize a post:
+exact dashboard review, current readiness, admission and Post now are separate.
 
-`configuration_activations` is the sole mutable pointer: `scope_key`, active
-release FK, `status` (`active` or `superseded`), positive `row_version`, actor,
-reason, timestamps, and command receipt FK. A partial unique index permits one
-`active` activation per scope. Applying a release atomically verifies the
-manifest, persists/materializes the validated release, supersedes the prior
-activation, creates the new active activation, and records the operator command
-receipt. Rollback means activating a previously validated release; it never
-deletes history.
-
-## Consumers and safety
-
-Startup validates that an active global release exists and that required local
-secret references resolve, but startup never writes, repairs, activates, or
-silently changes configuration. A worker refuses a new claim that requires a
-missing/invalid/stale configuration release. Existing claimed work keeps its
-frozen release fingerprint; it does not switch policy midway through execution.
-
-Detection runs freeze the activated source/scoring fingerprint. Intake freezes
-the capability release in its routing input; Determination records it in the
-decision/catalog snapshot. Jobs/canonical content freeze domain and model policies; OutputRequests and
-AdaptationRuns freeze output bindings, native text policy, and rendering release;
-packages/Render Runs retain that exact rendering release;
-Post Requests/Records freeze the posting release. Readiness checks identify the
-same release fingerprint they inspected. This makes a later activation visible
-and auditable without rewriting historical decisions.
-
-The dashboard is read-only for configuration: it shows active release name,
-fingerprint, activation actor/time, validation diagnostics, affected
-domains/scopes, and the last known readiness result. It may link an operator to
-the local documented apply procedure but cannot activate, roll back, or edit a
-manifest.
-
-## Phase 1 registry validation and readiness
-
-A future manifest schema must distinguish domain capability from output
-binding/destination. Reject platform-suffixed pipeline IDs, duplicate bindings,
-unknown domains, unresolved destination references, incompatible formats,
-missing budgets/profiles, and implicit all-account fan-out. The domain catalog
-does not require every account to be configured or every pipeline to be enabled.
-
-Generation readiness is checked per domain/reference/model policy. Output
-readiness is checked per configured output binding: adapter contract, verified
-native text/media limits, local profile/font/assets, destination configuration,
-and relevant safe provider checks. A blocked X binding must not make a ready
-Instagram binding editorially irrelevant. Determination records blocked outputs
-explicitly and freezes only eligible selected bindings into its output plan.
-
-One activation does not reroute old decisions, regenerate canonical content, or
-automatically adapt/publish it to newly added accounts. Existing jobs and outputs
-keep frozen policies. Current safety/readiness may block a side effect, but
-cannot rewrite historical creative or authorization.
-
-## Acceptance direction
-
-Implementation tests must prove that an invalid manifest never becomes active,
-exactly one active release exists per scope, a restart does not mutate the
-active release, a rollback preserves both activation records, secrets never
-enter SQLite/manifests/logs, and a claimed run retains its originally frozen
-fingerprint after a newer release activates.
+The credential diagnostic supports `--local-only` without network access.
+Its short SHA-256 fingerprint is a comparison aid, never part of the actual
+token sent to Meta. `INSTAGRAM_GRAPH_API_VERSION` is an accepted diagnostic
+fallback; prefer `META_GRAPH_API_VERSION` consistently.

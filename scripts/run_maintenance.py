@@ -1,4 +1,4 @@
-"""Run v4 storage sampling and verified SQLite maintenance operations."""
+"""Run storage sampling and verified SQLite maintenance operations."""
 
 from argparse import ArgumentParser
 from datetime import datetime
@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SchemaError, validate_production_workflow
+from database.current import SchemaError, validate_database
 from workflow import WorkflowStore
 from workflow.maintenance import MaintenanceService, StorageMonitor
 
@@ -21,7 +21,7 @@ def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv(
-        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")
+        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")
     ))
     parser.add_argument("--artifacts", default=os.getenv(
         "CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")
@@ -34,7 +34,7 @@ def main() -> None:
         parser.error("--backups or CONTENT_FACTORY_BACKUP_ROOT is required")
     try:
         with WorkflowStore(args.database) as store:
-            validate_production_workflow(store.connection)
+            validate_database(store.connection)
             store.heartbeat(
                 "maintenance", "maintenance-v1", "polling", "maintenance pass started"
             )

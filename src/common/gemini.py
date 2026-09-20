@@ -97,20 +97,23 @@ class VertexGeminiClient:
             ) from error
 
         client = genai.Client(vertexai=True, project=self.project, location=self.location)
-        response = client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                response_mime_type="application/json",
-                response_json_schema=_vertex_response_schema(schema),
-                max_output_tokens=self.max_output_tokens,
-                thinking_config=(
-                    {"thinking_level": self.thinking_level}
-                    if self.thinking_level is not None else None
+        try:
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                    response_json_schema=_vertex_response_schema(schema),
+                    max_output_tokens=self.max_output_tokens,
+                    thinking_config=(
+                        {"thinking_level": self.thinking_level}
+                        if self.thinking_level is not None else None
+                    ),
                 ),
-            ),
-        )
+            )
+        finally:
+            client.close()
         # A malformed/empty creative response can still incur a provider charge.
         # Candidates exclude separately billed thinking tokens on Gemini models.
         usage = response.usage_metadata

@@ -10,6 +10,8 @@ import json
 import os
 import socket
 import sqlite3
+from time import monotonic
+from common.operation_log import emit
 from common.diagnostics import safe_diagnostic
 
 from .adapters import collect_source
@@ -51,7 +53,17 @@ class DetectionCollector:
             scheduled = _slot(current, int(source["cadence_seconds"]))
             if not force and not self._is_due(source, scheduled, current):
                 continue
-            outcomes.append(self._run_source(source, scheduled, current))
+            started = monotonic()
+            outcome = self._run_source(source, scheduled, current)
+            outcomes.append(outcome)
+            attempt = self.store.connection.execute('SELECT * FROM source_collection_attempts WHERE source_collection_attempt_id=?', (outcome['attempt_id'],)).fetchone()
+            emit('detection', 'collection', worker=self.WORKER_TYPE, source_id=source['stable_id'],
+                 scheduled_slot=attempt['scheduled_for'], attempt_id=outcome['attempt_id'],
+                 status=outcome['status'], complete=bool(attempt['complete']),
+                 item_count=outcome.get('items', outcome.get('items_received', 0)),
+                 event_count=outcome.get('events', outcome.get('events_received', 0)),
+                 claim_version=attempt['claim_version'], attempt_count=attempt['attempt_count'],
+                 error_code=attempt['failure_category'], duration_ms=round((monotonic()-started)*1000))
         failed = [
             outcome for outcome in outcomes
             if outcome["status"] in {"failed", "retry_wait"}
@@ -136,7 +148,7 @@ class DetectionCollector:
                 _parse_time(request["scheduled_for"]).date() - timedelta(days=1)
             ).isoformat()
             result = collect_source(frozen_source)
-            if execution_id is not None and int(self.store.connection.execute("PRAGMA user_version").fetchone()[0]) >= 3:
+            if execution_id is not None:
                 # Incomplete responses never enter scoring, but their bounded
                 # parsed evidence survives independently for each execution.
                 evidence = {"items": [asdict(item) for item in result.items],

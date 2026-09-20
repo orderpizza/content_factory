@@ -1,4 +1,4 @@
-"""Transactional repository for the v2 SQLite workflow handoffs."""
+"""Transactional repository for the current SQLite workflow handoffs."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ import json
 import re
 from PIL import Image, UnidentifiedImageError
 from common.diagnostics import safe_diagnostic
+from common.operation_log import human_command, emit
 from common.gemini import estimated_cost_usd
 from .model_budget import ModelBudgetExceeded
+from .catalog import DOMAIN_REMITS, WORKFLOW_PIPELINES
 
-from database.migrations import SchemaError, connect, validate_editorial_workflow
+from database.current import SchemaError, connect, validate_database
 
-WORKFLOW_PIPELINES = ("english", "ai_tools", "personal_finance", "business_side_hustle", "psychology_behavior")
 CLAIM_KEYS = {
     "intake_requests": "intake_request_id", "determination_requests": "determination_request_id",
     "generation_runs": "generation_run_id", "adaptation_runs": "adaptation_run_id",
@@ -62,7 +63,7 @@ class WorkflowStore:
             raise SchemaError(f"Database does not exist: {self.path}")
         self.connection = connect(self.path, read_only=read_only)
         try:
-            validate_editorial_workflow(self.connection)
+            validate_database(self.connection)
         except Exception:
             self.connection.close()
             raise
@@ -141,6 +142,7 @@ class WorkflowStore:
         *,
         started_at: str,
         summary: str,
+        status: str = "completed",
     ) -> int:
         """Append an audit row only when a poll produced a substantive result."""
         if self.read_only:
@@ -163,17 +165,17 @@ class WorkflowStore:
             return int(self.connection.execute(
                 "INSERT INTO worker_runs(worker_type,instance_id,claim_type,claim_id,started_at,"
                 "completed_at,status,safe_summary,created_at) "
-                "VALUES (?,?,?,?,?,?,'completed',?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     worker_type.strip(), instance_id.strip(), result_type.strip(), result_id,
-                    started_at, moment, safe_diagnostic(summary), moment,
+                    started_at, moment, status, safe_diagnostic(summary), moment,
                 ),
             ).lastrowid)
 
+    @human_command('new_idea')
     def create_human_idea(self, body: str, *, command_id: str) -> int:
         if self.read_only:
             raise RuntimeError("read-only dashboard connection")
-        self._require_storage_action("human_work")
         body = body.strip()
         if not body or len(body) > 8000:
             raise ValueError("idea must contain 1-8,000 characters")
@@ -206,6 +208,7 @@ class WorkflowStore:
                 )
             return int(request.lastrowid)
 
+    @human_command('continue_thread')
     def continue_human_thread(
         self, thread_id: int, body: str, *, command_id: str, expected_row_version: int | None = None
     ) -> int:
@@ -217,7 +220,6 @@ class WorkflowStore:
         """
         if self.read_only:
             raise RuntimeError("read-only dashboard connection")
-        self._require_storage_action("human_work")
         body = body.strip()
         if not body or len(body) > 8000:
             raise ValueError("idea reply must contain 1-8,000 characters")
@@ -345,7 +347,7 @@ class WorkflowStore:
                 return int(prior["pipeline_capability_id"])
             cur = self.connection.execute(
                 "INSERT INTO pipeline_capabilities(pipeline_id,pipeline_version,enabled,remit_json,generation_ready,configuration_release_id,created_at) VALUES (?, 'domain_pipeline_catalog_v1', ?, ?, ?, ?, ?)",
-                (pipeline_id, int(enabled), canonical({"placeholder": True}), int(generation_ready), active[0], moment),
+                (pipeline_id, int(enabled), canonical({"development_fixture": True, "description": DOMAIN_REMITS[pipeline_id]}), int(generation_ready), active[0], moment),
             )
             capability_id = int(cur.lastrowid)
             for output in outputs:
@@ -355,31 +357,14 @@ class WorkflowStore:
                 )
         return capability_id
 
-    def trend_snapshot(self, request: Any) -> dict[str, Any]:
-        context = json.loads(request["context_json"])
-        snapshot = self.connection.execute(
-            "SELECT s.* FROM topic_snapshots s JOIN trend_candidates c ON c.opportunity_identity=s.opportunity_identity "
-            "WHERE s.topic_snapshot_id=? AND c.trend_candidate_id=? AND s.evidence_fingerprint=?",
-            (context.get("topic_snapshot_id"), request["source_candidate_id"], context.get("evidence_fingerprint")),
-        ).fetchone()
-        if snapshot is None:
-            raise ValueError("missing or mismatched frozen trend snapshot")
-        memberships = self.connection.execute(
-            "SELECT trend_observation_id,ordinal,contribution,snapshot_json FROM candidate_observation_memberships "
-            "WHERE topic_snapshot_id=? AND trend_candidate_id=? ORDER BY ordinal",
-            (snapshot["topic_snapshot_id"], request["source_candidate_id"]),
-        ).fetchall()
-        return {"kind": "selected_trend", "context": context, "topic_snapshot": dict(snapshot),
-                "memberships": [dict(member) for member in memberships]}
-
     def claim(self, table: str, primary_key: str, worker: str, *, lease_seconds: int = 300) -> Any | None:
         if CLAIM_KEYS.get(table) != primary_key:
             raise ValueError("unsupported claim table")
         if type(lease_seconds) is not int or lease_seconds < 1 or not worker:
             raise ValueError("claim needs a worker and positive lease")
         action = {
-            "intake_requests": "model",
-            "determination_requests": "model",
+            "intake_requests": "planning",
+            "determination_requests": "planning",
             "generation_runs": "creative",
             "adaptation_runs": "creative",
             "render_runs": "creative",
@@ -445,9 +430,7 @@ class WorkflowStore:
             return self.connection.execute(f"SELECT * FROM {table} WHERE {primary_key}=?", (row[primary_key],)).fetchone()
 
     def _recover_stale_post_claims(self, moment: str) -> None:
-        """Conservatively recover v4 delivery claims before generic pickup."""
-        if int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 4:
-            return
+        """Conservatively recover delivery claims before generic pickup."""
         stale = self.connection.execute(
             "SELECT p.*,a.post_attempt_id,a.final_publication_request_sent_at "
             "FROM post_records p LEFT JOIN post_attempts a ON a.post_record_id=p.post_record_id "
@@ -503,9 +486,7 @@ class WorkflowStore:
                     self._schedule_attempt_cleanup(int(record["post_attempt_id"]), moment)
 
     def register_production_configuration(self, value: dict[str, Any]) -> int:
-        """Materialize one immutable, non-secret production catalog for v4."""
-        if int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 4:
-            raise RuntimeError("production configuration requires workflow schema v4")
+        """Materialize one immutable, non-secret production catalog for production."""
         expected = {
             "policy_version", "approved_by", "approved_at", "profile_approved",
             "renderer_profile", "destinations", "bindings",
@@ -729,92 +710,8 @@ class WorkflowStore:
             return configuration_id
 
     def catalog(self) -> list[dict[str, Any]]:
-        pipeline_version = (
-            "domain_pipeline_catalog_production_v1"
-            if self.catalog_kind == "production"
-            else "domain_pipeline_catalog_v1"
-        )
-        fields = (
-            "SELECT c.*, b.output_binding_id,b.platform,b.account,b.content_format,"
-            "b.output_contract_version,b.ready,b.safe_reason"
-        )
-        if self.catalog_kind == "production":
-            fields += (
-                ",b.delivery_enabled,b.profile_approved,d.enabled destination_enabled,"
-                "d.destination_key,r.status readiness_status,r.valid_until readiness_valid_until"
-            )
-        rows = self.connection.execute(
-            fields + " FROM pipeline_capabilities c "
-            "JOIN configuration_activations a ON a.configuration_release_id=c.configuration_release_id "
-            "AND a.scope_key='global' AND a.status='active' "
-            "LEFT JOIN output_bindings b ON b.pipeline_capability_id=c.pipeline_capability_id "
-            + (
-                "LEFT JOIN social_destinations d ON d.social_destination_id=b.social_destination_id "
-                "LEFT JOIN capability_readiness r ON r.social_destination_id=d.social_destination_id "
-                if self.catalog_kind == "production" else ""
-            )
-            + "WHERE c.pipeline_version=? ORDER BY c.pipeline_capability_id,b.output_binding_id",
-            (pipeline_version,),
-        ).fetchall()
-        by_pipeline: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            item = by_pipeline.setdefault(row["pipeline_id"], {"pipeline_id": row["pipeline_id"], "enabled": bool(row["enabled"]), "generation_ready": bool(row["generation_ready"]), "outputs": []})
-            if row["output_binding_id"] is not None:
-                output = {key: row[key] for key in ("output_binding_id","platform","account","content_format","output_contract_version","ready","safe_reason")}
-                if self.catalog_kind == "production":
-                    ready = (
-                        bool(row["ready"])
-                        and bool(row["delivery_enabled"])
-                        and bool(row["profile_approved"])
-                        and bool(row["destination_enabled"])
-                        and row["readiness_status"] == "ready"
-                        and isinstance(row["readiness_valid_until"], str)
-                        and row["readiness_valid_until"] > now()
-                    )
-                    output["ready"] = ready
-                    if not ready:
-                        output["safe_reason"] = (
-                            "production output blocked: profile/provider readiness is not current"
-                        )
-                else:
-                    output["ready"] = bool(output["ready"])
-                item["outputs"].append(output)
-        return [by_pipeline[key] for key in WORKFLOW_PIPELINES if key in by_pipeline]
-
-    def resolve_determination_catalog(self, request: Any) -> tuple[Any, dict[str, Any]]:
-        """Resolve the current catalog for a direct trend handoff if needed.
-
-        Detection freezes trend evidence before the workflow runner may register
-        its fixture or production capabilities. A direct trend request therefore
-        starts with an empty catalog marker and resolves the catalog once the
-        Determination worker claims it. Human-origin requests already contain a
-        frozen catalog and are returned unchanged.
-        """
-        snapshot = json.loads(request["input_snapshot_json"])
-        source_context = snapshot.get("source_context", {})
-        if snapshot.get("catalog") or source_context.get("kind") != "selected_trend":
-            return request, snapshot
-        snapshot["catalog"] = self.catalog()
-        encoded = canonical(snapshot)
-        with self.transaction():
-            updated = self.connection.execute(
-                "UPDATE determination_requests SET input_snapshot_json=?, input_fingerprint=? "
-                "WHERE determination_request_id=? AND status='claimed' AND claim_owner=? "
-                "AND claim_version=?",
-                (
-                    encoded,
-                    digest(snapshot),
-                    request["determination_request_id"],
-                    request["claim_owner"],
-                    request["claim_version"],
-                ),
-            )
-            if updated.rowcount != 1:
-                raise RuntimeError("stale determination claim cannot resolve its catalog")
-        refreshed = dict(request)
-        refreshed["input_snapshot_json"] = encoded
-        refreshed["input_fingerprint"] = digest(snapshot)
-        return refreshed, snapshot
+        from .catalog import read_catalog
+        return read_catalog(self.connection, self.catalog_kind)
 
     def _cancel_if_closed(self, table: str, row: Any, moment: str) -> bool:
         """Called under the finalization write lock before any child insert."""
@@ -833,6 +730,19 @@ class WorkflowStore:
             self._finish_claim(table, key, row, "cancelled", moment, "thread is not open")
             return True
         return False
+
+    def intake_source_snapshot(self, request):
+        context = json.loads(request["context_json"])
+        if context.get("kind") != "human_conversation":
+            raise ValueError("Intake requires a human conversation context")
+        snapshot = self.conversation_snapshot(int(request["thread_id"]), context.get("last_message_id") or context.get("message_id"))
+        original = self.connection.execute(
+            "SELECT source_snapshot_json FROM brief_revisions WHERE thread_id=? AND created_by='system' ORDER BY revision_number LIMIT 1",
+            (request["thread_id"],),
+        ).fetchone()
+        if original:
+            snapshot["detection_evidence"] = json.loads(original["source_snapshot_json"])
+        return snapshot
 
     def complete_intake(self, request: Any, brief: dict[str, Any], *, actor_message: str | None = None) -> int:
         moment = now(); thread_id = int(request["thread_id"])
@@ -861,10 +771,7 @@ class WorkflowStore:
                 message_id = int(self.connection.execute("INSERT INTO thread_messages(thread_id,sequence_number,author_kind,body,created_at) VALUES (?,?, 'intake_agent',?,?)", (thread_id,sequence,actor_message,moment)).lastrowid)
             last_human = self.connection.execute("SELECT message_id FROM thread_messages WHERE thread_id=? AND author_kind='human' ORDER BY sequence_number DESC LIMIT 1", (thread_id,)).fetchone()
             context = json.loads(request["context_json"])
-            snapshot = (
-                self.conversation_snapshot(thread_id, context.get("last_message_id") or context.get("message_id"))
-                if context.get("kind") == "human_conversation" else self.trend_snapshot(request)
-            )
+            snapshot = self.intake_source_snapshot(request)
             revision = self.connection.execute(
                 "INSERT INTO brief_revisions(thread_id,revision_number,parent_revision_id,input_through_message_id,brief_json,source_snapshot_json,revision_reason,created_by,source_intake_request_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (thread_id, 1 if latest is None else int(latest["revision_number"])+1, None if latest is None else latest["revision_id"], None if last_human is None else last_human[0], canonical(brief), canonical(snapshot), "initial" if latest is None else "human_rework", "intake_agent", request["intake_request_id"], moment),
@@ -1113,11 +1020,19 @@ class WorkflowStore:
                         (estimated_cost_micro_usd, now(), reservation[0]),
                     )
 
+        invocation = self.connection.execute('SELECT phase,entity_id,model_id,started_at,completed_at FROM model_invocations WHERE model_invocation_id=?', (invocation_id,)).fetchone()
+        emit(invocation['phase'], 'model_result', operation_id=invocation_id,
+             request_id=invocation['entity_id'], model_id=invocation['model_id'], outcome=outcome,
+             input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
+             cost_micro_usd=estimated_cost_micro_usd if usage else None,
+             duration_ms=round((datetime.fromisoformat(invocation['completed_at'])-datetime.fromisoformat(invocation['started_at'])).total_seconds()*1000),
+             error_code=outcome if error else None)
+
     def record_decision(self, request: Any, decision: dict[str, Any]) -> int:
         moment = now(); routes = decision["routes"]
         if {item["pipeline_id"] for item in routes} != set(WORKFLOW_PIPELINES) or len(routes) != 5:
             raise ValueError("determination must persist exactly five routes")
-        selected = any(item["disposition"] in {"selected", "reused"} for item in routes)
+        selected = any(item["disposition"] == "selected" for item in routes)
         expected = "accepted" if selected else ("blocked" if any(item["disposition"] == "blocked" for item in routes) else "not_recommended")
         if decision["outcome"] != expected:
             raise ValueError("aggregate outcome contradicts route dispositions")
@@ -1129,8 +1044,8 @@ class WorkflowStore:
                 raise ValueError("every determination route requires a fit assessment")
             if not isinstance(route.get("reason"), str) or not route["reason"].strip():
                 raise ValueError("every determination route requires a reason")
-            if route["disposition"] == "reused":
-                raise ValueError("canonical reuse requires the forward production contract")
+            if route["disposition"] not in {"selected", "skipped", "blocked"}:
+                raise ValueError("unsupported route disposition")
             if route["disposition"] == "selected" and not route.get("angle"):
                 raise ValueError("selected routes require an angle")
             cap = next((c for c in frozen_catalog if c["pipeline_id"] == route["pipeline_id"]), None)
@@ -1212,7 +1127,6 @@ class WorkflowStore:
         assets: dict[str, Any] | list[dict[str, Any]],
     ) -> int:
         moment=now(); manifest_json=canonical(manifest); manifest_hash=digest(manifest)
-        production_schema = int(self.connection.execute("PRAGMA user_version").fetchone()[0]) >= 4
         with self.transaction():
             if self._cancel_if_closed("render_runs", run, moment):
                 return None
@@ -1229,38 +1143,29 @@ class WorkflowStore:
                     asset["width"], asset["height"], asset["bytes"],
                     asset["sha256"], moment,
                 )
-                if production_schema:
-                    self.connection.execute(
-                        "INSERT INTO render_assets(render_run_id,asset_role,ordinal,local_path,mime_type,"
-                        "width,height,bytes,sha256,created_at,encoder_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                        values + (str(manifest.get("pillow_version") or manifest.get("renderer") or "unknown"),),
-                    )
-                else:
-                    self.connection.execute(
-                        "INSERT INTO render_assets(render_run_id,asset_role,ordinal,local_path,mime_type,"
-                        "width,height,bytes,sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", values,
-                    )
+                self.connection.execute(
+                    "INSERT INTO render_assets(render_run_id,asset_role,ordinal,local_path,mime_type,"
+                    "width,height,bytes,sha256,created_at,encoder_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    values + (str(manifest.get("pillow_version") or manifest.get("renderer") or "unknown"),),
+                )
             self.connection.execute("UPDATE render_runs SET manifest_json=? WHERE render_run_id=?",(manifest_json,run["render_run_id"]))
             package=self.connection.execute("SELECT p.content_package_id,p.content_hash FROM content_packages p JOIN render_runs r ON r.content_package_id=p.content_package_id WHERE r.render_run_id=?",(run["render_run_id"],)).fetchone()
             expires=(datetime.fromisoformat(moment)+timedelta(days=14)).isoformat()
-            if production_schema:
-                destination = self.connection.execute(
-                    "SELECT d.destination_key FROM render_runs rr "
-                    "JOIN content_packages cp ON cp.content_package_id=rr.content_package_id "
-                    "JOIN output_requests o ON o.output_request_id=cp.output_request_id "
-                    "LEFT JOIN output_bindings b ON b.output_binding_id=o.output_binding_id "
-                    "LEFT JOIN social_destinations d ON d.social_destination_id=b.social_destination_id "
-                    "WHERE rr.render_run_id=?", (run["render_run_id"],),
-                ).fetchone()
-                review=int(self.connection.execute(
-                    "INSERT INTO review_requests(content_package_id,render_run_id,review_cycle_number,"
-                    "package_hash,manifest_hash,status,expires_at,created_at,destination_key) "
-                    "VALUES (?,?,1,?,?,'awaiting_review',?,?,?)",
-                    (package["content_package_id"],run["render_run_id"],package["content_hash"],
-                     manifest_hash,expires,moment,None if destination is None else destination[0]),
-                ).lastrowid)
-            else:
-                review=int(self.connection.execute("INSERT INTO review_requests(content_package_id,render_run_id,review_cycle_number,package_hash,manifest_hash,status,expires_at,created_at) VALUES (?,?,1,?,?,'awaiting_review',?,?)",(package["content_package_id"],run["render_run_id"],package["content_hash"],manifest_hash,expires,moment)).lastrowid)
+            destination = self.connection.execute(
+                "SELECT d.destination_key FROM render_runs rr "
+                "JOIN content_packages cp ON cp.content_package_id=rr.content_package_id "
+                "JOIN output_requests o ON o.output_request_id=cp.output_request_id "
+                "LEFT JOIN output_bindings b ON b.output_binding_id=o.output_binding_id "
+                "LEFT JOIN social_destinations d ON d.social_destination_id=b.social_destination_id "
+                "WHERE rr.render_run_id=?", (run["render_run_id"],),
+            ).fetchone()
+            review=int(self.connection.execute(
+                "INSERT INTO review_requests(content_package_id,render_run_id,review_cycle_number,"
+                "package_hash,manifest_hash,status,expires_at,created_at,destination_key) "
+                "VALUES (?,?,1,?,?,'awaiting_review',?,?,?)",
+                (package["content_package_id"],run["render_run_id"],package["content_hash"],
+                 manifest_hash,expires,moment,None if destination is None else destination[0]),
+            ).lastrowid)
             self._finish_claim("render_runs","render_run_id",run,"succeeded",moment,None); return review
 
     def decide_review(
@@ -1432,7 +1337,7 @@ class WorkflowStore:
             command_id=command_id,
         )
 
-    # Production workflow v4 -------------------------------------------------
+    # Production workflow -------------------------------------------------
 
     def record_destination_readiness(
         self,
@@ -2164,31 +2069,30 @@ class WorkflowStore:
             )
 
     def _require_production_schema(self) -> None:
-        if int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 4:
-            raise RuntimeError("production workflow schema v4 is required")
+        validate_database(self.connection, check_foreign_keys=False)
 
     def _storage_action_allowed(self, action: str) -> bool:
-        if not self.enforce_storage or int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 4:
+        # Planning never consults disk measurements. Real writes may still fail.
+        if action == 'planning':
             return True
-        row = self.connection.execute(
-            "SELECT state,sampled_at FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1"
-        ).fetchone()
-        if row is None or row["sampled_at"] < (
-            datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=10)
-        ).isoformat():
-            return action in {"safe_cleanup", "reconciliation"}
-        state = row["state"]
+        if not self.enforce_storage:
+            return True
+        from common.storage import storage_status
+        state = storage_status(self.connection)['reason']
         if action in {"safe_cleanup", "reconciliation"}:
             return True
         if state == "normal":
             return True
         if state == "storage_warning":
-            return action in {"human_work", "post_now", "delivery"}
+            return action in {"post_now", "delivery"}
         return False
 
     def _require_storage_action(self, action: str) -> None:
         if not self._storage_action_allowed(action):
-            raise RuntimeError("current storage safety state blocks this work-creating action")
+            from common.storage import storage_status, storage_recovery
+            state = storage_status(self.connection)
+            raise RuntimeError(f"storage admission refused ({state['reason']}); "
+                               f"last sample: {state['sampled_at'] or 'none'}. " + storage_recovery(state))
 
     def _review_delivery_context(self, review_id: int, *, moment: str) -> dict[str, Any]:
         row = self.connection.execute(

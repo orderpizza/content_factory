@@ -7,6 +7,9 @@ import sqlite3
 import socket
 import sys
 import secrets
+import json
+from datetime import datetime, timezone
+from time import monotonic
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import escape
 from pathlib import Path
@@ -15,9 +18,12 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
-from database.migrations import SCHEMA_VERSION, SchemaError, connect, validate_detection_dashboard
+from common.operation_log import configure_logging, emit, refusal_code
+from database.current import SCHEMA_VERSION, SchemaError, connect, validate_database
 from dashboard import render_detection_dashboard, render_workflow_trace
 from dashboard.detection import AUTO_REFRESH_CSP
+from dashboard.evidence import render_candidate, render_evaluation, render_queue_status
+from dashboard.flow import render_raw_item, render_job
 from workflow import WorkflowStore
 
 
@@ -25,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    database_path = str(ROOT / "data" / "content.db")
+    database_path = str(ROOT / "data" / "development.db")
     artifact_root = (ROOT / "data" / "artifacts").resolve()
     csrf_token = secrets.token_urlsafe(32)
 
@@ -34,7 +40,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if request.path == "/asset":
             self._serve_asset(request.query)
             return
-        if request.path != "/":
+        if request.path not in {"/", "/snapshot"}:
             self.send_error(404)
             return
         try:
@@ -53,45 +59,78 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 connection.execute("BEGIN")
                 # Validate ledger/version on every snapshot; avoid rescanning all
                 # retained evidence FKs every ten-second browser refresh.
-                validate_detection_dashboard(connection, check_foreign_keys=False)
+                validate_database(connection, check_foreign_keys=False)
                 body = render_detection_dashboard(
                     connection,
                     query=parameters.get("q", [""])[0],
                     source=parameters.get("source", [""])[0],
                     status=parameters.get("status", [""])[0],
                     page=page,
+                    opportunity_page=self._query_int(parameters,'opportunity_page',1),
+                    job_page=self._query_int(parameters,'job_page',1),
                 )
-                if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= SCHEMA_VERSION:
+                base_page = body
+                view = parameters.get('view', ['overview'])[0]
+                if any(key in parameters for key in ('thread_id', 'thread_page', 'revision_page', 'message_page')):
+                    view = 'threads'
+                if view in {'overview', 'threads'}:
                     workflow = render_workflow_trace(
                         connection,
                         interactive=True,
                         csrf_token=self.csrf_token,
+                        thread_id=self._query_int(parameters, "thread_id", None),
+                        thread_page=self._query_int(parameters, "thread_page", 1),
+                        revision_page=self._query_int(parameters, "revision_page", 1),
+                        message_page=self._query_int(parameters, "message_page", 1),
                     )
                     notice = parameters.get("notice", [""])[0]
                     if notice:
                         workflow = f"<p role='status'>{escape(notice)}</p>" + workflow
                     body = body.replace("</main>", workflow + "</main>", 1)
+                queues = render_queue_status(connection)
+                detail = ''
+                for name, renderer in (("cluster_id", render_candidate), ("candidate_id", render_candidate), ("raw_item_id",render_raw_item), ("job_id",render_job), ("evaluation_id", render_evaluation)):
+                    identity = self._query_int(parameters, name, None)
+                    if identity:
+                        detail += renderer(connection, identity)
+                database_label = f"<p class='hint'>Database: {escape(self.database_path)} · schema {SCHEMA_VERSION}</p>"
+                body = body.replace("<div id='detail-slot'></div>", database_label + detail)
+                body = body.replace("<div class='operations' id='operations'>", queues + "<div class='operations' id='operations'>", 1)
+                if view in {'threads', 'operations'}:
+                    head, _, main = base_page.partition('<main>')
+                    header = main.partition("<div id='detail-slot'></div>")[0]
+                    if view == 'threads':
+                        content = workflow
+                    else:
+                        operations = main.partition("<div class='operations' id='operations'>")[2].partition('</main>')[0]
+                        content = queues + detail + "<div class='operations' id='operations'>" + operations
+                    body = head + '<main>' + header + database_label + content + '</main></body></html>'
+                if request.path == '/snapshot':
+                    fragment = '<main>' + body.partition('<main>')[2].partition('</main>')[0] + '</main>'
+                    body = json.dumps({'html': fragment, 'updated_at': datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
                 body = body.encode("utf-8")
+                if request.path == '/snapshot' and len(body) > 8000000:
+                    raise ValueError('Dashboard snapshot exceeds 8 MB; narrow the view or thread.')
             finally:
                 connection.rollback()
                 connection.close()
             status = 200
-        except (OSError, sqlite3.Error, SchemaError) as error:
+        except (OSError, sqlite3.Error, SchemaError, ValueError) as error:
             body = (
                 "<!doctype html><meta charset='utf-8'><title>Setup required</title>"
                 "<h1>Detection dashboard setup required</h1>"
                 f"<p>{escape(str(error))}</p>"
-                "<p>Run <code>py scripts/setup_normalized_detection.py --database &lt;path&gt;</code> explicitly.</p>"
+                "<p>Run <code>.venv/bin/python scripts/setup_development.py --database &lt;path&gt;</code> explicitly.</p>"
             ).encode("utf-8")
             status = 503
         self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", "application/json; charset=utf-8" if request.path == '/snapshot' and status == 200 else "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; "
+            "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; "
             f"script-src {AUTO_REFRESH_CSP}; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         )
@@ -99,6 +138,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        self._command_kind = None
         request = urlsplit(self.path)
         if request.path != "/commands":
             self.send_error(404)
@@ -107,8 +147,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
-        if not 1 <= length <= 12000:
-            self.send_error(413, "Command body must contain 1-12,000 bytes")
+        if not 1 <= length <= 100000:
+            self.send_error(413, "Command body must contain 1-100,000 bytes")
             return
         if not self.headers.get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
             self.send_error(415, "Commands require form encoding")
@@ -124,7 +164,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not secrets.compare_digest(supplied_token, self.csrf_token):
                 raise ValueError("invalid or expired dashboard command token")
             command_kind = self._one(values, "command_kind")
+            self._command_kind = command_kind if command_kind in {'new_idea','continue_thread','review_changes','review_approved','review_rejected','post_now','cancel_delivery','request_reconciliation','resolve_reconciliation'} else 'unsupported'
             command_id = self._one(values, "command_id")
+            redirect_thread = None
             with WorkflowStore(self.database_path, enforce_storage=True) as store:
                 if command_kind == "new_idea":
                     record_id = store.create_human_idea(
@@ -188,14 +230,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     notice = f"Reconciliation #{record_id} recorded; no publication call was made."
                 else:
                     raise ValueError("unsupported dashboard command")
+                if command_kind in {"new_idea", "continue_thread", "review_changes"}:
+                    redirect_thread = store.connection.execute("SELECT thread_id FROM intake_requests WHERE intake_request_id=?", (record_id,)).fetchone()[0]
         except (UnicodeDecodeError, ValueError, RuntimeError, sqlite3.Error, SchemaError) as error:
             self._command_error(error)
             return
         from urllib.parse import urlencode
         self.send_response(303)
-        self.send_header("Location", "/?" + urlencode({"notice": notice}))
+        self.send_header("Location", "/?" + urlencode({"notice": notice, **({"thread_id": redirect_thread} if redirect_thread else {})}))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+
+    @staticmethod
+    def _query_int(parameters, name, default):
+        try:
+            value = int(parameters.get(name, [default])[0])
+            return value if 1 <= value <= 100000000 else default
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def _one(values, name: str, *, required: bool = True) -> str:
@@ -215,6 +267,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return value
 
     def _command_error(self, error: Exception) -> None:
+        emit('dashboard', 'command_refused', command_kind=self._command_kind,
+             status='refused', error_type=type(error).__name__, error_code=refusal_code(error))
         body = (
             "<!doctype html><meta charset='utf-8'><title>Command refused</title>"
             "<h1>Dashboard command refused</h1>"
@@ -265,13 +319,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def handle_one_request(self):
+        start = monotonic()
+        self._response_status = None
+        try:
+            return super().handle_one_request()
+        finally:
+            if self._response_status is not None:
+                path = urlsplit(self.path).path
+                emit('dashboard', 'http', method=self.command,
+                     path=path if path in {'/', '/snapshot', '/commands', '/asset'} else '/unknown',
+                     http_status=self._response_status, duration_ms=round((monotonic()-start)*1000))
+
+    def send_response(self, code, message=None):
+        self._response_status = code
+        return super().send_response(code, message)
+
 
 def main():
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
         "--database",
-        default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "content.db")),
+        default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")),
     )
     parser.add_argument(
         "--artifacts",
@@ -280,6 +350,7 @@ def main():
     parser.add_argument("--host", default=os.getenv("CONTENT_FACTORY_DASHBOARD_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("CONTENT_FACTORY_DASHBOARD_PORT", "8787")))
     args = parser.parse_args()
+    configure_logging('dashboard')
     host = args.host
     port = args.port
     if host not in {"127.0.0.1", "::1", "localhost"}:

@@ -13,14 +13,13 @@ import sys
 from time import perf_counter
 from dashboard import render_detection_dashboard
 
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety, validate_detection_dashboard
+from database.current import initialize_database, validate_database
 from detection.adapters import collect_source, _validate_result, _decode_utf8, _bounded_get
 from detection.collector import DetectionCollector
 from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
 from detection.normalization import canonical_title, canonical_link
 from detection.scout import DetectionScout
-from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,13 +30,11 @@ class CurrentSystemRepairTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "fixture.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        initialize_database(self.path)
         self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
-        upgrade_semantic_fixture(self.path)
+
 
     def test_normalization_equivalence_is_versioned(self):
         for a, b in (("NASA’s launch", "NASA's launch"), ("test–flight", "test-flight"), ("A—B", "A-B")):
@@ -51,7 +48,7 @@ class CurrentSystemRepairTests(unittest.TestCase):
 
     def test_normalized_setup_cli_creates_only_a_new_database(self):
         path = self.path.parent / "new-cli-experiment.db"
-        command = [sys.executable, str(ROOT / "scripts/setup_normalized_detection.py"), "--database", str(path)]
+        command = [sys.executable, str(ROOT / "scripts/setup_development.py"), "--database", str(path)]
         created = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(created.returncode, 0, created.stderr)
         with DetectionStore(path) as store:
@@ -162,9 +159,9 @@ class CurrentSystemRepairTests(unittest.TestCase):
         with DetectionStore(self.path, read_only=True) as store:
             statements = []
             store.connection.set_trace_callback(statements.append)
-            validate_detection_dashboard(store.connection, check_foreign_keys=False)
+            validate_database(store.connection, check_foreign_keys=False)
             self.assertFalse(any("foreign_key_check" in sql for sql in statements))
-            validate_detection_dashboard(store.connection)
+            validate_database(store.connection)
             self.assertTrue(any("foreign_key_check" in sql for sql in statements))
 
     def test_http_error_stream_is_closed_even_for_redirect_rejection(self):

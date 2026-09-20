@@ -1,36 +1,18 @@
-"""Read-only compact detection dashboard for detection_dashboard_schema_v1."""
+"""Read-only Detection overview for the current application schema."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hashlib import sha256
-from base64 import b64encode
 from html import escape
 from typing import Any
 from urllib.parse import urlencode
 import json
 import sqlite3
+from .evidence import link, public_link
+from .flow import render_progression, CLUSTER_STATES
 
 
-# Static script: its exact bytes are authorized by the server CSP hash.
-AUTO_REFRESH_SCRIPT = """(() => {
-  let timer;
-  let editing = false;
-  const refresh = () => {
-    if (!document.hidden && !editing) window.location.reload();
-  };
-  const schedule = () => {
-    clearTimeout(timer);
-    if (!document.hidden && !editing) timer = setTimeout(refresh, 10000);
-  };
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) clearTimeout(timer);
-    else refresh();
-  });
-  document.addEventListener('input', () => { editing = true; clearTimeout(timer); });
-  schedule();
-})();"""
-AUTO_REFRESH_CSP = "'sha256-" + b64encode(sha256(AUTO_REFRESH_SCRIPT.encode()).digest()).decode() + "'"
+from .refresh import AUTO_REFRESH_SCRIPT, AUTO_REFRESH_CSP
 
 
 def _worker_freshness(row, at: datetime) -> str:
@@ -72,6 +54,14 @@ def _cell(value: Any) -> str:
     return escape("" if value is None else str(value))
 
 
+def _worker_summary(row):
+    summary = row['safe_summary'] or '—'
+    if row['worker_type'] == 'trend_scout_shortlist':
+        # Translate existing operational summaries for display, never rewrite evidence.
+        summary = summary.replace('candidate(s)', 'cluster(s)')
+    return _cell(summary)
+
+
 def _json(value: Any) -> str:
     try:
         parsed = json.loads(value) if isinstance(value, str) else value
@@ -96,32 +86,45 @@ def _timestamp(value: Any) -> str:
 def _rows(items: list[sqlite3.Row], renderers, empty: str, columns: int) -> str:
     if not items:
         return f"<tr><td colspan='{columns}' class='empty'>{_cell(empty)}</td></tr>"
-    return "".join(
-        "<tr>" + "".join(f"<td>{renderer(item)}</td>" for renderer in renderers) + "</tr>"
-        for item in items
-    )
+    result = []
+    for item in items:
+        identity = next((key for key in ('trend_candidate_id','trend_observation_id','scout_evaluation_run_id',
+                         'detection_source_instance_id','worker_run_id','worker_heartbeat_id') if key in item.keys()), None)
+        key = f" id='{identity}-{int(item[identity])}'" if identity else ''
+        result.append('<tr' + key + '>' + ''.join(f'<td>{renderer(item)}</td>' for renderer in renderers) + '</tr>')
+    return ''.join(result)
 
 
 def _literal_like(value: str) -> str:
     return "%" + value.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-def render_detection_dashboard(
+def render_detection_dashboard(connection, **filters):
+    owns_snapshot = not connection.in_transaction
+    if owns_snapshot:
+        connection.execute('BEGIN')
+    try:
+        return _render_detection_dashboard(connection, **filters)
+    finally:
+        if owns_snapshot:
+            connection.rollback()
+
+
+def _render_detection_dashboard(
     connection: sqlite3.Connection,
     *,
     query: str = "",
     source: str = "",
     status: str = "",
     page: int = 1,
+    opportunity_page: int = 1,
+    job_page: int = 1,
 ) -> str:
     """Render one consistent SQLite snapshot without mutating it."""
 
     query = query.strip()[:200]
     source = source.strip()[:100]
-    # The compact landing view intentionally shows only shortlisted candidates:
-    # they are the records handed to the next intake/determination boundary.
-    # Keep the argument for URL compatibility with earlier dashboard links.
-    del status
+    status = status.strip()[:40]
     page = max(1, min(int(page), 10_000))
     page_size = 50
     search_pattern = _literal_like(query)
@@ -172,7 +175,7 @@ def render_detection_dashboard(
         )
         candidate_where = (
             "WHERE er.configuration_release_id=? "
-            "AND c.eligibility_status='selected' "
+            "AND (?='' OR c.eligibility_status=?) "
             "AND (?='' OR lower(c.canonical_subject) LIKE ? ESCAPE '\\' "
             "OR lower(c.opportunity_identity) LIKE ? ESCAPE '\\') "
             "AND (?='' OR EXISTS (SELECT 1 FROM candidate_observation_memberships m "
@@ -182,7 +185,7 @@ def render_detection_dashboard(
             "WHERE m.topic_snapshot_id=c.latest_topic_snapshot_id AND fs.stable_id=?)) "
         )
         candidate_parameters = (
-            active_release_id, query, search_pattern, search_pattern,
+            active_release_id, status, status, query, search_pattern, search_pattern,
             source, source,
         )
         filtered_candidate_count = int(connection.execute(
@@ -276,11 +279,12 @@ def render_detection_dashboard(
         "placeholder='title, canonical key, or identity'></label>"
         f"<label>Source<select name='source'><option value=''>All sources</option>"
         f"{source_options}</select></label>"
+        f"<label>Cluster Selection state<select name='status'><option value=''>All Clusters</option>{''.join(f'<option value="{v}"' + (' selected' if v == status else '') + f'>{v}</option>' for v in CLUSTER_STATES)}</select></label>"
         "<button type='submit'>Apply filters</button><a class='reset' href='/'>Reset</a>"
         "</form>"
     )
     link_parameters = {
-        key: value for key, value in {"q": query, "source": source}.items()
+        key: value for key, value in {"q": query, "source": source, "status": status, 'opportunity_page':opportunity_page, 'job_page':job_page}.items()
         if value
     }
 
@@ -296,43 +300,31 @@ def render_detection_dashboard(
         pagination_parts.append(page_link(page + 1, "Next →"))
     pagination = "<nav class='pagination'>" + "".join(pagination_parts) + "</nav>"
 
-    candidate_rows = _rows(candidates, [
-        lambda row: _cell(row["canonical_subject"]),
-        lambda row: f"{float(row['score']):.4f}",
-        lambda row: _cell(row["eligibility_reason"]),
-        lambda row: _timestamp(row["snapshot_at"]),
-        lambda row: _cell(row["thread_id"] or "—"),
-    ], "No shortlisted opportunities yet.", 5)
+    progression = render_progression(connection, observations, candidates,
+        raw_count=filtered_observation_count, cluster_count=filtered_candidate_count,
+        pagination=pagination, query=query, source=source, status=status, page=page,
+        opportunity_page=opportunity_page, job_page=job_page)
     source_rows = _rows(sources, [
         lambda row: _cell(row["stable_id"]),
         lambda row: _cell(row["provider_name"]),
         lambda row: _cell(row["source_kind"]),
-        lambda row: _cell(row["health_classification"] or row["attempt_status"] or "not_collected"),
+        lambda row: _cell(row['attempt_status'] or 'no attempt'),
+        lambda row: _cell(row["health_classification"] or "no health evidence"),
         lambda row: _timestamp(row["collected_at"] or row["scheduled_for"]),
         lambda row: _cell(row["item_count"] if row["item_count"] is not None else "—"),
-        lambda row: _cell(row["health_reason"] or row["failure_category"] or "—"),
-    ], "No active source configuration.", 7)
-    observation_rows = _rows(observations, [
-        lambda row: _cell(row["provider_name"]),
-        lambda row: (
-            f"<a href='{_cell(row['canonical_url'])}' rel='noreferrer' target='_blank'>{_cell(row['title'])}</a>"
-            if row["canonical_url"] else _cell(row["title"])
-        ),
-        lambda row: _cell(row["rank"] or "—"),
-        lambda row: f"{float(row['activity']):.3f}",
-        lambda row: _timestamp(row["collected_at"]),
-    ], "Run source collection to populate the ingestion feed.", 5)
+        lambda row: _cell(" · ".join(str(row[key]) for key in ("health_reason","failure_category","failure_detail") if row[key]) or "—"),
+    ], "No active source configuration.", 8)
     evaluation_rows = _rows(evaluations, [
-        lambda row: str(row["scout_evaluation_run_id"]),
+        lambda row: link("#" + str(row["scout_evaluation_run_id"]), evaluation_id=row["scout_evaluation_run_id"]),
         lambda row: _timestamp(row["evaluation_slot_start"]),
         lambda row: _cell(row["status"]),
         lambda row: _timestamp(row["input_frozen_at"]),
-        lambda row: _json(row["aggregate_counts_json"]),
+        lambda row: _json({('cluster_count' if k=='candidate_count' else k):v for k,v in json.loads(row['aggregate_counts_json']).items()}),
         lambda row: _cell(row["failure_category"] or "—"),
     ], "No Scout evaluation has run yet.", 6)
     worker_rows = _rows(workers, [
         lambda row: _cell(row["worker_type"]), lambda row: _cell(row["state"] + " / " + _worker_freshness(row, datetime.now(timezone.utc))),
-        lambda row: _timestamp(row["last_seen_at"]), lambda row: _cell(row["safe_summary"]),
+        lambda row: _timestamp(row["last_seen_at"]), _worker_summary,
     ], "No worker heartbeat has been recorded yet.", 4)
     worker_run_rows = _rows(worker_runs, [
         lambda row: str(row["worker_run_id"]),
@@ -342,7 +334,7 @@ def render_detection_dashboard(
         lambda row: _cell(row["status"]),
         lambda row: _timestamp(row["started_at"]),
         lambda row: _timestamp(row["completed_at"]),
-        lambda row: _cell(row["safe_summary"] or row["safe_error"] or "—"),
+        lambda row: _worker_summary(row) if row['safe_summary'] else _cell(row['safe_error'] or '—'),
     ], "No substantive worker run has been recorded yet.", 8)
     return f"""<!doctype html>
 <html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -363,21 +355,35 @@ table{{width:100%;table-layout:fixed;border-collapse:collapse}} th,td{{padding:3
 details{{min-width:120px}} summary{{cursor:pointer;color:var(--accent)}} pre{{white-space:pre-wrap;max-width:420px;max-height:180px;overflow:auto;background:#f7f8f9;padding:5px;margin:3px 0}}
 a{{color:#0969a2}} .pagination{{display:flex;gap:10px;align-items:center;margin:5px 0;color:var(--muted)}}
 @media(max-width:640px){{.operations{{grid-template-columns:1fr}}}} @media(max-width:560px){{main{{padding:4px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.filters input{{width:260px}}}}
+body{{font-size:14px;line-height:1.5;overflow-wrap:anywhere}} .pagination{{flex-wrap:wrap}} main{{max-width:1680px;margin:auto;padding:24px}}
+h1{{margin:0;font-size:28px}} h2{{font-size:20px;margin:8px 0}} h3{{font-size:16px;margin:8px 0}} h4{{font-size:14px;margin:14px 0 6px}}
+header{{margin-bottom:24px}} .card{{background:white;border:1px solid var(--line);border-radius:10px;padding:20px;margin:20px 0}}
+.route-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}} .route{{padding:14px;border:1px solid var(--line);border-radius:8px;background:#f8fafb}}
+.selected{{border-top:4px solid var(--accent)}} .blocked{{border-top:4px solid #bc5723}} .notice{{background:#e9f5f0;padding:12px;border-radius:6px}}
+dt{{font-weight:600;color:#43505a}} dd{{margin:0 0 8px;overflow-wrap:anywhere}} .brief{{display:grid;grid-template-columns:160px 1fr;gap:8px}}
+th,td{{padding:8px}} pre{{max-width:100%;max-height:480px;font-size:12px;padding:12px}} textarea{{width:100%;min-height:96px;padding:10px}}
+button{{padding:8px 14px}} details{{margin:8px 0}} .conversation p{{white-space:pre-wrap}} .hint,small{{color:var(--muted)}} .filters{{padding:12px;gap:12px}}
+@media(max-width:900px){{.split,.operations{{grid-template-columns:1fr}} main{{padding:12px}} .brief{{grid-template-columns:1fr}}}}
+.flow-columns{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}}
+.flow-stage{{min-width:0;background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}}
+.flow-record{{border-top:1px solid var(--line);padding:12px 0}} .flow-record h3{{font-size:15px}} .flow-record p{{margin:6px 0}}
+.operations>section{{min-width:0}} .operations table{{min-width:640px}}
+@media(max-width:1100px){{.flow-columns{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+@media(max-width:620px){{.flow-columns{{grid-template-columns:1fr}}}}
 </style></head><body>
-<main>{filters}
+<main><header><h1>Content Factory</h1><p>Detection → Determination · Human idea → Intake → Determination · ContentJobs</p>
+<nav class='pagination'><a href='/?view=detection'>Detection</a><a href='/?view=threads'>Ideas &amp; threads</a><a href='/?view=operations#queues'>Queues &amp; operations</a><a href=''>Refresh</a></nav>
+<p class='hint' id='refresh-status'>Times: UTC · live updates every 10 seconds; drafts and open evidence stay in place.</p></header><div id='detail-slot'></div><section id='detection'>{filters}
 <div class='metrics'>
 <div class='metric'>Enabled sources<b>{counts['detection_source_instances']}</b></div>
 <div class='metric'>Collection attempts<b>{counts['source_collection_attempts']}</b></div>
-<div class='metric'>Ingested observations<b>{counts['trend_observations']}</b></div>
-<div class='metric'>Trend candidates<b>{counts['trend_candidates']}</b></div>
+<div class='metric'>Raw Feed Items (observations)<b>{counts['trend_observations']}</b></div>
+<div class='metric'>Scored Clusters<b>{counts['trend_candidates']}</b></div>
 </div>
-<div class='split'>
-<section><div class='section-head'><h2>Ingestion feed</h2><span class='count'>{filtered_observation_count} item(s)</span></div><div class='panel'><table class='ingestion-table'><tr><th>Source</th><th>Title</th><th>Rank</th><th>Activity</th><th>Ingested</th></tr>{observation_rows}</table></div></section>
-<section><div class='section-head'><h2>Opportunities</h2><span class='count'>{filtered_candidate_count} selected</span></div><div class='panel'><table class='opportunity-table'><tr><th>Subject</th><th>Score</th><th>Selection reason</th><th>Evaluated</th><th>Thread</th></tr>{candidate_rows}</table></div></section>
-</div>
-{pagination}
-<div class='operations'>
-<section><div class='section-head'><h2>Source health</h2></div><div class='panel'><table><tr><th>Source</th><th>Provider</th><th>Kind</th><th>Health</th><th>Latest</th><th>Items</th><th>Reason</th></tr>{source_rows}</table></div></section>
+<details id='status-ownership'><summary>Which layer owns each status?</summary><p>Collection attempt: pending, claimed, running, retry_wait, completed, failed — the fetch operation.</p><p>Source health: healthy, degraded, unavailable, quota_limited, failed — evidence usability, never Cluster selection. Scout separately records whether frozen evidence is current or reused.</p><p>Cluster Detection Selection: observed (gates not met), eligible (awaiting selection), deferred_by_budget (capacity), selected (handoff committed). Raw Feed Items have no Selection status. Opportunities persist after Determination; their request status and decision outcome show processing, not a new source-health state.</p><p>Schema-only Cluster states: deferred_stale, rejected_cooldown, consumed, reconsiderable. Current workers do not produce these values.</p></details>
+{progression}
+</section><div class='operations' id='operations'>
+<section><div class='section-head'><h2>Source / Feed operations</h2></div><div class='panel'><table><tr><th>Source</th><th>Provider</th><th>Kind</th><th>Collection attempt</th><th>Source health</th><th>Latest</th><th>Items</th><th>Reason</th></tr>{source_rows}</table></div></section>
 <section><div class='section-head'><h2>Scout evaluations</h2></div><div class='panel'><table><tr><th>Run</th><th>Slot</th><th>Status</th><th>Frozen</th><th>Counts</th><th>Error</th></tr>{evaluation_rows}</table></div></section>
 <section><div class='section-head'><h2>Workers</h2></div><div class='panel'><table><tr><th>Worker</th><th>State</th><th>Last seen</th><th>Summary</th></tr>{worker_rows}</table></div></section>
 <section><div class='section-head'><h2>Recent worker runs</h2></div><div class='panel'><table><tr><th>Run</th><th>Worker</th><th>Claim type</th><th>Claim</th><th>Status</th><th>Started</th><th>Completed</th><th>Result</th></tr>{worker_run_rows}</table></div></section>

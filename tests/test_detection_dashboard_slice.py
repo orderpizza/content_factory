@@ -7,13 +7,12 @@ import json
 import os
 
 from common.environment import EnvironmentFileError, load_environment_file
-from database.migrations import (
+from database.current import (
     SchemaError,
     connect,
-    migrate_detection_dashboard,
-    migrate_detection_safety,
-    migrate_editorial_workflow,
-    validate_detection_dashboard,
+    initialize_database,
+    initialize_database,
+    validate_database,
 )
 from dashboard import render_detection_dashboard
 from detection.adapters import collect_source
@@ -22,7 +21,6 @@ from detection.configuration import load_manifest
 from detection.models import CollectedItem, CollectionResult, SourceCollectionError
 from detection.reporting import summarize_scout
 from detection.scout import DetectionScout
-from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 from workflow import DeterminationWorker, WorkflowStore
 
@@ -34,22 +32,20 @@ MANIFEST = ROOT / "config" / "releases" / "detection.json"
 class DetectionDashboardSliceTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.database_path = Path(self.directory.name) / "content.db"
-        migrate_detection_dashboard(self.database_path)
-        migrate_editorial_workflow(self.database_path)
-        migrate_detection_safety(self.database_path)
+        self.database_path = Path(self.directory.name) / "development.db"
+        initialize_database(self.database_path)
         with DetectionStore(self.database_path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
-        upgrade_semantic_fixture(self.database_path)
+
 
     def tearDown(self):
         self.directory.cleanup()
 
     def test_migration_is_idempotent_and_dashboard_connection_is_read_only(self):
-        self.assertFalse(migrate_editorial_workflow(self.database_path))
+        self.assertFalse(initialize_database(self.database_path))
         connection = connect(self.database_path, read_only=True)
         try:
-            validate_detection_dashboard(connection)
+            validate_database(connection)
             with self.assertRaises(Exception):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -88,11 +84,11 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=1", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=6", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):
-                validate_detection_dashboard(connection)
+                validate_database(connection)
         finally:
             connection.close()
 
@@ -297,7 +293,9 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         self.assertEqual([item["status"] for item in collection], ["completed", "completed", "completed"])
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["selected_count"], 1)
-        self.assertEqual(summary["top_candidates"][0]["subject"], "Shared Opportunity")
+        self.assertEqual(summary["top_clusters"][0]["subject"], "Shared Opportunity")
+        self.assertEqual(summary['cluster_count'], result['candidate_count'])
+        self.assertNotIn('top_candidates', summary)
         self.assertNotIn("prominence_populations", summary)
         self.assertEqual(selected["eligibility_status"], "selected")
         self.assertIsNotNone(selected["thread_id"])
@@ -331,12 +329,11 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertIn("Shared Opportunity", html)
-        self.assertIn("Ingestion feed", html)
-        self.assertIn("class='split'", html)
+        self.assertIn("Raw Feed Items", html)
+        self.assertIn("class='flow-columns'", html)
         self.assertNotIn("<h1>Trend Opportunities</h1>", html)
         self.assertNotIn("Configuration:", html)
         self.assertIn("2026-09-07T12:07:00", html)
-        self.assertNotIn("2026-09-07T12:07:00+00:00", html)
         self.assertIn("method='get'", html)
         self.assertNotIn("method='post'", html)
 
@@ -351,7 +348,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertIn("1 selected", filtered)
-        self.assertIn("1 item(s)", filtered)
+        self.assertIn("1 observation(s)", filtered)
         self.assertNotIn("Other Topic", filtered)
 
 

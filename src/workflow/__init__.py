@@ -1,4 +1,4 @@
-"""Persisted v2 workflow workers and dashboard commands.
+"""Persisted workflow workers and dashboard commands.
 
 The default workers remain deterministic fixtures. Opt-in Gemini workers cover
 Intake through validated rendering. The v4 path additionally exposes explicit,

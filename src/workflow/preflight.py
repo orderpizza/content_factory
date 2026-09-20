@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 import json
 import os
 
-from database.migrations import SchemaError, validate_production_workflow
+from database.current import SchemaError, validate_database
 
 from .model_budget import ModelBudgetConfigurationError, ModelBudgetPolicy
 from .store import WORKFLOW_PIPELINES, WorkflowStore
@@ -68,6 +68,8 @@ def inspect_smoke_readiness(
     at: datetime | None = None,
 ) -> dict[str, Any]:
     """Return safe preflight facts without calling Gemini or any delivery provider."""
+    if mode == "planning":
+        return inspect_planning_readiness(database, environment=environment)
     if mode not in {"preview", "production", "delivery"}:
         raise ValueError("smoke readiness mode must be preview, production, or delivery")
     values = os.environ if environment is None else environment
@@ -104,11 +106,11 @@ def inspect_smoke_readiness(
             )
             if mode != "preview":
                 try:
-                    validate_production_workflow(store.connection)
+                    validate_database(store.connection)
                 except SchemaError as error:
                     add("production_schema", "blocked", str(error))
                 else:
-                    add("production_schema", "pass", "normalized production schema v4 is valid")
+                    add("production_schema", "pass", "current application schema is valid")
         except Exception as error:
             add("database_inspection", "blocked", f"database inspection failed ({type(error).__name__})")
 
@@ -299,3 +301,43 @@ def inspect_smoke_readiness(
         "human_review_required": human_review,
         "network_calls_made": False,
     }
+
+
+def inspect_planning_readiness(database, *, environment=None):
+    """Inspect local planning prerequisites; never resolve credentials over a network."""
+    import importlib.util
+    import sqlite3
+    values = os.environ if environment is None else environment
+    checks = []
+    def add(name, ready, detail):
+        checks.append({"check": name, "status": "pass" if ready else "blocked", "detail": detail})
+    try:
+        with WorkflowStore(database, read_only=True) as store:
+            add('database', store.connection.execute('PRAGMA quick_check').fetchone()[0] == 'ok', 'current schema and SQLite integrity')
+            catalog = store.catalog()
+            ready = len(catalog) == 5 and all(c['enabled'] and c['generation_ready'] and len(c['outputs']) == 2 and all(o['ready'] for o in c['outputs']) for c in catalog)
+            add('planning_catalog', ready, 'five development domains and two synthetic output bindings per domain')
+            row = store.connection.execute("SELECT manifest_json FROM configuration_releases r JOIN configuration_activations a USING(configuration_release_id) WHERE a.status='active' AND a.scope_key='global'").fetchone()
+            policy = json.loads(row[0])['components']['detection']['semantic_resolution']
+            from huggingface_hub import hf_hub_download
+            for filename in ('config.json', 'modules.json', 'tokenizer.json', 'model.safetensors', '1_Pooling/config.json'):
+                hf_hub_download(policy['model_id'], filename, revision=policy['model_revision'], local_files_only=True)
+            add('local_embedding_cache', True, 'pinned MiniLM snapshot exists locally; no inference or download performed')
+    except Exception as error:
+        add('local_setup', False, f'local planning setup incomplete ({type(error).__name__}); run setup_development.py with a fresh path and provision MiniLM')
+    add('gemini_project', bool(values.get('GOOGLE_CLOUD_PROJECT', '').strip()), 'GOOGLE_CLOUD_PROJECT must be set')
+    try:
+        available = importlib.util.find_spec('google.genai') is not None
+    except ModuleNotFoundError:
+        available = False
+    add('google_genai', available, 'local google-genai package')
+    try:
+        ModelBudgetPolicy.from_environment(values.get('GEMINI_MODEL') or values.get('VERTEX_AI_MODEL') or 'gemini-2.5-flash', values)
+        add('gemini_budget', True, 'configured prices and bounded phase/daily/job limits are valid')
+    except (ValueError, ModelBudgetConfigurationError) as error:
+        add('gemini_budget', False, str(error))
+    blocked = sum(c['status']=='blocked' for c in checks)
+    return {'mode':'planning', 'status':'blocked' if blocked else 'ready', 'blocking_count':blocked,
+            'checks':checks, 'network_calls_made':False,
+            'human_review_required':['First live Gemini call verifies ADC, project permissions and model availability.',
+                                     'Review source relevance, clarification quality and five-domain decisions; fixture accounts do not deliver content.']}

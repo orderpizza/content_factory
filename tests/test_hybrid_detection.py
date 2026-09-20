@@ -8,14 +8,13 @@ import json
 import tempfile
 import unittest
 
-from database.migrations import migrate_detection_dashboard, migrate_editorial_workflow, migrate_detection_safety, connect, SchemaError
+from database.current import initialize_database, connect, SchemaError
 from detection.adapters import _PinnedHTTPSConnection, _validate_public_https
 from detection.collector import DetectionCollector
 from detection.configuration import load_manifest
 from detection.hybrid import activity, health, WIKI, HN
 from detection.models import CollectedItem, CollectionResult, ItemEvent, SourceCollectionError
 from detection.scout import DetectionScout
-from semantic_fixture import upgrade_semantic_fixture
 from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,14 +25,12 @@ class HybridDetectionTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "hybrid.db"
-        migrate_detection_dashboard(self.path)
-        migrate_editorial_workflow(self.path)
-        migrate_detection_safety(self.path)
+        initialize_database(self.path)
         self.manifest = load_manifest(ROOT / "config/releases/detection.json")
         self.at = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
-        upgrade_semantic_fixture(self.path)
+
 
     def collect(self, store, source_id, *, at=None, empty=False):
         at = at or self.at
@@ -44,12 +41,12 @@ class HybridDetectionTests(unittest.TestCase):
         with patch("detection.collector.collect_source", side_effect=result):
             return DetectionCollector(store).run_due(now=at, source_ids={source_id})
 
-    def test_v3_forward_migration_preserves_v2_and_is_idempotent(self):
-        self.assertFalse(migrate_detection_safety(self.path))
-        self.assertFalse(migrate_editorial_workflow(self.path))
+    def test_current_schema_is_idempotent(self):
+        self.assertFalse(initialize_database(self.path))
+        self.assertFalse(initialize_database(self.path))
         with DetectionStore(self.path) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 5)
-            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 5)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
 
     def test_midday_daily_report_and_live_feed_both_contribute(self):
         with DetectionStore(self.path) as store:
@@ -163,10 +160,11 @@ class HybridDetectionTests(unittest.TestCase):
             with self.assertRaises(SourceCollectionError):
                 _validate_public_https("https://example.com", {"example.com"})
 
-    def test_safety_migration_refuses_missing_path_without_creating_file(self):
+    def test_read_only_missing_path_does_not_create_file(self):
         missing = self.path.parent / "missing.db"
-        with self.assertRaises(SchemaError):
-            migrate_detection_safety(missing)
+        import sqlite3
+        with self.assertRaises(sqlite3.OperationalError):
+            connect(missing, read_only=True)
         self.assertFalse(missing.exists())
 
     def test_quota_reservations_survive_release_activation(self):

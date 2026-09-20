@@ -11,14 +11,14 @@ def summarize_scout(store: Any, result: Mapping[str, Any], *, limit: int = 10) -
     """Return useful Scout results without exposing internal audit payloads."""
 
     if limit < 0:
-        raise ValueError("candidate summary limit must not be negative")
+        raise ValueError("cluster summary limit must not be negative")
     summary = {
-        key: value for key, value in result.items()
+        ('cluster_count' if key == 'candidate_count' else key): value for key, value in result.items()
         if key != "prominence_populations"
     }
     run_id = result.get("run_id")
     if not isinstance(run_id, int) or limit == 0:
-        summary["top_candidates"] = []
+        summary["top_clusters"] = []
         return summary
 
     rows = store.connection.execute(
@@ -34,7 +34,7 @@ def summarize_scout(store: Any, result: Mapping[str, Any], *, limit: int = 10) -
     for row in rows:
         breakdown = json.loads(row["score_breakdown_json"])
         candidates.append({
-            "trend_candidate_id": int(row["trend_candidate_id"]),
+            "cluster_id": int(row["trend_candidate_id"]),
             "rank": row["rank"],
             "subject": row["canonical_subject"],
             "score": row["score"],
@@ -43,5 +43,5 @@ def summarize_scout(store: Any, result: Mapping[str, Any], *, limit: int = 10) -
             "breadth": breakdown.get("breadth"),
             "source_count": len(breakdown.get("source_components", [])),
         })
-    summary["top_candidates"] = candidates
+    summary["top_clusters"] = candidates
     return summary

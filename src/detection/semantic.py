@@ -7,6 +7,7 @@ from math import isfinite, sqrt
 import json
 import re
 from time import monotonic
+from common.operation_log import emit
 
 from .configuration import canonical_json
 
@@ -25,6 +26,7 @@ class LocalEmbeddingEncoder:
     def encode(self, texts, policy):
         identity = (policy["model_id"], policy["model_revision"], policy["cpu_threads"])
         if self.identity != identity:
+            started = monotonic()
             import os
             # No telemetry, metadata checks or automatic downloads in Scout.
             os.environ["HF_HUB_OFFLINE"] = "1"
@@ -38,10 +40,15 @@ class LocalEmbeddingEncoder:
                 model_kwargs={"use_safetensors": True},
             )
             self.identity = identity
-        return self.model.encode(
+            emit('detection', 'embedding_load', model_id=policy['model_id'], duration_ms=round((monotonic()-started)*1000), status='completed')
+        started = monotonic()
+        result = self.model.encode(
             texts, batch_size=policy["batch_size"], normalize_embeddings=True,
             show_progress_bar=False, convert_to_numpy=True,
         ).tolist()
+        emit('detection', 'embedding_batch', model_id=policy['model_id'], cluster_count=len(texts),
+             duration_ms=round((monotonic()-started)*1000), status='completed')
+        return result
 
 
 def observation_rows(connection, run_id):

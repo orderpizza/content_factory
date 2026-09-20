@@ -10,7 +10,7 @@ import json
 import sqlite3
 from common.diagnostics import safe_diagnostic
 
-from database.migrations import SchemaError, connect, validate_detection_dashboard
+from database.current import SchemaError, connect, validate_database
 from .configuration import canonical_json, validate_manifest
 
 
@@ -27,7 +27,7 @@ class DetectionStore:
             )
         self.connection = connect(self.path, read_only=read_only)
         try:
-            validate_detection_dashboard(self.connection)
+            validate_database(self.connection)
         except Exception:
             self.connection.close()
             raise
@@ -52,8 +52,6 @@ class DetectionStore:
         if self.read_only:
             raise RuntimeError("A read-only store cannot apply configuration")
         validate_manifest(manifest)
-        if int(self.connection.execute("PRAGMA user_version").fetchone()[0]) < 3:
-            raise SchemaError("The normalized detection release requires detection safety schema v3")
         manifest_json = canonical_json(manifest)
         manifest_hash = sha256(manifest_json.encode("utf-8")).hexdigest()
         now = utc_now()

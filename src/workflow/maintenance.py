@@ -12,8 +12,10 @@ import os
 import shutil
 import sqlite3
 import tempfile
+from common.operation_log import emit
+from .storage_growth import measure_tables
 
-from database.migrations import connect, validate_detection_dashboard
+from database.current import connect, validate_database
 
 from .store import WorkflowStore, canonical, now
 
@@ -34,7 +36,7 @@ def _tree_bytes(root: Path) -> int:
 
 
 class StorageMonitor:
-    """Persist the single storage gate used by production workers/commands."""
+    """Persist storage facts; only downstream production consults admission."""
 
     def __init__(
         self,
@@ -51,8 +53,13 @@ class StorageMonitor:
             "SELECT storage_sample_id,sampled_at FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1"
         ).fetchone()
         moment = datetime.now(timezone.utc).replace(microsecond=0)
-        if latest is not None and datetime.fromisoformat(latest["sampled_at"]) >= moment - timedelta(minutes=5):
-            return int(latest["storage_sample_id"])
+        if latest is not None:
+            try:
+                age = (moment-datetime.fromisoformat(latest['sampled_at'])).total_seconds()
+                if 0 <= age < 300:
+                    return int(latest['storage_sample_id'])
+            except (TypeError, ValueError):
+                pass
         usage = shutil.disk_usage(self.store.path.parent)
         ratio = usage.free / usage.total
         if ratio < 0.03 or usage.free < 1 * 1024**3:
@@ -75,14 +82,28 @@ class StorageMonitor:
         summary = {"policy": "storage_safety_v1", "raw_state": raw,
                    "free_ratio": round(ratio, 6), "artifact_root": str(self.artifact_root),
                    "backup_root": str(self.backup_root)}
+        day = moment.date().isoformat()
+        measured = self.store.connection.execute(
+            "SELECT 1 FROM storage_samples WHERE sampled_at>=? AND sampled_at<=? "
+            "AND json_type(summary_json,'$.growth')='object' LIMIT 1", (day,moment.isoformat()),
+        ).fetchone()
+        if not measured:
+            summary['growth'] = measure_tables(self.store.connection)
         with self.store.transaction():
-            return int(self.store.connection.execute(
+            # Multiple local pollers may sample; fence the append after sampling.
+            latest = self.store.connection.execute('SELECT storage_sample_id,sampled_at FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1').fetchone()
+            if latest and latest['sampled_at'] >= (moment-timedelta(minutes=5)).isoformat() and latest['sampled_at'] <= moment.isoformat():
+                return int(latest['storage_sample_id'])
+            sample_id = int(self.store.connection.execute(
                 "INSERT INTO storage_samples(state,free_bytes,total_bytes,database_bytes,wal_bytes,"
                 "artifact_bytes,backup_bytes,summary_json,sampled_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (state, usage.free, usage.total, self.store.path.stat().st_size,
                  wal.stat().st_size if wal.exists() else 0, _tree_bytes(self.artifact_root),
                  _tree_bytes(self.backup_root), canonical(summary), moment.isoformat()),
             ).lastrowid)
+        emit('storage', 'sample', sample_id=sample_id, status=state,
+             table_count=len(summary.get('growth', {}).get('tables', {})))
+        return sample_id
 
 
 class MaintenanceService:
@@ -129,7 +150,7 @@ class MaintenanceService:
             try:
                 if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise RuntimeError("backup integrity_check failed")
-                validate_detection_dashboard(check)
+                validate_database(check)
             finally:
                 check.close()
             with temporary.open("rb") as handle:
@@ -196,7 +217,7 @@ class MaintenanceService:
                 try:
                     if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                         raise RuntimeError("restored backup integrity_check failed")
-                    validate_detection_dashboard(check)
+                    validate_database(check)
                     trace = {
                         "threads": int(check.execute("SELECT COUNT(*) FROM content_threads").fetchone()[0]),
                         "posts": int(check.execute("SELECT COUNT(*) FROM post_records").fetchone()[0]),

@@ -1,13 +1,12 @@
 """Run one Scout evaluation against persisted collection evidence.
 
-This filename is retained for the existing launchd label. It delegates to the
-current detection entrypoint and cannot initialize or write the legacy schema.
+Delegates to the current Detection entrypoint with collection disabled.
+CLI arguments, including --database and --poll, are forwarded unchanged.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-import os
 import subprocess
 import sys
 
@@ -21,9 +20,7 @@ def main() -> None:
         str(ROOT / "scripts" / "run_detection.py"),
         "--skip-collection",
     ]
-    database = os.getenv("CONTENT_FACTORY_DB_PATH")
-    if database:
-        command.extend(["--database", database])
+    command.extend(sys.argv[1:])
     raise SystemExit(subprocess.call(command, cwd=ROOT))
 
 
