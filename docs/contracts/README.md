@@ -2,7 +2,7 @@
 
 The complete current database DDL is
 [application-schema.sql](application-schema.sql), owned by
-[SQLite records](../specs/data/records.md). Schema version 7 and its exact
+[SQLite records](../specs/data/records.md). Schema version 8 and its exact
 checksum are validated at runtime. Setup creates a fresh database and never
 converts an incompatible schema.
 

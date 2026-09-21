@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from common.timestamps import parse_timestamp
 from pathlib import Path
 from typing import Any
 import json
@@ -81,13 +82,9 @@ def validate_manifest(manifest: Any) -> None:
     if (manifest["schema_id"], manifest["schema_version"]) != ("configuration_manifest_v4", 4):
         raise ConfigurationError("Unsupported manifest schema identity/version")
     try:
-        created_at = datetime.fromisoformat(
-            str(manifest["created_at"]).replace("Z", "+00:00")
-        )
+        created_at = parse_timestamp(str(manifest["created_at"]))
     except ValueError as error:
         raise ConfigurationError("created_at must be an ISO-8601 timestamp") from error
-    if created_at.tzinfo is None or created_at.utcoffset().total_seconds() != 0:
-        raise ConfigurationError("created_at must be an explicitly UTC timestamp")
 
     components = manifest["components"]
     if not isinstance(components, dict) or set(components) != {"detection"}:

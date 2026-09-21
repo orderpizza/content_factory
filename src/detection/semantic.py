@@ -8,12 +8,13 @@ import json
 import re
 from time import monotonic
 from common.operation_log import emit
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_now
 
 from .configuration import canonical_json
 
 
 def moment(value):
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return parse_timestamp(value)
 
 
 class LocalEmbeddingEncoder:
@@ -102,7 +103,7 @@ def resolve(rows, at, policy, encoder):
                         else r["effective_observed_at"]) for r in members]
         node = {"lexical_key": key, "title": title, "trend_id": min(r["trend_id"] for r in members),
                 "observation_ids": sorted(r["trend_observation_id"] for r in members),
-                "latest_evidence_at": max(times).isoformat(),
+                "latest_evidence_at": serialize_timestamp(max(times)),
                 "urls": sorted({r["canonical_url"] for r in members if r["canonical_url"]}),
                 "signals": signals(title, policy), "resolution_status": "unresolved",
                 "reason": "outside_recent_window", "resolved_key": key}
@@ -226,7 +227,7 @@ def freeze_resolution(connection, run_id, policy, encoder, *, owner, claim_versi
             raise RuntimeError("Scout claim lost before semantic freeze")
         connection.execute(
             "INSERT INTO scout_event_resolutions(scout_evaluation_run_id,source_snapshot_hash,resolution_json,resolution_hash,created_at) VALUES (?,?,?,?,?)",
-            (run_id, source["snapshot_hash"], payload, sha256(payload.encode()).hexdigest(), datetime.now(timezone.utc).isoformat()),
+            (run_id, source["snapshot_hash"], payload, sha256(payload.encode()).hexdigest(), utc_now()),
         )
     return result
 

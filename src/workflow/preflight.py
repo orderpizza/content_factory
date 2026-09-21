@@ -10,6 +10,7 @@ import json
 import os
 
 from database.current import SchemaError, validate_database
+from common.timestamps import parse_timestamp, utc_datetime_now
 
 from .model_budget import ModelBudgetConfigurationError, ModelBudgetPolicy
 from .store import WORKFLOW_PIPELINES, WorkflowStore
@@ -73,7 +74,7 @@ def inspect_smoke_readiness(
     if mode not in {"preview", "production", "delivery"}:
         raise ValueError("smoke readiness mode must be preview, production, or delivery")
     values = os.environ if environment is None else environment
-    moment = (at or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
+    moment = (at or utc_datetime_now()).astimezone(timezone.utc).replace(microsecond=0)
     checks: list[dict[str, str]] = []
 
     def add(check_id: str, status: str, detail: str) -> None:
@@ -194,7 +195,7 @@ def inspect_smoke_readiness(
             current_sample = False
             if sample is not None:
                 try:
-                    sampled = datetime.fromisoformat(sample["sampled_at"]).astimezone(timezone.utc)
+                    sampled = parse_timestamp(sample["sampled_at"])
                     current_sample = sampled >= moment - timedelta(minutes=10)
                 except (TypeError, ValueError):
                     pass
@@ -255,7 +256,7 @@ def inspect_smoke_readiness(
                     try:
                         readiness_current = (
                             row["status"] == "ready"
-                            and datetime.fromisoformat(row["valid_until"]).astimezone(timezone.utc) > moment
+                            and parse_timestamp(row["valid_until"]) > moment
                         )
                     except (TypeError, ValueError):
                         pass

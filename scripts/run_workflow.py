@@ -17,12 +17,12 @@ import os
 import sys
 import time
 import math
-from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
 from common.gemini import GeminiConfigurationError, configured_model
+from common.timestamps import utc_now
 from database.current import SchemaError, validate_database
 from workflow import (
     WORKFLOW_PIPELINES,
@@ -132,7 +132,7 @@ def _run_pass(workers: tuple[object, ...]) -> None:
             class_name, (class_name.casefold(), "result")
         )
         instance_id = str(getattr(worker, "instance_id", worker_type))
-        started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        started_at = utc_now()
         store.heartbeat(worker_type, instance_id, "polling", "poll started")
         worker.last_operation = None
         try:

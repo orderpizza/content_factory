@@ -79,8 +79,8 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 # This round does not weaken the separate downstream safety policy.
                 self.assertIsNone(store.claim('generation_runs', 'generation_run_id', 'generation-test'))
                 html = render_detection_dashboard(store.connection)
-                for label in ('<h2>Raw Feed Items</h2>', '<h2>Clusters</h2>', '<h2>Opportunities</h2>',
-                              '<h2>ContentJobs</h2>', 'Human thread #1', 'ContentJob #1', 'business meetings'):
+                for label in ('class=\'stage-tabs\'', '<h2>Clusters</h2>',
+                              'ContentJobs<b>1</b>'):
                     self.assertIn(label, html)
                 self.assertIn('immutable brief #1', render_job(store.connection, 1))
 
@@ -164,16 +164,15 @@ class PlanningAdvisoryTests(unittest.TestCase):
                     with patch.object(scout, '_evaluate', side_effect=eligible):
                         scout.run(now=at)
                 self.assertIsNotNone(self.decide(store, outcome))
-                html = render_detection_dashboard(store.connection)
+                html = render_detection_dashboard(store.connection, stage='opportunities')
                 self.assertIn("id='opportunity-1'", html)
-                self.assertIn('Opportunity #1', html)
                 if outcome == 'accepted':
-                    self.assertIn('ContentJob #1', html)
+                    self.assertIn('ContentJobs<b>1</b>', html)
                     self.assertIn('Opportunity #1', render_job(store.connection, 1))
                 else:
                     self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0], 0)
                     self.assertIn('not_recommended', html)
-                self.assertIn('Initial Determination #1: completed', html)
+                self.assertIn('completed', html)
                 self.assertIn('Cluster #1', render_raw_item(store.connection, 1))
                 self.assertNotIn('Detection candidate', html)
                 self.assertNotIn('candidate(s)', html)
@@ -183,9 +182,9 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 # A selected label/timestamp without its committed handoff is not an Opportunity.
                 store.connection.execute('UPDATE trend_candidates SET selected_thread_id=NULL')
                 store.connection.commit()
-                html = render_detection_dashboard(store.connection)
+                html = render_detection_dashboard(store.connection, stage='opportunities')
                 self.assertNotIn("id='opportunity-1'", html)
-                self.assertIn('0 selected Clusters with persisted Determination handoffs', html)
+                self.assertIn('Opportunities<b>0</b>', html)
 
     def test_job_pagination_filters_and_read_snapshot_are_bounded(self):
         with WorkflowStore(self.database('pages')) as store:
@@ -194,14 +193,14 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 GeminiIntakeWorker(store, FakeGeminiClient(brief('expression '+str(number)))).run_once()
                 self.decide(store)
             before = store.connection.total_changes
-            first = render_detection_dashboard(store.connection)
-            second = render_detection_dashboard(store.connection, job_page=2)
+            first = render_detection_dashboard(store.connection, stage='jobs')
+            second = render_detection_dashboard(store.connection, stage='jobs', job_page=2)
             self.assertEqual(first.count("id='contentjob-"), 20)
             self.assertEqual(second.count("id='contentjob-"), 1)
             self.assertIn("id='contentjob-1'", second)
-            self.assertIn('21 jobs.', first)
-            self.assertIn('0 jobs.', render_detection_dashboard(store.connection, source='hacker_news_top_stories_v1'))
-            self.assertIn('0 jobs.', render_detection_dashboard(store.connection, query="%' OR 1=1 --"))
+            self.assertIn('ContentJobs<b>21</b>', first)
+            self.assertIn('ContentJobs<b>0</b>', render_detection_dashboard(store.connection, stage='jobs', source='hacker_news_top_stories_v1'))
+            self.assertIn('ContentJobs<b>0</b>', render_detection_dashboard(store.connection, stage='jobs', query="%' OR 1=1 --"))
             self.assertEqual(store.connection.total_changes, before)
             self.assertFalse(store.connection.in_transaction)
 
@@ -220,14 +219,12 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(url)
-                self.assertEqual(page.locator('.flow-stage').count(), 4)
-                self.assertTrue(page.evaluate("document.getElementById('raw-items').getBoundingClientRect().y < document.getElementById('queues').getBoundingClientRect().y"))
-                positions = page.locator('.flow-stage').evaluate_all('(els)=>els.map(e=>e.getBoundingClientRect().y)')
-                self.assertEqual(len(set(positions)), 1)
+                self.assertEqual(page.locator('.flow-stage').count(), 1)
+                self.assertEqual(page.locator('.stage-tabs a').count(), 4)
+                self.assertTrue(page.evaluate("document.querySelector('.flow-stage').getBoundingClientRect().y < document.getElementById('queues').getBoundingClientRect().y"))
                 page.set_viewport_size({'width': 390, 'height': 844})
-                widths = page.locator('.flow-stage').evaluate_all('(els)=>els.map(e=>e.getBoundingClientRect().x)')
-                self.assertEqual(len(set(widths)), 1)
                 self.assertTrue(page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+                page.locator(".stage-tabs a[href*='stage=jobs']").click()
                 page.locator('#contentjob-1 a').first.click()
                 self.assertIn('Human thread #1', page.locator('#job-detail').inner_text())
                 self.assertEqual(errors, [])

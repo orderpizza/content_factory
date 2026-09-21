@@ -45,7 +45,7 @@ class HybridDetectionTests(unittest.TestCase):
         self.assertFalse(initialize_database(self.path))
         self.assertFalse(initialize_database(self.path))
         with DetectionStore(self.path) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
 
     def test_midday_daily_report_and_live_feed_both_contribute(self):
@@ -59,7 +59,7 @@ class HybridDetectionTests(unittest.TestCase):
             self.assertEqual(row["score_formula_version"], "attention_v3")
             self.assertEqual(len(breakdown["source_components"]), 2)
             self.assertAlmostEqual(breakdown["breadth"], 2 / 3)
-            self.assertEqual(row["last_seen_at"], self.at.isoformat())
+            self.assertEqual(row["last_seen_at"], "2026-09-09T12:00:00")
             for component in breakdown["source_components"]:
                 ref = component["prominence_population"]
                 population = store.connection.execute(
@@ -75,7 +75,7 @@ class HybridDetectionTests(unittest.TestCase):
             DetectionScout(store).run(now=self.at)
             first = store.connection.execute("SELECT last_seen_at FROM trend_candidates").fetchone()[0]
             DetectionScout(store).run(now=self.at + timedelta(minutes=15))
-            self.assertEqual(first, "2026-09-09T00:00:00+00:00")
+            self.assertEqual(first, "2026-09-09T00:00:00")
             self.assertEqual(store.connection.execute("SELECT last_seen_at FROM trend_candidates").fetchone()[0], first)
 
     def test_empty_new_daily_report_does_not_resurrect_yesterdays_articles(self):

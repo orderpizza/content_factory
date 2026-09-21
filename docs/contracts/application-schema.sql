@@ -1,4 +1,4 @@
--- Current application schema. Fresh development databases only.
+-- Current application schema. Fresh databases and the explicit v7-to-v8 timestamp migration.
 
 CREATE TABLE schema_migrations (
     schema_migration_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1038,4 +1038,4 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 7;
+PRAGMA user_version = 8;

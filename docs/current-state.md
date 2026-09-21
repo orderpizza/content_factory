@@ -2,11 +2,14 @@
 
 ## System state
 
-The application uses one current SQLite schema, version **7**, defined in
+The application uses one current SQLite schema, version **8**, defined in
 [application-schema.sql](contracts/application-schema.sql). Setup creates a
-fresh database; there is no upgrade pathway. Version and SQL checksum are checked
-on store open. SQLite WAL, foreign keys, claim versions and immutable evidence
-protect worker boundaries.
+fresh database. Existing exact-v7 databases use the deliberate
+`scripts/migrate_database.py --database <path>` timestamp upgrade; it preserves
+records and instants, without a reset. Version and SQL checksum are checked on
+store open. SQLite WAL, foreign keys, claim versions and immutable evidence
+protect worker boundaries. Content Factory timestamps are UTC-naive
+second-precision ISO strings (`YYYY-MM-DDTHH:MM:SS`).
 
 Implemented planning paths:
 

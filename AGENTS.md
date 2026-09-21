@@ -41,6 +41,12 @@
   retention as routine verification.
 - All workers use `database.current`. Setup creates a fresh database;
   never reset or migrate an existing database as an incidental repair.
+- All Content Factory timestamps are UTC-naive ISO-8601 second-precision strings:
+  `YYYY-MM-DDTHH:MM:SS`. Never persist `Z`, `+00:00`, other offsets, fractional
+  seconds or local wall-clock timestamps. Convert external/aware timestamps to
+  UTC before removing timezone information; use `common.timestamps` for parsing
+  and serialization. An explicitly requested database migration is the sole
+  exception to the no-incidental-migration rule.
 - After documentation-only changes run `.venv/bin/python scripts/check_docs.py`.
   After code/tooling changes also run `.venv/bin/python scripts/run_tests.py`.
 

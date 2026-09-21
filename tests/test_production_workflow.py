@@ -357,7 +357,7 @@ class ProductionWorkflowTests(unittest.TestCase):
         self.assertFalse(initialize_database(self.path))
         with connect(self.path) as connection:
             validate_database(connection)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 

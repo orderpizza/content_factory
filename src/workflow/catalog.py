@@ -1,5 +1,5 @@
 """Read the frozen-routing catalog without invoking another worker."""
-from datetime import datetime, timezone
+from common.timestamps import utc_now
 from typing import Any
 import json
 
@@ -55,7 +55,7 @@ def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:
                     and bool(row["destination_enabled"])
                     and row["readiness_status"] == "ready"
                     and isinstance(row["readiness_valid_until"], str)
-                    and row["readiness_valid_until"] > datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+                    and row["readiness_valid_until"] > utc_now()
                 )
                 output["ready"] = ready
                 if not ready:

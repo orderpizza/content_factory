@@ -316,7 +316,7 @@ class RemainingRepairTests(unittest.TestCase):
             collector.run_due(now=start, source_ids={"nasa_recently_published_rss_v1"})
             collector.run_due(now=start + timedelta(days=1), source_ids={"nasa_recently_published_rss_v1"})
             rows = store.connection.execute("SELECT effective_observed_at FROM trend_observations").fetchall()
-            self.assertEqual([r[0] for r in rows], [start.isoformat()] * 2)
+            self.assertEqual([r[0] for r in rows], ["2026-09-08T12:00:00"] * 2)
 
     def test_later_contributor_does_not_mutate_completed_observation_or_frozen_replay(self):
         start = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)

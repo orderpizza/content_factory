@@ -18,6 +18,16 @@ does not include pipeline/platform/account. ContentJob identity derives from
 the immutable revision/domain/angle recipe. Output identity additionally binds
 canonical content to one destination/format.
 
+## Timestamp contract
+
+Every Content Factory-owned timestamp column and generated timestamp value uses
+UTC-naive ISO-8601 second precision: `YYYY-MM-DDTHH:MM:SS`. The semantic
+timezone is UTC. Writers use `common.timestamps.serialize_timestamp`; readers
+use `parse_timestamp`, which treats persisted naive values as UTC for arithmetic.
+External offset-bearing timestamps are converted to their UTC instant before the
+timezone and fractional seconds are removed. IANA timezone names remain posting
+policy configuration, not a timestamp storage format.
+
 ## Record inventory and transition rules
 
 ### Detection
@@ -105,6 +115,6 @@ Determination commits all routes/jobs/runs in one transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
 
-Schema version 7 and its checksum identify the current database contract.
-Initialization is explicit and idempotent only for the exact current schema;
-incompatible databases are refused unchanged.
+Schema version 8 and its checksum identify the current database contract. The
+explicit v7-to-v8 migration normalizes native timestamp columns without changing
+their instants; it never resets data. Other incompatible databases are refused.

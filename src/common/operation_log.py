@@ -10,6 +10,7 @@ import os
 import sys
 
 from .diagnostics import safe_diagnostic
+from .timestamps import utc_now
 
 LOGGER = logging.getLogger('content_factory.operations')
 LOGGER.addHandler(logging.NullHandler())
@@ -40,7 +41,7 @@ def refusal_code(error):
 
 
 def emit(subsystem, event, **fields):
-    record = {'timestamp': datetime.now(timezone.utc).isoformat(),
+    record = {'timestamp': utc_now(),
               'subsystem': subsystem, 'event': event}
     for key, value in fields.items():
         if key not in FIELDS or value is None:

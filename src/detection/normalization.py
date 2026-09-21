@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import re
 import unicodedata
+from common.timestamps import serialize_timestamp
 
 
 TRACKING_PARAMETERS = {"gclid", "fbclid", "mc_cid", "mc_eid", "_ga"}
@@ -91,21 +92,21 @@ def canonical_link(value: str, version: str = "canonicalization_v2") -> str | No
 
 def parse_provider_time(value: str | None, collected_at: datetime) -> tuple[str, str]:
     if not value:
-        return collected_at.isoformat(), "provider_time_fallback"
+        return serialize_timestamp(collected_at), "provider_time_fallback"
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return collected_at.isoformat(), "provider_time_fallback"
+        return serialize_timestamp(collected_at), "provider_time_fallback"
     if parsed.tzinfo is None:
-        return collected_at.isoformat(), "provider_time_fallback"
+        return serialize_timestamp(collected_at), "provider_time_fallback"
     parsed = parsed.astimezone(timezone.utc)
     if parsed > collected_at + timedelta(minutes=5):
-        return collected_at.isoformat(), "provider_time_fallback"
+        return serialize_timestamp(collected_at), "provider_time_fallback"
     if parsed > collected_at:
-        return collected_at.isoformat(), "provider_time_clamped"
-    return parsed.isoformat(), "provider_time_valid"
+        return serialize_timestamp(collected_at), "provider_time_clamped"
+    return serialize_timestamp(parsed), "provider_time_valid"
 
 
 def utc_day_window(value: datetime) -> tuple[str, str]:
     start = value.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.isoformat(), (start + timedelta(days=1)).isoformat()
+    return serialize_timestamp(start), serialize_timestamp(start + timedelta(days=1))

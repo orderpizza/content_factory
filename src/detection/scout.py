@@ -11,6 +11,7 @@ import sqlite3
 from time import monotonic
 from common.operation_log import emit
 from common.diagnostics import safe_diagnostic
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 
 from .configuration import canonical_json
 from .store import DetectionStore, utc_now
@@ -18,7 +19,7 @@ from .semantic import LocalEmbeddingEncoder, freeze_resolution
 
 
 def _parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return parse_timestamp(value)
 
 
 def _evaluation_slot(value: datetime) -> datetime:
@@ -36,7 +37,7 @@ class DetectionScout:
 
     def run(self, *, now: datetime | None = None) -> dict[str, Any]:
         started = monotonic()
-        frozen_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        frozen_at = (now or utc_datetime_now()).astimezone(timezone.utc).replace(microsecond=0)
         slot = _evaluation_slot(frozen_at)
         release = self.store.active_release()
         release_id = int(release["configuration_release_id"])
@@ -82,7 +83,7 @@ class DetectionScout:
             self.WORKER_TYPE, self.instance_id, "scout_evaluation_run", run_id
         )
         self.store.heartbeat(
-            self.WORKER_TYPE, self.instance_id, "working", f"evaluating slot {slot.isoformat()}",
+            self.WORKER_TYPE, self.instance_id, "working", f"evaluating slot {serialize_timestamp(slot)}",
             claim_type="scout_evaluation_run", claim_id=run_id,
         )
         try:
@@ -104,7 +105,7 @@ class DetectionScout:
                 key: value for key, value in result.items() if key != "candidates"
             }
             emit('detection', 'scout', worker=self.WORKER_TYPE, evaluation_id=run_id,
-                 claim_version=claim_version, scheduled_slot=slot.isoformat(), status='completed',
+                 claim_version=claim_version, scheduled_slot=serialize_timestamp(slot), status='completed',
                  candidate_count=result['candidate_count'], selected_count=result['selected_count'],
                  duration_ms=round((monotonic()-started)*1000))
             return {"run_id": run_id, "status": "completed", **public_result}
@@ -124,7 +125,7 @@ class DetectionScout:
             "(status='retry_wait' AND next_attempt_at<=?) OR "
             "(status IN ('claimed','running') AND lease_expires_at<=?)) "
             "ORDER BY evaluation_slot_start, scout_evaluation_run_id LIMIT 1",
-            (release_id, now.isoformat(), now.isoformat()),
+            (release_id, serialize_timestamp(now), serialize_timestamp(now)),
         ).fetchone()
         if recoverable is not None:
             return int(recoverable["scout_evaluation_run_id"])
@@ -134,14 +135,14 @@ class DetectionScout:
                     "INSERT INTO scout_evaluation_runs "
                     "(evaluation_slot_start, configuration_release_id, aggregate_counts_json, "
                     "status, attempt_limit, created_at) VALUES (?, ?, '{}', 'pending', 3, ?)",
-                    (slot.isoformat(), release_id, now.isoformat()),
+                    (serialize_timestamp(slot), release_id, serialize_timestamp(now)),
                 )
                 return int(cursor.lastrowid)
         except sqlite3.IntegrityError:
             row = self.store.connection.execute(
                 "SELECT scout_evaluation_run_id FROM scout_evaluation_runs "
                 "WHERE evaluation_slot_start=? AND configuration_release_id=?",
-                (slot.isoformat(), release_id),
+                (serialize_timestamp(slot), release_id),
             ).fetchone()
             if row is None:
                 raise
@@ -157,8 +158,8 @@ class DetectionScout:
                 "(status IN ('claimed','running') AND lease_expires_at<=?)) "
                 "AND attempt_count<attempt_limit",
                 (
-                    self.instance_id, now.isoformat(), (now + timedelta(minutes=10)).isoformat(),
-                    run_id, now.isoformat(), now.isoformat(),
+                    self.instance_id, serialize_timestamp(now), serialize_timestamp(now + timedelta(minutes=10)),
+                    run_id, serialize_timestamp(now), serialize_timestamp(now),
                 ),
             )
             if cursor.rowcount != 1:
@@ -182,7 +183,7 @@ class DetectionScout:
                         "failure_category='attempts_exhausted', failure_detail=?, completed_at=? "
                         "WHERE scout_evaluation_run_id=? AND status=?",
                         (
-                            "attempt limit exhausted after lease expiry", now.isoformat(),
+                            "attempt limit exhausted after lease expiry", serialize_timestamp(now),
                             run_id, exhausted["status"],
                         ),
                     )
@@ -209,7 +210,7 @@ class DetectionScout:
                 "SET input_frozen_at=COALESCE(input_frozen_at,?) "
                 "WHERE scout_evaluation_run_id=? AND configuration_release_id=? "
                 "AND status='running' AND claim_owner=? AND claim_version=?",
-                (frozen_at.isoformat(), run_id, release_id, self.instance_id, claim_version),
+                (serialize_timestamp(frozen_at), run_id, release_id, self.instance_id, claim_version),
             )
             if claimed.rowcount != 1:
                 raise RuntimeError("Scout claim was lost before freezing inputs")
@@ -270,7 +271,7 @@ class DetectionScout:
         self.store.connection.execute(
             "UPDATE content_threads SET coverage_identity=?, updated_at=?, "
             "row_version=row_version+1 WHERE thread_id=?",
-            (coverage_identity, frozen_at.isoformat(), thread_id),
+            (coverage_identity, serialize_timestamp(frozen_at), thread_id),
         )
 
         member_index = {member['trend_observation_id']: member for member in candidate['members']}
@@ -316,7 +317,7 @@ class DetectionScout:
                 thread_id,
                 canonical_json(brief),
                 canonical_json(source_snapshot),
-                frozen_at.isoformat(),
+                serialize_timestamp(frozen_at),
             ),
         )
         revision_id = int(revision.lastrowid)
@@ -335,7 +336,7 @@ class DetectionScout:
                 revision_id,
                 canonical_json(request_snapshot),
                 sha256(canonical_json(request_snapshot).encode("utf-8")).hexdigest(),
-                frozen_at.isoformat(),
+                serialize_timestamp(frozen_at),
             ),
         )
 
@@ -350,14 +351,14 @@ class DetectionScout:
         policy = manifest["components"]["detection"]["shortlist"]
         formula_version = manifest["components"]["detection"]["score_formula_version"]
         normalization_version = manifest["components"]["detection"]["canonicalization_version"]
-        six_hours = (frozen_at - timedelta(hours=6)).isoformat()
-        day = (frozen_at - timedelta(hours=24)).isoformat()
+        six_hours = serialize_timestamp(frozen_at - timedelta(hours=6))
+        day = serialize_timestamp(frozen_at - timedelta(hours=24))
         with self.store.connection:
             for kind, population in result.get("prominence_populations", {}).items():
                 encoded_population = canonical_json(population)
                 self.store.connection.execute(
                     "INSERT INTO scout_prominence_populations(scout_evaluation_run_id,source_kind,population_json,population_hash,created_at) VALUES (?,?,?,?,?)",
-                    (run_id, kind, encoded_population, sha256(encoded_population.encode()).hexdigest(), frozen_at.isoformat()),
+                    (run_id, kind, encoded_population, sha256(encoded_population.encode()).hexdigest(), serialize_timestamp(frozen_at)),
                 )
             selected_6h = int(self.store.connection.execute(
                 "SELECT COUNT(*) FROM trend_candidates WHERE selected_at>=?", (six_hours,)
@@ -378,7 +379,7 @@ class DetectionScout:
                         candidate["canonical_subject"], candidate["score"],
                         canonical_json(candidate["breakdown"]), candidate["evidence_json"],
                         candidate["evidence_fingerprint"], formula_version, normalization_version,
-                        frozen_at.isoformat(),
+                        serialize_timestamp(frozen_at),
                     ),
                 )
                 snapshot_id = int(self.store.connection.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -414,7 +415,7 @@ class DetectionScout:
                             candidate["cluster_key"], candidate["canonical_subject"], snapshot_id,
                             candidate["evidence_fingerprint"], candidate["score"],
                             canonical_json(candidate["breakdown"]), formula_version, normalization_version, desired_status, reason, rank,
-                            candidate.get("last_seen_at", frozen_at.isoformat()), frozen_at.isoformat(), existing["trend_candidate_id"],
+                            candidate.get("last_seen_at", serialize_timestamp(frozen_at)), serialize_timestamp(frozen_at), existing["trend_candidate_id"],
                         ),
                     )
                     candidate_id = int(existing["trend_candidate_id"])
@@ -430,8 +431,8 @@ class DetectionScout:
                             candidate["opportunity_identity"], candidate["cluster_key"],
                             candidate["canonical_subject"], snapshot_id, candidate["evidence_fingerprint"],
                             candidate["score"], canonical_json(candidate["breakdown"]), formula_version,
-                            normalization_version, desired_status, reason, rank, frozen_at.isoformat(),
-                            candidate.get("last_seen_at", frozen_at.isoformat()), frozen_at.isoformat(), frozen_at.isoformat(),
+                            normalization_version, desired_status, reason, rank, serialize_timestamp(frozen_at),
+                            candidate.get("last_seen_at", serialize_timestamp(frozen_at)), serialize_timestamp(frozen_at), serialize_timestamp(frozen_at),
                         ),
                     )
                     candidate_id = int(cursor.lastrowid)
@@ -448,7 +449,7 @@ class DetectionScout:
                                 "source_item_key": member["source_item_key"], "canonical_url": member["canonical_url"],
                                 "effective_observed_at": member["effective_observed_at"], "collected_at": member["collected_at"],
                                 "window_start": member["window_start"], "window_end": member["window_end"],
-                            }), frozen_at.isoformat(),
+                            }), serialize_timestamp(frozen_at),
                         ),
                     )
                 can_select = (
@@ -461,7 +462,7 @@ class DetectionScout:
                         "INSERT INTO content_threads "
                         "(origin, seed_candidate_id, status, created_at, updated_at) "
                         "VALUES ('trend', ?, 'open', ?, ?)",
-                        (candidate_id, frozen_at.isoformat(), frozen_at.isoformat()),
+                        (candidate_id, serialize_timestamp(frozen_at), serialize_timestamp(frozen_at)),
                     )
                     thread_id = int(thread_cursor.lastrowid)
                     self._create_trend_determination_handoff(
@@ -476,7 +477,7 @@ class DetectionScout:
                         "UPDATE trend_candidates SET eligibility_status='selected', "
                         "eligibility_reason=?, selected_at=?, "
                         "selected_thread_id=?, updated_at=? WHERE trend_candidate_id=?",
-                        (f"selected_by_{policy['policy_version']}", frozen_at.isoformat(), thread_id, frozen_at.isoformat(), candidate_id),
+                        (f"selected_by_{policy['policy_version']}", serialize_timestamp(frozen_at), thread_id, serialize_timestamp(frozen_at), candidate_id),
                     )
                     selected_count += 1
                     selected_6h += 1
@@ -486,7 +487,7 @@ class DetectionScout:
                         "UPDATE trend_candidates SET eligibility_status='deferred_by_budget', "
                         "eligibility_reason='selection_budget_exhausted', updated_at=? "
                         "WHERE trend_candidate_id=?",
-                        (frozen_at.isoformat(), candidate_id),
+                        (serialize_timestamp(frozen_at), candidate_id),
                     )
             result["selected_count"] = selected_count
             counts = canonical_json({
@@ -512,8 +513,9 @@ class DetectionScout:
         retry = int(row["attempt_count"]) < int(row["attempt_limit"])
         delay = 30 if int(row["attempt_count"]) == 1 else 300
         next_attempt = (
-            datetime.now(timezone.utc) + timedelta(seconds=delay)
-        ).isoformat() if retry else None
+            utc_datetime_now() + timedelta(seconds=delay)
+        ) if retry else None
+        next_attempt = serialize_timestamp(next_attempt) if next_attempt else None
         with self.store.connection:
             self.store.connection.execute(
                 "UPDATE scout_evaluation_runs SET status=?, next_attempt_at=?, "

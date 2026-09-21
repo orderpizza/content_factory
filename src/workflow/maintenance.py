@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import tempfile
 from common.operation_log import emit
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 from .storage_growth import measure_tables
 
 from database.current import connect, validate_database
@@ -52,10 +53,10 @@ class StorageMonitor:
         latest = self.store.connection.execute(
             "SELECT storage_sample_id,sampled_at FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1"
         ).fetchone()
-        moment = datetime.now(timezone.utc).replace(microsecond=0)
+        moment = utc_datetime_now()
         if latest is not None:
             try:
-                age = (moment-datetime.fromisoformat(latest['sampled_at'])).total_seconds()
+                age = (moment-parse_timestamp(latest['sampled_at'])).total_seconds()
                 if 0 <= age < 300:
                     return int(latest['storage_sample_id'])
             except (TypeError, ValueError):
@@ -85,21 +86,21 @@ class StorageMonitor:
         day = moment.date().isoformat()
         measured = self.store.connection.execute(
             "SELECT 1 FROM storage_samples WHERE sampled_at>=? AND sampled_at<=? "
-            "AND json_type(summary_json,'$.growth')='object' LIMIT 1", (day,moment.isoformat()),
+            "AND json_type(summary_json,'$.growth')='object' LIMIT 1", (day,serialize_timestamp(moment)),
         ).fetchone()
         if not measured:
             summary['growth'] = measure_tables(self.store.connection)
         with self.store.transaction():
             # Multiple local pollers may sample; fence the append after sampling.
             latest = self.store.connection.execute('SELECT storage_sample_id,sampled_at FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1').fetchone()
-            if latest and latest['sampled_at'] >= (moment-timedelta(minutes=5)).isoformat() and latest['sampled_at'] <= moment.isoformat():
+            if latest and latest['sampled_at'] >= serialize_timestamp(moment-timedelta(minutes=5)) and latest['sampled_at'] <= serialize_timestamp(moment):
                 return int(latest['storage_sample_id'])
             sample_id = int(self.store.connection.execute(
                 "INSERT INTO storage_samples(state,free_bytes,total_bytes,database_bytes,wal_bytes,"
                 "artifact_bytes,backup_bytes,summary_json,sampled_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (state, usage.free, usage.total, self.store.path.stat().st_size,
                  wal.stat().st_size if wal.exists() else 0, _tree_bytes(self.artifact_root),
-                 _tree_bytes(self.backup_root), canonical(summary), moment.isoformat()),
+                 _tree_bytes(self.backup_root), canonical(summary), serialize_timestamp(moment)),
             ).lastrowid)
         emit('storage', 'sample', sample_id=sample_id, status=state,
              table_count=len(summary.get('growth', {}).get('tables', {})))

@@ -11,7 +11,7 @@ from database.current import (
     SchemaError,
     connect,
     initialize_database,
-    initialize_database,
+    migrate_database,
     validate_database,
 )
 from dashboard import render_detection_dashboard
@@ -84,7 +84,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=7", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=8", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):
@@ -323,19 +323,35 @@ class DetectionDashboardSliceTests(unittest.TestCase):
                 0,
             )
 
-        connection = connect(self.database_path, read_only=True)
+        connection = connect(self.database_path)
         try:
+            connection.execute("UPDATE trend_candidates SET score=CASE canonical_subject WHEN 'Other Topic' THEN .95 ELSE .80 END")
+            connection.commit()
             html = render_detection_dashboard(connection)
         finally:
             connection.close()
         self.assertIn("Shared Opportunity", html)
         self.assertIn("Raw Feed Items", html)
-        self.assertIn("class='flow-columns'", html)
+        self.assertIn("class='stage-tabs'", html)
+        self.assertIn("class='stage-table'", html)
+        self.assertIn("stage=clusters", html)
+        self.assertIn("cluster_sort=score_desc", html)
         self.assertNotIn("<h1>Trend Opportunities</h1>", html)
         self.assertNotIn("Configuration:", html)
+        self.assertNotIn("Detection → Determination", html)
+        self.assertNotIn("Which layer owns each status?", html)
+        self.assertNotIn("Raw Feed Items → Clusters → Opportunities → ContentJobs", html)
         self.assertIn("2026-09-07T12:07:00", html)
         self.assertIn("method='get'", html)
         self.assertNotIn("method='post'", html)
+        self.assertLess(html.index('Other Topic'), html.index('Shared Opportunity'))
+
+        connection = connect(self.database_path, read_only=True)
+        try:
+            recent = render_detection_dashboard(connection, cluster_sort='recent')
+        finally:
+            connection.close()
+        self.assertIn('Newest / Recently evaluated', recent)
 
         connection = connect(self.database_path, read_only=True)
         try:
@@ -348,8 +364,34 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertIn("1 selected", filtered)
-        self.assertIn("1 observation(s)", filtered)
+        self.assertIn("Raw Feed Items<b>1</b>", filtered)
         self.assertNotIn("Other Topic", filtered)
+
+    def test_timestamp_migration_normalizes_legacy_offsets_without_reset(self):
+        with WorkflowStore(self.database_path) as store:
+            store.create_human_idea("timestamp migration", command_id="timestamp-migration")
+        connection = connect(self.database_path)
+        try:
+            connection.execute("UPDATE content_threads SET created_at=?,updated_at=?", (
+                "2026-09-21T20:16:00+02:00", "2026-09-21T18:16:00.500000Z",
+            ))
+            connection.execute("UPDATE schema_migrations SET version=7,checksum=?,applied_at=?", (
+                "3ca7f26a4c3372222df2b9a77a9618db68f7fa15f03a16070b693c0a8dfa7e0f",
+                "2026-09-21T18:16:00+00:00",
+            ))
+            connection.execute("PRAGMA user_version=7")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertTrue(migrate_database(self.database_path))
+        connection = connect(self.database_path, read_only=True)
+        try:
+            row = connection.execute("SELECT created_at,updated_at FROM content_threads LIMIT 1").fetchone()
+            self.assertEqual(tuple(row), ("2026-09-21T18:16:00", "2026-09-21T18:16:00"))
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
+            validate_database(connection)
+        finally:
+            connection.close()
 
 
 if __name__ == "__main__":

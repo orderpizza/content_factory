@@ -14,6 +14,7 @@ from .delivery import (
     R2TransientRelay,
 )
 from .store import WorkflowStore
+from common.timestamps import utc_now
 
 
 class CapabilityReadinessMonitor:
@@ -40,7 +41,7 @@ class CapabilityReadinessMonitor:
         ).fetchall()
         results = []
         for row in rows:
-            moment = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+            moment = utc_now()
             if only_due and row["valid_until"] > moment:
                 results.append({
                     "destination_id": int(row["social_destination_id"]),

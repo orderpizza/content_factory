@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from html import escape
-from datetime import datetime, timezone
 import json
 import sqlite3
 import uuid
+from common.timestamps import utc_now
 
 
 from .planning import render_threads as render_workflow_trace
@@ -110,7 +110,7 @@ def _review_destination_ready(connection: sqlite3.Connection, review_id: int) ->
         "JOIN capability_readiness r ON r.social_destination_id=d.social_destination_id "
         "WHERE v.review_request_id=?", (review_id,),
     ).fetchone()
-    moment = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    moment = utc_now()
     return bool(
         row is not None and row["delivery_enabled"] and row["profile_approved"]
         and row["enabled"] and row["status"] == "ready" and row["valid_until"] > moment
@@ -142,7 +142,7 @@ def _production_status(connection: sqlite3.Connection) -> str:
         "COALESCE(MAX(daily_warning_micro_usd),0) warning_limit "
         "FROM gemini_budget_reservations WHERE accounting_day=? "
         "AND status IN ('reserved','settled','uncertain')",
-        (datetime.now(timezone.utc).date().isoformat(),),
+        (utc_now()[:10],),
     ).fetchone()
     storage_text = (
         "missing (planning remains available; downstream admission is separate)" if storage is None

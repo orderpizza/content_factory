@@ -13,6 +13,7 @@ from .flow import render_progression, CLUSTER_STATES
 
 
 from .refresh import AUTO_REFRESH_SCRIPT, AUTO_REFRESH_CSP
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 
 
 def _worker_freshness(row, at: datetime) -> str:
@@ -36,7 +37,7 @@ def _worker_freshness(row, at: datetime) -> str:
     if limits is None:
         return "unknown cadence"
     try:
-        seen = datetime.fromisoformat(row["last_seen_at"].replace("Z", "+00:00"))
+        seen = parse_timestamp(row["last_seen_at"])
         age = (at - seen).total_seconds()
     except (TypeError, ValueError):
         return "invalid heartbeat time"
@@ -77,10 +78,10 @@ def _timestamp(value: Any) -> str:
         return "—"
     text = str(value)
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = parse_timestamp(text)
     except ValueError:
         return _cell(text)
-    return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+    return serialize_timestamp(parsed)
 
 
 def _rows(items: list[sqlite3.Row], renderers, empty: str, columns: int) -> str:
@@ -116,16 +117,24 @@ def _render_detection_dashboard(
     query: str = "",
     source: str = "",
     status: str = "",
-    page: int = 1,
+    stage: str = "clusters",
+    raw_page: int = 1,
+    cluster_page: int = 1,
     opportunity_page: int = 1,
     job_page: int = 1,
+    cluster_sort: str = "score_desc",
 ) -> str:
     """Render one consistent SQLite snapshot without mutating it."""
 
     query = query.strip()[:200]
     source = source.strip()[:100]
     status = status.strip()[:40]
-    page = max(1, min(int(page), 10_000))
+    stage = stage if stage in {"raw", "clusters", "opportunities", "jobs"} else "clusters"
+    raw_page = max(1, min(int(raw_page), 10_000))
+    cluster_page = max(1, min(int(cluster_page), 10_000))
+    opportunity_page = max(1, min(int(opportunity_page), 10_000))
+    job_page = max(1, min(int(job_page), 10_000))
+    cluster_sort = cluster_sort if cluster_sort in {"score_desc", "recent"} else "score_desc"
     page_size = 50
     search_pattern = _literal_like(query)
 
@@ -211,23 +220,21 @@ def _render_detection_dashboard(
             "SELECT COUNT(*)" + observation_from + observation_where,
             observation_parameters,
         ).fetchone()[0])
-        max_page = max(
-            1,
-            (max(filtered_candidate_count, filtered_observation_count) + page_size - 1)
-            // page_size,
+        raw_page = min(raw_page, max(1, (filtered_observation_count + page_size - 1) // page_size))
+        cluster_page = min(cluster_page, max(1, (filtered_candidate_count + page_size - 1) // page_size))
+        cluster_order = (
+            "c.score DESC, c.updated_at DESC, c.trend_candidate_id DESC"
+            if cluster_sort == "score_desc" else
+            "c.updated_at DESC, c.trend_candidate_id DESC"
         )
-        page = min(page, max_page)
-        offset = (page - 1) * page_size
 
         candidates = connection.execute(
             "SELECT c.*, s.evidence_snapshot_json, s.created_at AS snapshot_at, "
             "t.thread_id "
             + candidate_from
             + candidate_where
-            + "ORDER BY CASE c.eligibility_status "
-            "WHEN 'selected' THEN 0 WHEN 'eligible' THEN 1 WHEN 'deferred_by_budget' THEN 2 ELSE 3 END, "
-            "c.score DESC, c.updated_at DESC, c.trend_candidate_id DESC LIMIT ? OFFSET ?",
-            (*candidate_parameters, page_size, offset),
+            + "ORDER BY " + cluster_order + " LIMIT ? OFFSET ?",
+            (*candidate_parameters, page_size, (cluster_page - 1) * page_size),
         ).fetchall()
         sources = connection.execute(
             "SELECT s.*, a.status AS attempt_status, a.scheduled_for, a.collected_at, "
@@ -250,7 +257,7 @@ def _render_detection_dashboard(
             + observation_from
             + observation_where
             + "ORDER BY o.collected_at DESC, o.trend_observation_id DESC LIMIT ? OFFSET ?",
-            (*observation_parameters, page_size, offset),
+            (*observation_parameters, page_size, (raw_page - 1) * page_size),
         ).fetchall()
         evaluations = connection.execute(
             "SELECT * FROM scout_evaluation_runs "
@@ -275,6 +282,7 @@ def _render_detection_dashboard(
     )
     filters = (
         "<form class='filters' method='get' action='/'>"
+        f"<input type='hidden' name='stage' value='{_cell(stage)}'><input type='hidden' name='cluster_sort' value='{_cell(cluster_sort)}'>"
         f"<label>Search<input name='q' maxlength='200' value='{_cell(query)}' "
         "placeholder='title, canonical key, or identity'></label>"
         f"<label>Source<select name='source'><option value=''>All sources</option>"
@@ -283,27 +291,11 @@ def _render_detection_dashboard(
         "<button type='submit'>Apply filters</button><a class='reset' href='/'>Reset</a>"
         "</form>"
     )
-    link_parameters = {
-        key: value for key, value in {"q": query, "source": source, "status": status, 'opportunity_page':opportunity_page, 'job_page':job_page}.items()
-        if value
-    }
-
-    def page_link(target: int, label: str) -> str:
-        parameters = {**link_parameters, "page": target}
-        return f"<a href='/?{_cell(urlencode(parameters))}'>{_cell(label)}</a>"
-
-    pagination_parts = []
-    if page > 1:
-        pagination_parts.append(page_link(page - 1, "← Previous"))
-    pagination_parts.append(f"<span>Page {page} of {max_page}</span>")
-    if page < max_page:
-        pagination_parts.append(page_link(page + 1, "Next →"))
-    pagination = "<nav class='pagination'>" + "".join(pagination_parts) + "</nav>"
-
     progression = render_progression(connection, observations, candidates,
         raw_count=filtered_observation_count, cluster_count=filtered_candidate_count,
-        pagination=pagination, query=query, source=source, status=status, page=page,
-        opportunity_page=opportunity_page, job_page=job_page)
+        stage=stage, query=query, source=source, status=status, raw_page=raw_page,
+        cluster_page=cluster_page, opportunity_page=opportunity_page, job_page=job_page,
+        cluster_sort=cluster_sort)
     source_rows = _rows(sources, [
         lambda row: _cell(row["stable_id"]),
         lambda row: _cell(row["provider_name"]),
@@ -323,7 +315,7 @@ def _render_detection_dashboard(
         lambda row: _cell(row["failure_category"] or "—"),
     ], "No Scout evaluation has run yet.", 6)
     worker_rows = _rows(workers, [
-        lambda row: _cell(row["worker_type"]), lambda row: _cell(row["state"] + " / " + _worker_freshness(row, datetime.now(timezone.utc))),
+        lambda row: _cell(row["worker_type"]), lambda row: _cell(row["state"] + " / " + _worker_freshness(row, utc_datetime_now())),
         lambda row: _timestamp(row["last_seen_at"]), _worker_summary,
     ], "No worker heartbeat has been recorded yet.", 4)
     worker_run_rows = _rows(worker_runs, [
@@ -364,23 +356,19 @@ dt{{font-weight:600;color:#43505a}} dd{{margin:0 0 8px;overflow-wrap:anywhere}} 
 th,td{{padding:8px}} pre{{max-width:100%;max-height:480px;font-size:12px;padding:12px}} textarea{{width:100%;min-height:96px;padding:10px}}
 button{{padding:8px 14px}} details{{margin:8px 0}} .conversation p{{white-space:pre-wrap}} .hint,small{{color:var(--muted)}} .filters{{padding:12px;gap:12px}}
 @media(max-width:900px){{.split,.operations{{grid-template-columns:1fr}} main{{padding:12px}} .brief{{grid-template-columns:1fr}}}}
-.flow-columns{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}}
-.flow-stage{{min-width:0;background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px}}
-.flow-record{{border-top:1px solid var(--line);padding:12px 0}} .flow-record h3{{font-size:15px}} .flow-record p{{margin:6px 0}}
+.stage-tabs{{display:flex;gap:4px;margin:6px 0;overflow:auto}} .stage-tabs a{{min-width:145px;padding:7px 9px;background:#fff;border:1px solid var(--line);text-decoration:none;color:var(--ink)}} .stage-tabs a.active{{border-color:var(--accent);background:#e9f5f0}} .stage-tabs b{{float:right;font-variant-numeric:tabular-nums}}
+.flow-stage{{min-width:0;background:#fff;border:1px solid var(--line);padding:6px;overflow:auto}} .stage-head{{display:flex;justify-content:space-between;gap:8px;align-items:center}} .stage-head form{{display:flex;gap:4px;align-items:center}} .stage-table{{font-size:12px;min-width:900px}} .stage-table th,.stage-table td{{padding:5px 6px;white-space:nowrap}} .stage-table .truncate{{max-width:310px;overflow:hidden;text-overflow:ellipsis}}
 .operations>section{{min-width:0}} .operations table{{min-width:640px}}
-@media(max-width:1100px){{.flow-columns{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
-@media(max-width:620px){{.flow-columns{{grid-template-columns:1fr}}}}
 </style></head><body>
-<main><header><h1>Content Factory</h1><p>Detection → Determination · Human idea → Intake → Determination · ContentJobs</p>
+<main><header><h1>Content Factory</h1>
 <nav class='pagination'><a href='/?view=detection'>Detection</a><a href='/?view=threads'>Ideas &amp; threads</a><a href='/?view=operations#queues'>Queues &amp; operations</a><a href=''>Refresh</a></nav>
-<p class='hint' id='refresh-status'>Times: UTC · live updates every 10 seconds; drafts and open evidence stay in place.</p></header><div id='detail-slot'></div><section id='detection'>{filters}
+<p class='hint' id='refresh-status'>Times: UTC</p></header><div id='detail-slot'></div><section id='detection'>{filters}
 <div class='metrics'>
 <div class='metric'>Enabled sources<b>{counts['detection_source_instances']}</b></div>
 <div class='metric'>Collection attempts<b>{counts['source_collection_attempts']}</b></div>
 <div class='metric'>Raw Feed Items (observations)<b>{counts['trend_observations']}</b></div>
 <div class='metric'>Scored Clusters<b>{counts['trend_candidates']}</b></div>
 </div>
-<details id='status-ownership'><summary>Which layer owns each status?</summary><p>Collection attempt: pending, claimed, running, retry_wait, completed, failed — the fetch operation.</p><p>Source health: healthy, degraded, unavailable, quota_limited, failed — evidence usability, never Cluster selection. Scout separately records whether frozen evidence is current or reused.</p><p>Cluster Detection Selection: observed (gates not met), eligible (awaiting selection), deferred_by_budget (capacity), selected (handoff committed). Raw Feed Items have no Selection status. Opportunities persist after Determination; their request status and decision outcome show processing, not a new source-health state.</p><p>Schema-only Cluster states: deferred_stale, rejected_cooldown, consumed, reconsiderable. Current workers do not produce these values.</p></details>
 {progression}
 </section><div class='operations' id='operations'>
 <section><div class='section-head'><h2>Source / Feed operations</h2></div><div class='panel'><table><tr><th>Source</th><th>Provider</th><th>Kind</th><th>Collection attempt</th><th>Source health</th><th>Latest</th><th>Items</th><th>Reason</th></tr>{source_rows}</table></div></section>

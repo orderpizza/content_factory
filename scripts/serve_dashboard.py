@@ -8,7 +8,6 @@ import socket
 import sys
 import secrets
 import json
-from datetime import datetime, timezone
 from time import monotonic
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import escape
@@ -19,7 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from common.environment import load_environment_file
 from common.operation_log import configure_logging, emit, refusal_code
-from database.current import SCHEMA_VERSION, SchemaError, connect, validate_database
+from common.timestamps import utc_now
+from database.current import SchemaError, connect, validate_database
 from dashboard import render_detection_dashboard, render_workflow_trace
 from dashboard.detection import AUTO_REFRESH_CSP
 from dashboard.evidence import render_candidate, render_evaluation, render_queue_status
@@ -50,10 +50,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except ValueError:
             parameters = {}
         try:
-            page = int(parameters.get("page", ["1"])[0])
-        except ValueError:
-            page = 1
-        try:
             connection = connect(self.database_path, read_only=True)
             try:
                 connection.execute("BEGIN")
@@ -65,9 +61,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     query=parameters.get("q", [""])[0],
                     source=parameters.get("source", [""])[0],
                     status=parameters.get("status", [""])[0],
-                    page=page,
+                    stage=parameters.get("stage", ["clusters"])[0],
+                    raw_page=self._query_int(parameters, 'raw_page', 1),
+                    cluster_page=self._query_int(parameters, 'cluster_page', 1),
                     opportunity_page=self._query_int(parameters,'opportunity_page',1),
                     job_page=self._query_int(parameters,'job_page',1),
+                    cluster_sort=parameters.get('cluster_sort', ['score_desc'])[0],
                 )
                 base_page = body
                 view = parameters.get('view', ['overview'])[0]
@@ -93,8 +92,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     identity = self._query_int(parameters, name, None)
                     if identity:
                         detail += renderer(connection, identity)
-                database_label = f"<p class='hint'>Database: {escape(self.database_path)} · schema {SCHEMA_VERSION}</p>"
-                body = body.replace("<div id='detail-slot'></div>", database_label + detail)
+                body = body.replace("<div id='detail-slot'></div>", detail)
                 body = body.replace("<div class='operations' id='operations'>", queues + "<div class='operations' id='operations'>", 1)
                 if view in {'threads', 'operations'}:
                     head, _, main = base_page.partition('<main>')
@@ -104,10 +102,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     else:
                         operations = main.partition("<div class='operations' id='operations'>")[2].partition('</main>')[0]
                         content = queues + detail + "<div class='operations' id='operations'>" + operations
-                    body = head + '<main>' + header + database_label + content + '</main></body></html>'
+                    body = head + '<main>' + header + content + '</main></body></html>'
                 if request.path == '/snapshot':
                     fragment = '<main>' + body.partition('<main>')[2].partition('</main>')[0] + '</main>'
-                    body = json.dumps({'html': fragment, 'updated_at': datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
+                    body = json.dumps({'html': fragment, 'updated_at': utc_now()}, ensure_ascii=False)
                 body = body.encode("utf-8")
                 if request.path == '/snapshot' and len(body) > 8000000:
                     raise ValueError('Dashboard snapshot exceeds 8 MB; narrow the view or thread.')

@@ -11,8 +11,8 @@ a worker, provider or model. POST commands validate CSRF, bounded form input,
 command identity and row version before committing SQLite. Storage samples never
 authorize or deny planning commands; downstream Post now admission is separate.
 
-The dashboard header shows database path and schema. All displayed times are
-UTC. Navigation links Detection, ideas/threads, queues and operations.
+All displayed times are UTC. Navigation links Detection, ideas/threads, queues
+and operations.
 Thread links open a focused thread page rather than placing its details below
 the Detection tables. `?view=threads` lists ideas; `?view=operations` shows queues
 and runtime health.
@@ -27,8 +27,10 @@ heartbeat. Snapshot GET never samples storage, creates work or calls a provider.
 
 ## Detection visibility
 
-The landing view leads with four side-by-side panels, stacking at smaller widths;
-queues and operations follow below. Wide operations tables scroll inside their
+Detection leads with compact stage tabs and counts for Raw Feed Items, Clusters,
+Opportunities and ContentJobs. The default stage is Clusters. Exactly one dense
+stage table occupies the primary list area; detail pages retain full evidence.
+Queues and operations follow below. Wide operations tables scroll inside their
 own panels on narrow screens:
 
 | View | Meaning and traceability |
@@ -39,11 +41,15 @@ own panels on narrow screens:
 | ContentJobs | Persisted jobs from trend or human briefs, showing domain, angle, origin and latest GenerationRun status. Job detail retains the exact immutable brief/recipe/output plan. Generation status is not publication status. |
 
 Search and source filters are literal/parameterized. The Cluster Selection state
-filter affects only Clusters. Raw Feed Items and Clusters share a 50-row page;
-Opportunities and ContentJobs each have independent 20-row pagination. Counts
-reflect filters. Raw/Cluster views use the active Detection release; persisted
-Opportunities and ContentJobs remain accessible across releases. Source filtering
-excludes human-origin jobs, which have no Detection source.
+filter affects only Clusters. Every stage has independent pagination (`raw_page`,
+`cluster_page`, `opportunity_page`, `job_page`) and preserves the active stage,
+filters and Cluster sort. Counts reflect filters. Raw/Cluster views use the active
+Detection release; persisted Opportunities and ContentJobs remain accessible
+across releases. Source filtering excludes human-origin jobs, which have no
+Detection source. Cluster sorting uses only an allowlisted mapping: default
+`cluster_sort=score_desc` orders globally by score, then updated timestamp and
+ID; `cluster_sort=recent` orders by recently evaluated state. Selection remains
+visible and filterable but never silently groups score order.
 
 Cluster detail (`?cluster_id=N`) shows scoring components,
 frozen source and semantic membership evidence, and up to 200 linked observations

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
-from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from common.environment import load_environment_file
 from database.current import SchemaError, validate_database
 from workflow import WORKFLOW_PIPELINES, WorkflowStore
+from common.timestamps import utc_now
 
 
 def _required(parser: ArgumentParser, value: str | None, name: str) -> str:
@@ -152,7 +152,7 @@ def main() -> None:
         for pipeline in WORKFLOW_PIPELINES
         for destination in destinations
     ]
-    moment = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    moment = utc_now()
     value = {
         "policy_version": "production_configuration_v1",
         "approved_by": "local_owner",

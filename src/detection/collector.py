@@ -13,6 +13,7 @@ import sqlite3
 from time import monotonic
 from common.operation_log import emit
 from common.diagnostics import safe_diagnostic
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 
 from .adapters import collect_source
 from .configuration import canonical_json
@@ -22,7 +23,7 @@ from .store import DetectionStore, utc_now
 
 
 def _parse_time(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return parse_timestamp(value)
 
 
 def _slot(value: datetime, cadence_seconds: int) -> datetime:
@@ -44,7 +45,7 @@ class DetectionCollector:
         source_ids: set[str] | None = None,
         force: bool = False,
     ) -> list[dict[str, Any]]:
-        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        current = (now or utc_datetime_now()).astimezone(timezone.utc).replace(microsecond=0)
         outcomes: list[dict[str, Any]] = []
         sources = self.store.enabled_sources()
         for source in sources:
@@ -216,7 +217,7 @@ class DetectionCollector:
             "ORDER BY scheduled_for, source_collection_attempt_id LIMIT 1",
             (
                 source["detection_source_instance_id"], release_id,
-                current.isoformat(), current.isoformat(),
+                serialize_timestamp(current), serialize_timestamp(current),
             ),
         ).fetchone()
         if recoverable is not None:
@@ -224,7 +225,7 @@ class DetectionCollector:
         request = {
             "source_stable_id": source["stable_id"],
             "source_kind": source["source_kind"],
-            "scheduled_for": scheduled.isoformat(),
+            "scheduled_for": serialize_timestamp(scheduled),
             "endpoint_url": source["endpoint_url"],
             "configuration_fingerprint": source["config_fingerprint"],
             "options": json.loads(source["config_json"])["options"],
@@ -241,8 +242,8 @@ class DetectionCollector:
                     "request_hash, quota_units_reserved, status, attempt_limit, created_at) "
                     "VALUES (?, ?, ?, ?, ?, 0, 'pending', 3, ?)",
                     (
-                        source["detection_source_instance_id"], release_id, scheduled.isoformat(),
-                        request_json, request_hash, current.isoformat(),
+                        source["detection_source_instance_id"], release_id, serialize_timestamp(scheduled),
+                        request_json, request_hash, serialize_timestamp(current),
                     ),
                 )
                 return int(cursor.lastrowid)
@@ -250,7 +251,7 @@ class DetectionCollector:
             row = self.store.connection.execute(
                 "SELECT source_collection_attempt_id FROM source_collection_attempts "
                 "WHERE source_instance_id=? AND scheduled_for=? AND configuration_release_id=?",
-                (source["detection_source_instance_id"], scheduled.isoformat(), release_id),
+                (source["detection_source_instance_id"], serialize_timestamp(scheduled), release_id),
             ).fetchone()
             if row is None:
                 raise
@@ -264,7 +265,7 @@ class DetectionCollector:
         *,
         reserve_quota: bool,
     ) -> tuple[int | None, int | None, str]:
-        lease = (current + timedelta(minutes=10)).isoformat()
+        lease = serialize_timestamp(current + timedelta(minutes=10))
         self.store.connection.execute("BEGIN IMMEDIATE")
         with self.store.connection:
             quota_units = 0
@@ -285,8 +286,8 @@ class DetectionCollector:
                         "(status='retry_wait' AND next_attempt_at<=?) OR "
                         "(status IN ('claimed','running') AND lease_expires_at<=?))",
                         (
-                            "local UTC-day quota ceiling reached", current.isoformat(), attempt_id,
-                            current.isoformat(), current.isoformat(),
+                            "local UTC-day quota ceiling reached", serialize_timestamp(current), attempt_id,
+                            serialize_timestamp(current), serialize_timestamp(current),
                         ),
                     )
                     if cursor.rowcount == 1:
@@ -307,8 +308,8 @@ class DetectionCollector:
                 "(status IN ('claimed','running') AND lease_expires_at<=?)) "
                 "AND attempt_count < attempt_limit",
                 (
-                    self.instance_id, current.isoformat(), lease, quota_units, attempt_id,
-                    current.isoformat(), current.isoformat(),
+                    self.instance_id, serialize_timestamp(current), lease, quota_units, attempt_id,
+                    serialize_timestamp(current), serialize_timestamp(current),
                 ),
             )
             if cursor.rowcount != 1:
@@ -334,7 +335,7 @@ class DetectionCollector:
                         "failure_category='attempts_exhausted', failure_detail=?, completed_at=? "
                         "WHERE source_collection_attempt_id=? AND status=?",
                         (
-                            "attempt limit exhausted after lease expiry", current.isoformat(),
+                            "attempt limit exhausted after lease expiry", serialize_timestamp(current),
                             attempt_id, exhausted["status"],
                         ),
                     )
@@ -360,7 +361,7 @@ class DetectionCollector:
                     "VALUES (?,?,?,?,?,'reserved',?)",
                     (
                         attempt_id, source["detection_source_instance_id"], row["attempt_count"],
-                        current.date().isoformat(), quota_units, current.isoformat(),
+                        current.date().isoformat(), quota_units, serialize_timestamp(current),
                     ),
                 )
                 execution_id = int(execution_cursor.lastrowid)
@@ -410,7 +411,7 @@ class DetectionCollector:
                     (
                         attempt_id, source["detection_source_instance_id"], event.source_ordinal,
                         event.source_item_key, event.disposition, safe_diagnostic(event.reason),
-                        event.payload_hash, collected_at.isoformat(),
+                        event.payload_hash, serialize_timestamp(collected_at),
                     ),
                 )
             for item in result.items:
@@ -420,7 +421,7 @@ class DetectionCollector:
                 if source["source_kind"] in {
                     "youtube_most_popular_v1", "hacker_news_top_stories_v1"
                 }:
-                    effective_text, time_status = collected_at.isoformat(), "collection_time_measurement"
+                    effective_text, time_status = serialize_timestamp(collected_at), "collection_time_measurement"
                 else:
                     effective_text, time_status = parse_provider_time(item.provider_time, collected_at)
                     if time_status == "provider_time_fallback":
@@ -433,7 +434,7 @@ class DetectionCollector:
                         effective_text = first or effective_text
                 effective = _parse_time(effective_text)
                 item_window_start, item_window_end = utc_day_window(effective)
-                trend_id = self._upsert_trend(key, item.title, effective_text, item.payload, collected_at.isoformat(), normalization_version)
+                trend_id = self._upsert_trend(key, item.title, effective_text, item.payload, serialize_timestamp(collected_at), normalization_version)
                 payload = dict(item.payload)
                 payload["provider_time_status"] = time_status
                 activity_contributor = self._resolve_activity_contributor(
@@ -449,9 +450,9 @@ class DetectionCollector:
                     (
                         attempt_id, source["detection_source_instance_id"], trend_id,
                         item.source_item_id, item.source_item_key, item.canonical_url,
-                        item.provider_time, effective_text, collected_at.isoformat(),
+                        item.provider_time, effective_text, serialize_timestamp(collected_at),
                         item_window_start, item_window_end, item.activity, item.rank, item.title,
-                        canonical_json(payload), activity_contributor, collected_at.isoformat(),
+                        canonical_json(payload), activity_contributor, serialize_timestamp(collected_at),
                     ),
                 )
             status_reason = "complete collection" if result.complete else (result.failure_detail or "incomplete collection")
@@ -464,7 +465,7 @@ class DetectionCollector:
                 (
                     source["detection_source_instance_id"], attempt_id, window_start, window_end,
                     len(result.items), int(result.complete), health, status_reason[:2000],
-                    None, result.latency_ms, result.failure_category, collected_at.isoformat(),
+                    None, result.latency_ms, result.failure_category, serialize_timestamp(collected_at),
                 ),
             )
             cursor = self.store.connection.execute(
@@ -474,7 +475,7 @@ class DetectionCollector:
                 "WHERE source_collection_attempt_id=? AND status='running' "
                 "AND claim_owner=? AND claim_version=?",
                 (
-                    result.provider_time, collected_at.isoformat(), result.response_hash,
+                    result.provider_time, serialize_timestamp(collected_at), result.response_hash,
                     len(result.items), int(result.complete), utc_now(), result.failure_category,
                     result.failure_detail, attempt_id, self.instance_id, claim_version,
                 ),
@@ -538,7 +539,7 @@ class DetectionCollector:
                 (
                     attempt_id, source["detection_source_instance_id"], source_item_key,
                     "same independence-group item already has the deterministic contributor",
-                    now.isoformat(),
+                    serialize_timestamp(now),
                 ),
             )
             return 0
@@ -581,7 +582,7 @@ class DetectionCollector:
         detail: str,
     ) -> str:
         detail = safe_diagnostic(detail)
-        now = datetime.now(timezone.utc)
+        now = utc_datetime_now()
         row = self.store.connection.execute(
             "SELECT attempt_count, attempt_limit FROM source_collection_attempts "
             "WHERE source_collection_attempt_id=?",
@@ -598,7 +599,7 @@ class DetectionCollector:
             and int(row["attempt_count"]) < int(row["attempt_limit"])
         )
         status = "retry_wait" if retry else "failed"
-        next_attempt = (now + timedelta(seconds=30 if int(row["attempt_count"]) == 1 else 300)).isoformat() if retry else None
+        next_attempt = serialize_timestamp(now + timedelta(seconds=30 if int(row["attempt_count"]) == 1 else 300)) if retry else None
         with self.store.connection:
             cursor = self.store.connection.execute(
                 "UPDATE source_collection_attempts SET status=?, next_attempt_at=?, "
@@ -632,6 +633,6 @@ class DetectionCollector:
             "VALUES (?,?,0,0,?,?,?,?)",
             (
                 source["detection_source_instance_id"], attempt_id, classification,
-                detail[:2000], category, now.isoformat(),
+                detail[:2000], category, serialize_timestamp(now),
             ),
         )

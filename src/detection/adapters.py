@@ -23,6 +23,7 @@ import time
 import zlib
 import math
 from common.diagnostics import safe_diagnostic
+from common.timestamps import serialize_timestamp
 
 from .models import CollectedItem, CollectionResult, ItemEvent, SourceCollectionError
 from .normalization import canonical_link, canonical_title
@@ -316,7 +317,7 @@ def _parse_any_time(value: str) -> str | None:
             return None
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(timezone.utc).isoformat()
+    return serialize_timestamp(parsed)
 
 
 def _collect_wikimedia(row: Any) -> CollectionResult:
@@ -369,7 +370,7 @@ def _collect_wikimedia(row: Any) -> CollectionResult:
         items.append(CollectedItem(
             source_item_key=title, source_item_id=title, title=display,
             canonical_url=canonical_link(f"https://en.wikipedia.org/wiki/{quote(title)}", dict(row).get("canonicalization_version", "canonicalization_v2")),
-            provider_time=datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat(),
+            provider_time=serialize_timestamp(datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)),
             activity=float(views), rank=rank,
             payload={"views": views, "provider_rank": int(article.get("rank", rank)), "report_date": day.isoformat()},
         ))
@@ -390,7 +391,7 @@ def _collect_wikimedia(row: Any) -> CollectionResult:
     return CollectionResult(
         items=tuple(items), events=tuple(events), complete=complete,
         response_hash=sha256(body).hexdigest(), latency_ms=int((time.monotonic() - started) * 1000),
-        provider_time=day.isoformat(),
+        provider_time=serialize_timestamp(datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)),
         failure_category=None if complete else "partial_response",
         failure_detail=None if complete else (
             f"Report validation failed: rows={len(articles)}, limit={limit}, "
@@ -528,7 +529,7 @@ def _collect_hacker_news(row: Any) -> CollectionResult:
         provider_time = None
         if type(record.get("time")) is int:
             try:
-                provider_time = datetime.fromtimestamp(record["time"], timezone.utc).isoformat()
+                provider_time = serialize_timestamp(datetime.fromtimestamp(record["time"], timezone.utc))
             except (OverflowError, OSError, ValueError):
                 provider_time = None
         items.append(CollectedItem(

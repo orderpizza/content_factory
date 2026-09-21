@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterable
 import json
 import sqlite3
 from common.diagnostics import safe_diagnostic
+from common.timestamps import utc_now
 
 from database.current import SchemaError, connect, validate_database
 from .configuration import canonical_json, validate_manifest
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class DetectionStore:

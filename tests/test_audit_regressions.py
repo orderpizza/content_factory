@@ -114,7 +114,7 @@ class AuditRegressionTests(unittest.TestCase):
         initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:

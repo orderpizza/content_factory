@@ -1,18 +1,19 @@
 """Read-only storage facts. Planning never uses these as admission policy."""
 from datetime import datetime, timezone
+from .timestamps import parse_timestamp, utc_datetime_now
 
 MAX_SAMPLE_AGE_SECONDS = 600
 
 
 def storage_status(connection, *, at=None):
-    at = at or datetime.now(timezone.utc)
+    at = at or utc_datetime_now()
     row = connection.execute(
         "SELECT * FROM storage_samples ORDER BY storage_sample_id DESC LIMIT 1"
     ).fetchone()
     reason, age = "missing_sample", None
     if row is not None:
         try:
-            sampled = datetime.fromisoformat(row['sampled_at'].replace('Z', '+00:00'))
+            sampled = parse_timestamp(row['sampled_at'])
             age = (at - sampled).total_seconds()
             reason = ("invalid_sample_time" if age < 0 else
                       "stale_sample" if age > MAX_SAMPLE_AGE_SECONDS else row['state'])

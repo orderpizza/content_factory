@@ -159,8 +159,8 @@ class Audit0920Tests(unittest.TestCase):
             self.assertIn('Raw Feed Items',html)
             self.assertIn('<h2>Clusters</h2>',html)
             self.assertNotIn('Detection candidates',html)
-            self.assertIn('<h2>Opportunities</h2>',html)
-            self.assertIn('<h2>ContentJobs</h2>',html)
+            self.assertIn('Opportunities<b>',html)
+            self.assertIn('ContentJobs<b>',html)
 
     def test_browser_refresh_preserves_draft_focus_details_scroll_and_shows_new_state(self):
         from playwright.sync_api import sync_playwright

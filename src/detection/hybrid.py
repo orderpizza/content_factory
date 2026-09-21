@@ -6,6 +6,7 @@ from hashlib import sha256
 from math import log2
 from statistics import median
 import json
+from common.timestamps import parse_timestamp, serialize_timestamp
 
 from .configuration import canonical_json
 from .semantic import load_resolution, observation_rows
@@ -16,7 +17,7 @@ HN = "hacker_news_top_stories_v1"
 
 
 def moment(value):
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return parse_timestamp(value)
 
 
 def midnight(value):
@@ -47,21 +48,21 @@ def freeze(connection, run_id, release_id, at):
     source_rows = connection.execute(
         "SELECT * FROM detection_source_instances WHERE configuration_release_id=? AND enabled=1 ORDER BY stable_id", (release_id,)
     ).fetchall()
-    frozen = {"version": "scout_input_v2", "at": at.isoformat(), "sources": []}
+    frozen = {"version": "scout_input_v2", "at": serialize_timestamp(at), "sources": []}
     ids = []
-    cutoff = (midnight(at) - timedelta(days=21)).isoformat()
+    cutoff = serialize_timestamp(midnight(at) - timedelta(days=21))
     for ordinal, row in enumerate(source_rows, 1):
         source = dict(row)
         complete = [dict(a) for a in connection.execute(
             "SELECT a.* FROM source_collection_attempts a JOIN detection_source_instances s ON s.detection_source_instance_id=a.source_instance_id "
             "WHERE s.stable_id=? AND s.config_fingerprint=? AND a.status='completed' AND a.complete=1 "
             "AND a.collected_at>=? AND a.collected_at<=? ORDER BY a.collected_at,a.source_collection_attempt_id",
-            (source["stable_id"], source["config_fingerprint"], cutoff, at.isoformat()),
+            (source["stable_id"], source["config_fingerprint"], cutoff, serialize_timestamp(at)),
         )]
         failures = [{"time": a["completed_at"], "category": a["error_category"]} for a in connection.execute(
             "SELECT e.completed_at,e.error_category FROM source_request_executions e JOIN detection_source_instances s ON s.detection_source_instance_id=e.source_instance_id "
             "WHERE s.stable_id=? AND s.config_fingerprint=? AND e.status='failed' AND e.completed_at>=? AND e.completed_at<=?",
-            (source["stable_id"], source["config_fingerprint"], cutoff, at.isoformat()),
+            (source["stable_id"], source["config_fingerprint"], cutoff, serialize_timestamp(at)),
         )]
         # Quota refusal has no outbound execution; pending retry failures must
         # also affect current health before their final terminal health row.
@@ -70,9 +71,9 @@ def freeze(connection, run_id, release_id, at):
             "JOIN detection_source_instances s ON s.detection_source_instance_id=a.source_instance_id "
             "WHERE s.stable_id=? AND s.config_fingerprint=? AND a.status IN ('failed','retry_wait') "
             "AND a.created_at>=? AND a.created_at<=?",
-            (source["stable_id"], source["config_fingerprint"], cutoff, at.isoformat()),
+            (source["stable_id"], source["config_fingerprint"], cutoff, serialize_timestamp(at)),
         ):
-            failures.append({"time": failure["time"] or at.isoformat(), "category": failure["failure_category"]})
+            failures.append({"time": failure["time"] or serialize_timestamp(at), "category": failure["failure_category"]})
         state, latest = health(source, complete, failures, at)
         source["state"] = state
         source["latest_attempt_id"] = latest["source_collection_attempt_id"] if latest else None
@@ -88,14 +89,14 @@ def freeze(connection, run_id, release_id, at):
             source["history_health"][day.date().isoformat()] = status
         connection.execute(
             "INSERT INTO scout_evaluation_inputs(scout_evaluation_run_id,source_instance_id,source_collection_attempt_id,input_state,reason,ordinal,created_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, source["detection_source_instance_id"], source["latest_attempt_id"], state, "hybrid attention inputs frozen", ordinal, at.isoformat()),
+            (run_id, source["detection_source_instance_id"], source["latest_attempt_id"], state, "hybrid attention inputs frozen", ordinal, serialize_timestamp(at)),
         )
         for attempt_ordinal, attempt in enumerate(complete, 1):
             attempt_id = attempt["source_collection_attempt_id"]
             ids.append(attempt_id)
             connection.execute(
                 "INSERT INTO scout_evaluation_attempts(scout_evaluation_run_id,source_instance_id,source_collection_attempt_id,measurement_role,ordinal,created_at) VALUES (?,?,?,'baseline_window',?,?)",
-                (run_id, source["detection_source_instance_id"], attempt_id, attempt_ordinal, at.isoformat()),
+                (run_id, source["detection_source_instance_id"], attempt_id, attempt_ordinal, serialize_timestamp(at)),
             )
         source["attempt_ids"] = [a["source_collection_attempt_id"] for a in complete]
         frozen["sources"].append(source)
@@ -103,7 +104,7 @@ def freeze(connection, run_id, release_id, at):
     fingerprint = sha256(payload.encode()).hexdigest()
     connection.execute(
         "INSERT INTO scout_frozen_evidence(scout_evaluation_run_id,snapshot_version,snapshot_json,snapshot_hash,created_at) VALUES (?,'scout_input_v2',?,?,?)",
-        (run_id, payload, fingerprint, at.isoformat()),
+        (run_id, payload, fingerprint, serialize_timestamp(at)),
     )
     connection.execute("UPDATE scout_evaluation_runs SET input_hash=? WHERE scout_evaluation_run_id=?", (fingerprint, run_id))
     return ids
@@ -256,7 +257,7 @@ def evaluate(connection, run_id, release_id, manifest):
                            "members": all_members, "eligible": not reasons, "eligibility_reason": ",".join(reasons) or "eligible",
                            "breadth": parts["breadth"], "prominence": parts["prominence"],
                            "evidence_recency": ranking_recency,
-                           "last_seen_at": last_seen.isoformat()})
+                           "last_seen_at": serialize_timestamp(last_seen)})
     candidates.sort(key=lambda c: (-c["score"], -c["breadth"], -c["prominence"], -c["evidence_recency"], c["opportunity_identity"]))
     # Score credit belongs to the strongest lexical constituent. Inferred
     # membership cannot manufacture source breadth, momentum or eligibility.

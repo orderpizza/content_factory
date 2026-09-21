@@ -15,6 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from common.diagnostics import safe_diagnostic
 from common.operation_log import human_command, emit
 from common.gemini import estimated_cost_usd
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_now
 from .model_budget import ModelBudgetExceeded
 from .catalog import DOMAIN_REMITS, WORKFLOW_PIPELINES
 
@@ -31,7 +32,7 @@ CLAIM_KEYS = {
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return utc_now()
 
 
 def canonical(value: Any) -> str:
@@ -156,11 +157,9 @@ class WorkflowStore:
         if type(result_id) is not int or result_id < 1:
             raise ValueError("worker result ID must be positive")
         try:
-            parsed = datetime.fromisoformat(started_at)
+            parsed = parse_timestamp(started_at)
         except (TypeError, ValueError) as error:
             raise ValueError("worker result start time must be ISO-8601") from error
-        if parsed.tzinfo is None:
-            raise ValueError("worker result start time must include a timezone")
         moment = now()
         with self.transaction():
             return int(self.connection.execute(
@@ -169,7 +168,7 @@ class WorkflowStore:
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     worker_type.strip(), instance_id.strip(), result_type.strip(), result_id,
-                    started_at, moment, status, safe_diagnostic(summary), moment,
+                    serialize_timestamp(parsed), moment, status, safe_diagnostic(summary), moment,
                 ),
             ).lastrowid)
 
@@ -377,7 +376,7 @@ class WorkflowStore:
         if not self._storage_action_allowed(action):
             return None
         moment = now()
-        expiry = (datetime.fromisoformat(moment) + timedelta(seconds=lease_seconds)).isoformat()
+        expiry = serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=lease_seconds))
         with self.transaction():
             if table == "post_records":
                 self._recover_stale_post_claims(moment)
@@ -500,13 +499,12 @@ class WorkflowStore:
         if not isinstance(value["approved_by"], str) or not value["approved_by"].strip():
             raise ValueError("production configuration requires an approving actor")
         try:
-            approved_at = datetime.fromisoformat(str(value["approved_at"]))
+            approved_at = parse_timestamp(str(value["approved_at"]))
         except (TypeError, ValueError) as error:
             raise ValueError("production configuration approved_at must be ISO-8601") from error
-        if approved_at.tzinfo is None:
-            raise ValueError("production configuration approved_at must include a timezone")
         if type(value["profile_approved"]) is not bool:
             raise ValueError("profile_approved must be boolean")
+        value = {**value, "approved_at": serialize_timestamp(approved_at)}
         profile = value["renderer_profile"]
         if not isinstance(profile, dict) or set(profile) != {
             "profile_version", "template_version", "font_path", "font_sha256"
@@ -551,7 +549,7 @@ class WorkflowStore:
                 "configuration_json,configuration_hash,approved_by,approved_at,created_at) "
                 "VALUES (?,?,?,?,?,?,?)",
                 (release_id, value["policy_version"], canonical(value), config_hash,
-                 value["approved_by"], value["approved_at"], moment),
+                 value["approved_by"], serialize_timestamp(approved_at), moment),
             ).lastrowid)
             destination_ids: dict[str, int] = {}
             for destination in destinations:
@@ -827,10 +825,11 @@ class WorkflowStore:
         status = "retry_wait" if daily else "failed"
         retry_at = None
         if daily:
-            current = datetime.fromisoformat(moment)
+            current = parse_timestamp(moment)
             retry_at = datetime.combine(
                 current.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc,
-            ).isoformat()
+            )
+            retry_at = serialize_timestamp(retry_at)
         reason_column = "failure_detail" if table == "intake_requests" else "failure_reason"
         with self.transaction():
             result = self.connection.execute(
@@ -1028,7 +1027,7 @@ class WorkflowStore:
              request_id=invocation['entity_id'], model_id=invocation['model_id'], outcome=outcome,
              input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens,
              cost_micro_usd=estimated_cost_micro_usd if usage else None,
-             duration_ms=round((datetime.fromisoformat(invocation['completed_at'])-datetime.fromisoformat(invocation['started_at'])).total_seconds()*1000),
+             duration_ms=round((parse_timestamp(invocation['completed_at'])-parse_timestamp(invocation['started_at'])).total_seconds()*1000),
              error_code=outcome if error else None)
 
     def record_decision(self, request: Any, decision: dict[str, Any]) -> int:
@@ -1200,7 +1199,7 @@ class WorkflowStore:
                 )
             self.connection.execute("UPDATE render_runs SET manifest_json=? WHERE render_run_id=?",(manifest_json,run["render_run_id"]))
             package=self.connection.execute("SELECT p.content_package_id,p.content_hash FROM content_packages p JOIN render_runs r ON r.content_package_id=p.content_package_id WHERE r.render_run_id=?",(run["render_run_id"],)).fetchone()
-            expires=(datetime.fromisoformat(moment)+timedelta(days=14)).isoformat()
+            expires=serialize_timestamp(parse_timestamp(moment)+timedelta(days=14))
             destination = self.connection.execute(
                 "SELECT d.destination_key FROM render_runs rr "
                 "JOIN content_packages cp ON cp.content_package_id=rr.content_package_id "
@@ -1407,7 +1406,7 @@ class WorkflowStore:
         if not isinstance(facts, dict) or valid_for <= timedelta(0):
             raise ValueError("readiness facts or validity window is invalid")
         moment = now()
-        valid_until = (datetime.fromisoformat(moment) + valid_for).isoformat()
+        valid_until = serialize_timestamp(parse_timestamp(moment) + valid_for)
         evidence = {"status": status, "reasons": reasons, "facts": facts, "valid_until": valid_until}
         with self.transaction():
             row = self.connection.execute(
@@ -1475,9 +1474,10 @@ class WorkflowStore:
                 raise ValueError("review binding changed during authorization")
             eligible_at = self._earliest_eligible_at(context, moment)
             expires_at = (
-                datetime.fromisoformat(moment)
+                parse_timestamp(moment)
                 + timedelta(hours=int(context["authorization_ttl_hours"]))
-            ).isoformat()
+            )
+            expires_at = serialize_timestamp(expires_at)
             if eligible_at >= expires_at:
                 raise ValueError("posting policy cannot provide an eligible slot before authorization expires")
             publication_identity = digest({
@@ -1576,9 +1576,9 @@ class WorkflowStore:
                 self._expire_post(int(record["post_record_id"]), None, moment)
                 return int(record["post_record_id"])
             status = "retry_wait" if temporary and int(record["attempt_count"]) < int(record["attempt_limit"]) else "failed"
-            next_attempt = (
-                datetime.fromisoformat(moment) + timedelta(minutes=5)
-            ).isoformat() if status == "retry_wait" else None
+            next_attempt = serialize_timestamp(
+                parse_timestamp(moment) + timedelta(minutes=5)
+            ) if status == "retry_wait" else None
             result = self.connection.execute(
                 "UPDATE post_records SET status=?,next_attempt_at=?,failure_reason=?,completed_at=?,"
                 "row_version=row_version+1 WHERE post_record_id=? AND status='claimed' "
@@ -1813,9 +1813,9 @@ class WorkflowStore:
                     ("retryable_failed" if will_retry else "failed", category,
                      safe_diagnostic(detail), moment, context["post_attempt_id"]),
                 )
-                next_attempt = (
-                    datetime.fromisoformat(moment) + timedelta(seconds=30 * (2 ** max(0, attempt_count - 1)))
-                ).isoformat() if will_retry else None
+                next_attempt = serialize_timestamp(
+                    parse_timestamp(moment) + timedelta(seconds=30 * (2 ** max(0, attempt_count - 1)))
+                ) if will_retry else None
                 updated = self.connection.execute(
                     "UPDATE post_records SET status=?,next_attempt_at=?,failure_reason=?,completed_at=?,"
                     "row_version=row_version+1 WHERE post_record_id=? AND status='publishing' "
@@ -2068,7 +2068,7 @@ class WorkflowStore:
         with self.transaction():
             retry = retryable and int(task["attempt_count"]) < int(task["attempt_limit"])
             status = "retry_wait" if retry else "failed"
-            next_attempt = (datetime.fromisoformat(moment) + timedelta(minutes=5)).isoformat() if retry else None
+            next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(minutes=5)) if retry else None
             result = self.connection.execute(
                 "UPDATE delivery_cleanup_tasks SET status=?,next_attempt_at=?,failure_reason=?,completed_at=? "
                 "WHERE delivery_cleanup_task_id=? AND status='claimed' AND claim_owner=? AND claim_version=?",
@@ -2288,7 +2288,7 @@ class WorkflowStore:
             zone = ZoneInfo(context["timezone_name"])
         except ZoneInfoNotFoundError as error:
             raise ValueError("posting policy has an invalid IANA timezone") from error
-        candidate = datetime.fromisoformat(moment)
+        candidate = parse_timestamp(moment)
         interval = timedelta(minutes=int(context["min_post_interval_minutes"]))
         rows = self.connection.execute(
             "SELECT p.eligible_at,COALESCE(p.published_at,p.publication_unknown_at) terminal_at "
@@ -2297,7 +2297,7 @@ class WorkflowStore:
             "('pending','claimed','publishing','published','publication_unknown')",
             (context["destination_key"],),
         ).fetchall()
-        occupied = [datetime.fromisoformat(row["terminal_at"] or row["eligible_at"]) for row in rows]
+        occupied = [parse_timestamp(row["terminal_at"] or row["eligible_at"]) for row in rows]
         if occupied:
             candidate = max(candidate, max(occupied) + interval)
         daily_cap = int(context["max_posts_per_day"])
@@ -2305,7 +2305,7 @@ class WorkflowStore:
             local_day = candidate.astimezone(zone).date()
             count = sum(item.astimezone(zone).date() == local_day for item in occupied)
             if count < daily_cap:
-                return candidate.replace(microsecond=0).isoformat()
+                return serialize_timestamp(candidate)
             next_local = datetime.combine(
                 local_day + timedelta(days=1), datetime.min.time(), tzinfo=zone,
             )
