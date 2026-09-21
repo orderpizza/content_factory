@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 
 from .store import WorkflowStore
 from .workers import local_operation
-from .visual_registry import COMPOSITIONS, THEMES, TYPOGRAPHY, validate_recipe
+from .visual_registry import ARCHETYPES, COMPOSITIONS, THEMES, TYPOGRAPHY, validate_recipe
 
 
 PROFILES = {
@@ -248,6 +248,8 @@ def _unit_html(
     family = TYPOGRAPHY[recipe["typography_id"]]["family"] if font is None else "'ContentFactoryPinned', sans-serif"
     theme = THEMES[recipe["theme_id"]]
     composition = recipe["composition_id"]
+    archetype = ARCHETYPES[recipe["archetype_id"]]
+    archetype_class = "archetype-" + recipe["archetype_id"]
     layout = "center" if composition in {"quote_centered_focus_v1", "editorial_centered_statement_v1"} else "flex-start"
     surface = "border: 3px solid " + theme["accent"] + ";" if "comparison" in composition else ""
     decoration = "radial-gradient(" + theme["accent"] + " 1px, transparent 1px) 0 0/18px 18px" if "subtle_dots_v1" in recipe["decorations"] else "none"
@@ -257,6 +259,7 @@ def _unit_html(
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; width: {spec['width']}px; height: {spec['height']}px; overflow: hidden; }}
 body {{ background: {theme['background']}; color: {theme['text']}; font-family: {family}; background-image: {decoration}; }}
+.{archetype_class} {{ --archetype-default-density: {archetype['default_density']}; }}
 .card {{ width: 100%; height: 100%; padding: {padding}px; display: grid;
   grid-template-rows: auto 1fr auto; gap: {34 if compact else 54}px; {surface} }}
 .header, .footer {{ display: flex; justify-content: space-between; align-items: center;
@@ -266,7 +269,7 @@ body {{ background: {theme['background']}; color: {theme['text']}; font-family: 
 h1 {{ margin: 0 0 {28 if compact else 42}px; font-size: {title_size}px; line-height: 1.03; letter-spacing: {TYPOGRAPHY[recipe['typography_id']]['tracking']}; }}
 .body-copy {{ min-height: 0; overflow: hidden; font-size: {body_size}px; line-height: 1.28; font-weight: 540; white-space: normal; }}
 .rule {{ width: {90 if compact else 120}px; height: 9px; border-radius: 8px; background: {theme['accent']}; }}
-</style></head><body><main class="card"><header class="header"><span class="role">{role}</span>
+</style></head><body><main class="card {archetype_class}"><header class="header"><span class="role">{role}</span>
 <span>{ordinal}/{total}</span></header><section class="content" data-bound><h1>{title}</h1>
 <div class="body-copy">{body}</div></section><footer class="footer"><span>CONTENT FACTORY</span>
 <span class="rule"></span></footer></main></body></html>"""

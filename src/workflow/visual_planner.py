@@ -1,13 +1,15 @@
-"""Deterministic VisualPlanRun worker over the shared visual registry."""
+"""Deterministic archetype-first VisualPlanRun worker."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 import json
 
 from .store import WorkflowStore
 from .workers import local_operation
-from .visual_registry import (COMPOSITIONS, DOMAIN_AFFINITY, FAMILIES, PLATFORM_POLICY, PRESETS,
-                              REGISTRY_RELEASE, THEMES, TYPOGRAPHY, brand_policy_for_account, validate_intent, registry_fingerprint)
+from .visual_registry import (ARCHETYPES, DOMAIN_AFFINITY, PLATFORM_POLICY, PRESETS,
+                              REGISTRY_RELEASE, brand_policy_for_account,
+                              is_production_eligible, registry_fingerprint,
+                              validate_intent)
 
 
 class VisualPlanner:
@@ -27,18 +29,22 @@ class VisualPlanner:
             "JOIN content_jobs j ON j.content_job_id=c.content_job_id WHERE cp.content_package_id=?",
             (run["content_package_id"],),
         ).fetchone()
-        if row is None: raise ValueError("visual plan references a missing ContentPackage")
+        if row is None:
+            raise ValueError("visual plan references a missing ContentPackage")
         package, intent = json.loads(row["package_json"]), validate_intent(json.loads(row["visual_intent_json"]))
         units = package.get("visual_units")
-        if not isinstance(units, list): raise ValueError("package has no bounded visual units")
+        if not isinstance(units, list):
+            raise ValueError("package has no bounded visual units")
         forced = None
         if run["fallback_from_visual_recipe_id"] is not None:
             prior = self.store.connection.execute("SELECT recipe_json FROM visual_recipes WHERE visual_recipe_id=?", (run["fallback_from_visual_recipe_id"],)).fetchone()
-            if prior is None: raise ValueError("fallback source recipe is missing")
-            forced = COMPOSITIONS.get(json.loads(prior["recipe_json"])["composition_id"], {}).get("fallback")
-            if not forced: raise ValueError("registered recipe has no fallback composition")
-        recipe, provenance = choose_recipe(intent, platform=row["platform"], pipeline=row["pipeline_id"], account=row["account"], unit_count=len(units), production=self.production, history=self._history(row["platform"], row["account"]), force_composition=forced)
-        if forced: recipe["source"] = "fallback"
+            if prior is None:
+                raise ValueError("fallback source recipe is missing")
+            prior_recipe = json.loads(prior["recipe_json"])
+            forced = ARCHETYPES.get(prior_recipe.get("archetype_id"), {}).get("fallback_archetype_id")
+            if not forced:
+                raise ValueError("registered recipe has no fallback archetype")
+        recipe, provenance = choose_recipe(intent, platform=row["platform"], pipeline=row["pipeline_id"], account=row["account"], unit_count=len(units), production=self.production, history=self._history(row["platform"], row["account"]), force_archetype=forced, fallback=bool(forced))
         return self.store.create_visual_recipe(run, recipe, provenance)
 
     def _history(self, platform: str, account: str) -> list[dict[str, Any]]:
@@ -49,53 +55,102 @@ class VisualPlanner:
         return [json.loads(row[0]) for row in rows]
 
 
-def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, account: str, unit_count: int, production: bool, history: list[dict[str, Any]], force_composition: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _resolve_safe_variant(archetype_id: str, intent: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve one bounded variant; it never reaches outside this archetype."""
+    archetype = ARCHETYPES[archetype_id]
+    theme = archetype["default_theme_id"]
+    if intent["tone"] == "serious" and "dark_neutral_v1" in archetype["theme_ids"]:
+        theme = "dark_neutral_v1"
+    elif intent["tone"] == "minimal" and "minimal_white_v1" in archetype["theme_ids"]:
+        theme = "minimal_white_v1"
+    elif intent["tone"] == "friendly" and "soft_blue_v1" in archetype["theme_ids"]:
+        theme = "soft_blue_v1"
+    density = intent["density"] if intent["density"] in archetype["density_ids"] else archetype["default_density"]
+    components = dict(archetype["required_components"])
+    if archetype["optional_components"] and intent["emphasis_targets"]:
+        name = sorted(archetype["optional_components"])[0]
+        components[name] = archetype["optional_components"][name][0]
+    return {"archetype_id": archetype_id, "family_id": archetype["family_id"],
+            "composition_id": archetype["default_composition_id"], "theme_id": theme,
+            "typography_id": archetype["default_typography_id"], "density": density,
+            "components": components, "decorations": list(archetype["default_decorations"]),
+            "image_treatment": archetype["default_image_treatment"]}
+
+
+def _semantic_score(archetype: Mapping[str, Any], intent: Mapping[str, Any]) -> int:
+    primary = intent["primary_structure"]
+    if primary in archetype["semantic_features"]:
+        base = 40
+    elif archetype["family_id"] == "editorial_v1":
+        base = 12
+    else:
+        base = 0
+    return base + 4 * len(set(intent["emphasis_targets"]) & archetype["semantic_features"])
+
+
+def _diversity_adjustment(history: list[Mapping[str, Any]], selected: Mapping[str, Any]) -> int:
+    # Bounded soft penalties preserve semantic fit over novelty.
+    def penalty(key: str, value: Any, amount: int) -> int:
+        return -min(amount * 3, amount * sum(item.get(key) == value for item in history))
+    return (penalty("archetype_id", selected["archetype_id"], 3)
+            + penalty("preset_id", selected.get("preset_id"), 2)
+            + penalty("theme_id", selected["theme_id"], 1)
+            + penalty("composition_id", selected["composition_id"], 1))
+
+
+def _brand_compatible(selected: Mapping[str, Any], brand_policy: Mapping[str, Any]) -> bool:
+    return (selected["theme_id"] in brand_policy["themes"]
+            and selected["typography_id"] in brand_policy["typography"]
+            and all(item in brand_policy["decorations"] for item in selected["decorations"])
+            and selected["components"].get("footer", brand_policy["footer"]) == brand_policy["footer"])
+
+
+def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, account: str, unit_count: int, production: bool, history: list[dict[str, Any]], force_archetype: str | None = None, fallback: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Select an archetype/preset first, then a deterministic safe resolution."""
     policy = PLATFORM_POLICY.get(platform)
     brand_policy_id, brand_policy = brand_policy_for_account(account)
     if policy is None or not policy["minimum"] <= unit_count <= policy["maximum"]:
         raise ValueError("platform visual policy rejects this package shape")
-    candidates: list[tuple[float, str, dict[str, Any], str | None]] = []
-    required = {intent["primary_structure"], *intent["emphasis_targets"]}
-    for composition_id, composition in COMPOSITIONS.items():
-        if force_composition is not None and composition_id != force_composition:
+    if intent["image_need"] == "required":
+        raise ValueError("no registered archetype supports required images")
+    candidates: list[tuple[int, str, str, dict[str, Any], dict[str, int]]] = []
+    for archetype_id, archetype in ARCHETYPES.items():
+        if force_archetype is not None and archetype_id != force_archetype:
             continue
-        if platform not in composition["platforms"] or composition["family_id"] not in policy["families"] or intent["density"] not in composition["densities"]:
+        if platform not in archetype["platforms"] or archetype["family_id"] not in policy["families"] or intent["density"] not in archetype["density_ids"]:
             continue
-        lifecycle = composition["lifecycle"]
-        if lifecycle == "deprecated" or (production and lifecycle != "curated"):
+        if archetype["lifecycle"] in {"deprecated", "experimental"}:
             continue
-        if intent["image_need"] == "required":
+        selected = _resolve_safe_variant(archetype_id, intent)
+        if not _brand_compatible(selected, brand_policy):
             continue
-        semantic = 40 if intent["primary_structure"] in composition["features"] else 12 if composition["family_id"] == "editorial_v1" else 0
-        semantic += 4 * len(required & composition["features"])
-        affinity = DOMAIN_AFFINITY.get(pipeline, {}).get(composition["family_id"], 0)
-        diversity = -sum(4 for item in history if item.get("composition_id") == composition_id) - sum(2 for item in history if item.get("family_id") == composition["family_id"])
-        score = semantic + affinity + (8 if lifecycle == "curated" else 4) + diversity
-        preset_id = next((key for key, preset in PRESETS.items() if preset["composition_id"] == composition_id and preset["density"] == intent["density"] and (not production or preset["lifecycle"] == "curated")), None)
-        candidates.append((score, composition_id, composition, preset_id))
+        if production and not is_production_eligible(selected):
+            continue
+        semantic = _semantic_score(archetype, intent)
+        affinity = DOMAIN_AFFINITY.get(pipeline, {}).get(archetype["family_id"], 0)
+        quality = 8 if archetype["lifecycle"] == "curated" else 4
+        diversity = _diversity_adjustment(history, selected)
+        source = "curated_archetype" if archetype["lifecycle"] == "curated" else "experimental_dynamic"
+        candidates.append((semantic + affinity + quality + diversity, archetype_id, source, selected, {"semantic_fit": semantic, "domain_affinity": affinity, "quality": quality, "diversity_adjustment": diversity}))
+        # Presets are exact, curated resolutions of the same candidate archetype.
+        for preset_id, preset in PRESETS.items():
+            if preset["archetype_id"] != archetype_id or preset["density"] != intent["density"] or preset["lifecycle"] != "curated":
+                continue
+            preset_selected = dict(preset)
+            if not _brand_compatible(preset_selected, brand_policy) or (production and not is_production_eligible(preset_selected)):
+                continue
+            preset_selected["preset_id"] = preset_id
+            preset_diversity = _diversity_adjustment(history, preset_selected)
+            candidates.append((semantic + affinity + quality + 2 + preset_diversity, f"{archetype_id}:{preset_id}", "curated_preset", preset_selected, {"semantic_fit": semantic, "domain_affinity": affinity, "quality": quality + 2, "diversity_adjustment": preset_diversity}))
     if not candidates:
-        raise ValueError("no registered visual recipe is compatible with this package")
-    score, composition_id, composition, preset_id = sorted(candidates, key=lambda item: (-item[0], item[1]))[0]
-    if preset_id:
-        selected = dict(PRESETS[preset_id]); source = "preset"
-    else:
-        selected = {"family_id": composition["family_id"], "composition_id": composition_id,
-                    "theme_id": "minimal_white_v1", "typography_id": "friendly_sans_v1", "density": intent["density"],
-                    "components": {"footer": "compact_brand_v1", "highlight": "accent_text_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1"}; source = "dynamic"
-    # Tone maps only to registered IDs; it never exposes colors or fonts to adaptation.
-    if intent["tone"] == "serious": selected["theme_id"] = "dark_neutral_v1"
-    elif intent["tone"] == "minimal": selected["theme_id"] = "minimal_white_v1"
-    if selected["theme_id"] not in brand_policy["themes"] or selected["typography_id"] not in brand_policy["typography"]:
-        raise ValueError("brand policy rejects the selected registered visual capability")
-    selected["decorations"] = [item for item in selected["decorations"] if item in brand_policy["decorations"]]
-    recipe = {"schema_version": "visual_recipe_v1", "registry_release": REGISTRY_RELEASE,
-              "registry_fingerprint": registry_fingerprint(), "source": source, "preset_id": preset_id,
+        raise ValueError("no curated archetype is compatible with this package")
+    score, candidate_id, source, selected, parts = sorted(candidates, key=lambda item: (-item[0], item[1]))[0]
+    preset_id = selected.pop("preset_id", None)
+    if fallback:
+        source, preset_id = "fallback", None
+    recipe = {"schema_version": "visual_recipe_v2", "registry_release": REGISTRY_RELEASE,
+              "registry_fingerprint": registry_fingerprint(), "source": source, "archetype_id": selected["archetype_id"], "preset_id": preset_id,
               **{key: selected[key] for key in ("family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")},
               "unit_layouts": [{"ordinal": ordinal, "variant": "default_v1"} for ordinal in range(1, unit_count + 1)]}
-    provenance = {"strategy": "deterministic_visual_scoring_v1", "candidate_count": len(candidates), "selected_candidate_id": composition_id,
-                  "score": {"semantic_fit": 40 if intent["primary_structure"] in composition["features"] else 12 if composition["family_id"] == "editorial_v1" else 0,
-                            "domain_affinity": DOMAIN_AFFINITY.get(pipeline, {}).get(composition["family_id"], 0),
-                            "quality": 8 if composition["lifecycle"] == "curated" else 4,
-                            "diversity_adjustment": score - (40 if intent["primary_structure"] in composition["features"] else 12 if composition["family_id"] == "editorial_v1" else 0) - DOMAIN_AFFINITY.get(pipeline, {}).get(composition["family_id"], 0) - (8 if composition["lifecycle"] == "curated" else 4), "total": score},
-                  "platform": platform, "account": account, "brand_policy_id": brand_policy_id}
+    provenance = {"strategy": "deterministic_archetype_scoring_v2", "candidate_count": len(candidates), "selected_candidate_id": candidate_id, "selected_archetype_id": recipe["archetype_id"], "selected_preset_id": preset_id, "score": {**parts, "total": score}, "platform": platform, "account": account, "brand_policy_id": brand_policy_id}
     return recipe, provenance

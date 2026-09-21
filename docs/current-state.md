@@ -21,10 +21,12 @@ Implemented planning paths:
   angles and ready frozen output bindings; commits five routes and a ContentJob
   plus pending GenerationRun for each selected domain.
 - **Visual planning:** each platform ContentPackage carries bounded semantic
-  `visual_intent`; a deterministic shared registry planner commits one immutable
+  `visual_intent`; a deterministic shared registry planner selects a coherent
+  archetype/preset and approved safe variants, then commits one immutable
   VisualRecipe before a renderer claim. The source-controlled registry supplies
-  reusable families, compositions, themes, typography, components, decorations
-  and curated presets. Instagram and X plan independently.
+  reusable families, compositions, themes, typography, components and
+  decorations as authoring primitives. Experimental archetypes are preview-only;
+  Instagram and X plan independently.
 - **Dashboard:** four linked views: Raw Feed Items → Clusters → Opportunities
   → ContentJobs, with separate collection-attempt, source-health and Cluster
   Selection statuses. Semantic evidence, Scout runs, worker history, queues,

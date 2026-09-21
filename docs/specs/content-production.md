@@ -71,9 +71,10 @@ generation or invalidate a completed sibling.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
 adaptation and creates its first pending VisualPlanRun. The shared deterministic
-planner filters and ranks registered visual capabilities and commits a separate,
-immutable VisualRecipe before creating its RenderRun. Rendering retries use the
-exact package and recipe. Synthetic packages remain non-deliverable.
+planner selects a compatible curated visual archetype/preset, then resolves only
+its approved variants and commits a separate immutable VisualRecipe before
+creating its RenderRun. Rendering retries use the exact package and recipe.
+Synthetic packages remain non-deliverable.
 
 ## Spending and recovery
 

@@ -1160,10 +1160,10 @@ class WorkflowStore:
             if recipe is None:
                 raise ValueError("render run has no visual recipe")
             fallback = json.loads(recipe["recipe_json"])
-            composition = fallback.get("composition_id")
-            from .visual_registry import COMPOSITIONS
-            next_composition = COMPOSITIONS.get(composition, {}).get("fallback")
-            if not next_composition:
+            archetype_id = fallback.get("archetype_id")
+            from .visual_registry import ARCHETYPES
+            next_archetype = ARCHETYPES.get(archetype_id, {}).get("fallback_archetype_id")
+            if not next_archetype:
                 self._finish_claim("render_runs", "render_run_id", run, "failed", moment, reason)
                 return None
             number = int(self.connection.execute("SELECT COALESCE(MAX(run_number),0)+1 FROM visual_plan_runs WHERE content_package_id=?", (run["content_package_id"],)).fetchone()[0])

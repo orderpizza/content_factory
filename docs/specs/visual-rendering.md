@@ -16,29 +16,49 @@ publisher. Planning-only mode composes neither visual planning nor rendering.
 ## Visual planning and recipes
 
 `visual_intent_v1` is adaptation-owned and contains only primary structure,
-tone, density, emphasis targets and image need. `visual_recipe_v1` is planner-
-owned and resolves those requirements to registered family, composition, theme,
-typography, density, semantic component variants, decorations, image treatment
-and per-unit layout variants. Recipes also record their registry release and
-fingerprint, source (`preset`, `dynamic` or `fallback`) and resolved choices.
-They contain no arbitrary HTML, CSS, JavaScript, SVG, pixels, colors, fonts,
-font paths or remote URLs.
+tone, density, emphasis targets and image need. `visual_recipe_v2` is planner-
+owned and records the selected `archetype_id`, optional exact `preset_id`, and
+the fully resolved family, composition, theme, typography, density, semantic
+component variants, decorations, image treatment and per-unit layout variants.
+It also records registry release/fingerprint and source (`curated_preset`,
+`curated_archetype`, `experimental_dynamic` or `fallback`). Recipes contain no
+arbitrary HTML, CSS, JavaScript, SVG, pixels, colors, fonts, font paths or
+remote URLs.
 
-The version-controlled registry implements eight reusable families: editorial,
-dialogue, comparison, cards, process, scenario, data and quote. It currently
-contains 18 HTML/Playwright compositions, seven themes, four typography systems,
-semantic component variants, four decorations, image-treatment extension points,
-and curated presets. Definitions declare engine, platform, density, lifecycle,
-feature and fallback compatibility; this is a graph of supported capabilities,
-not a Cartesian product or a domain-owned template directory.
+The version-controlled registry has four distinct layers. A **primitive** is a
+reusable token or renderer part (theme, typography, component, decoration or
+image treatment). A **family** classifies a semantic layout capability. An
+**archetype** is the curated coherent grammar that relates one family to a small
+set of compositions and explicitly permitted variants. A **preset** is one exact
+known-good resolution of an archetype. The VisualRecipe is the immutable result
+of choosing one of those systems for one ContentPackage.
 
-The deterministic planner filters by platform, unit count, density, image need,
-renderer and lifecycle eligibility. It then scores semantic fit, domain affinity,
-curation quality and soft recent-use penalties scoped to platform/account.
-Semantic suitability remains stronger than diversity. Production selects only
-curated definitions; experimental definitions are unavailable there, and
-deprecated definitions are excluded from new selection while old immutable
-recipes remain inspectable.
+The registry implements eight reusable families—editorial, dialogue, comparison,
+cards, process, scenario, data and quote—with 18 HTML/Playwright compositions,
+seven themes, four typography systems, semantic component variants, four
+decorations and image-treatment extension points. It currently exposes the small
+archetype set `editorial_clean_v1`, `dialogue_modern_v1`,
+`comparison_clean_v1`, `cards_modular_v1`, `process_steps_v1`,
+`scenario_soft_v1`, `data_number_v1` and `quote_focus_v1`. Granular primitives
+remain authoring/building blocks; production planning does not treat them as a
+Cartesian product or a domain-owned template directory.
+
+The deterministic planner first filters compatible archetypes by platform, unit
+count, density, image need, brand and lifecycle policy. It scores semantic fit,
+domain affinity, archetype maturity and soft recent
+archetype/preset/theme/composition penalties scoped to platform/account. It
+selects an archetype or exact preset, then resolves only that archetype's
+approved knobs. Semantic suitability and maturity remain stronger than diversity;
+no random selection is used.
+
+Production admits a complete resolved recipe only when its archetype,
+composition, theme, typography, selected component variants, decorations and
+image treatment are all curated. `experimental_dynamic` is preview/authoring
+only. The dialogue, cards, process, scenario and data archetypes are presently
+tested rather than production-curated because the initial renderer does not yet
+visibly implement all of their declared grammar. Deprecated definitions are
+excluded from new selection while immutable historical recipes remain
+inspectable.
 
 Domain policy is preference only: English may rank dialogue highly, while finance
 may rank comparison/data highly; neither owns a family. Platform policy is
@@ -89,8 +109,8 @@ and registry release beside profile/template/font/browser identities.
 
 If actual layout overflow occurs before review, the failed RenderRun can create a
 new pending VisualPlanRun linked to the failed recipe. The planner follows the
-registered composition fallback chain (for example dialogue bubbles → stacked
-transcript → editorial title/body) and commits a new immutable fallback recipe
+registered archetype fallback chain (for example dialogue modern → editorial
+clean) and commits a new immutable fallback recipe
 and RenderRun. It never mutates the original recipe. No fallback may run after a
 ReviewRequest exists; any post-review redesign needs a new recipe, render and
 review request.
@@ -105,11 +125,24 @@ Frozen package and recipe input, registry fingerprint, and recorded
 runtime/font/template fingerprints make the
 render auditable. Byte-for-byte reproduction across different browser or font
 versions is not assumed. Human quality review remains required for typography,
-claims, contrast and editorial usefulness. Offline tests cover both platform
-geometries, malformed specs, overflow and immutable package preservation.
+claims, contrast and editorial usefulness. The renderer currently resolves shared
+tokens and only a limited set of visibly distinct composition treatments; registry
+variety must not be read as proof that every declared archetype is visually
+distinct. Offline tests cover both platform geometries, malformed specs, overflow
+and immutable package preservation.
 
 See [platform outputs](platform-outputs.md), [content production](content-production.md)
 and [reliability](reliability.md). Visual admin tooling, LLM candidate selection,
 image acquisition/generation, chart/SVG engines and qualitative design evaluation
 remain future work; new capabilities should be registered rather than added as
 hidden per-domain renderers.
+
+## Visual-library growth
+
+The intended authoring flow is: analyze a visually appealing reference,
+decompose it into reusable primitives, implement any missing renderer primitive,
+create or extend an archetype, render representative examples, obtain human
+review, mark it tested, and mark it curated only after acceptance. Contributors
+should decide whether a reference is a new archetype or a variation of one, and
+whether it truly needs a new composition, component, theme, typography treatment
+or decoration. A reference is not automatically a new renderer/template.

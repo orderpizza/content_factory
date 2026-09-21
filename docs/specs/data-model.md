@@ -62,8 +62,9 @@ The decision, routes and jobs commit atomically.
 `output_requests` freezes destination plans; `adaptation_runs` owns bounded
 adaptation and metadata checkpoints. `content_packages` contains exact copy,
 units and semantic visual intent. `visual_plan_runs` claim deterministic planning
-and `visual_recipes` preserve the selected registry release, fingerprint and
-bounded selection provenance. `render_runs` and assets preserve actual local files;
+and `visual_recipes` preserve the selected archetype/preset, resolved safe
+variants, registry release/fingerprint and bounded selection provenance.
+`render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
 `post_requests`, `post_records`, `post_attempts` and publication resources
