@@ -60,8 +60,10 @@ The decision, routes and jobs commit atomically.
 
 `canonical_contents` is immutable platform-neutral output.
 `output_requests` freezes destination plans; `adaptation_runs` owns bounded
-adaptation and metadata checkpoints. `content_packages` contains exact copy/
-visual instructions. `render_runs` and assets preserve actual local files;
+adaptation and metadata checkpoints. `content_packages` contains exact copy,
+units and semantic visual intent. `visual_plan_runs` claim deterministic planning
+and `visual_recipes` preserve the selected registry release, fingerprint and
+bounded selection provenance. `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
 `post_requests`, `post_records`, `post_attempts` and publication resources
@@ -86,7 +88,7 @@ does not migrate old schemas or auto-delete existing databases.
 | Collection/Scout | pending → claimed → completed; bounded retry/failure |
 | Intake | pending → claimed → completed / needs_clarification / failed / cancelled |
 | Determination | pending → claimed → completed / retry_wait / failed / cancelled |
-| Generation/adaptation/render | pending → claimed → succeeded / retry_wait / failed / cancelled |
+| Generation/adaptation/visual planning/render | pending → claimed → succeeded / retry_wait / failed / cancelled |
 | Review | awaiting_review → approved / changes_requested / rejected / invalidated |
 | Delivery | pending → claimed → publishing → published / failed / publication_unknown |
 | Reconciliation | pending → claimed → needs_human → resolved |
@@ -102,6 +104,6 @@ Determination commits all routes/jobs/runs in one transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
 
-Schema version 6 and its checksum identify the current database contract.
+Schema version 7 and its checksum identify the current database contract.
 Initialization is explicit and idempotent only for the exact current schema;
 incompatible databases are refused unchanged.

@@ -7,7 +7,7 @@ from database.current import initialize_database
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from dashboard import render_workflow_trace
-from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualRenderer, WorkflowStore
+from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualPlanner, VisualRenderer, WorkflowStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +38,7 @@ class WorkflowV2Tests(unittest.TestCase):
             self.assertIn("Five domain routes", render_workflow_trace(store.connection))
             self.assertIsNotNone(PipelineRunner(store).run_once())
             self.assertIsNotNone(AdaptationWorker(store).run_once())
+            self.assertIsNotNone(VisualPlanner(store).run_once())
             review_id = VisualRenderer(store, Path(self.tmp.name) / "artifacts").run_once()
             self.assertIsNotNone(review_id)
             review = store.connection.execute("SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)).fetchone()
@@ -116,6 +117,7 @@ class WorkflowV2Tests(unittest.TestCase):
             DeterminationWorker(store).run_once()
             PipelineRunner(store).run_once()
             AdaptationWorker(store).run_once()
+            VisualPlanner(store).run_once()
             review_id = VisualRenderer(store, Path(self.tmp.name) / "review-artifacts").run_once()
             review = store.connection.execute(
                 "SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)

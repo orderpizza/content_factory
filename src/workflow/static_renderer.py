@@ -19,6 +19,7 @@ from playwright.sync_api import sync_playwright
 
 from .store import WorkflowStore
 from .workers import local_operation
+from .visual_registry import COMPOSITIONS, THEMES, TYPOGRAPHY, validate_recipe
 
 
 PROFILES = {
@@ -27,6 +28,10 @@ PROFILES = {
     "static_instagram_delivery_v1": {"width": 1080, "height": 1350, "minimum": 5, "maximum": 8},
     "static_x_delivery_v1": {"width": 1200, "height": 675, "minimum": 1, "maximum": 1},
 }
+
+
+class LayoutOverflow(ValueError):
+    """An explicit layout failure eligible for registered fallback planning."""
 
 
 class StaticVisualRenderer:
@@ -56,13 +61,15 @@ class StaticVisualRenderer:
     @local_operation("render_runs", "render_run_id")
     def _process(self, run: Any) -> int | None:
         package_row = self.store.connection.execute(
-            "SELECT package_json,content_hash FROM content_packages WHERE content_package_id=?",
-            (run["content_package_id"],),
+            "SELECT cp.package_json,cp.content_hash,vr.recipe_json FROM content_packages cp "
+            "JOIN visual_recipes vr ON vr.visual_recipe_id=? WHERE cp.content_package_id=?",
+            (run["visual_recipe_id"], run["content_package_id"]),
         ).fetchone()
         if package_row is None:
             raise ValueError("render run references a missing ContentPackage")
         package = json.loads(package_row["package_json"])
-        spec = _validate_visual_spec(package.get("visual_spec"), production=self.production)
+        spec = _render_spec(package, production=self.production)
+        recipe = validate_recipe(json.loads(package_row["recipe_json"]), production=self.production)
         font = self._production_font() if self.production else None
 
         self.artifact_root.mkdir(parents=True, exist_ok=True)
@@ -97,7 +104,7 @@ class StaticVisualRenderer:
                         png_path = temporary / f"unit-{ordinal:02d}.png"
                         jpeg_path = temporary / f"unit-{ordinal:02d}.jpg"
                         html_path.write_text(
-                            _unit_html(unit, spec, ordinal, len(spec["units"]), font=font),
+                            _unit_html(unit, spec, recipe, ordinal, len(spec["units"]), font=font),
                             encoding="utf-8",
                         )
                         page.goto(html_path.resolve().as_uri(), wait_until="load")
@@ -108,7 +115,7 @@ class StaticVisualRenderer:
                             "node.scrollWidth <= node.clientWidth)"
                         )
                         if not layout_ok:
-                            raise ValueError(f"rendered unit {ordinal} overflows its template bounds")
+                            raise LayoutOverflow(f"rendered unit {ordinal} overflows its template bounds")
                         page.screenshot(path=str(png_path), type="png")
                         with Image.open(png_path) as source:
                             if source.size != (spec["width"], spec["height"]):
@@ -140,6 +147,8 @@ class StaticVisualRenderer:
                 "schema_version": "render_manifest_v1",
                 "renderer": "html_playwright_v1",
                 "profile_id": spec["profile_id"],
+                "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
+                "visual_registry_release": recipe["registry_release"],
                 "content_hash": package_row["content_hash"],
                 "browser_version": browser_version,
                 "pillow_version": PIL.__version__,
@@ -155,6 +164,10 @@ class StaticVisualRenderer:
                 "assets": assets,
             }
             return self.store.complete_render(run, manifest, assets)
+        except LayoutOverflow as error:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+            return self.store.schedule_visual_fallback(run, reason="registered composition overflow")
         except Exception:
             if temporary.exists():
                 shutil.rmtree(temporary)
@@ -189,24 +202,15 @@ class StaticVisualRenderer:
         return {**profile, "data_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii")}
 
 
-def _validate_visual_spec(value: Any, *, production: bool = False) -> dict[str, Any]:
-    expected = {"schema_version", "renderer", "profile_id", "width", "height", "units", "review_only"}
-    if not isinstance(value, dict) or set(value) != expected:
-        raise ValueError("visual specification has an invalid closed shape")
-    if value["schema_version"] != "static_social_visual_v1" or value["renderer"] != "html_playwright_v1":
-        raise ValueError("visual specification version or renderer is unsupported")
-    profile = PROFILES.get(value["profile_id"])
-    if profile is None:
-        raise ValueError("visual profile is unsupported")
-    if value["review_only"] is not (not production):
-        raise ValueError("visual profile safety mode does not match the renderer mode")
-    if production and not value["profile_id"].endswith("_delivery_v1"):
-        raise ValueError("production rendering requires an approved delivery profile")
-    if not production and not value["profile_id"].endswith("_review_v1"):
-        raise ValueError("review rendering requires a review-only profile")
-    if (value["width"], value["height"]) != (profile["width"], profile["height"]):
-        raise ValueError("visual geometry does not match the selected profile")
-    units = value["units"]
+def _render_spec(package: Any, *, production: bool = False) -> dict[str, Any]:
+    if not isinstance(package, dict):
+        raise ValueError("render package is invalid")
+    platform = package.get("platform")
+    profile_id = ("static_instagram_delivery_v1" if production else "static_instagram_review_v1") if platform == "instagram" else ("static_x_delivery_v1" if production else "static_x_review_v1") if platform == "x" else None
+    profile = PROFILES.get(profile_id)
+    if profile is None or package.get("delivery_ready") is not production:
+        raise ValueError("package/platform renderer safety mode does not match")
+    units = package.get("visual_units")
     if not isinstance(units, list) or not profile["minimum"] <= len(units) <= profile["maximum"]:
         raise ValueError("visual unit count does not match the selected profile")
     for unit in units:
@@ -218,21 +222,22 @@ def _validate_visual_spec(value: Any, *, production: bool = False) -> dict[str, 
             raise ValueError("visual unit text is missing")
         if not isinstance(unit["claim_ids"], list):
             raise ValueError("visual unit claim mapping is invalid")
-    return value
+    return {"profile_id": profile_id, "width": profile["width"], "height": profile["height"], "units": units}
 
 
 def _unit_html(
     unit: dict[str, Any],
     spec: dict[str, Any],
+    recipe: dict[str, Any],
     ordinal: int,
     total: int,
     *,
     font: dict[str, str] | None = None,
 ) -> str:
     compact = spec["height"] < 1000
-    title_size = 58 if compact else 74
+    title_size = (58 if compact else 74) * TYPOGRAPHY[recipe["typography_id"]]["title_scale"]
     body_size = 31 if compact else 40
-    padding = 58 if compact else 78
+    padding = {"low": 88 if not compact else 68, "medium": 78 if not compact else 58, "high": 60 if not compact else 46}[recipe["density"]]
     role = escape(unit["role"].replace("_", " ").upper())
     title = escape(unit["title"])
     body = escape(unit["body"]).replace("\n", "<br>")
@@ -240,22 +245,27 @@ def _unit_html(
         "@font-face { font-family: 'ContentFactoryPinned'; src: url('"
         + font["data_url"] + "'); font-weight: 100 900; font-style: normal; }"
     )
-    family = "Arial, Helvetica, sans-serif" if font is None else "'ContentFactoryPinned', sans-serif"
+    family = TYPOGRAPHY[recipe["typography_id"]]["family"] if font is None else "'ContentFactoryPinned', sans-serif"
+    theme = THEMES[recipe["theme_id"]]
+    composition = recipe["composition_id"]
+    layout = "center" if composition in {"quote_centered_focus_v1", "editorial_centered_statement_v1"} else "flex-start"
+    surface = "border: 3px solid " + theme["accent"] + ";" if "comparison" in composition else ""
+    decoration = "radial-gradient(" + theme["accent"] + " 1px, transparent 1px) 0 0/18px 18px" if "subtle_dots_v1" in recipe["decorations"] else "none"
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
 {font_face}
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; width: {spec['width']}px; height: {spec['height']}px; overflow: hidden; }}
-body {{ background: #f5f1e8; color: #1f2933; font-family: {family}; }}
+body {{ background: {theme['background']}; color: {theme['text']}; font-family: {family}; background-image: {decoration}; }}
 .card {{ width: 100%; height: 100%; padding: {padding}px; display: grid;
-  grid-template-rows: auto 1fr auto; gap: {34 if compact else 54}px; }}
+  grid-template-rows: auto 1fr auto; gap: {34 if compact else 54}px; {surface} }}
 .header, .footer {{ display: flex; justify-content: space-between; align-items: center;
   font-size: {21 if compact else 27}px; font-weight: 800; letter-spacing: .08em; }}
-.role {{ color: #b94c35; }}
-.content {{ min-height: 0; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }}
-h1 {{ margin: 0 0 {28 if compact else 42}px; font-size: {title_size}px; line-height: 1.03; letter-spacing: -.035em; }}
+.role {{ color: {theme['accent']}; }}
+.content {{ min-height: 0; display: flex; flex-direction: column; justify-content: {layout}; overflow: hidden; }}
+h1 {{ margin: 0 0 {28 if compact else 42}px; font-size: {title_size}px; line-height: 1.03; letter-spacing: {TYPOGRAPHY[recipe['typography_id']]['tracking']}; }}
 .body-copy {{ min-height: 0; overflow: hidden; font-size: {body_size}px; line-height: 1.28; font-weight: 540; white-space: normal; }}
-.rule {{ width: {90 if compact else 120}px; height: 9px; border-radius: 8px; background: #c85a3f; }}
+.rule {{ width: {90 if compact else 120}px; height: 9px; border-radius: 8px; background: {theme['accent']}; }}
 </style></head><body><main class="card"><header class="header"><span class="role">{role}</span>
 <span>{ordinal}/{total}</span></header><section class="content" data-bound><h1>{title}</h1>
 <div class="body-copy">{body}</div></section><footer class="footer"><span>CONTENT FACTORY</span>

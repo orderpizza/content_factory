@@ -14,7 +14,7 @@ paid replay. [Runtime](runtime.md#claims-and-recovery) owns process behavior.
 
 Each successful boundary commits output and downstream requests atomically.
 Uniqueness guards one decision per request, job per selected route, canonical
-result per job and package per output. Closed/cancelled threads fence downstream
+result per job, package per output and recipe per visual-plan run. Closed/cancelled threads fence downstream
 finalization. A human refinement does not cancel older jobs.
 
 Detection freezes source input and semantic resolution separately; completed
@@ -24,8 +24,9 @@ membership and lexical credit, not pooled semantic corroboration.
 
 ## Artifacts and publication
 
-[Visual rendering](visual-rendering.md) owns temporary output, atomic promotion,
-manifest/hash validation and quarantine of uncommitted final artifacts.
+[Visual rendering](visual-rendering.md) owns deterministic recipe selection,
+temporary output, atomic promotion, manifest/hash validation and quarantine of
+uncommitted final artifacts.
 File existence alone is never proof of a completed render or reviewed asset.
 
 [Posting](posting.md) owns authorization, pre-final cancellation, durable

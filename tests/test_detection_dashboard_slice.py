@@ -84,7 +84,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=6", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=7", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):

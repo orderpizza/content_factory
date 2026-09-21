@@ -2,7 +2,7 @@
 
 ## System state
 
-The application uses one current SQLite schema, version **6**, defined in
+The application uses one current SQLite schema, version **7**, defined in
 [application-schema.sql](contracts/application-schema.sql). Setup creates a
 fresh database; there is no upgrade pathway. Version and SQL checksum are checked
 on store open. SQLite WAL, foreign keys, claim versions and immutable evidence
@@ -20,6 +20,11 @@ Implemented planning paths:
 - **Determination:** Gemini assesses all five domains; validates reasons,
   angles and ready frozen output bindings; commits five routes and a ContentJob
   plus pending GenerationRun for each selected domain.
+- **Visual planning:** each platform ContentPackage carries bounded semantic
+  `visual_intent`; a deterministic shared registry planner commits one immutable
+  VisualRecipe before a renderer claim. The source-controlled registry supplies
+  reusable families, compositions, themes, typography, components, decorations
+  and curated presets. Instagram and X plan independently.
 - **Dashboard:** four linked views: Raw Feed Items → Clusters → Opportunities
   → ContentJobs, with separate collection-attempt, source-health and Cluster
   Selection statuses. Semantic evidence, Scout runs, worker history, queues,
@@ -154,6 +159,7 @@ updates in place every ten seconds without erasing drafts or collapsing evidence
 | `src/workflow/store.py` | Transactions, claims, immutable handoffs, commands and production state |
 | `src/workflow/catalog.py` | Shared catalog read model and domain remit |
 | `src/workflow/gemini_intake.py`, `gemini_determination.py` | Real planning workers |
+| `src/workflow/visual_registry.py`, `visual_planner.py` | Version-controlled visual capabilities and deterministic recipe selection |
 | `src/workflow/development.py` | Fresh non-deliverable development setup |
 | `src/dashboard/` | Detection, evidence, thread/decision and review read models |
 | `scripts/serve_dashboard.py` | Loopback HTTP, CSRF commands and verified assets |

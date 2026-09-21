@@ -7,8 +7,8 @@ These are enforced local limits, not claims about providers' current maximums.
 ## Shared package
 
 Each `output_adaptation_v1` package freezes platform, account, format, public
-text, private tags, hashtags, alt text, claim mappings, visual specification and
-delivery-ready flag. Production selects a delivery profile; preview selects a
+text, private tags, hashtags, alt text, claim mappings, ordered visual units,
+closed semantic `visual_intent` and delivery-ready flag. Production selects a delivery profile; preview selects a
 non-deliverable review profile. A delivery-ready package alone does not authorize
 a public post.
 
@@ -25,8 +25,11 @@ wording faithfully expresses the claim; human review remains necessary.
 | Unit role | hook, explanation, example or takeaway |
 | Unit title/body | 1–120 / 1–600 code points after normalization |
 
-The renderer accepts structured units, never model-authored HTML/CSS.
-[Visual rendering](visual-rendering.md#profiles-and-payload) owns exact profiles,
+`visual_intent_v1` has bounded primary structure, tone, density, emphasis targets
+and image need. It contains no template ID, color, font, geometry, CSS, HTML,
+SVG, JavaScript or remote asset URL. The shared Visual Planner owns registered
+recipe selection. The renderer accepts structured units, never model-authored
+HTML/CSS. [Visual rendering](visual-rendering.md#visual-planning-and-recipes) owns exact profiles,
 geometry and assets. [Content production](content-production.md) owns checkpoints
 and sibling isolation.
 

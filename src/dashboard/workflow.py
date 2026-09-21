@@ -24,10 +24,11 @@ def _review_preview(
     production: bool,
 ) -> str:
     review = connection.execute(
-        "SELECT v.status,v.row_version,p.package_json,r.render_run_id "
+        "SELECT v.status,v.row_version,p.package_json,r.render_run_id,vr.recipe_json,vr.selection_provenance_json "
         "FROM review_requests v JOIN content_packages p "
         "ON p.content_package_id=v.content_package_id "
         "JOIN render_runs r ON r.render_run_id=v.render_run_id "
+        "JOIN visual_recipes vr ON vr.visual_recipe_id=r.visual_recipe_id "
         "WHERE v.review_request_id=?",
         (review_id,),
     ).fetchone()
@@ -51,6 +52,9 @@ def _review_preview(
         f"{escape(review['status'])}</p><div>{images}</div>"
         f"<pre style='white-space:pre-wrap'>{escape(str(public_text))}</pre>"
     ]
+    parts.append("<details><summary>Immutable visual recipe and selection</summary><pre>"
+                 + escape(json.dumps({"recipe": json.loads(review["recipe_json"]), "selection": json.loads(review["selection_provenance_json"])}, ensure_ascii=False, indent=2))
+                 + "</pre></details>")
     if interactive and review["status"] == "awaiting_review":
         common = (
             f"{_hidden('csrf_token', csrf_token)}"

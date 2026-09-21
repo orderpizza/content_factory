@@ -23,6 +23,7 @@ from database.current import SchemaError, connect, validate_database
 CLAIM_KEYS = {
     "intake_requests": "intake_request_id", "determination_requests": "determination_request_id",
     "generation_runs": "generation_run_id", "adaptation_runs": "adaptation_run_id",
+    "visual_plan_runs": "visual_plan_run_id",
     "render_runs": "render_run_id", "post_records": "post_record_id",
     "delivery_cleanup_tasks": "delivery_cleanup_task_id",
     "reconciliation_requests": "reconciliation_request_id",
@@ -367,6 +368,7 @@ class WorkflowStore:
             "determination_requests": "planning",
             "generation_runs": "creative",
             "adaptation_runs": "creative",
+            "visual_plan_runs": "creative",
             "render_runs": "creative",
             "post_records": "delivery",
             "delivery_cleanup_tasks": "safe_cleanup",
@@ -720,6 +722,7 @@ class WorkflowStore:
             "determination_requests": "JOIN brief_revisions r ON r.revision_id=q.revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "generation_runs": "JOIN content_jobs j ON j.content_job_id=q.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "adaptation_runs": "JOIN output_requests o ON o.output_request_id=q.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
+            "visual_plan_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "render_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
         }
         key = CLAIM_KEYS[table]
@@ -1115,10 +1118,57 @@ class WorkflowStore:
             prior=self.connection.execute("SELECT content_package_id FROM content_packages WHERE output_request_id=?",(output["output_request_id"],)).fetchone()
             if prior:
                 self._finish_claim("adaptation_runs","adaptation_run_id",run,"succeeded",moment,None); return int(prior[0])
-            package_id=int(self.connection.execute("INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,visual_spec_json,created_at) VALUES (?,?,?,?,?,?)",(output["output_request_id"],run["adaptation_run_id"],canonical(package),digest(package),canonical(package["visual_spec"]),moment)).lastrowid)
-            self.connection.execute("INSERT INTO render_runs(content_package_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(package_id,moment))
+            intent = package.get("visual_intent")
+            if intent is None:
+                raise ValueError("adaptation package must provide bounded visual intent")
+            from .visual_registry import validate_intent
+            validate_intent(intent)
+            package_id=int(self.connection.execute("INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,visual_intent_json,created_at) VALUES (?,?,?,?,?,?)",(output["output_request_id"],run["adaptation_run_id"],canonical(package),digest(package),canonical(intent),moment)).lastrowid)
+            self.connection.execute("INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(package_id,moment))
             self._finish_claim("adaptation_runs","adaptation_run_id",run,"succeeded",moment,None)
             return package_id
+
+    def create_visual_recipe(self, run: Any, recipe: dict[str, Any], provenance: dict[str, Any]) -> int:
+        """Persist one immutable selected recipe and atomically hand off rendering."""
+        from .visual_registry import validate_recipe
+        moment = now()
+        validated = validate_recipe(recipe, production=self.catalog_kind == "production")
+        with self.transaction():
+            if self._cancel_if_closed("visual_plan_runs", run, moment):
+                return None
+            prior = self.connection.execute("SELECT visual_recipe_id FROM visual_recipes WHERE visual_plan_run_id=?", (run["visual_plan_run_id"],)).fetchone()
+            if prior:
+                self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
+                return int(prior[0])
+            recipe_id = int(self.connection.execute(
+                "INSERT INTO visual_recipes(content_package_id,visual_plan_run_id,recipe_json,recipe_hash,registry_release,registry_fingerprint,selection_provenance_json,fallback_from_visual_recipe_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (run["content_package_id"], run["visual_plan_run_id"], canonical(validated), digest(validated), validated["registry_release"], validated["registry_fingerprint"], canonical(provenance), run["fallback_from_visual_recipe_id"], moment),
+            ).lastrowid)
+            render_number = int(self.connection.execute("SELECT COALESCE(MAX(run_number),0)+1 FROM render_runs WHERE content_package_id=?", (run["content_package_id"],)).fetchone()[0])
+            self.connection.execute("INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,'pending',2,?)", (run["content_package_id"], recipe_id, render_number, moment))
+            self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
+            return recipe_id
+
+    def schedule_visual_fallback(self, run: Any, *, reason: str) -> int | None:
+        """Fail an unreviewed render and schedule a new immutable planning attempt."""
+        moment = now()
+        with self.transaction():
+            review = self.connection.execute("SELECT 1 FROM review_requests WHERE render_run_id=?", (run["render_run_id"],)).fetchone()
+            if review:
+                raise RuntimeError("reviewed assets cannot receive an automatic visual fallback")
+            recipe = self.connection.execute("SELECT visual_recipe_id,recipe_json FROM visual_recipes WHERE visual_recipe_id=?", (run["visual_recipe_id"],)).fetchone()
+            if recipe is None:
+                raise ValueError("render run has no visual recipe")
+            fallback = json.loads(recipe["recipe_json"])
+            composition = fallback.get("composition_id")
+            from .visual_registry import COMPOSITIONS
+            next_composition = COMPOSITIONS.get(composition, {}).get("fallback")
+            if not next_composition:
+                self._finish_claim("render_runs", "render_run_id", run, "failed", moment, reason)
+                return None
+            number = int(self.connection.execute("SELECT COALESCE(MAX(run_number),0)+1 FROM visual_plan_runs WHERE content_package_id=?", (run["content_package_id"],)).fetchone()[0])
+            self._finish_claim("render_runs", "render_run_id", run, "failed", moment, reason)
+            return int(self.connection.execute("INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,fallback_from_visual_recipe_id,created_at) VALUES (?,?, 'pending',2,?,?)", (run["content_package_id"], number, recipe["visual_recipe_id"], moment)).lastrowid)
 
     def complete_render(
         self,

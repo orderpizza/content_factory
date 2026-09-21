@@ -40,6 +40,8 @@ from workflow import (
     WorkflowStore,
     XDeliveryAdapter,
 )
+from workflow.visual_planner import choose_recipe
+from workflow.visual_registry import validate_intent
 from common.gemini import GeminiUsage
 from workflow.store import canonical, digest, now
 from workflow.maintenance import MaintenanceService, StorageMonitor
@@ -294,26 +296,36 @@ class ProductionWorkflowTests(unittest.TestCase):
         count = 5 if platform == "instagram" else 1
         profile = "static_instagram_delivery_v1" if platform == "instagram" else "static_x_delivery_v1"
         width, height = (1080, 1350) if platform == "instagram" else (1200, 675)
-        visual = {"schema_version": "static_social_visual_v1", "renderer": "html_playwright_v1",
-                  "profile_id": profile, "width": width, "height": height,
-                  "units": [{"role": "hook", "title": "Title", "body": "Body", "claim_ids": []}]
-                           * count, "review_only": False}
+        units = [{"role": "hook", "title": "Title", "body": "Body", "claim_ids": []}
+                 for _ in range(count)]
+        intent = {"schema_version": "visual_intent_v1", "primary_structure": "editorial",
+                  "tone": "professional", "density": "medium",
+                  "emphasis_targets": ["takeaway"], "image_need": "none"}
         package = {"schema_version": "output_adaptation_v1", "platform": platform,
                    "account": binding["account"], "format": binding["content_format"],
                    "public_text": "Approved immutable copy", "private_tags": ["one", "two"],
                    "hashtags": [], "alt_text": "Accessible description", "claim_mappings": [],
-                   "visual_spec": visual, "delivery_ready": True}
+                   "visual_units": units, "visual_intent": intent, "delivery_ready": True}
         package["caption" if platform == "instagram" else "post_text"] = "Approved immutable copy"
         if platform == "instagram":
             package["cta"] = None
         package_id = store.connection.execute(
             "INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,"
-            "visual_spec_json,created_at) VALUES (?,?,?,?,?,?)",
-            (output_id, adaptation_id, canonical(package), digest(package), canonical(visual), moment),
+            "visual_intent_json,created_at) VALUES (?,?,?,?,?,?)",
+            (output_id, adaptation_id, canonical(package), digest(package), canonical(intent), moment),
+        ).lastrowid
+        plan_id = store.connection.execute(
+            "INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at,completed_at) VALUES (?,1,'succeeded',1,?,?)",
+            (package_id, moment, moment),
+        ).lastrowid
+        recipe, provenance = choose_recipe(intent, platform=platform, pipeline="english", account=binding["account"], unit_count=count, production=True, history=[])
+        recipe_id = store.connection.execute(
+            "INSERT INTO visual_recipes(content_package_id,visual_plan_run_id,recipe_json,recipe_hash,registry_release,registry_fingerprint,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (package_id, plan_id, canonical(recipe), digest(recipe), recipe["registry_release"], recipe["registry_fingerprint"], canonical(provenance), moment),
         ).lastrowid
         render_id = store.connection.execute(
-            "INSERT INTO render_runs(content_package_id,run_number,status,attempt_limit,created_at) "
-            "VALUES (?,1,'claimed',1,?)", (package_id, moment),
+            "INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) "
+            "VALUES (?,?,1,'claimed',1,?)", (package_id, recipe_id, moment),
         ).lastrowid
         store.connection.execute(
             "UPDATE render_runs SET claim_owner='test-render',claimed_at=?,lease_expires_at=?,"
@@ -345,7 +357,7 @@ class ProductionWorkflowTests(unittest.TestCase):
         self.assertFalse(initialize_database(self.path))
         with connect(self.path) as connection:
             validate_database(connection)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
@@ -671,6 +683,7 @@ class ProductionWorkflowTests(unittest.TestCase):
             "post_text": "A focused practical lesson.",
             "visual_unit": {"role": "hook", "title": "Break the ice",
                             "body": "Ease the first awkward moment.", "claim_ids": []},
+            "visual_intent": {"schema_version": "visual_intent_v1", "primary_structure": "editorial", "tone": "professional", "density": "medium", "emphasis_targets": ["takeaway"], "image_need": "none"},
             "public_text_claim_ids": [], "private_tags": ["duplicate", "duplicate"],
             "hashtags": [], "alt_text": "A simple lesson card.",
         }

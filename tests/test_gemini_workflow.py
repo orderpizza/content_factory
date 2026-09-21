@@ -27,6 +27,7 @@ from workflow import (
     GeminiIntakeWorker,
     GeminiPipelineRunner,
     StaticVisualRenderer,
+    VisualPlanner,
     WORKFLOW_PIPELINES,
     WorkflowStore,
 )
@@ -216,6 +217,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             "hashtags": ["#english", "#learning"] if platform == "instagram" else [],
             "alt_text": "A clean educational card explaining an idea.",
             "public_text_claim_ids": [claim_id],
+            "visual_intent": {"schema_version": "visual_intent_v1", "primary_structure": "dialogue" if platform == "instagram" else "editorial", "tone": "friendly", "density": "medium", "emphasis_targets": ["target_expression"], "image_need": "none"},
         }
         if platform == "instagram":
             return {
@@ -491,15 +493,15 @@ class GeminiWorkflowTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual(len(packages), 2)
             instagram, x_package = [json.loads(row[0]) for row in packages]
-            self.assertEqual(len(instagram["visual_spec"]["units"]), 5)
-            self.assertEqual(instagram["visual_spec"]["profile_id"], "static_instagram_review_v1")
-            self.assertEqual(x_package["visual_spec"]["profile_id"], "static_x_review_v1")
+            self.assertEqual(len(instagram["visual_units"]), 5)
+            self.assertEqual(instagram["visual_intent"]["primary_structure"], "dialogue")
+            self.assertEqual(x_package["visual_intent"]["primary_structure"], "editorial")
             self.assertFalse(instagram["delivery_ready"])
             self.assertFalse(x_package["delivery_ready"])
             self.assertIn("synthetic_destination_review_only", instagram_client.calls[0]["prompt"])
             self.assertEqual(
                 store.connection.execute(
-                    "SELECT COUNT(*) FROM render_runs WHERE status='pending'"
+                    "SELECT COUNT(*) FROM visual_plan_runs WHERE status='pending'"
                 ).fetchone()[0],
                 2,
             )
@@ -564,6 +566,8 @@ class GeminiWorkflowTests(unittest.TestCase):
                     "SELECT content_package_id,package_json FROM content_packages"
                 ).fetchall()
             }
+            self.assertIsNotNone(VisualPlanner(store).run_once())
+            self.assertIsNotNone(VisualPlanner(store).run_once())
             first_review = StaticVisualRenderer(store, artifact_root).run_once()
             second_review = StaticVisualRenderer(store, artifact_root).run_once()
             self.assertIsNotNone(first_review)

@@ -11,8 +11,8 @@ non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the
 ```text
 ContentJob + GenerationRun
   → CanonicalContent + frozen OutputRequests + AdaptationRuns
-  → one ContentPackage + RenderRun per successful output
-  → renderer → assets + ReviewRequest
+  → one ContentPackage + VisualPlanRun per successful output
+  → immutable VisualRecipe + RenderRun → renderer → assets + ReviewRequest
 ```
 
 Each handoff is an atomic, fenced SQLite transaction. Workers never invoke the
@@ -50,8 +50,8 @@ cross-revision canonical reuse.
 ## Output adaptation — `output_adaptation_v1`
 
 An adaptation reads one canonical object and one frozen destination. It selects
-and arranges supported content, creates platform copy/metadata and selects a
-registered visual profile. It does not fetch evidence or change the approved
+and arranges supported content, creates platform copy/metadata and emits a
+closed semantic `visual_intent`. It does not fetch evidence or change the approved
 angle. Closed schemas, claim-ID mappings and local limits are defined in
 [platform outputs](platform-outputs.md); semantic fidelity still needs review.
 
@@ -70,8 +70,10 @@ content commits before adaptation begins. Failure on one output does not rerun
 generation or invalidate a completed sibling.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
-adaptation and creates its first pending RenderRun. Rendering retries use that
-exact package. Synthetic packages remain non-deliverable.
+adaptation and creates its first pending VisualPlanRun. The shared deterministic
+planner filters and ranks registered visual capabilities and commits a separate,
+immutable VisualRecipe before creating its RenderRun. Rendering retries use the
+exact package and recipe. Synthetic packages remain non-deliverable.
 
 ## Spending and recovery
 

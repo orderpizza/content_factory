@@ -45,11 +45,11 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 
 | Flags | Workers |
 | --- | --- |
-| Default | Deterministic fixture Intake, Determination, generation, adaptation, renderer and disabled PostingAgent |
+| Default | Deterministic fixture Intake, Determination, generation, adaptation, visual planner, renderer and disabled PostingAgent |
 | `--gemini` | Gemini Intake/Determination; downstream fixtures |
 | `--planning-only` | Intake/Determination only, leaving new GenerationRuns pending |
 | `--gemini --planning-only` | Live Gemini planning trial, no downstream production |
-| `--gemini --review-preview` | Also Gemini generation/adaptation and local real rendering |
+| `--gemini --review-preview` | Also Gemini generation/adaptation, deterministic visual planning and local real rendering |
 | `--gemini --review-preview --production` | Immutable real-destination catalog and production rendering/admission |
 | Above plus `--delivery` | Credentialed posting, R2 cleanup and reconciliation |
 

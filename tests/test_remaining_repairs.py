@@ -23,7 +23,7 @@ from detection.models import CollectedItem, CollectionResult, SourceCollectionEr
 from detection.normalization import canonical_link
 from detection.scout import DetectionScout
 from detection.store import DetectionStore
-from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, VisualRenderer, WorkflowStore
+from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, VisualPlanner, VisualRenderer, WorkflowStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +175,7 @@ class RemainingRepairTests(unittest.TestCase):
             ("determination_requests", "determination_request_id", DeterminationWorker, "determination_decisions"),
             ("generation_runs", "generation_run_id", PipelineRunner, "canonical_contents"),
             ("adaptation_runs", "adaptation_run_id", AdaptationWorker, "content_packages"),
+            ("visual_plan_runs", "visual_plan_run_id", VisualPlanner, "visual_recipes"),
             ("render_runs", "render_run_id", lambda s: VisualRenderer(s, Path(self.tmp.name) / "assets"), "review_requests"),
         ]
         with WorkflowStore(self.path) as store:

@@ -569,18 +569,43 @@ CREATE TABLE content_packages (
     output_request_id INTEGER NOT NULL UNIQUE REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     adaptation_run_id INTEGER NOT NULL UNIQUE REFERENCES adaptation_runs(adaptation_run_id) ON DELETE RESTRICT,
     package_json TEXT NOT NULL CHECK(json_valid(package_json)), content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
-    visual_spec_json TEXT NOT NULL CHECK(json_valid(visual_spec_json)), created_at TEXT NOT NULL
+    visual_intent_json TEXT NOT NULL CHECK(json_valid(visual_intent_json)), created_at TEXT NOT NULL
 );
 
-CREATE TABLE render_runs (
-    render_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE visual_plan_runs (
+    visual_plan_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
     content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     run_number INTEGER NOT NULL CHECK(run_number>0),
     status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled')),
     claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
     attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
-    manifest_json TEXT CHECK(manifest_json IS NULL OR json_valid(manifest_json)), failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
+    fallback_from_visual_recipe_id INTEGER REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
+    failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
     UNIQUE(content_package_id,run_number)
+);
+
+CREATE TABLE visual_recipes (
+    visual_recipe_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    visual_plan_run_id INTEGER NOT NULL UNIQUE REFERENCES visual_plan_runs(visual_plan_run_id) ON DELETE RESTRICT,
+    recipe_json TEXT NOT NULL CHECK(json_valid(recipe_json)), recipe_hash TEXT NOT NULL CHECK(length(recipe_hash)=64),
+    registry_release TEXT NOT NULL, registry_fingerprint TEXT NOT NULL CHECK(length(registry_fingerprint)=64),
+    selection_provenance_json TEXT NOT NULL CHECK(json_valid(selection_provenance_json)),
+    fallback_from_visual_recipe_id INTEGER REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    UNIQUE(content_package_id,visual_plan_run_id)
+);
+
+CREATE TABLE render_runs (
+    render_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
+    run_number INTEGER NOT NULL CHECK(run_number>0),
+    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled')),
+    claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
+    manifest_json TEXT CHECK(manifest_json IS NULL OR json_valid(manifest_json)), failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
+    UNIQUE(content_package_id,run_number), UNIQUE(visual_recipe_id)
 );
 
 CREATE TABLE render_assets (
@@ -933,6 +958,7 @@ CREATE INDEX ix_determination_requests_pickup ON determination_requests(status,n
 CREATE UNIQUE INDEX uq_generation_active_job ON generation_runs(content_job_id) WHERE status IN ('waiting_capacity','pending','claimed','running','retry_wait');
 
 CREATE UNIQUE INDEX uq_adaptation_active_output ON adaptation_runs(output_request_id) WHERE status IN ('waiting_capacity','pending','claimed','running','retry_wait');
+CREATE UNIQUE INDEX uq_visual_plan_active_package ON visual_plan_runs(content_package_id) WHERE status IN ('pending','claimed','running','retry_wait');
 
 CREATE INDEX ix_delivery_cleanup_pickup
     ON delivery_cleanup_tasks(status,next_attempt_at,created_at);
@@ -1006,4 +1032,10 @@ BEGIN SELECT RAISE(ABORT, 'event resolution is immutable'); END;
 CREATE TRIGGER determination_input_immutable BEFORE UPDATE OF revision_id,input_snapshot_json,input_fingerprint ON determination_requests
 BEGIN SELECT RAISE(ABORT, 'Determination input is immutable'); END;
 
-PRAGMA user_version = 6;
+CREATE TRIGGER visual_recipes_immutable_update BEFORE UPDATE ON visual_recipes
+BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
+
+CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
+BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
+
+PRAGMA user_version = 7;

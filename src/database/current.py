@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 from content_factory_resources import contract_path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 CONTRACT_PATH = contract_path("application-schema.sql")
 SCHEMA_NAME = "content_factory_application"
 
@@ -31,7 +31,7 @@ def connect(path, *, read_only=False):
 
 def validate_database(connection, *, check_foreign_keys=True):
     if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-        raise SchemaError("Current schema 6 required; create a fresh database with scripts/setup_development.py")
+        raise SchemaError("Current schema 7 required; create a fresh database with scripts/setup_development.py")
     try:
         rows = connection.execute("SELECT version,name,checksum FROM schema_migrations").fetchall()
         if len(rows) != 1 or tuple(rows[0]) != (SCHEMA_VERSION, SCHEMA_NAME, contract_checksum()):

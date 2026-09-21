@@ -34,7 +34,7 @@ class PlanningFlowTests(unittest.TestCase):
 
     def test_fresh_setup_has_current_schema_catalog_and_no_external_work(self):
         with WorkflowStore(self.path) as store:
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 6)
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 7)
             self.assertEqual(len(store.catalog()), 5)
             self.assertTrue(all(len(c['outputs'])==2 and c['remit']['description'] for c in store.catalog()))
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_threads').fetchone()[0], 0)

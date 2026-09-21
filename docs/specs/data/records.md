@@ -6,7 +6,7 @@
 ## Executable schema
 
 [application-schema.sql](../../contracts/application-schema.sql) is the complete
-current schema (user_version 6). `database.current.initialize_database` executes
+current schema (user_version 7). `database.current.initialize_database` executes
 it atomically for an empty database, records the exact SHA-256 in
 `schema_migrations`, enables WAL and validates foreign keys.
 The ledger contains one current schema row; it is not a migration chain.
@@ -27,7 +27,7 @@ Initialization refuses an incompatible database without converting it.
 | Shortlist | topic_snapshots, trend_candidates, candidate_observation_memberships |
 | Conversation | content_threads, thread_messages, intake_requests, brief_revisions, human_command_receipts |
 | Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, content_jobs, generation_runs |
-| Production | canonical_contents, output_requests, adaptation_runs, content_packages, render_runs, render_assets, review_requests |
+| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, render_runs, render_assets, review_requests |
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
 | Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
 | Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |
@@ -40,7 +40,8 @@ by worker/store semantic validation before finalization.
 ## Transaction and evidence policy
 
 Original observations, frozen evaluation input/resolution, topic snapshots,
-briefs, decision routes, job recipes, canonical content and packages are immutable.
+briefs, decision routes, job recipes, canonical content, packages and visual
+recipes are immutable.
 Current status/claim fields and shortlist projections may change under their
 owning transactions.
 

@@ -23,6 +23,7 @@ from .delivery import (
     XDeliveryAdapter,
 )
 from .static_renderer import StaticVisualRenderer
+from .visual_planner import VisualPlanner
 from .preflight import inspect_smoke_readiness
 from .workers import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualRenderer
 
@@ -30,7 +31,7 @@ __all__ = [
     "WORKFLOW_PIPELINES", "WorkflowStore", "IdeaIntakeWorker", "DeterminationWorker",
     "GeminiIntakeWorker", "GeminiDeterminationWorker",
     "GeminiPipelineRunner", "GeminiAdaptationWorker",
-    "PipelineRunner", "AdaptationWorker", "VisualRenderer", "StaticVisualRenderer", "PostingAgent",
+    "PipelineRunner", "AdaptationWorker", "VisualPlanner", "VisualRenderer", "StaticVisualRenderer", "PostingAgent",
     "CredentialedPostingAgent", "DeliveryConfigurationError", "DeliveryError",
     "InstagramDeliveryAdapter", "XDeliveryAdapter", "R2TransientRelay", "R2CleanupWorker",
     "JsonHttpTransport", "ModelBudgetPolicy", "ModelBudgetConfigurationError", "ModelBudgetExceeded",

@@ -193,7 +193,13 @@ class AdaptationWorker:
     def _process(self, run):
         output=self.store.connection.execute("SELECT o.*,c.canonical_json FROM output_requests o JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE o.output_request_id=?",(run["output_request_id"],)).fetchone()
         content=json.loads(output["canonical_json"])
-        package={"platform":output["platform"],"account":output["account"],"format":output["content_format"],"caption":content["hook"],"hashtags":[],"alt_text":content["context"],"claim_mappings":[],"visual_spec":{"profile":"placeholder_static_v1","cards":[{"text":content["hook"]}]},"placeholder":True}
+        unit_count = 5 if output["platform"] == "instagram" else 1
+        roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
+        units = [{"role": role, "title": content["hook"], "body": content["context"], "claim_ids": []} for role in roles]
+        public = content["hook"]
+        package={"schema_version":"output_adaptation_v1","platform":output["platform"],"account":output["account"],"format":output["content_format"],"public_text":public,"caption":public,"hashtags":[],"private_tags":["fixture","placeholder"],"alt_text":content["context"],"claim_mappings":[],"visual_units":units,"visual_intent":{"schema_version":"visual_intent_v1","primary_structure":"editorial","tone":"professional","density":"medium","emphasis_targets":["takeaway"],"image_need":"none"},"delivery_ready":False,"placeholder":True}
+        if output["platform"] == "instagram": package["cta"] = None
+        else: package["post_text"] = public
         return self.store.create_package(run,package)
 
 

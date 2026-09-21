@@ -33,7 +33,8 @@ Determination → decision + five domain routes
 
 ```text
 GenerationRun → CanonicalContent + OutputRequests
-  → AdaptationRun → ContentPackage → RenderRun → ReviewRequest
+  → AdaptationRun → ContentPackage → VisualPlanRun → VisualRecipe
+  → RenderRun → ReviewRequest
   → exact human Post now → PostRequest + PostRecord → Posting Agent
 ```
 
@@ -52,8 +53,10 @@ separate linked views. Collection-attempt, source-health and Cluster Selection
 statuses have different owners. Storage measurements are advisory through job
 creation; they never admit or deny planning work.
 
-The renderer owns assets; adaptation owns platform copy and metadata; posting
-only delivers approved content. Default development destinations are synthetic
+Adaptation owns platform copy, metadata and bounded semantic visual intent. The
+shared Visual Planner selects a recipe from the version-controlled visual
+registry; the renderer owns assets and exact tokens; posting only delivers
+approved content. Default development destinations are synthetic
 and non-deliverable. Production and delivery are explicit separate modes and
 require configuration, readiness and exact per-package authorization.
 
@@ -73,7 +76,7 @@ require configuration, readiness and exact per-package authorization.
 | Polling, claims, retries and process operation | [Runtime](specs/runtime.md) |
 | Canonical generation and adaptation | [Content production](specs/content-production.md) |
 | Instagram and X payloads | [Platform outputs](specs/platform-outputs.md) |
-| Local asset rendering | [Visual rendering](specs/visual-rendering.md) |
+| Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
 | Provider facts | [Meta](platforms/meta.md), [X](platforms/x.md) |

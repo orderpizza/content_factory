@@ -44,6 +44,19 @@ _UNIT_SCHEMA = {
     },
 }
 
+_VISUAL_INTENT_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["schema_version", "primary_structure", "tone", "density", "emphasis_targets", "image_need"],
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["visual_intent_v1"]},
+        "primary_structure": {"type": "string", "enum": ["editorial", "dialogue", "comparison", "cards", "process", "scenario", "data", "quote"]},
+        "tone": {"type": "string", "enum": ["friendly", "analytical", "professional", "playful", "serious", "minimal"]},
+        "density": {"type": "string", "enum": ["low", "medium", "high"]},
+        "emphasis_targets": {"type": "array", "maxItems": 4, "items": {"type": "string", "enum": ["target_expression", "numbers", "difference", "steps", "quote", "takeaway"]}},
+        "image_need": {"type": "string", "enum": ["none", "optional", "required"]},
+    },
+}
+
 
 def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
     if (platform, content_format) not in SUPPORTED_FORMATS:
@@ -64,6 +77,7 @@ def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
     if platform == "instagram":
         properties = {
             **common,
+            "visual_intent": _VISUAL_INTENT_SCHEMA,
             "caption_summary": _string(),
             "cta": {"anyOf": [
                 {**_string(), "maxLength": 120,
@@ -78,17 +92,18 @@ def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
         }
         required = [
             "caption_summary", "cta", "private_tags", "hashtags", "alt_text",
-            "public_text_claim_ids", "visual_units",
+            "public_text_claim_ids", "visual_units", "visual_intent",
         ]
     else:
         properties = {
             **common,
+            "visual_intent": _VISUAL_INTENT_SCHEMA,
             "post_text": _string(),
             "visual_unit": _UNIT_SCHEMA,
         }
         required = [
             "post_text", "private_tags", "hashtags", "alt_text",
-            "public_text_claim_ids", "visual_unit",
+            "public_text_claim_ids", "visual_unit", "visual_intent",
         ]
     return {
         "type": "object",
@@ -322,11 +337,13 @@ def _validated_body_checkpoint(
                 raise ValueError("Instagram CTA exceeds the 12-word local bound")
         body = {"caption_summary": _bounded_text(value.get("caption_summary"),
                                                   "caption_summary", 1, 1100),
-                "cta": cta, "public_text_claim_ids": public, "visual_units": units}
+                "cta": cta, "public_text_claim_ids": public, "visual_units": units,
+                "visual_intent": _visual_intent(value.get("visual_intent"))}
     else:
         body = {"post_text": _bounded_text(value.get("post_text"), "post_text", 1, 800),
                 "public_text_claim_ids": public,
-                "visual_unit": _visual_unit(value.get("visual_unit"), allowed)}
+                "visual_unit": _visual_unit(value.get("visual_unit"), allowed),
+                "visual_intent": _visual_intent(value.get("visual_intent"))}
     mapped = set(public) | {
         claim for unit in (body["visual_units"] if platform == "instagram" else [body["visual_unit"]])
         for claim in unit["claim_ids"]
@@ -430,15 +447,7 @@ def _validate_package(
         }
         for claim_id in sorted(canonical_claim_ids)
     ]
-    visual_spec = {
-        "schema_version": "static_social_visual_v1",
-        "renderer": "html_playwright_v1",
-        "profile_id": profile_id,
-        "width": width,
-        "height": height,
-        "units": units,
-        "review_only": not production,
-    }
+    visual_intent = _visual_intent(value["visual_intent"])
     package = {
         "schema_version": ADAPTATION_SCHEMA_VERSION,
         "platform": platform,
@@ -449,7 +458,8 @@ def _validate_package(
         "hashtags": hashtags,
         "alt_text": alt_text,
         "claim_mappings": claim_mappings,
-        "visual_spec": visual_spec,
+        "visual_units": units,
+        "visual_intent": visual_intent,
         "delivery_ready": production,
     }
     if platform == "instagram":
@@ -458,6 +468,11 @@ def _validate_package(
     else:
         package["post_text"] = public_text
     return package
+
+
+def _visual_intent(value: Any) -> dict[str, Any]:
+    from .visual_registry import validate_intent
+    return validate_intent(value)
 
 
 def _bounded_text(value: Any, field: str, minimum: int, maximum: int) -> str:
@@ -568,6 +583,11 @@ visual unit claim_ids. For Instagram, return 5-8 units beginning with hook and
 ending with takeaway. For X, return one useful card and native standalone post
 text. Hashtags must be unique lowercase ASCII values beginning with #. Private
 tags are internal labels without #. Keep qualifications visible where needed.
+
+Return visual_intent as bounded semantic presentation intent only: select a
+structure, tone, density, emphasis targets and image need. Never select a
+template, theme, color, font, CSS, coordinates, HTML, SVG, JavaScript or URL.
+The later deterministic visual planner owns registered visual capabilities.
 
 The local validator also requires these limits. Each visual title is at most
 120 characters and each visual body at most 600; aim below 60 and 240 respectively

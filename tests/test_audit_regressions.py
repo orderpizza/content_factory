@@ -114,7 +114,7 @@ class AuditRegressionTests(unittest.TestCase):
         initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 7)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -180,7 +180,7 @@ class AuditRegressionTests(unittest.TestCase):
                     if name == "run_workflow.py":
                         factories = {key: MagicMock() for key in (
                             "IdeaIntakeWorker", "DeterminationWorker", "PipelineRunner",
-                            "AdaptationWorker", "VisualRenderer", "PostingAgent", "StorageMonitor",
+                            "AdaptationWorker", "VisualPlanner", "VisualRenderer", "PostingAgent", "StorageMonitor",
                         )}
                         with patch.dict(module["main"].__globals__, factories):
                             module["main"]()

@@ -41,6 +41,7 @@ from workflow import (
     PostingAgent,
     R2CleanupWorker,
     StaticVisualRenderer,
+    VisualPlanner,
     VisualRenderer,
     WorkflowStore,
 )
@@ -112,6 +113,7 @@ _RUNTIME_TYPES = {
     "GeminiPipelineRunner": ("pipeline_runner", "canonical_content"),
     "AdaptationWorker": ("adaptation", "content_package"),
     "GeminiAdaptationWorker": ("adaptation", "content_package"),
+    "VisualPlanner": ("visual_planner", "visual_recipe"),
     "VisualRenderer": ("visual_renderer", "review_request"),
     "StaticVisualRenderer": ("visual_renderer", "review_request"),
     "PostingAgent": ("posting_agent", "post_record"),
@@ -256,7 +258,7 @@ def main() -> None:
                 )
                 workers = (
                     intake_worker, determination_worker, pipeline_worker,
-                    adaptation_worker, renderer_worker,
+                    adaptation_worker, VisualPlanner(store, production=args.production), renderer_worker,
                 )
             workers = (StorageMonitor(store, args.artifacts, args.backups or ROOT / "data/backups"),) + workers
             if args.production:
