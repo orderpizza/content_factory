@@ -25,8 +25,11 @@ Implemented planning paths:
   archetype/preset and approved safe variants, then commits one immutable
   VisualRecipe before a renderer claim. The source-controlled registry supplies
   reusable families, compositions, themes, typography, components and
-  decorations as authoring primitives. Experimental archetypes are preview-only;
-  Instagram and X plan independently.
+  decorations as authoring primitives. Curated first-wave vocabulary, bold-cover,
+  comparison, phrase-sheet, question-sheet, serif, dialogue, scenario and step
+  archetypes use real per-unit layouts; experimental archetypes are preview-only.
+  `scripts/render_visual_gallery.py` renders offline development samples under
+  `data/artifacts/visual-gallery`. Instagram and X plan independently.
 - **Dashboard:** four linked views: Raw Feed Items → Clusters → Opportunities
   → ContentJobs, with separate collection-attempt, source-health and Cluster
   Selection statuses. Semantic evidence, Scout runs, worker history, queues,

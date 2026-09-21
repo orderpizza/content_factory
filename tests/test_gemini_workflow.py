@@ -577,6 +577,10 @@ class GeminiWorkflowTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual([row["content_package_id"] for row in reviews], package_ids)
             self.assertTrue(all(row["status"] == "awaiting_review" for row in reviews))
+            manifests = [json.loads(row[0]) for row in store.connection.execute(
+                "SELECT manifest_json FROM render_runs ORDER BY render_run_id"
+            )]
+            self.assertTrue(all(item.get("visual_recipe_hash") and item.get("visual_registry_fingerprint") for item in manifests))
             asset_counts = store.connection.execute(
                 "SELECT r.content_package_id,COUNT(*) count FROM render_assets a "
                 "JOIN render_runs r ON r.render_run_id=a.render_run_id "

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from hashlib import sha256
-from html import escape
 from pathlib import Path
 from typing import Any
 import base64
@@ -19,7 +18,8 @@ from playwright.sync_api import sync_playwright
 
 from .store import WorkflowStore
 from .workers import local_operation
-from .visual_registry import ARCHETYPES, COMPOSITIONS, THEMES, TYPOGRAPHY, validate_recipe
+from .visual_registry import THEMES, TYPOGRAPHY, validate_recipe, validate_unit_layouts
+from .visual_primitives import PRIMITIVE_CSS, footer, render_layout
 
 
 PROFILES = {
@@ -70,6 +70,7 @@ class StaticVisualRenderer:
         package = json.loads(package_row["package_json"])
         spec = _render_spec(package, production=self.production)
         recipe = validate_recipe(json.loads(package_row["recipe_json"]), production=self.production)
+        validate_unit_layouts(recipe, [unit["role"] for unit in spec["units"]])
         font = self._production_font() if self.production else None
 
         self.artifact_root.mkdir(parents=True, exist_ok=True)
@@ -149,6 +150,7 @@ class StaticVisualRenderer:
                 "profile_id": spec["profile_id"],
                 "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
                 "visual_registry_release": recipe["registry_release"],
+                "visual_registry_fingerprint": recipe["registry_fingerprint"],
                 "content_hash": package_row["content_hash"],
                 "browser_version": browser_version,
                 "pillow_version": PIL.__version__,
@@ -234,45 +236,25 @@ def _unit_html(
     *,
     font: dict[str, str] | None = None,
 ) -> str:
-    compact = spec["height"] < 1000
-    title_size = (58 if compact else 74) * TYPOGRAPHY[recipe["typography_id"]]["title_scale"]
-    body_size = 31 if compact else 40
-    padding = {"low": 88 if not compact else 68, "medium": 78 if not compact else 58, "high": 60 if not compact else 46}[recipe["density"]]
-    role = escape(unit["role"].replace("_", " ").upper())
-    title = escape(unit["title"])
-    body = escape(unit["body"]).replace("\n", "<br>")
     font_face = "" if font is None else (
         "@font-face { font-family: 'ContentFactoryPinned'; src: url('"
         + font["data_url"] + "'); font-weight: 100 900; font-style: normal; }"
     )
     family = TYPOGRAPHY[recipe["typography_id"]]["family"] if font is None else "'ContentFactoryPinned', sans-serif"
     theme = THEMES[recipe["theme_id"]]
-    composition = recipe["composition_id"]
-    archetype = ARCHETYPES[recipe["archetype_id"]]
-    archetype_class = "archetype-" + recipe["archetype_id"]
-    layout = "center" if composition in {"quote_centered_focus_v1", "editorial_centered_statement_v1"} else "flex-start"
-    surface = "border: 3px solid " + theme["accent"] + ";" if "comparison" in composition else ""
-    decoration = "radial-gradient(" + theme["accent"] + " 1px, transparent 1px) 0 0/18px 18px" if "subtle_dots_v1" in recipe["decorations"] else "none"
+    layout_variant = recipe["unit_layouts"][ordinal - 1]["variant"]
+    decorations = recipe["decorations"]
+    decoration = ("radial-gradient(" + theme["accent"] + " 1px, transparent 1px) 0 0/18px 18px"
+                  if "subtle_dots_v1" in decorations else
+                  "linear-gradient(135deg, transparent 0 72%, " + theme["accent"] + "22 72% 73%, transparent 73%)"
+                  if "soft_wave_v1" in decorations else "none")
+    content = render_layout(unit, layout_variant)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
 {font_face}
-* {{ box-sizing: border-box; }}
-html, body {{ margin: 0; width: {spec['width']}px; height: {spec['height']}px; overflow: hidden; }}
-body {{ background: {theme['background']}; color: {theme['text']}; font-family: {family}; background-image: {decoration}; }}
-.{archetype_class} {{ --archetype-default-density: {archetype['default_density']}; }}
-.card {{ width: 100%; height: 100%; padding: {padding}px; display: grid;
-  grid-template-rows: auto 1fr auto; gap: {34 if compact else 54}px; {surface} }}
-.header, .footer {{ display: flex; justify-content: space-between; align-items: center;
-  font-size: {21 if compact else 27}px; font-weight: 800; letter-spacing: .08em; }}
-.role {{ color: {theme['accent']}; }}
-.content {{ min-height: 0; display: flex; flex-direction: column; justify-content: {layout}; overflow: hidden; }}
-h1 {{ margin: 0 0 {28 if compact else 42}px; font-size: {title_size}px; line-height: 1.03; letter-spacing: {TYPOGRAPHY[recipe['typography_id']]['tracking']}; }}
-.body-copy {{ min-height: 0; overflow: hidden; font-size: {body_size}px; line-height: 1.28; font-weight: 540; white-space: normal; }}
-.rule {{ width: {90 if compact else 120}px; height: 9px; border-radius: 8px; background: {theme['accent']}; }}
-</style></head><body><main class="card {archetype_class}"><header class="header"><span class="role">{role}</span>
-<span>{ordinal}/{total}</span></header><section class="content" data-bound><h1>{title}</h1>
-<div class="body-copy">{body}</div></section><footer class="footer"><span>CONTENT FACTORY</span>
-<span class="rule"></span></footer></main></body></html>"""
+{PRIMITIVE_CSS}
+:root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; }}
+</style></head><body><div class="frame">{content}{footer(ordinal, total)}</div></body></html>"""
 
 
 def _asset(path: Path, role: str, ordinal: int, width: int, height: int) -> dict[str, Any]:

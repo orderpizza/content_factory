@@ -16,7 +16,7 @@ publisher. Planning-only mode composes neither visual planning nor rendering.
 ## Visual planning and recipes
 
 `visual_intent_v1` is adaptation-owned and contains only primary structure,
-tone, density, emphasis targets and image need. `visual_recipe_v2` is planner-
+tone, density, emphasis targets and image need. `visual_recipe_v3` is planner-
 owned and records the selected `archetype_id`, optional exact `preset_id`, and
 the fully resolved family, composition, theme, typography, density, semantic
 component variants, decorations, image treatment and per-unit layout variants.
@@ -34,14 +34,16 @@ known-good resolution of an archetype. The VisualRecipe is the immutable result
 of choosing one of those systems for one ContentPackage.
 
 The registry implements eight reusable families—editorial, dialogue, comparison,
-cards, process, scenario, data and quote—with 18 HTML/Playwright compositions,
-seven themes, four typography systems, semantic component variants, four
-decorations and image-treatment extension points. It currently exposes the small
-archetype set `editorial_clean_v1`, `dialogue_modern_v1`,
-`comparison_clean_v1`, `cards_modular_v1`, `process_steps_v1`,
-`scenario_soft_v1`, `data_number_v1` and `quote_focus_v1`. Granular primitives
-remain authoring/building blocks; production planning does not treat them as a
-Cartesian product or a domain-owned template directory.
+cards, process, scenario, data and quote—alongside four intentional typography
+systems, original solid/gradient/geometric backgrounds and semantic components.
+The first reference-inspired shared visual library is
+`vocab_card_minimal_v1`, `editorial_bold_cover_v1`,
+`comparison_cover_bold_v1`, `phrase_sheet_v1`,
+`question_pattern_sheet_v1`, `vocab_serif_elegant_v1`,
+`dialogue_modern_v1`, `scenario_explainer_v1` and `process_steps_v1`.
+English is the pilot affinity, not an owner: every archetype remains selectable
+by compatible non-English domains. Granular primitives remain authoring/building
+blocks; production planning does not treat them as a Cartesian product.
 
 The deterministic planner first filters compatible archetypes by platform, unit
 count, density, image need, brand and lifecycle policy. It scores semantic fit,
@@ -54,11 +56,16 @@ no random selection is used.
 Production admits a complete resolved recipe only when its archetype,
 composition, theme, typography, selected component variants, decorations and
 image treatment are all curated. `experimental_dynamic` is preview/authoring
-only. The dialogue, cards, process, scenario and data archetypes are presently
-tested rather than production-curated because the initial renderer does not yet
-visibly implement all of their declared grammar. Deprecated definitions are
-excluded from new selection while immutable historical recipes remain
-inspectable.
+only. The first-wave archetypes above are curated: each has a distinct renderer
+layout and representative gallery fixture. `category_badge_minimal_v1` is an
+experimental preview-only scaffold. Image-led cards remain deferred because the
+renderer has no licensed/local image-asset strategy. Deprecated definitions are
+excluded from new selection while immutable historical recipes remain inspectable.
+
+Unit layouts are recipe-owned and role-aware. The planner maps each frozen
+`hook`, `explanation`, `example` or `takeaway` unit to an archetype-registered
+variant. The renderer checks that mapping before rendering; adaptation cannot
+select a layout, CSS or HTML.
 
 Domain policy is preference only: English may rank dialogue highly, while finance
 may rank comparison/data highly; neither owns a family. Platform policy is
@@ -82,8 +89,9 @@ compatibility or production lifecycle gates.
 
 The initial dispatcher supports the registered `html_playwright_v1` engine.
 It resolves recipe IDs to deterministic design tokens and applies reusable
-composition primitives; the renderer does not accept low-level adaptation
-instructions. Future SVG/chart engines can register an engine without changing
+title, eyebrow, definition-card, highlight-strip, phrase-group, speech-bubble,
+comparison-column, scenario-panel, step and footer primitives; the renderer does
+not accept low-level adaptation instructions. Future SVG/chart engines can register an engine without changing
 the ContentPackage → VisualPlanRun → VisualRecipe → RenderRun boundary.
 
 Review mode uses local system fonts and is not delivery-ready. Production mode loads the approved
@@ -125,11 +133,10 @@ Frozen package and recipe input, registry fingerprint, and recorded
 runtime/font/template fingerprints make the
 render auditable. Byte-for-byte reproduction across different browser or font
 versions is not assumed. Human quality review remains required for typography,
-claims, contrast and editorial usefulness. The renderer currently resolves shared
-tokens and only a limited set of visibly distinct composition treatments; registry
-variety must not be read as proof that every declared archetype is visually
-distinct. Offline tests cover both platform geometries, malformed specs, overflow
-and immutable package preservation.
+claims, contrast and editorial usefulness. The first-wave layouts are text-led;
+image, licensed-asset, chart and SVG rendering remain deferred. Offline tests
+cover both platform geometries, malformed specs, overflow and immutable package
+preservation.
 
 See [platform outputs](platform-outputs.md), [content production](content-production.md)
 and [reliability](reliability.md). Visual admin tooling, LLM candidate selection,
@@ -146,3 +153,13 @@ review, mark it tested, and mark it curated only after acceptance. Contributors
 should decide whether a reference is a new archetype or a variation of one, and
 whether it truly needs a new composition, component, theme, typography treatment
 or decoration. A reference is not automatically a new renderer/template.
+
+## Offline gallery
+
+`scripts/render_visual_gallery.py` renders original representative fixture copy
+through the renderer HTML path without a database, Gemini, credentials or network
+access. Its default ignored output root is `data/artifacts/visual-gallery`; each
+archetype directory includes named HTML and PNG units. Gallery output is design
+verification only, never review or production persistence. Human visual
+inspection of this gallery is required before carrying the pilot language to
+other domains.

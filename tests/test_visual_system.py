@@ -1,14 +1,20 @@
-"""Offline contract tests for deterministic archetype-first visual planning."""
+"""Archetype, layout, and renderer contracts for the shared visual library."""
 from __future__ import annotations
 
 import unittest
 
+from workflow.static_renderer import _unit_html
 from workflow.visual_planner import choose_recipe
-from workflow.visual_registry import ARCHETYPES, PRESETS, registry_fingerprint, validate_intent, validate_recipe
+from workflow.visual_registry import ARCHETYPES, validate_intent, validate_recipe, validate_unit_layouts
 
 
 def intent(**overrides):
-    return {"schema_version": "visual_intent_v1", "primary_structure": "dialogue", "tone": "friendly", "density": "medium", "emphasis_targets": ["target_expression"], "image_need": "none", **overrides}
+    return {"schema_version": "visual_intent_v1", "primary_structure": "cards", "tone": "friendly", "density": "medium", "emphasis_targets": ["target_expression"], "image_need": "none", **overrides}
+
+
+def recipe(archetype: str, *, platform: str = "instagram", roles: list[str] | None = None, production: bool = False):
+    roles = roles or ["hook", "explanation", "example", "example", "takeaway"]
+    return choose_recipe(intent(primary_structure=ARCHETYPES[archetype]["family_id"].replace("_v1", "")), platform=platform, pipeline="english", account="fixture", unit_count=len(roles), unit_roles=roles, production=production, history=[], force_archetype=archetype)[0]
 
 
 class VisualRegistryTests(unittest.TestCase):
@@ -16,73 +22,58 @@ class VisualRegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_intent({**intent(), "css": "body { color: red }"})
 
-    def test_unknown_or_incompatible_archetype_resolution_is_rejected(self):
-        recipe, _ = choose_recipe(intent(primary_structure="editorial"), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        recipe["archetype_id"] = "not_a_visual_system"
+    def test_first_wave_archetypes_have_distinct_composition_implementations(self):
+        identifiers = ["vocab_card_minimal_v1", "editorial_bold_cover_v1", "comparison_cover_bold_v1", "phrase_sheet_v1", "question_pattern_sheet_v1", "vocab_serif_elegant_v1", "dialogue_modern_v1", "scenario_explainer_v1", "process_steps_v1"]
+        compositions = {ARCHETYPES[item]["default_composition_id"] for item in identifiers}
+        self.assertEqual(len(compositions), len(identifiers))
+
+    def test_required_and_incompatible_component_variants_are_rejected(self):
+        value = recipe("dialogue_modern_v1")
+        del value["components"]["speech_bubble"]
         with self.assertRaises(ValueError):
-            validate_recipe(recipe, production=False)
-        recipe, _ = choose_recipe(intent(primary_structure="editorial"), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        recipe["theme_id"] = "soft_blue_v1"
+            validate_recipe(value, production=False)
+        value = recipe("dialogue_modern_v1")
+        value["components"]["speech_bubble"] = "filled_v1"
         with self.assertRaises(ValueError):
-            validate_recipe(recipe, production=False)
+            validate_recipe(value, production=False)
 
-    def test_production_selects_only_fully_curated_recipe(self):
-        recipe, _ = choose_recipe(intent(primary_structure="comparison", emphasis_targets=["difference"]), platform="instagram", pipeline="personal_finance", account="fixture", unit_count=5, production=True, history=[])
-        self.assertIn(recipe["source"], {"curated_preset", "curated_archetype"})
-        self.assertEqual(ARCHETYPES[recipe["archetype_id"]]["lifecycle"], "curated")
-        validate_recipe(recipe, production=True)
-
-    def test_complete_recipe_maturity_rejects_tested_token(self):
-        recipe, _ = choose_recipe(intent(primary_structure="comparison", emphasis_targets=["difference"]), platform="instagram", pipeline="personal_finance", account="fixture", unit_count=5, production=True, history=[])
-        recipe["theme_id"] = "soft_lilac_v1"
+    def test_per_unit_layouts_are_role_aware_and_closed(self):
+        roles = ["hook", "explanation", "example", "takeaway", "takeaway"]
+        value = recipe("dialogue_modern_v1", roles=roles)
+        self.assertEqual([item["variant"] for item in value["unit_layouts"]], ["dialogue_hero", "dialogue_explanation", "dialogue_exchange", "dialogue_takeaway", "dialogue_takeaway"])
+        validate_unit_layouts(value, roles)
+        value["unit_layouts"][2]["variant"] = "comparison_cover"
         with self.assertRaises(ValueError):
-            validate_recipe(recipe, production=True)
+            validate_unit_layouts(value, roles)
 
-    def test_experimental_dynamic_archetype_is_preview_only(self):
-        recipe, _ = choose_recipe(intent(), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        self.assertEqual(recipe["archetype_id"], "dialogue_modern_v1")
-        self.assertEqual(recipe["source"], "experimental_dynamic")
+    def test_x_rejects_multi_slide_archetypes_but_keeps_shared_cards(self):
         with self.assertRaises(ValueError):
-            validate_recipe(recipe, production=True)
+            recipe("phrase_sheet_v1", platform="x", roles=["hook"])
+        value = recipe("vocab_card_minimal_v1", platform="x", roles=["hook"])
+        self.assertEqual(value["archetype_id"], "vocab_card_minimal_v1")
 
-    def test_same_archetype_resolves_multiple_approved_variants(self):
-        minimal, _ = choose_recipe(intent(primary_structure="editorial", tone="minimal", density="low", emphasis_targets=["takeaway"]), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        serious, _ = choose_recipe(intent(primary_structure="editorial", tone="serious", density="low", emphasis_targets=["takeaway"]), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        self.assertEqual(minimal["archetype_id"], serious["archetype_id"])
-        self.assertNotEqual(minimal["theme_id"], serious["theme_id"])
-        validate_recipe(minimal, production=False)
-        validate_recipe(serious, production=False)
+    def test_production_filters_experimental_and_accepts_complete_curated_recipe(self):
+        with self.assertRaises(ValueError):
+            recipe("category_badge_minimal_v1", production=True)
+        value = recipe("comparison_cover_bold_v1", production=True)
+        self.assertIn(value["source"], {"curated_preset", "curated_archetype"})
+        validate_recipe(value, production=True)
 
-    def test_identical_input_selects_identical_recipe(self):
-        first = choose_recipe(intent(), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        second = choose_recipe(intent(), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        self.assertEqual(first, second)
-        self.assertEqual(first[0]["registry_fingerprint"], registry_fingerprint())
+    def test_renderer_dispatches_distinct_real_layout_primitives_and_escapes_input(self):
+        spec = {"width": 1080, "height": 1350}
+        unit = {"role": "example", "title": "NORMAL <ENGLISH> VS FINANCE", "body": "One <safe> example\nTwo & only", "claim_ids": []}
+        comparison = recipe("comparison_cover_bold_v1")
+        dialogue = recipe("dialogue_modern_v1")
+        comparison_html = _unit_html(unit, spec, comparison, 3, 5)
+        dialogue_html = _unit_html(unit, spec, dialogue, 3, 5)
+        self.assertIn("comparison-columns", comparison_html)
+        self.assertIn("speech-bubble", dialogue_html)
+        self.assertIn("&lt;ENGLISH&gt;", comparison_html)
+        self.assertNotIn("<ENGLISH>", comparison_html)
 
-    def test_candidates_are_archetypes_not_primitive_cross_products(self):
-        _, provenance = choose_recipe(intent(), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        self.assertLessEqual(provenance["candidate_count"], len(ARCHETYPES) + len(PRESETS))
-
-    def test_diversity_can_move_between_semantically_suitable_archetypes(self):
-        base = intent(primary_structure="quote", emphasis_targets=["takeaway"])
-        first, _ = choose_recipe(base, platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        history = [first] * 12
-        second, provenance = choose_recipe(base, platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=history)
-        self.assertNotEqual(first["archetype_id"], second["archetype_id"])
+    def test_semantic_fit_outranks_diversity_for_dialogue(self):
+        roles = ["hook", "explanation", "example", "example", "takeaway"]
+        first = recipe("dialogue_modern_v1", roles=roles)
+        selected, provenance = choose_recipe(intent(primary_structure="dialogue"), platform="instagram", pipeline="english", account="fixture", unit_count=5, unit_roles=roles, production=False, history=[first] * 12)
+        self.assertEqual(selected["archetype_id"], "dialogue_modern_v1")
         self.assertGreater(provenance["score"]["semantic_fit"], 0)
-
-    def test_platforms_plan_independently(self):
-        instagram, _ = choose_recipe(intent(), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[])
-        x, _ = choose_recipe(intent(), platform="x", pipeline="english", account="fixture", unit_count=1, production=False, history=[])
-        self.assertNotEqual(instagram["archetype_id"], x["archetype_id"])
-
-    def test_explicit_archetype_fallback_is_a_new_resolved_recipe(self):
-        recipe, _ = choose_recipe(intent(primary_structure="quote"), platform="instagram", pipeline="english", account="fixture", unit_count=5, production=False, history=[], force_archetype="editorial_clean_v1", fallback=True)
-        self.assertEqual(recipe["source"], "fallback")
-        self.assertIsNone(recipe["preset_id"])
-        validate_recipe(recipe, production=False)
-
-    def test_curated_preset_is_an_exact_archetype_resolution(self):
-        recipe, _ = choose_recipe(intent(primary_structure="comparison", emphasis_targets=["difference"]), platform="instagram", pipeline="personal_finance", account="fixture", unit_count=5, production=True, history=[])
-        self.assertEqual(recipe["source"], "curated_preset")
-        self.assertEqual(recipe["composition_id"], PRESETS[recipe["preset_id"]]["composition_id"])

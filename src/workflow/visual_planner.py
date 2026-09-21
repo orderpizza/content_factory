@@ -44,7 +44,7 @@ class VisualPlanner:
             forced = ARCHETYPES.get(prior_recipe.get("archetype_id"), {}).get("fallback_archetype_id")
             if not forced:
                 raise ValueError("registered recipe has no fallback archetype")
-        recipe, provenance = choose_recipe(intent, platform=row["platform"], pipeline=row["pipeline_id"], account=row["account"], unit_count=len(units), production=self.production, history=self._history(row["platform"], row["account"]), force_archetype=forced, fallback=bool(forced))
+        recipe, provenance = choose_recipe(intent, platform=row["platform"], pipeline=row["pipeline_id"], account=row["account"], unit_count=len(units), unit_roles=[unit["role"] for unit in units], production=self.production, history=self._history(row["platform"], row["account"]), force_archetype=forced, fallback=bool(forced))
         return self.store.create_visual_recipe(run, recipe, provenance)
 
     def _history(self, platform: str, account: str) -> list[dict[str, Any]]:
@@ -105,7 +105,7 @@ def _brand_compatible(selected: Mapping[str, Any], brand_policy: Mapping[str, An
             and selected["components"].get("footer", brand_policy["footer"]) == brand_policy["footer"])
 
 
-def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, account: str, unit_count: int, production: bool, history: list[dict[str, Any]], force_archetype: str | None = None, fallback: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, account: str, unit_count: int, production: bool, history: list[dict[str, Any]], unit_roles: list[str] | None = None, force_archetype: str | None = None, fallback: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
     """Select an archetype/preset first, then a deterministic safe resolution."""
     policy = PLATFORM_POLICY.get(platform)
     brand_policy_id, brand_policy = brand_policy_for_account(account)
@@ -148,9 +148,15 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
     preset_id = selected.pop("preset_id", None)
     if fallback:
         source, preset_id = "fallback", None
-    recipe = {"schema_version": "visual_recipe_v2", "registry_release": REGISTRY_RELEASE,
+    if unit_roles is None:
+        unit_roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
+    if len(unit_roles) != unit_count:
+        raise ValueError("visual unit roles do not match package shape")
+    archetype = ARCHETYPES[selected["archetype_id"]]
+    unit_layouts = [{"ordinal": ordinal, "variant": archetype["unit_layout_variants"][role][0]} for ordinal, role in enumerate(unit_roles, start=1)]
+    recipe = {"schema_version": "visual_recipe_v3", "registry_release": REGISTRY_RELEASE,
               "registry_fingerprint": registry_fingerprint(), "source": source, "archetype_id": selected["archetype_id"], "preset_id": preset_id,
               **{key: selected[key] for key in ("family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")},
-              "unit_layouts": [{"ordinal": ordinal, "variant": "default_v1"} for ordinal in range(1, unit_count + 1)]}
+              "unit_layouts": unit_layouts}
     provenance = {"strategy": "deterministic_archetype_scoring_v2", "candidate_count": len(candidates), "selected_candidate_id": candidate_id, "selected_archetype_id": recipe["archetype_id"], "selected_preset_id": preset_id, "score": {**parts, "total": score}, "platform": platform, "account": account, "brand_policy_id": brand_policy_id}
     return recipe, provenance

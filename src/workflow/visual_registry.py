@@ -1,10 +1,4 @@
-"""Version-controlled visual primitives, curated archetypes, and recipe validation.
-
-Low-level primitives are authoring building blocks. Runtime production planning
-selects a coherent archetype (or one of its exact presets), then resolves only
-the variants that that archetype explicitly permits.
-"""
-
+"""Source-controlled visual primitives, coherent archetypes, and closed recipes."""
 from __future__ import annotations
 
 from hashlib import sha256
@@ -12,93 +6,111 @@ from typing import Any, Mapping
 import json
 
 
-REGISTRY_RELEASE = "visual_registry_release_v2"
+REGISTRY_RELEASE = "visual_registry_release_v3"
 ENGINES = {"html_playwright_v1"}
 LIFECYCLES = {"experimental", "tested", "curated", "deprecated"}
 INTENT_STRUCTURES = {"editorial", "dialogue", "comparison", "cards", "process", "scenario", "data", "quote"}
 INTENT_TONES = {"friendly", "analytical", "professional", "playful", "serious", "minimal"}
 INTENT_DENSITIES = {"low", "medium", "high"}
 EMPHASIS_TARGETS = {"target_expression", "numbers", "difference", "steps", "quote", "takeaway"}
+UNIT_ROLES = {"hook", "explanation", "example", "takeaway"}
 
 THEMES = {
-    "minimal_white_v1": {"lifecycle": "curated", "background": "#ffffff", "surface": "#f5f6f7", "text": "#17212b", "muted": "#53616d", "accent": "#487da6"},
-    "warm_cream_v1": {"lifecycle": "curated", "background": "#f5f1e8", "surface": "#fffdf8", "text": "#1f2933", "muted": "#5e6871", "accent": "#c85a3f"},
-    "soft_blue_v1": {"lifecycle": "curated", "background": "#eef5fa", "surface": "#ffffff", "text": "#17212b", "muted": "#53616d", "accent": "#487da6"},
-    "soft_green_v1": {"lifecycle": "tested", "background": "#edf6ef", "surface": "#ffffff", "text": "#18352a", "muted": "#50665b", "accent": "#3e8b63"},
-    "soft_lilac_v1": {"lifecycle": "tested", "background": "#f3effa", "surface": "#ffffff", "text": "#29223a", "muted": "#625b73", "accent": "#7256a8"},
-    "dark_neutral_v1": {"lifecycle": "curated", "background": "#1e2429", "surface": "#2c353c", "text": "#f5f7f8", "muted": "#c1c8cd", "accent": "#8bc4ed"},
-    "paper_v1": {"lifecycle": "tested", "background": "#f4eedf", "surface": "#fffaf0", "text": "#29251e", "muted": "#665f53", "accent": "#8a6534"},
+    "minimal_white_v1": {"lifecycle": "curated", "background": "#f8f9fb", "surface": "#ffffff", "text": "#18212b", "muted": "#62707b", "accent": "#3f7fae"},
+    "warm_cream_v1": {"lifecycle": "curated", "background": "#f3eee3", "surface": "#fffdf8", "text": "#222a33", "muted": "#64635d", "accent": "#c65b41"},
+    "soft_blue_v1": {"lifecycle": "curated", "background": "#dfeefa", "surface": "#fafdff", "text": "#142d43", "muted": "#547086", "accent": "#1976b9"},
+    "soft_green_v1": {"lifecycle": "curated", "background": "#e7f2eb", "surface": "#fbfffc", "text": "#18372a", "muted": "#587065", "accent": "#34835d"},
+    "soft_lilac_v1": {"lifecycle": "curated", "background": "#eee8f7", "surface": "#fcfaff", "text": "#2b243b", "muted": "#675e75", "accent": "#7655ad"},
+    "dark_neutral_v1": {"lifecycle": "curated", "background": "#172028", "surface": "#27343d", "text": "#f7f8f5", "muted": "#c4cbd0", "accent": "#8fc7ed"},
+    "paper_v1": {"lifecycle": "curated", "background": "#eee8dc", "surface": "#faf6ee", "text": "#302b24", "muted": "#6c6252", "accent": "#8e6840"},
 }
-
 TYPOGRAPHY = {
     "friendly_sans_v1": {"lifecycle": "curated", "family": "Arial, Helvetica, sans-serif", "title_scale": 1.0, "tracking": "-.035em"},
-    "editorial_serif_v1": {"lifecycle": "tested", "family": "Georgia, serif", "title_scale": .94, "tracking": "-.025em"},
-    "bold_display_v1": {"lifecycle": "curated", "family": "Arial Black, Arial, sans-serif", "title_scale": 1.05, "tracking": "-.05em"},
-    "compact_sans_v1": {"lifecycle": "curated", "family": "Arial, Helvetica, sans-serif", "title_scale": .90, "tracking": "-.02em"},
+    "editorial_serif_v1": {"lifecycle": "curated", "family": "Georgia, Times, serif", "title_scale": .96, "tracking": "-.03em"},
+    "bold_display_v1": {"lifecycle": "curated", "family": "Arial Black, Arial, sans-serif", "title_scale": 1.07, "tracking": "-.065em"},
+    "compact_sans_v1": {"lifecycle": "curated", "family": "Arial, Helvetica, sans-serif", "title_scale": .9, "tracking": "-.025em"},
 }
-
 FAMILIES = {
-    "editorial_v1": {"features": {"takeaway", "quote"}, "fallback": "editorial_title_body_v1"},
-    "dialogue_v1": {"features": {"dialogue", "target_expression", "quote"}, "fallback": "dialogue_stacked_transcript_v1"},
-    "comparison_v1": {"features": {"comparison", "difference", "numbers"}, "fallback": "comparison_stacked_contrast_v1"},
-    "cards_v1": {"features": {"cards", "takeaway"}, "fallback": "cards_feature_stack_v1"},
-    "process_v1": {"features": {"process", "steps"}, "fallback": "process_vertical_steps_v1"},
-    "scenario_v1": {"features": {"scenario", "quote"}, "fallback": "scenario_response_v1"},
-    "data_v1": {"features": {"data", "numbers", "difference"}, "fallback": "data_number_context_v1"},
-    "quote_v1": {"features": {"quote", "takeaway"}, "fallback": "quote_centered_focus_v1"},
+    "editorial_v1": {"features": {"editorial", "takeaway", "quote"}}, "dialogue_v1": {"features": {"dialogue", "target_expression", "quote"}},
+    "comparison_v1": {"features": {"comparison", "difference", "numbers"}}, "cards_v1": {"features": {"cards", "takeaway", "target_expression"}},
+    "process_v1": {"features": {"process", "steps"}}, "scenario_v1": {"features": {"scenario", "quote"}},
+    "data_v1": {"features": {"data", "numbers", "difference"}}, "quote_v1": {"features": {"quote", "takeaway"}},
 }
 
 
-def _composition(family: str, *, features: set[str], densities: set[str] = {"low", "medium", "high"}, lifecycle: str = "tested", platforms: set[str] = {"instagram", "x"}, fallback: str | None = None) -> dict[str, Any]:
-    family_components = {"dialogue_v1": {"speech_bubble", "speaker_label"}, "comparison_v1": {"callout"}, "process_v1": {"step_marker"}, "data_v1": {"number_marker"}}
-    return {"family_id": family, "engine": "html_playwright_v1", "features": features, "densities": densities, "lifecycle": lifecycle, "platforms": platforms, "fallback": fallback, "components": {"section_label", "footer", "highlight"} | family_components.get(family, set())}
+def _composition(family: str, features: set[str], *, platforms: set[str] = {"instagram", "x"}, densities: set[str] = {"low", "medium", "high"}) -> dict[str, Any]:
+    components = {"section_label", "footer", "highlight", "divider"}
+    components |= {"definition_card", "pronunciation_row", "progress_cue", "phrase_group", "question_list"} if family == "cards_v1" else set()
+    components |= {"definition_card"} if family == "editorial_v1" else set()
+    components |= {"speech_bubble", "speaker_label"} if family == "dialogue_v1" else set()
+    components |= {"comparison_column", "callout"} if family == "comparison_v1" else set()
+    components |= {"step_marker"} if family == "process_v1" else set()
+    components |= {"scenario_panel"} if family == "scenario_v1" else set()
+    return {"family_id": family, "engine": "html_playwright_v1", "features": features, "platforms": platforms, "densities": densities, "lifecycle": "curated", "components": components}
 
 
 COMPOSITIONS = {
-    "editorial_title_body_v1": _composition("editorial_v1", features={"takeaway", "quote"}, lifecycle="curated"), "editorial_centered_statement_v1": _composition("editorial_v1", features={"takeaway"}, lifecycle="curated"), "editorial_asymmetric_v1": _composition("editorial_v1", features={"quote"}),
-    "dialogue_alternating_bubbles_v1": _composition("dialogue_v1", features={"dialogue", "target_expression"}, densities={"low", "medium"}, lifecycle="curated"), "dialogue_stacked_transcript_v1": _composition("dialogue_v1", features={"dialogue", "quote"}, lifecycle="curated"), "dialogue_split_speakers_v1": _composition("dialogue_v1", features={"dialogue"}, densities={"low", "medium"}),
-    "comparison_two_column_v1": _composition("comparison_v1", features={"comparison", "difference"}, lifecycle="curated"), "comparison_stacked_contrast_v1": _composition("comparison_v1", features={"comparison", "difference"}, lifecycle="curated"), "comparison_before_after_v1": _composition("comparison_v1", features={"comparison"}, densities={"low", "medium"}),
-    "cards_feature_stack_v1": _composition("cards_v1", features={"cards", "takeaway"}, lifecycle="curated"), "cards_grid_v1": _composition("cards_v1", features={"cards"}, densities={"low", "medium"}),
-    "process_vertical_steps_v1": _composition("process_v1", features={"process", "steps"}, lifecycle="curated"), "process_numbered_sequence_v1": _composition("process_v1", features={"process", "steps"}),
-    "scenario_response_v1": _composition("scenario_v1", features={"scenario", "quote"}, lifecycle="curated"), "scenario_problem_reaction_v1": _composition("scenario_v1", features={"scenario"}),
-    "data_number_context_v1": _composition("data_v1", features={"data", "numbers"}, lifecycle="curated"), "data_metric_cards_v1": _composition("data_v1", features={"data", "numbers", "difference"}), "quote_centered_focus_v1": _composition("quote_v1", features={"quote", "takeaway"}, lifecycle="curated"),
+    "vocab_card_layout_v1": _composition("cards_v1", {"cards", "target_expression"}),
+    "editorial_bold_cover_layout_v1": _composition("editorial_v1", {"editorial", "takeaway"}),
+    "comparison_cover_layout_v1": _composition("comparison_v1", {"comparison", "difference"}),
+    "phrase_sheet_layout_v1": _composition("cards_v1", {"cards", "takeaway"}, platforms={"instagram"}),
+    "question_pattern_layout_v1": _composition("cards_v1", {"cards", "target_expression"}, platforms={"instagram"}),
+    "vocab_serif_layout_v1": _composition("editorial_v1", {"editorial", "quote"}),
+    "dialogue_alternating_bubbles_v1": _composition("dialogue_v1", {"dialogue", "target_expression"}, platforms={"instagram"}, densities={"low", "medium"}),
+    "dialogue_stacked_transcript_v1": _composition("dialogue_v1", {"dialogue", "quote"}, platforms={"instagram"}),
+    "scenario_explainer_layout_v1": _composition("scenario_v1", {"scenario", "quote"}, platforms={"instagram"}),
+    "process_steps_layout_v1": _composition("process_v1", {"process", "steps"}, platforms={"instagram"}),
+    "editorial_title_body_v1": _composition("editorial_v1", {"editorial", "takeaway", "quote"}),
+    "quote_centered_focus_v1": _composition("quote_v1", {"quote", "takeaway"}),
 }
 
-COMPONENTS = {"speech_bubble": {"rounded_v1", "border_only_v1", "filled_v1"}, "speaker_label": {"initials_v1", "filled_v1"}, "highlight": {"marker_v1", "underline_v1", "pill_v1", "accent_text_v1"}, "callout": {"filled_v1", "outlined_v1", "subtle_surface_v1"}, "step_marker": {"numbered_v1", "minimal_v1"}, "number_marker": {"large_v1", "pill_v1"}, "section_label": {"compact_v1"}, "footer": {"compact_brand_v1"}}
-COMPONENT_LIFECYCLES = {"speech_bubble": {"rounded_v1": "tested", "border_only_v1": "tested", "filled_v1": "tested"}, "speaker_label": {"initials_v1": "tested", "filled_v1": "tested"}, "highlight": {"marker_v1": "curated", "underline_v1": "curated", "pill_v1": "tested", "accent_text_v1": "curated"}, "callout": {"filled_v1": "curated", "outlined_v1": "curated", "subtle_surface_v1": "tested"}, "step_marker": {"numbered_v1": "tested", "minimal_v1": "tested"}, "number_marker": {"large_v1": "tested", "pill_v1": "tested"}, "section_label": {"compact_v1": "curated"}, "footer": {"compact_brand_v1": "curated"}}
-DECORATIONS = {"subtle_dots_v1", "subtle_grid_v1", "corner_accent_v1", "none_v1"}
-DECORATION_LIFECYCLES = {"subtle_dots_v1": "curated", "subtle_grid_v1": "tested", "corner_accent_v1": "tested", "none_v1": "curated"}
+COMPONENTS = {
+    "definition_card": {"rounded_v1"}, "pronunciation_row": {"compact_v1"}, "progress_cue": {"dots_v1"},
+    "phrase_group": {"ruled_v1"}, "question_list": {"keyword_v1"}, "speech_bubble": {"rounded_v1", "border_only_v1"},
+    "speaker_label": {"initials_v1", "filled_v1"}, "comparison_column": {"split_v1"}, "callout": {"outlined_v1"},
+    "step_marker": {"numbered_v1", "minimal_v1"}, "scenario_panel": {"stacked_v1"}, "highlight": {"marker_v1", "underline_v1", "accent_text_v1"},
+    "section_label": {"compact_v1"}, "divider": {"thin_v1"}, "footer": {"compact_brand_v1"},
+}
+COMPONENT_LIFECYCLES = {name: {variant: "curated" for variant in variants} for name, variants in COMPONENTS.items()}
+DECORATIONS = {"subtle_dots_v1", "subtle_grid_v1", "corner_accent_v1", "none_v1", "paper_grain_v1", "soft_wave_v1"}
+DECORATION_LIFECYCLES = {item: "curated" for item in DECORATIONS}
 IMAGE_TREATMENTS = {"none_v1", "framed_image_v1", "split_image_text_v1"}
 IMAGE_TREATMENT_LIFECYCLES = {"none_v1": "curated", "framed_image_v1": "experimental", "split_image_text_v1": "experimental"}
 
 
-def _archetype(family: str, compositions: list[str], *, default_composition: str, themes: list[str], default_theme: str, typography: list[str], default_typography: str, densities: list[str], default_density: str, required_components: dict[str, str], optional_components: dict[str, list[str]], decorations: list[str], default_decorations: list[str], platforms: set[str], lifecycle: str, fallback: str | None, features: set[str]) -> dict[str, Any]:
-    return {"family_id": family, "composition_ids": compositions, "default_composition_id": default_composition, "theme_ids": themes, "default_theme_id": default_theme, "typography_ids": typography, "default_typography_id": default_typography, "density_ids": densities, "default_density": default_density, "required_components": required_components, "optional_components": optional_components, "decoration_ids": decorations, "default_decorations": default_decorations, "image_treatment_ids": ["none_v1"], "default_image_treatment": "none_v1", "platforms": platforms, "semantic_features": features, "lifecycle": lifecycle, "fallback_archetype_id": fallback}
+def _archetype(family: str, composition: str, *, themes: list[str], typography: list[str], components: dict[str, str], optional: dict[str, list[str]], layouts: dict[str, list[str]], platforms: set[str], features: set[str], fallback: str, lifecycle: str = "curated") -> dict[str, Any]:
+    return {"family_id": family, "composition_ids": [composition], "default_composition_id": composition,
+            "theme_ids": themes, "default_theme_id": themes[0], "typography_ids": typography,
+            "default_typography_id": typography[0], "density_ids": ["low", "medium", "high"], "default_density": "medium",
+            "required_components": components, "optional_components": optional, "decoration_ids": ["none_v1", "subtle_dots_v1", "paper_grain_v1", "soft_wave_v1"],
+            "default_decorations": ["none_v1"], "image_treatment_ids": ["none_v1"], "default_image_treatment": "none_v1",
+            "platforms": platforms, "semantic_features": features, "lifecycle": lifecycle, "fallback_archetype_id": fallback,
+            "unit_layout_variants": layouts}
 
 
-# Runtime selection units. Tested archetypes remain preview/authoring material
-# until their distinct component grammar is visibly implemented by the renderer.
+# These are shared visual capabilities. English is a pilot affinity, never an owner.
 ARCHETYPES = {
-    "editorial_clean_v1": _archetype("editorial_v1", ["editorial_title_body_v1", "editorial_centered_statement_v1"], default_composition="editorial_title_body_v1", themes=["minimal_white_v1", "dark_neutral_v1"], default_theme="minimal_white_v1", typography=["friendly_sans_v1", "bold_display_v1"], default_typography="friendly_sans_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"footer": "compact_brand_v1"}, optional_components={"highlight": ["underline_v1", "accent_text_v1"]}, decorations=["none_v1", "subtle_dots_v1"], default_decorations=["none_v1"], platforms={"instagram", "x"}, lifecycle="curated", fallback="quote_focus_v1", features={"takeaway", "quote", "editorial"}),
-    "dialogue_modern_v1": _archetype("dialogue_v1", ["dialogue_alternating_bubbles_v1", "dialogue_stacked_transcript_v1"], default_composition="dialogue_alternating_bubbles_v1", themes=["soft_blue_v1", "minimal_white_v1", "dark_neutral_v1"], default_theme="soft_blue_v1", typography=["friendly_sans_v1", "compact_sans_v1"], default_typography="friendly_sans_v1", densities=["low", "medium"], default_density="medium", required_components={"speech_bubble": "rounded_v1", "speaker_label": "initials_v1", "footer": "compact_brand_v1"}, optional_components={"highlight": ["marker_v1", "underline_v1"]}, decorations=["none_v1", "subtle_dots_v1"], default_decorations=["subtle_dots_v1"], platforms={"instagram"}, lifecycle="tested", fallback="editorial_clean_v1", features={"dialogue", "target_expression", "quote"}),
-    "comparison_clean_v1": _archetype("comparison_v1", ["comparison_two_column_v1", "comparison_stacked_contrast_v1"], default_composition="comparison_two_column_v1", themes=["warm_cream_v1", "minimal_white_v1", "dark_neutral_v1"], default_theme="warm_cream_v1", typography=["compact_sans_v1", "bold_display_v1"], default_typography="compact_sans_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"callout": "outlined_v1", "footer": "compact_brand_v1"}, optional_components={"highlight": ["accent_text_v1", "underline_v1"]}, decorations=["none_v1"], default_decorations=["none_v1"], platforms={"instagram", "x"}, lifecycle="curated", fallback="editorial_clean_v1", features={"comparison", "difference", "numbers"}),
-    "cards_modular_v1": _archetype("cards_v1", ["cards_feature_stack_v1", "cards_grid_v1"], default_composition="cards_feature_stack_v1", themes=["minimal_white_v1", "soft_lilac_v1"], default_theme="minimal_white_v1", typography=["friendly_sans_v1", "compact_sans_v1"], default_typography="friendly_sans_v1", densities=["low", "medium"], default_density="medium", required_components={"footer": "compact_brand_v1"}, optional_components={"highlight": ["marker_v1", "pill_v1"]}, decorations=["none_v1", "subtle_dots_v1"], default_decorations=["none_v1"], platforms={"instagram", "x"}, lifecycle="tested", fallback="editorial_clean_v1", features={"cards", "takeaway"}),
-    "process_steps_v1": _archetype("process_v1", ["process_vertical_steps_v1", "process_numbered_sequence_v1"], default_composition="process_vertical_steps_v1", themes=["minimal_white_v1", "soft_green_v1"], default_theme="minimal_white_v1", typography=["friendly_sans_v1", "compact_sans_v1"], default_typography="friendly_sans_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"step_marker": "numbered_v1", "footer": "compact_brand_v1"}, optional_components={}, decorations=["none_v1", "subtle_grid_v1"], default_decorations=["none_v1"], platforms={"instagram"}, lifecycle="tested", fallback="editorial_clean_v1", features={"process", "steps"}),
-    "scenario_soft_v1": _archetype("scenario_v1", ["scenario_response_v1", "scenario_problem_reaction_v1"], default_composition="scenario_response_v1", themes=["minimal_white_v1", "soft_lilac_v1"], default_theme="minimal_white_v1", typography=["friendly_sans_v1"], default_typography="friendly_sans_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"footer": "compact_brand_v1"}, optional_components={"highlight": ["marker_v1", "pill_v1"]}, decorations=["none_v1"], default_decorations=["none_v1"], platforms={"instagram"}, lifecycle="tested", fallback="editorial_clean_v1", features={"scenario", "quote"}),
-    "data_number_v1": _archetype("data_v1", ["data_number_context_v1", "data_metric_cards_v1"], default_composition="data_number_context_v1", themes=["minimal_white_v1", "dark_neutral_v1"], default_theme="minimal_white_v1", typography=["bold_display_v1", "compact_sans_v1"], default_typography="bold_display_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"number_marker": "large_v1", "footer": "compact_brand_v1"}, optional_components={"highlight": ["accent_text_v1"]}, decorations=["none_v1"], default_decorations=["none_v1"], platforms={"instagram", "x"}, lifecycle="tested", fallback="comparison_clean_v1", features={"data", "numbers", "difference"}),
-    "quote_focus_v1": _archetype("quote_v1", ["quote_centered_focus_v1"], default_composition="quote_centered_focus_v1", themes=["minimal_white_v1", "dark_neutral_v1"], default_theme="minimal_white_v1", typography=["bold_display_v1", "friendly_sans_v1"], default_typography="bold_display_v1", densities=["low", "medium", "high"], default_density="medium", required_components={"footer": "compact_brand_v1"}, optional_components={"highlight": ["underline_v1", "accent_text_v1"]}, decorations=["none_v1", "subtle_dots_v1"], default_decorations=["none_v1"], platforms={"instagram", "x"}, lifecycle="curated", fallback="editorial_clean_v1", features={"quote", "takeaway"}),
+    "vocab_card_minimal_v1": _archetype("cards_v1", "vocab_card_layout_v1", themes=["soft_blue_v1", "minimal_white_v1", "soft_green_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"definition_card": "rounded_v1", "pronunciation_row": "compact_v1", "footer": "compact_brand_v1"}, optional={"progress_cue": ["dots_v1"], "highlight": ["marker_v1"]}, layouts={"hook": ["vocab_hero"], "explanation": ["definition_card"], "example": ["example_card"], "takeaway": ["recall_card"]}, platforms={"instagram", "x"}, features={"cards", "target_expression", "takeaway"}, fallback="editorial_bold_cover_v1"),
+    "editorial_bold_cover_v1": _archetype("editorial_v1", "editorial_bold_cover_layout_v1", themes=["minimal_white_v1", "dark_neutral_v1", "warm_cream_v1"], typography=["bold_display_v1"], components={"section_label": "compact_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1", "accent_text_v1"]}, layouts={"hook": ["bold_hook"], "explanation": ["cover_detail"], "example": ["cover_detail"], "takeaway": ["cover_takeaway"]}, platforms={"instagram", "x"}, features={"editorial", "takeaway", "numbers"}, fallback="vocab_card_minimal_v1"),
+    "comparison_cover_bold_v1": _archetype("comparison_v1", "comparison_cover_layout_v1", themes=["warm_cream_v1", "dark_neutral_v1", "minimal_white_v1"], typography=["bold_display_v1", "compact_sans_v1"], components={"comparison_column": "split_v1", "callout": "outlined_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["accent_text_v1"]}, layouts={"hook": ["comparison_cover"], "explanation": ["comparison_detail"], "example": ["comparison_examples"], "takeaway": ["comparison_takeaway"]}, platforms={"instagram", "x"}, features={"comparison", "difference", "numbers"}, fallback="editorial_bold_cover_v1"),
+    "phrase_sheet_v1": _archetype("cards_v1", "phrase_sheet_layout_v1", themes=["minimal_white_v1", "soft_green_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"phrase_group": "ruled_v1", "divider": "thin_v1", "footer": "compact_brand_v1"}, optional={"section_label": ["compact_v1"]}, layouts={"hook": ["sheet_title"], "explanation": ["phrase_groups"], "example": ["phrase_groups"], "takeaway": ["sheet_recall"]}, platforms={"instagram"}, features={"cards", "takeaway"}, fallback="vocab_card_minimal_v1"),
+    "question_pattern_sheet_v1": _archetype("cards_v1", "question_pattern_layout_v1", themes=["minimal_white_v1", "soft_lilac_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"question_list": "keyword_v1", "divider": "thin_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["underline_v1"]}, layouts={"hook": ["question_hero"], "explanation": ["question_pattern"], "example": ["question_examples"], "takeaway": ["question_recall"]}, platforms={"instagram"}, features={"cards", "target_expression"}, fallback="vocab_card_minimal_v1"),
+    "vocab_serif_elegant_v1": _archetype("editorial_v1", "vocab_serif_layout_v1", themes=["paper_v1", "dark_neutral_v1", "minimal_white_v1"], typography=["editorial_serif_v1"], components={"definition_card": "rounded_v1", "divider": "thin_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["underline_v1"]}, layouts={"hook": ["serif_word"], "explanation": ["serif_definition"], "example": ["serif_example"], "takeaway": ["serif_takeaway"]}, platforms={"instagram", "x"}, features={"editorial", "quote", "target_expression"}, fallback="editorial_bold_cover_v1"),
+    "dialogue_modern_v1": _archetype("dialogue_v1", "dialogue_alternating_bubbles_v1", themes=["soft_blue_v1", "minimal_white_v1", "dark_neutral_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"speech_bubble": "rounded_v1", "speaker_label": "initials_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1", "underline_v1"]}, layouts={"hook": ["dialogue_hero"], "explanation": ["dialogue_explanation"], "example": ["dialogue_exchange"], "takeaway": ["dialogue_takeaway"]}, platforms={"instagram"}, features={"dialogue", "target_expression", "quote"}, fallback="vocab_card_minimal_v1"),
+    "scenario_explainer_v1": _archetype("scenario_v1", "scenario_explainer_layout_v1", themes=["soft_lilac_v1", "warm_cream_v1", "minimal_white_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"scenario_panel": "stacked_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1"]}, layouts={"hook": ["scenario_hook"], "explanation": ["scenario_analysis"], "example": ["scenario_response"], "takeaway": ["scenario_takeaway"]}, platforms={"instagram"}, features={"scenario", "quote", "takeaway"}, fallback="editorial_bold_cover_v1"),
+    "process_steps_v1": _archetype("process_v1", "process_steps_layout_v1", themes=["soft_green_v1", "minimal_white_v1", "dark_neutral_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"step_marker": "numbered_v1", "footer": "compact_brand_v1"}, optional={"divider": ["thin_v1"]}, layouts={"hook": ["process_hook"], "explanation": ["numbered_steps"], "example": ["step_cards"], "takeaway": ["process_recall"]}, platforms={"instagram"}, features={"process", "steps", "takeaway"}, fallback="editorial_bold_cover_v1"),
+    "editorial_clean_v1": _archetype("editorial_v1", "editorial_title_body_v1", themes=["minimal_white_v1", "dark_neutral_v1"], typography=["friendly_sans_v1"], components={"footer": "compact_brand_v1"}, optional={"highlight": ["underline_v1"]}, layouts={"hook": ["default_v1"], "explanation": ["default_v1"], "example": ["default_v1"], "takeaway": ["default_v1"]}, platforms={"instagram", "x"}, features={"editorial", "takeaway"}, fallback="vocab_card_minimal_v1"),
+    "category_badge_minimal_v1": _archetype("cards_v1", "vocab_card_layout_v1", themes=["minimal_white_v1"], typography=["friendly_sans_v1"], components={"definition_card": "rounded_v1", "footer": "compact_brand_v1"}, optional={}, layouts={"hook": ["default_v1"], "explanation": ["default_v1"], "example": ["default_v1"], "takeaway": ["default_v1"]}, platforms={"instagram", "x"}, features={"cards"}, fallback="vocab_card_minimal_v1", lifecycle="experimental"),
 }
-
 PRESETS = {
-    "editorial_clean_01": {"archetype_id": "editorial_clean_v1", "family_id": "editorial_v1", "composition_id": "editorial_title_body_v1", "theme_id": "minimal_white_v1", "typography_id": "friendly_sans_v1", "density": "medium", "components": {"highlight": "underline_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
-    "comparison_clean_01": {"archetype_id": "comparison_clean_v1", "family_id": "comparison_v1", "composition_id": "comparison_two_column_v1", "theme_id": "warm_cream_v1", "typography_id": "compact_sans_v1", "density": "medium", "components": {"callout": "outlined_v1", "highlight": "accent_text_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
-    "quote_focus_01": {"archetype_id": "quote_focus_v1", "family_id": "quote_v1", "composition_id": "quote_centered_focus_v1", "theme_id": "minimal_white_v1", "typography_id": "bold_display_v1", "density": "medium", "components": {"highlight": "underline_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
+    "vocab_card_blue_01": {"archetype_id": "vocab_card_minimal_v1", "family_id": "cards_v1", "composition_id": "vocab_card_layout_v1", "theme_id": "soft_blue_v1", "typography_id": "friendly_sans_v1", "density": "medium", "components": {"definition_card": "rounded_v1", "pronunciation_row": "compact_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
+    "editorial_bold_01": {"archetype_id": "editorial_bold_cover_v1", "family_id": "editorial_v1", "composition_id": "editorial_bold_cover_layout_v1", "theme_id": "minimal_white_v1", "typography_id": "bold_display_v1", "density": "medium", "components": {"section_label": "compact_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
+    "comparison_bold_01": {"archetype_id": "comparison_cover_bold_v1", "family_id": "comparison_v1", "composition_id": "comparison_cover_layout_v1", "theme_id": "warm_cream_v1", "typography_id": "bold_display_v1", "density": "medium", "components": {"comparison_column": "split_v1", "callout": "outlined_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
 }
-
-DOMAIN_AFFINITY = {"english": {"dialogue_v1": 12, "cards_v1": 10, "comparison_v1": 6, "editorial_v1": 5}, "ai_tools": {"process_v1": 10, "cards_v1": 8, "comparison_v1": 7, "editorial_v1": 5}, "personal_finance": {"comparison_v1": 12, "data_v1": 10, "editorial_v1": 6}, "business_side_hustle": {"scenario_v1": 10, "process_v1": 8, "comparison_v1": 7}, "psychology_behavior": {"scenario_v1": 12, "dialogue_v1": 8, "comparison_v1": 7, "editorial_v1": 5}}
-PLATFORM_POLICY = {"instagram": {"minimum": 5, "maximum": 8, "families": set(FAMILIES)}, "x": {"minimum": 1, "maximum": 1, "families": {"editorial_v1", "comparison_v1", "data_v1", "quote_v1", "cards_v1"}}}
+DOMAIN_AFFINITY = {"english": {"cards_v1": 10, "dialogue_v1": 9, "comparison_v1": 8, "editorial_v1": 7, "process_v1": 6, "scenario_v1": 5}, "ai_tools": {"process_v1": 10, "cards_v1": 9, "comparison_v1": 8}, "personal_finance": {"comparison_v1": 12, "cards_v1": 8, "editorial_v1": 7}, "business_side_hustle": {"scenario_v1": 10, "process_v1": 8, "comparison_v1": 7}, "psychology_behavior": {"scenario_v1": 12, "dialogue_v1": 8, "cards_v1": 7}}
+PLATFORM_POLICY = {"instagram": {"minimum": 5, "maximum": 8, "families": set(FAMILIES)}, "x": {"minimum": 1, "maximum": 1, "families": {"editorial_v1", "comparison_v1", "cards_v1", "quote_v1"}}}
 BRAND_POLICIES = {"default": {"themes": set(THEMES), "typography": set(TYPOGRAPHY), "decorations": set(DECORATIONS), "footer": "compact_brand_v1"}}
-ACCOUNT_BRAND_POLICY = {}
+ACCOUNT_BRAND_POLICY: dict[str, str] = {}
 
 
 def brand_policy_for_account(account: str) -> tuple[str, dict[str, Any]]:
@@ -107,7 +119,7 @@ def brand_policy_for_account(account: str) -> tuple[str, dict[str, Any]]:
 
 
 def registry_fingerprint() -> str:
-    value = {"release": REGISTRY_RELEASE, "families": FAMILIES, "compositions": COMPOSITIONS, "themes": THEMES, "typography": TYPOGRAPHY, "components": COMPONENT_LIFECYCLES, "decorations": DECORATION_LIFECYCLES, "image_treatments": IMAGE_TREATMENT_LIFECYCLES, "archetypes": ARCHETYPES, "presets": PRESETS, "brand_policies": BRAND_POLICIES, "account_brand_policy": ACCOUNT_BRAND_POLICY}
+    value = {"release": REGISTRY_RELEASE, "families": FAMILIES, "compositions": COMPOSITIONS, "themes": THEMES, "typography": TYPOGRAPHY, "components": COMPONENT_LIFECYCLES, "decorations": DECORATION_LIFECYCLES, "images": IMAGE_TREATMENT_LIFECYCLES, "archetypes": ARCHETYPES, "presets": PRESETS, "brands": BRAND_POLICIES}
     return sha256(json.dumps(value, sort_keys=True, default=sorted, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -116,51 +128,52 @@ def validate_intent(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != expected or value["schema_version"] != "visual_intent_v1": raise ValueError("visual intent has an invalid closed shape")
     if value["primary_structure"] not in INTENT_STRUCTURES or value["tone"] not in INTENT_TONES or value["density"] not in INTENT_DENSITIES: raise ValueError("visual intent has unsupported semantic values")
     if value["image_need"] not in {"none", "optional", "required"} or not isinstance(value["emphasis_targets"], list): raise ValueError("visual intent image or emphasis values are invalid")
-    if len(value["emphasis_targets"]) > 4 or any(item not in EMPHASIS_TARGETS for item in value["emphasis_targets"]): raise ValueError("visual intent emphasis target is unsupported")
-    if len(set(value["emphasis_targets"])) != len(value["emphasis_targets"]): raise ValueError("visual intent emphasis targets must be unique")
+    if len(value["emphasis_targets"]) > 4 or any(item not in EMPHASIS_TARGETS for item in value["emphasis_targets"]) or len(set(value["emphasis_targets"])) != len(value["emphasis_targets"]): raise ValueError("visual intent emphasis targets are invalid")
     return dict(value)
 
 
-def _validate_archetype_resolution(value: Mapping[str, Any], archetype: Mapping[str, Any]) -> None:
-    composition_id, family = value["composition_id"], value["family_id"]
-    composition = COMPOSITIONS.get(composition_id)
-    if family != archetype["family_id"] or composition is None or composition["family_id"] != family or composition_id not in archetype["composition_ids"] or composition["engine"] not in ENGINES: raise ValueError("visual recipe composition is outside its archetype")
-    if value["theme_id"] not in archetype["theme_ids"] or value["typography_id"] not in archetype["typography_ids"] or value["density"] not in archetype["density_ids"] or value["density"] not in composition["densities"]: raise ValueError("visual recipe token is outside its archetype")
+def _validate_resolution(value: Mapping[str, Any], archetype: Mapping[str, Any]) -> None:
+    composition = COMPOSITIONS.get(value["composition_id"])
+    if composition is None or value["family_id"] != archetype["family_id"] or composition["family_id"] != value["family_id"] or value["composition_id"] not in archetype["composition_ids"]: raise ValueError("visual recipe composition is outside its archetype")
+    if value["theme_id"] not in archetype["theme_ids"] or value["typography_id"] not in archetype["typography_ids"] or value["density"] not in archetype["density_ids"]: raise ValueError("visual recipe token is outside its archetype")
     if not isinstance(value["components"], Mapping): raise ValueError("visual recipe components are invalid")
     permitted = set(archetype["required_components"]) | set(archetype["optional_components"])
     if not set(value["components"]).issubset(permitted): raise ValueError("visual recipe component is outside its archetype")
     for name, variant in archetype["required_components"].items():
         if value["components"].get(name) != variant: raise ValueError("visual recipe misses an archetype-required component")
     for name, variant in value["components"].items():
-        allowed = [archetype["required_components"][name]] if name in archetype["required_components"] else archetype["optional_components"][name]
-        if name not in COMPONENTS or name not in composition["components"] or variant not in allowed: raise ValueError("visual recipe component variant is outside its archetype")
+        permitted_variants = [archetype["required_components"][name]] if name in archetype["required_components"] else archetype["optional_components"][name]
+        if name not in composition["components"] or variant not in permitted_variants: raise ValueError("visual recipe component variant is outside its archetype")
     if not isinstance(value["decorations"], list) or len(set(value["decorations"])) != len(value["decorations"]) or any(item not in archetype["decoration_ids"] for item in value["decorations"]): raise ValueError("visual recipe decoration is outside its archetype")
     if value["image_treatment"] not in archetype["image_treatment_ids"]: raise ValueError("visual recipe image treatment is outside its archetype")
 
 
 def is_production_eligible(value: Mapping[str, Any]) -> bool:
     archetype, composition = ARCHETYPES.get(value.get("archetype_id")), COMPOSITIONS.get(value.get("composition_id"))
-    if archetype is None or composition is None or archetype["lifecycle"] != "curated" or composition["lifecycle"] != "curated": return False
-    if THEMES[value["theme_id"]]["lifecycle"] != "curated" or TYPOGRAPHY[value["typography_id"]]["lifecycle"] != "curated": return False
-    return all(COMPONENT_LIFECYCLES[name][variant] == "curated" for name, variant in value["components"].items()) and all(DECORATION_LIFECYCLES[item] == "curated" for item in value["decorations"]) and IMAGE_TREATMENT_LIFECYCLES[value["image_treatment"]] == "curated"
+    return bool(archetype and composition and archetype["lifecycle"] == composition["lifecycle"] == "curated" and THEMES[value["theme_id"]]["lifecycle"] == "curated" and TYPOGRAPHY[value["typography_id"]]["lifecycle"] == "curated" and all(COMPONENT_LIFECYCLES[name][variant] == "curated" for name, variant in value["components"].items()) and all(DECORATION_LIFECYCLES[item] == "curated" for item in value["decorations"]) and IMAGE_TREATMENT_LIFECYCLES[value["image_treatment"]] == "curated")
+
+
+def validate_unit_layouts(recipe: Mapping[str, Any], roles: list[str]) -> None:
+    archetype = ARCHETYPES[recipe["archetype_id"]]
+    layouts = recipe["unit_layouts"]
+    if len(layouts) != len(roles): raise ValueError("visual recipe unit layouts do not match package units")
+    for ordinal, (layout, role) in enumerate(zip(layouts, roles), start=1):
+        if role not in UNIT_ROLES or layout["ordinal"] != ordinal or layout["variant"] not in archetype["unit_layout_variants"][role]: raise ValueError("visual recipe layout variant is outside its archetype")
 
 
 def validate_recipe(value: Any, *, production: bool) -> dict[str, Any]:
     expected = {"schema_version", "registry_release", "registry_fingerprint", "source", "archetype_id", "preset_id", "family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment", "unit_layouts"}
-    if not isinstance(value, Mapping) or set(value) != expected or value["schema_version"] != "visual_recipe_v2": raise ValueError("visual recipe has an invalid closed shape")
+    if not isinstance(value, Mapping) or set(value) != expected or value["schema_version"] != "visual_recipe_v3": raise ValueError("visual recipe has an invalid closed shape")
     if value["registry_release"] != REGISTRY_RELEASE or value["registry_fingerprint"] != registry_fingerprint(): raise ValueError("visual recipe registry release is unavailable")
     archetype = ARCHETYPES.get(value["archetype_id"])
     if archetype is None: raise ValueError("visual recipe archetype is unavailable")
     source, preset_id = value["source"], value["preset_id"]
     if source not in {"curated_preset", "curated_archetype", "experimental_dynamic", "fallback"} or (source == "curated_preset") != bool(preset_id): raise ValueError("visual recipe source is invalid")
     if preset_id:
-        preset = PRESETS.get(preset_id); resolved = {key: value[key] for key in ("archetype_id", "family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")}
-        if preset is None or {key: preset[key] for key in resolved} != resolved: raise ValueError("visual recipe does not exactly match its preset")
-    _validate_archetype_resolution(value, archetype)
-    if source == "curated_preset" and PRESETS[preset_id]["lifecycle"] != "curated": raise ValueError("visual recipe preset is not curated")
-    if source == "curated_archetype" and archetype["lifecycle"] != "curated": raise ValueError("visual recipe archetype is not curated")
+        preset = PRESETS.get(preset_id); keys = ("archetype_id", "family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")
+        if preset is None or {key: preset[key] for key in keys} != {key: value[key] for key in keys}: raise ValueError("visual recipe does not exactly match its preset")
+    _validate_resolution(value, archetype)
+    all_variants = {variant for variants in archetype["unit_layout_variants"].values() for variant in variants}
+    if not isinstance(value["unit_layouts"], list) or any(not isinstance(item, Mapping) or set(item) != {"ordinal", "variant"} or type(item["ordinal"]) is not int or item["ordinal"] < 1 or item["variant"] not in all_variants for item in value["unit_layouts"]): raise ValueError("visual recipe unit layouts are invalid")
     if production and (source == "experimental_dynamic" or not is_production_eligible(value)): raise ValueError("visual recipe is not eligible for this renderer mode")
-    if not isinstance(value["unit_layouts"], list): raise ValueError("visual recipe layouts are invalid")
-    for item in value["unit_layouts"]:
-        if not isinstance(item, Mapping) or set(item) != {"ordinal", "variant"} or type(item["ordinal"]) is not int or item["ordinal"] < 1 or not isinstance(item["variant"], str): raise ValueError("visual recipe unit layout is invalid")
     return dict(value)

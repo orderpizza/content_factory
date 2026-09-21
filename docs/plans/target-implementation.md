@@ -99,3 +99,8 @@ single-post adapter. No automatic resend, deletion or restart of a published pre
 Additional sources, regional coverage and visual families require measured value
 and focused contracts before implementation. Human scheduling, unattended
 editorial approval and video are outside the current scope.
+
+Image-led visual archetypes, licensed/local asset admission, charts and SVG
+engines remain deferred. The current shared visual library is original and
+text-led; expand it only after human inspection of the offline gallery confirms
+the first-wave archetypes are visually useful.

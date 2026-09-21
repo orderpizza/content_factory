@@ -29,7 +29,9 @@ wording faithfully expresses the claim; human review remains necessary.
 and image need. It contains no template ID, color, font, geometry, CSS, HTML,
 SVG, JavaScript or remote asset URL. The shared Visual Planner owns registered
 recipe selection. The renderer accepts structured units, never model-authored
-HTML/CSS. [Visual rendering](visual-rendering.md#visual-planning-and-recipes) owns exact profiles,
+HTML/CSS. The planner maps each frozen unit role to a registered,
+archetype-bound per-unit layout variant in the immutable VisualRecipe; adaptation
+does not name layouts. [Visual rendering](visual-rendering.md#visual-planning-and-recipes) owns exact profiles,
 geometry and assets. [Content production](content-production.md) owns checkpoints
 and sibling isolation.
 
