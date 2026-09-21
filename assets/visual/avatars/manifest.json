@@ -1,0 +1,11 @@
+{
+  "schema_version": "visual_avatar_manifest_v1",
+  "avatars": {
+    "speaker_01": {"file": "speaker_01.png", "orientation": "right", "mood": ["friendly", "neutral"]},
+    "speaker_02": {"file": "speaker_02.png", "orientation": "left", "mood": ["friendly", "positive"]},
+    "speaker_03": {"file": "speaker_03.png", "orientation": "right", "mood": ["neutral"]},
+    "speaker_04": {"file": "speaker_04.png", "orientation": "left", "mood": ["friendly"]},
+    "speaker_05": {"file": "speaker_05.png", "orientation": "right", "mood": ["positive"]},
+    "speaker_06": {"file": "speaker_06.png", "orientation": "left", "mood": ["neutral"]}
+  }
+}

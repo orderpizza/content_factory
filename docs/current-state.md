@@ -27,7 +27,12 @@ Implemented planning paths:
   reusable families, compositions, themes, typography, components and
   decorations as authoring primitives. Curated first-wave vocabulary, bold-cover,
   comparison, phrase-sheet, question-sheet, serif, dialogue, scenario and step
-  archetypes use real per-unit layouts; experimental archetypes are preview-only.
+  archetypes use real per-unit layouts. `expression_breakdown_v1` is a tested,
+  Instagram-only shared capability with a fixed six-slide English-expression
+  grammar; it remains non-production until visual review. Its gallery uses
+  deterministic avatar placeholders until local approved PNGs are installed at
+  `assets/visual/avatars/`; production would require those assets and records
+  their hashes. Experimental archetypes are preview-only.
   `scripts/render_visual_gallery.py` renders offline development samples under
   `data/artifacts/visual-gallery`. Instagram and X plan independently.
 - **Dashboard:** four linked views: Raw Feed Items → Clusters → Opportunities

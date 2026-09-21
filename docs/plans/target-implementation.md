@@ -100,7 +100,10 @@ Additional sources, regional coverage and visual families require measured value
 and focused contracts before implementation. Human scheduling, unattended
 editorial approval and video are outside the current scope.
 
-Image-led visual archetypes, licensed/local asset admission, charts and SVG
-engines remain deferred. The current shared visual library is original and
+Image-led visual archetypes, general licensed/local asset admission, charts and SVG
+engines remain deferred. `expression_breakdown_v1` is a bounded exception for
+user-supplied local dialogue-avatar PNGs with a source-controlled manifest and
+render-time hashes; it is not an image-led archetype or a general asset system.
+The current shared visual library is original and
 text-led; expand it only after human inspection of the offline gallery confirms
 the first-wave archetypes are visually useful.

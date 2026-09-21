@@ -10,6 +10,7 @@ from .visual_registry import (ARCHETYPES, DOMAIN_AFFINITY, PLATFORM_POLICY, PRES
                               REGISTRY_RELEASE, brand_policy_for_account,
                               is_production_eligible, registry_fingerprint,
                               validate_intent)
+from .visual_expression import validate_expression_units
 
 
 class VisualPlanner:
@@ -45,6 +46,8 @@ class VisualPlanner:
             if not forced:
                 raise ValueError("registered recipe has no fallback archetype")
         recipe, provenance = choose_recipe(intent, platform=row["platform"], pipeline=row["pipeline_id"], account=row["account"], unit_count=len(units), unit_roles=[unit["role"] for unit in units], production=self.production, history=self._history(row["platform"], row["account"]), force_archetype=forced, fallback=bool(forced))
+        if recipe["archetype_id"] == "expression_breakdown_v1":
+            validate_expression_units(units)
         return self.store.create_visual_recipe(run, recipe, provenance)
 
     def _history(self, platform: str, account: str) -> list[dict[str, Any]]:
@@ -113,11 +116,17 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
         raise ValueError("platform visual policy rejects this package shape")
     if intent["image_need"] == "required":
         raise ValueError("no registered archetype supports required images")
+    if unit_roles is None:
+        unit_roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
+    if len(unit_roles) != unit_count:
+        raise ValueError("visual unit roles do not match package shape")
     candidates: list[tuple[int, str, str, dict[str, Any], dict[str, int]]] = []
     for archetype_id, archetype in ARCHETYPES.items():
         if force_archetype is not None and archetype_id != force_archetype:
             continue
         if platform not in archetype["platforms"] or archetype["family_id"] not in policy["families"] or intent["density"] not in archetype["density_ids"]:
+            continue
+        if archetype.get("expected_roles") and unit_roles != archetype["expected_roles"]:
             continue
         if archetype["lifecycle"] in {"deprecated", "experimental"}:
             continue
@@ -128,6 +137,10 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
             continue
         semantic = _semantic_score(archetype, intent)
         affinity = DOMAIN_AFFINITY.get(pipeline, {}).get(archetype["family_id"], 0)
+        # English is the pilot affinity. The archetype itself remains available to
+        # every domain when its bounded six-slide grammar and semantics fit.
+        if archetype_id == "expression_breakdown_v1" and pipeline == "english" and intent["primary_structure"] == "cards":
+            affinity += 12
         quality = 8 if archetype["lifecycle"] == "curated" else 4
         diversity = _diversity_adjustment(history, selected)
         source = "curated_archetype" if archetype["lifecycle"] == "curated" else "experimental_dynamic"
@@ -148,13 +161,10 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
     preset_id = selected.pop("preset_id", None)
     if fallback:
         source, preset_id = "fallback", None
-    if unit_roles is None:
-        unit_roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
-    if len(unit_roles) != unit_count:
-        raise ValueError("visual unit roles do not match package shape")
     archetype = ARCHETYPES[selected["archetype_id"]]
-    unit_layouts = [{"ordinal": ordinal, "variant": archetype["unit_layout_variants"][role][0]} for ordinal, role in enumerate(unit_roles, start=1)]
-    recipe = {"schema_version": "visual_recipe_v3", "registry_release": REGISTRY_RELEASE,
+    variants = archetype.get("expected_layouts") or [archetype["unit_layout_variants"][role][0] for role in unit_roles]
+    unit_layouts = [{"ordinal": ordinal, "variant": variant} for ordinal, variant in enumerate(variants, start=1)]
+    recipe = {"schema_version": "visual_recipe_v4", "registry_release": REGISTRY_RELEASE,
               "registry_fingerprint": registry_fingerprint(), "source": source, "archetype_id": selected["archetype_id"], "preset_id": preset_id,
               **{key: selected[key] for key in ("family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")},
               "unit_layouts": unit_layouts}

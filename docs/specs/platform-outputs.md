@@ -35,6 +35,12 @@ does not name layouts. [Visual rendering](visual-rendering.md#visual-planning-an
 geometry and assets. [Content production](content-production.md) owns checkpoints
 and sibling isolation.
 
+Some archetypes deliberately add a narrower registered package grammar. The
+tested Instagram-only `expression_breakdown_v1`, for example, requires six
+roles in order: `hook`, `explanation`, `explanation`, `example`, `example`,
+`takeaway`. Adaptation still supplies only semantic title/body content; the
+planner and renderer select and validate the corresponding named layouts.
+
 ## Instagram — `instagram_static_carousel_v2`
 
 One package has 5–8 ordered units, beginning with a hook and ending with a

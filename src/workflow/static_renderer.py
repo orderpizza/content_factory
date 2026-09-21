@@ -18,8 +18,9 @@ from playwright.sync_api import sync_playwright
 
 from .store import WorkflowStore
 from .workers import local_operation
-from .visual_registry import THEMES, TYPOGRAPHY, validate_recipe, validate_unit_layouts
-from .visual_primitives import PRIMITIVE_CSS, footer, render_layout
+from .visual_registry import ARCHETYPES, THEMES, TYPOGRAPHY, brand_policy_for_account, validate_recipe, validate_unit_layouts
+from .visual_primitives import EXPRESSION_CSS, PRIMITIVE_CSS, footer, render_layout
+from .visual_expression import avatar_provenance, resolve_dialogue_avatars, validate_expression_units
 
 
 PROFILES = {
@@ -61,8 +62,9 @@ class StaticVisualRenderer:
     @local_operation("render_runs", "render_run_id")
     def _process(self, run: Any) -> int | None:
         package_row = self.store.connection.execute(
-            "SELECT cp.package_json,cp.content_hash,vr.recipe_json FROM content_packages cp "
-            "JOIN visual_recipes vr ON vr.visual_recipe_id=? WHERE cp.content_package_id=?",
+            "SELECT cp.package_json,cp.content_hash,vr.recipe_json,o.account FROM content_packages cp "
+            "JOIN visual_recipes vr ON vr.visual_recipe_id=? JOIN output_requests o ON o.output_request_id=cp.output_request_id "
+            "WHERE cp.content_package_id=?",
             (run["visual_recipe_id"], run["content_package_id"]),
         ).fetchone()
         if package_row is None:
@@ -71,6 +73,11 @@ class StaticVisualRenderer:
         spec = _render_spec(package, production=self.production)
         recipe = validate_recipe(json.loads(package_row["recipe_json"]), production=self.production)
         validate_unit_layouts(recipe, [unit["role"] for unit in spec["units"]])
+        avatars: list[dict[str, str]] = []
+        if recipe["archetype_id"] == "expression_breakdown_v1":
+            validate_expression_units(spec["units"])
+            avatars = resolve_dialogue_avatars(production=self.production)
+        brand_name = brand_policy_for_account(package_row["account"])[1]["brand_name"]
         font = self._production_font() if self.production else None
 
         self.artifact_root.mkdir(parents=True, exist_ok=True)
@@ -105,7 +112,7 @@ class StaticVisualRenderer:
                         png_path = temporary / f"unit-{ordinal:02d}.png"
                         jpeg_path = temporary / f"unit-{ordinal:02d}.jpg"
                         html_path.write_text(
-                            _unit_html(unit, spec, recipe, ordinal, len(spec["units"]), font=font),
+                            _unit_html(unit, spec, recipe, ordinal, len(spec["units"]), font=font, avatars=avatars, brand_name=brand_name),
                             encoding="utf-8",
                         )
                         page.goto(html_path.resolve().as_uri(), wait_until="load")
@@ -163,6 +170,7 @@ class StaticVisualRenderer:
                     if font is None else font["template_version"]
                 ),
                 "font_sha256": None if font is None else font["font_sha256"],
+                "visual_assets": avatar_provenance(avatars),
                 "assets": assets,
             }
             return self.store.complete_render(run, manifest, assets)
@@ -235,26 +243,34 @@ def _unit_html(
     total: int,
     *,
     font: dict[str, str] | None = None,
+    avatars: list[dict[str, str]] | None = None,
+    brand_name: str = "O2English",
 ) -> str:
+    if recipe["archetype_id"] == "expression_breakdown_v1" and avatars is None:
+        avatars = resolve_dialogue_avatars(production=False)
     font_face = "" if font is None else (
         "@font-face { font-family: 'ContentFactoryPinned'; src: url('"
         + font["data_url"] + "'); font-weight: 100 900; font-style: normal; }"
     )
     family = TYPOGRAPHY[recipe["typography_id"]]["family"] if font is None else "'ContentFactoryPinned', sans-serif"
-    theme = THEMES[recipe["theme_id"]]
+    archetype = ARCHETYPES[recipe["archetype_id"]]
+    palette_sequence = archetype.get("palette_sequence")
+    theme = THEMES[palette_sequence[ordinal - 1]] if palette_sequence else THEMES[recipe["theme_id"]]
     layout_variant = recipe["unit_layouts"][ordinal - 1]["variant"]
     decorations = recipe["decorations"]
     decoration = ("radial-gradient(" + theme["accent"] + " 1px, transparent 1px) 0 0/18px 18px"
                   if "subtle_dots_v1" in decorations else
                   "linear-gradient(135deg, transparent 0 72%, " + theme["accent"] + "22 72% 73%, transparent 73%)"
                   if "soft_wave_v1" in decorations else "none")
-    content = render_layout(unit, layout_variant)
+    content = render_layout(unit, layout_variant, avatars=avatars)
+    content = content.replace("<main ", "<main data-bound ", 1)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
 {font_face}
 {PRIMITIVE_CSS}
-:root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; }}
-</style></head><body><div class="frame">{content}{footer(ordinal, total)}</div></body></html>"""
+{EXPRESSION_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
+:root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --surface-secondary:{theme.get('surface_secondary', theme['surface'])}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --accent-secondary:{theme.get('accent_secondary', theme['accent'])}; --highlight:{theme.get('highlight', theme['accent'])}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; }}
+</style></head><body><div class="frame">{content}{footer(ordinal, total, brand_name=brand_name)}</div></body></html>"""
 
 
 def _asset(path: Path, role: str, ordinal: int, width: int, height: int) -> dict[str, Any]:

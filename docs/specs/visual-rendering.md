@@ -16,7 +16,7 @@ publisher. Planning-only mode composes neither visual planning nor rendering.
 ## Visual planning and recipes
 
 `visual_intent_v1` is adaptation-owned and contains only primary structure,
-tone, density, emphasis targets and image need. `visual_recipe_v3` is planner-
+tone, density, emphasis targets and image need. `visual_recipe_v4` is planner-
 owned and records the selected `archetype_id`, optional exact `preset_id`, and
 the fully resolved family, composition, theme, typography, density, semantic
 component variants, decorations, image treatment and per-unit layout variants.
@@ -41,6 +41,11 @@ The first reference-inspired shared visual library is
 `comparison_cover_bold_v1`, `phrase_sheet_v1`,
 `question_pattern_sheet_v1`, `vocab_serif_elegant_v1`,
 `dialogue_modern_v1`, `scenario_explainer_v1` and `process_steps_v1`.
+`expression_breakdown_v1` is a shared, English-pilot Instagram capability with
+a deliberately fixed six-slide grammar: `hook_hero`, `meaning_definition`,
+`use_case_checklist`, `example_cards`, `dialogue_bubbles` and
+`takeaway_summary`. It is registered as **tested**, not curated, until human
+inspection accepts its gallery output.
 English is the pilot affinity, not an owner: every archetype remains selectable
 by compatible non-English domains. Granular primitives remain authoring/building
 blocks; production planning does not treat them as a Cartesian product.
@@ -56,8 +61,9 @@ no random selection is used.
 Production admits a complete resolved recipe only when its archetype,
 composition, theme, typography, selected component variants, decorations and
 image treatment are all curated. `experimental_dynamic` is preview/authoring
-only. The first-wave archetypes above are curated: each has a distinct renderer
-layout and representative gallery fixture. `category_badge_minimal_v1` is an
+only. The first-wave archetypes above, except `expression_breakdown_v1`, are
+curated: each has a distinct renderer layout and representative gallery fixture.
+`category_badge_minimal_v1` is an
 experimental preview-only scaffold. Image-led cards remain deferred because the
 renderer has no licensed/local image-asset strategy. Deprecated definitions are
 excluded from new selection while immutable historical recipes remain inspectable.
@@ -66,6 +72,31 @@ Unit layouts are recipe-owned and role-aware. The planner maps each frozen
 `hook`, `explanation`, `example` or `takeaway` unit to an archetype-registered
 variant. The renderer checks that mapping before rendering; adaptation cannot
 select a layout, CSS or HTML.
+
+`expression_breakdown_v1` additionally enforces the ordered role sequence
+`hook`, `explanation`, `explanation`, `example`, `example`, `takeaway` and
+bounded copy capacities. These bounds are intentional readability gates rather
+than a request to progressively shrink type: headlines select one of the fixed
+`headline_xl`, `headline_l` or `headline_m` scales from word/character counts.
+The archetype uses a controlled six-palette sequence, not random per-slide
+colors, and fixed spacing tokens in its renderer primitives.
+
+## Local visual assets
+
+The expression dialogue uses only local approved avatars described by
+`assets/visual/avatars/manifest.json`. User-provided `speaker_01.png` through
+`speaker_06.png` may be dropped into that directory without code changes; each
+must be a transparent, square-ish PNG with no baked halo, label or logo. The
+renderer supplies the color-controlled halo. Development and gallery renders
+use deterministic initial placeholders when the two required dialogue avatars
+are absent. Production rejects a required missing, symlinked, non-PNG or
+out-of-root avatar. When real avatars affect bytes, the render manifest records
+asset ID, repository-relative path and SHA-256.
+
+The source-controlled local SVG icon set covers lightbulb, check, target, pin
+and arrow-right. Marker highlights, underline swashes, accent rays, badges,
+cards, bubbles and halos are code-rendered original primitives; no third-party
+screenshots, templates, logos or remote assets are included.
 
 Domain policy is preference only: English may rank dialogue highly, while finance
 may rank comparison/data highly; neither owns a family. Platform policy is
@@ -163,3 +194,12 @@ archetype directory includes named HTML and PNG units. Gallery output is design
 verification only, never review or production persistence. Human visual
 inspection of this gallery is required before carrying the pilot language to
 other domains.
+
+Render just the expression pilot with:
+
+```text
+.venv/bin/python scripts/render_visual_gallery.py --archetype expression_breakdown_v1
+```
+
+It writes `slide-01-hook_hero.png` through `slide-06-takeaway_summary.png`
+under `data/artifacts/visual-gallery/expression_breakdown_v1/`.

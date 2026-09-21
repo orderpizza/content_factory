@@ -26,10 +26,24 @@ FIXTURES = {
     "process_steps_v1": ("process", ["Learn a phrase", "Notice the phrase in context.\nSay it aloud twice.\nUse it in one short sentence.\nReview it tomorrow.", "Listen, repeat, and adapt the phrase.", "Small practice builds recall.", "Make the next use easy."]),
 }
 
+EXPRESSION_FIXTURE = {
+    "structure": "cards",
+    "roles": ["hook", "explanation", "explanation", "example", "example", "takeaway"],
+    "units": [
+        ("Break the ice", "Start a conversation and make people feel more comfortable."),
+        ("What it means", "To start a conversation and make people feel more comfortable, especially in a new or awkward situation.\nSimilar to: make people feel at ease."),
+        ("When to use it", "Meeting someone for the first time\nAn awkward or quiet atmosphere\nIncluding someone in a group\nEntering a new environment"),
+        ("Break the ice", "She told a funny story to break the ice at the meeting.\nI asked a casual question to break the ice with new classmates."),
+        ("Break the ice", "Mia: It feels quiet in here.\nJay: I can break the ice with a question.\nMia: Great, ask about everyone's weekend.\nJay: That should help everyone relax."),
+        ("Remember this", "Use it when a moment feels awkward\nStart with a friendly, simple comment\nHelp people feel more comfortable"),
+    ],
+}
+
 
 def main() -> None:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "data" / "artifacts" / "visual-gallery")
+    parser.add_argument("--archetype", choices=[*FIXTURES, "expression_breakdown_v1"], help="Render just one registered fixture.")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -39,25 +53,36 @@ def main() -> None:
         browser = playwright.chromium.launch()
         try:
             page = browser.new_page(viewport={"width": 1080, "height": 1350}, device_scale_factor=1)
-            for archetype_id, (structure, copy) in FIXTURES.items():
+            fixtures = FIXTURES if args.archetype is None else {args.archetype: FIXTURES[args.archetype]} if args.archetype in FIXTURES else {"expression_breakdown_v1": None}
+            for archetype_id, fixture in fixtures.items():
+                if archetype_id == "expression_breakdown_v1":
+                    structure, roles, units = EXPRESSION_FIXTURE["structure"], EXPRESSION_FIXTURE["roles"], EXPRESSION_FIXTURE["units"]
+                else:
+                    structure, copy = fixture
+                    roles = ["hook", "explanation", "example", "example", "takeaway"]
+                    units = []
                 intent = {"schema_version": "visual_intent_v1", "primary_structure": structure, "tone": "friendly", "density": "medium", "emphasis_targets": ["takeaway"], "image_need": "none"}
-                recipe, _ = choose_recipe(intent, platform="instagram", pipeline="english", account="gallery", unit_count=len(copy), unit_roles=roles, production=False, history=[], force_archetype=archetype_id)
+                recipe, _ = choose_recipe(intent, platform="instagram", pipeline="english", account="gallery", unit_count=len(roles), unit_roles=roles, production=False, history=[], force_archetype=archetype_id)
                 directory = output / archetype_id
                 directory.mkdir(exist_ok=True)
-                for ordinal, (role, title) in enumerate(zip(roles, copy), start=1):
-                    if archetype_id == "dialogue_modern_v1":
+                for ordinal, role in enumerate(roles, start=1):
+                    if archetype_id == "expression_breakdown_v1":
+                        title, body = units[ordinal - 1]
+                    elif archetype_id == "dialogue_modern_v1":
                         dialogue_titles = ["A natural invitation", "What it means", "Listen and reply", "Your turn", "Takeaway"]
                         dialogue_bodies = [copy[1], copy[1], copy[2], copy[2], copy[4]]
                         title, body = dialogue_titles[ordinal - 1], dialogue_bodies[ordinal - 1]
                     else:
+                        title = copy[ordinal - 1]
                         if ordinal == 1:
                             body = copy[1]
                         else:
                             title = {"explanation": "What it means", "example": "Try these", "takeaway": "Remember this"}[role]
                             body = copy[ordinal - 1]
                     unit = {"role": role, "title": title, "body": body, "claim_ids": []}
-                    path = directory / f"instagram-{ordinal:02d}-{recipe['unit_layouts'][ordinal - 1]['variant']}.html"
-                    path.write_text(_unit_html(unit, spec, recipe, ordinal, len(copy)), encoding="utf-8")
+                    stem = f"slide-{ordinal:02d}-{recipe['unit_layouts'][ordinal - 1]['variant']}" if archetype_id == "expression_breakdown_v1" else f"instagram-{ordinal:02d}-{recipe['unit_layouts'][ordinal - 1]['variant']}"
+                    path = directory / f"{stem}.html"
+                    path.write_text(_unit_html(unit, spec, recipe, ordinal, len(roles)), encoding="utf-8")
                     page.goto(path.as_uri(), wait_until="load")
                     if not page.evaluate("document.body.scrollHeight <= document.body.clientHeight && document.body.scrollWidth <= document.body.clientWidth"):
                         raise RuntimeError(f"gallery layout overflow: {archetype_id} unit {ordinal}")

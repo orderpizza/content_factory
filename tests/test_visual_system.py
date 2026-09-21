@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import json
 
 from workflow.static_renderer import _unit_html
 from workflow.visual_planner import choose_recipe
 from workflow.visual_registry import ARCHETYPES, validate_intent, validate_recipe, validate_unit_layouts
+from workflow.visual_expression import headline_scale, resolve_dialogue_avatars, validate_expression_units
 
 
 def intent(**overrides):
@@ -17,13 +21,24 @@ def recipe(archetype: str, *, platform: str = "instagram", roles: list[str] | No
     return choose_recipe(intent(primary_structure=ARCHETYPES[archetype]["family_id"].replace("_v1", "")), platform=platform, pipeline="english", account="fixture", unit_count=len(roles), unit_roles=roles, production=production, history=[], force_archetype=archetype)[0]
 
 
+EXPRESSION_ROLES = ["hook", "explanation", "explanation", "example", "example", "takeaway"]
+EXPRESSION_UNITS = [
+    {"role": "hook", "title": "Break the ice", "body": "Start a conversation and make people feel more comfortable.", "claim_ids": []},
+    {"role": "explanation", "title": "What it means", "body": "To start a conversation and make people feel more comfortable, especially in a new situation.\nSimilar to: make people feel at ease.", "claim_ids": []},
+    {"role": "explanation", "title": "When to use it", "body": "Meeting someone for the first time\nAn awkward or quiet atmosphere\nIncluding someone in a group\nEntering a new environment", "claim_ids": []},
+    {"role": "example", "title": "Break the ice", "body": "She told a funny story to break the ice at the meeting.\nI asked a casual question to break the ice with new classmates.", "claim_ids": []},
+    {"role": "example", "title": "Break the ice", "body": "Mia: It feels quiet in here.\nJay: I can break the ice with a question.\nMia: Great, ask about everyone's weekend.\nJay: That should help everyone relax.", "claim_ids": []},
+    {"role": "takeaway", "title": "Remember this", "body": "Use it when a moment feels awkward\nStart with a friendly simple comment\nHelp people feel more comfortable", "claim_ids": []},
+]
+
+
 class VisualRegistryTests(unittest.TestCase):
     def test_closed_intent_rejects_raw_rendering_input(self):
         with self.assertRaises(ValueError):
             validate_intent({**intent(), "css": "body { color: red }"})
 
     def test_first_wave_archetypes_have_distinct_composition_implementations(self):
-        identifiers = ["vocab_card_minimal_v1", "editorial_bold_cover_v1", "comparison_cover_bold_v1", "phrase_sheet_v1", "question_pattern_sheet_v1", "vocab_serif_elegant_v1", "dialogue_modern_v1", "scenario_explainer_v1", "process_steps_v1"]
+        identifiers = ["vocab_card_minimal_v1", "expression_breakdown_v1", "editorial_bold_cover_v1", "comparison_cover_bold_v1", "phrase_sheet_v1", "question_pattern_sheet_v1", "vocab_serif_elegant_v1", "dialogue_modern_v1", "scenario_explainer_v1", "process_steps_v1"]
         compositions = {ARCHETYPES[item]["default_composition_id"] for item in identifiers}
         self.assertEqual(len(compositions), len(identifiers))
 
@@ -55,6 +70,8 @@ class VisualRegistryTests(unittest.TestCase):
     def test_production_filters_experimental_and_accepts_complete_curated_recipe(self):
         with self.assertRaises(ValueError):
             recipe("category_badge_minimal_v1", production=True)
+        with self.assertRaises(ValueError):
+            recipe("expression_breakdown_v1", roles=EXPRESSION_ROLES, production=True)
         value = recipe("comparison_cover_bold_v1", production=True)
         self.assertIn(value["source"], {"curated_preset", "curated_archetype"})
         validate_recipe(value, production=True)
@@ -77,3 +94,52 @@ class VisualRegistryTests(unittest.TestCase):
         selected, provenance = choose_recipe(intent(primary_structure="dialogue"), platform="instagram", pipeline="english", account="fixture", unit_count=5, unit_roles=roles, production=False, history=[first] * 12)
         self.assertEqual(selected["archetype_id"], "dialogue_modern_v1")
         self.assertGreater(provenance["score"]["semantic_fit"], 0)
+
+    def test_expression_breakdown_has_its_registered_six_layouts(self):
+        value = recipe("expression_breakdown_v1", roles=EXPRESSION_ROLES)
+        self.assertEqual([item["variant"] for item in value["unit_layouts"]], ["hook_hero", "meaning_definition", "use_case_checklist", "example_cards", "dialogue_bubbles", "takeaway_summary"])
+        validate_unit_layouts(value, EXPRESSION_ROLES)
+        value["unit_layouts"][4]["variant"] = "example_cards"
+        with self.assertRaises(ValueError):
+            validate_unit_layouts(value, EXPRESSION_ROLES)
+
+    def test_expression_content_capacity_and_fixed_type_scales(self):
+        validate_expression_units(EXPRESSION_UNITS)
+        oversized = [dict(unit) for unit in EXPRESSION_UNITS]
+        oversized[0]["title"] = "One two three four five six"
+        with self.assertRaises(ValueError):
+            validate_expression_units(oversized)
+        self.assertEqual(headline_scale("Break the ice"), "headline_xl")
+        self.assertEqual(headline_scale("How to make a natural first impression"), "headline_m")
+
+    def test_expression_dispatches_real_primitives_and_uses_dev_placeholders(self):
+        value = recipe("expression_breakdown_v1", roles=EXPRESSION_ROLES)
+        spec = {"width": 1080, "height": 1350}
+        markup = [_unit_html(unit, spec, value, number, 6) for number, unit in enumerate(EXPRESSION_UNITS, start=1)]
+        for marker, html in zip(("hook-hero", "expression-definition", "expression-checklist", "expression-examples", "expression-dialogue", "expression-summary"), markup):
+            self.assertIn(marker, html)
+            self.assertIn("data-bound", html)
+        self.assertIn("avatar-placeholder", markup[4])
+        self.assertIn("marker-highlight", markup[3])
+
+    def test_avatar_manifest_is_safe_and_production_requires_assets(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = {"schema_version": "visual_avatar_manifest_v1", "avatars": {
+                "speaker_01": {"file": "speaker_01.png", "orientation": "right", "mood": ["friendly"]},
+                "speaker_02": {"file": "speaker_02.png", "orientation": "left", "mood": ["friendly"]},
+            }}
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            placeholders = resolve_dialogue_avatars(production=False, avatar_root=root)
+            self.assertEqual([item["mode"] for item in placeholders], ["placeholder", "placeholder"])
+            with self.assertRaises(ValueError):
+                resolve_dialogue_avatars(production=True, avatar_root=root)
+            manifest["avatars"]["speaker_01"]["file"] = "../escape.png"
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                resolve_dialogue_avatars(production=False, avatar_root=root)
+
+    def test_local_icons_are_recolorable_svg_assets(self):
+        root = Path(__file__).resolve().parents[1] / "assets" / "visual" / "icons"
+        for name in ("lightbulb", "check", "target", "pin", "arrow_right"):
+            self.assertIn("currentColor", (root / f"{name}.svg").read_text(encoding="utf-8"))

@@ -6,7 +6,7 @@ from typing import Any, Mapping
 import json
 
 
-REGISTRY_RELEASE = "visual_registry_release_v3"
+REGISTRY_RELEASE = "visual_registry_release_v4"
 ENGINES = {"html_playwright_v1"}
 LIFECYCLES = {"experimental", "tested", "curated", "deprecated"}
 INTENT_STRUCTURES = {"editorial", "dialogue", "comparison", "cards", "process", "scenario", "data", "quote"}
@@ -23,6 +23,11 @@ THEMES = {
     "soft_lilac_v1": {"lifecycle": "curated", "background": "#eee8f7", "surface": "#fcfaff", "text": "#2b243b", "muted": "#675e75", "accent": "#7655ad"},
     "dark_neutral_v1": {"lifecycle": "curated", "background": "#172028", "surface": "#27343d", "text": "#f7f8f5", "muted": "#c4cbd0", "accent": "#8fc7ed"},
     "paper_v1": {"lifecycle": "curated", "background": "#eee8dc", "surface": "#faf6ee", "text": "#302b24", "muted": "#6c6252", "accent": "#8e6840"},
+    "blue_learning_v1": {"lifecycle": "curated", "background": "#dceeff", "surface": "#f8fcff", "surface_secondary": "#c8e4fb", "text": "#132d47", "muted": "#55738e", "accent": "#1c76c9", "accent_secondary": "#6baee6", "highlight": "#ffe584"},
+    "cream_editorial_v1": {"lifecycle": "curated", "background": "#f5ede0", "surface": "#fffaf2", "surface_secondary": "#eadcc6", "text": "#2a2a29", "muted": "#70675d", "accent": "#c35e45", "accent_secondary": "#e0a083", "highlight": "#f6d770"},
+    "green_friendly_v1": {"lifecycle": "curated", "background": "#e4f5e9", "surface": "#fbfffc", "surface_secondary": "#d0ead8", "text": "#18392a", "muted": "#557263", "accent": "#398c65", "accent_secondary": "#8bc49e", "highlight": "#f6dc73"},
+    "lavender_conversation_v1": {"lifecycle": "curated", "background": "#eee8fb", "surface": "#fcfaff", "surface_secondary": "#ddd0f3", "text": "#30254a", "muted": "#6a5e83", "accent": "#785ac0", "accent_secondary": "#ae93dd", "highlight": "#f8d97b"},
+    "warm_takeaway_v1": {"lifecycle": "curated", "background": "#fff0dd", "surface": "#fffaf2", "surface_secondary": "#f9ddbb", "text": "#3d2a18", "muted": "#7b6045", "accent": "#cc7537", "accent_secondary": "#e8ad72", "highlight": "#f4d86e"},
 }
 TYPOGRAPHY = {
     "friendly_sans_v1": {"lifecycle": "curated", "family": "Arial, Helvetica, sans-serif", "title_scale": 1.0, "tracking": "-.035em"},
@@ -40,7 +45,7 @@ FAMILIES = {
 
 def _composition(family: str, features: set[str], *, platforms: set[str] = {"instagram", "x"}, densities: set[str] = {"low", "medium", "high"}) -> dict[str, Any]:
     components = {"section_label", "footer", "highlight", "divider"}
-    components |= {"definition_card", "pronunciation_row", "progress_cue", "phrase_group", "question_list"} if family == "cards_v1" else set()
+    components |= {"definition_card", "pronunciation_row", "progress_cue", "phrase_group", "question_list", "icon_badge", "checklist_row", "example_card", "avatar", "note_panel", "summary_card"} if family == "cards_v1" else set()
     components |= {"definition_card"} if family == "editorial_v1" else set()
     components |= {"speech_bubble", "speaker_label"} if family == "dialogue_v1" else set()
     components |= {"comparison_column", "callout"} if family == "comparison_v1" else set()
@@ -51,6 +56,7 @@ def _composition(family: str, features: set[str], *, platforms: set[str] = {"ins
 
 COMPOSITIONS = {
     "vocab_card_layout_v1": _composition("cards_v1", {"cards", "target_expression"}),
+    "expression_breakdown_layout_v1": _composition("cards_v1", {"cards", "target_expression", "takeaway"}, platforms={"instagram"}),
     "editorial_bold_cover_layout_v1": _composition("editorial_v1", {"editorial", "takeaway"}),
     "comparison_cover_layout_v1": _composition("comparison_v1", {"comparison", "difference"}),
     "phrase_sheet_layout_v1": _composition("cards_v1", {"cards", "takeaway"}, platforms={"instagram"}),
@@ -66,6 +72,7 @@ COMPOSITIONS = {
 
 COMPONENTS = {
     "definition_card": {"rounded_v1"}, "pronunciation_row": {"compact_v1"}, "progress_cue": {"dots_v1"},
+    "icon_badge": {"round_v1"}, "checklist_row": {"checked_v1"}, "example_card": {"stacked_v1"}, "avatar": {"halo_v1"}, "note_panel": {"pinned_v1"}, "summary_card": {"recall_v1"},
     "phrase_group": {"ruled_v1"}, "question_list": {"keyword_v1"}, "speech_bubble": {"rounded_v1", "border_only_v1"},
     "speaker_label": {"initials_v1", "filled_v1"}, "comparison_column": {"split_v1"}, "callout": {"outlined_v1"},
     "step_marker": {"numbered_v1", "minimal_v1"}, "scenario_panel": {"stacked_v1"}, "highlight": {"marker_v1", "underline_v1", "accent_text_v1"},
@@ -78,18 +85,26 @@ IMAGE_TREATMENTS = {"none_v1", "framed_image_v1", "split_image_text_v1"}
 IMAGE_TREATMENT_LIFECYCLES = {"none_v1": "curated", "framed_image_v1": "experimental", "split_image_text_v1": "experimental"}
 
 
-def _archetype(family: str, composition: str, *, themes: list[str], typography: list[str], components: dict[str, str], optional: dict[str, list[str]], layouts: dict[str, list[str]], platforms: set[str], features: set[str], fallback: str, lifecycle: str = "curated") -> dict[str, Any]:
-    return {"family_id": family, "composition_ids": [composition], "default_composition_id": composition,
+def _archetype(family: str, composition: str, *, themes: list[str], typography: list[str], components: dict[str, str], optional: dict[str, list[str]], layouts: dict[str, list[str]], platforms: set[str], features: set[str], fallback: str, lifecycle: str = "curated", expected_roles: list[str] | None = None, expected_layouts: list[str] | None = None, palette_sequence: list[str] | None = None) -> dict[str, Any]:
+    value = {"family_id": family, "composition_ids": [composition], "default_composition_id": composition,
             "theme_ids": themes, "default_theme_id": themes[0], "typography_ids": typography,
             "default_typography_id": typography[0], "density_ids": ["low", "medium", "high"], "default_density": "medium",
             "required_components": components, "optional_components": optional, "decoration_ids": ["none_v1", "subtle_dots_v1", "paper_grain_v1", "soft_wave_v1"],
             "default_decorations": ["none_v1"], "image_treatment_ids": ["none_v1"], "default_image_treatment": "none_v1",
             "platforms": platforms, "semantic_features": features, "lifecycle": lifecycle, "fallback_archetype_id": fallback,
             "unit_layout_variants": layouts}
+    if expected_roles is not None:
+        value["expected_roles"] = expected_roles
+    if expected_layouts is not None:
+        value["expected_layouts"] = expected_layouts
+    if palette_sequence is not None:
+        value["palette_sequence"] = palette_sequence
+    return value
 
 
 # These are shared visual capabilities. English is a pilot affinity, never an owner.
 ARCHETYPES = {
+    "expression_breakdown_v1": _archetype("cards_v1", "expression_breakdown_layout_v1", themes=["blue_learning_v1", "cream_editorial_v1", "green_friendly_v1", "lavender_conversation_v1", "warm_takeaway_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"icon_badge": "round_v1", "checklist_row": "checked_v1", "example_card": "stacked_v1", "avatar": "halo_v1", "note_panel": "pinned_v1", "summary_card": "recall_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1", "underline_v1"]}, layouts={"hook": ["hook_hero"], "explanation": ["meaning_definition", "use_case_checklist"], "example": ["example_cards", "dialogue_bubbles"], "takeaway": ["takeaway_summary"]}, platforms={"instagram"}, features={"cards", "target_expression", "takeaway"}, fallback="vocab_card_minimal_v1", lifecycle="tested", expected_roles=["hook", "explanation", "explanation", "example", "example", "takeaway"], expected_layouts=["hook_hero", "meaning_definition", "use_case_checklist", "example_cards", "dialogue_bubbles", "takeaway_summary"], palette_sequence=["blue_learning_v1", "cream_editorial_v1", "green_friendly_v1", "cream_editorial_v1", "lavender_conversation_v1", "warm_takeaway_v1"]),
     "vocab_card_minimal_v1": _archetype("cards_v1", "vocab_card_layout_v1", themes=["soft_blue_v1", "minimal_white_v1", "soft_green_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"definition_card": "rounded_v1", "pronunciation_row": "compact_v1", "footer": "compact_brand_v1"}, optional={"progress_cue": ["dots_v1"], "highlight": ["marker_v1"]}, layouts={"hook": ["vocab_hero"], "explanation": ["definition_card"], "example": ["example_card"], "takeaway": ["recall_card"]}, platforms={"instagram", "x"}, features={"cards", "target_expression", "takeaway"}, fallback="editorial_bold_cover_v1"),
     "editorial_bold_cover_v1": _archetype("editorial_v1", "editorial_bold_cover_layout_v1", themes=["minimal_white_v1", "dark_neutral_v1", "warm_cream_v1"], typography=["bold_display_v1"], components={"section_label": "compact_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1", "accent_text_v1"]}, layouts={"hook": ["bold_hook"], "explanation": ["cover_detail"], "example": ["cover_detail"], "takeaway": ["cover_takeaway"]}, platforms={"instagram", "x"}, features={"editorial", "takeaway", "numbers"}, fallback="vocab_card_minimal_v1"),
     "comparison_cover_bold_v1": _archetype("comparison_v1", "comparison_cover_layout_v1", themes=["warm_cream_v1", "dark_neutral_v1", "minimal_white_v1"], typography=["bold_display_v1", "compact_sans_v1"], components={"comparison_column": "split_v1", "callout": "outlined_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["accent_text_v1"]}, layouts={"hook": ["comparison_cover"], "explanation": ["comparison_detail"], "example": ["comparison_examples"], "takeaway": ["comparison_takeaway"]}, platforms={"instagram", "x"}, features={"comparison", "difference", "numbers"}, fallback="editorial_bold_cover_v1"),
@@ -109,7 +124,7 @@ PRESETS = {
 }
 DOMAIN_AFFINITY = {"english": {"cards_v1": 10, "dialogue_v1": 9, "comparison_v1": 8, "editorial_v1": 7, "process_v1": 6, "scenario_v1": 5}, "ai_tools": {"process_v1": 10, "cards_v1": 9, "comparison_v1": 8}, "personal_finance": {"comparison_v1": 12, "cards_v1": 8, "editorial_v1": 7}, "business_side_hustle": {"scenario_v1": 10, "process_v1": 8, "comparison_v1": 7}, "psychology_behavior": {"scenario_v1": 12, "dialogue_v1": 8, "cards_v1": 7}}
 PLATFORM_POLICY = {"instagram": {"minimum": 5, "maximum": 8, "families": set(FAMILIES)}, "x": {"minimum": 1, "maximum": 1, "families": {"editorial_v1", "comparison_v1", "cards_v1", "quote_v1"}}}
-BRAND_POLICIES = {"default": {"themes": set(THEMES), "typography": set(TYPOGRAPHY), "decorations": set(DECORATIONS), "footer": "compact_brand_v1"}}
+BRAND_POLICIES = {"default": {"themes": set(THEMES), "typography": set(TYPOGRAPHY), "decorations": set(DECORATIONS), "footer": "compact_brand_v1", "brand_name": "O2English"}}
 ACCOUNT_BRAND_POLICY: dict[str, str] = {}
 
 
@@ -157,13 +172,17 @@ def validate_unit_layouts(recipe: Mapping[str, Any], roles: list[str]) -> None:
     archetype = ARCHETYPES[recipe["archetype_id"]]
     layouts = recipe["unit_layouts"]
     if len(layouts) != len(roles): raise ValueError("visual recipe unit layouts do not match package units")
+    if "expected_roles" in archetype and roles != archetype["expected_roles"]:
+        raise ValueError("visual recipe package roles do not match its registered slide grammar")
+    if "expected_layouts" in archetype and [layout["variant"] for layout in layouts] != archetype["expected_layouts"]:
+        raise ValueError("visual recipe layouts do not match its registered slide grammar")
     for ordinal, (layout, role) in enumerate(zip(layouts, roles), start=1):
         if role not in UNIT_ROLES or layout["ordinal"] != ordinal or layout["variant"] not in archetype["unit_layout_variants"][role]: raise ValueError("visual recipe layout variant is outside its archetype")
 
 
 def validate_recipe(value: Any, *, production: bool) -> dict[str, Any]:
     expected = {"schema_version", "registry_release", "registry_fingerprint", "source", "archetype_id", "preset_id", "family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment", "unit_layouts"}
-    if not isinstance(value, Mapping) or set(value) != expected or value["schema_version"] != "visual_recipe_v3": raise ValueError("visual recipe has an invalid closed shape")
+    if not isinstance(value, Mapping) or set(value) != expected or value["schema_version"] != "visual_recipe_v4": raise ValueError("visual recipe has an invalid closed shape")
     if value["registry_release"] != REGISTRY_RELEASE or value["registry_fingerprint"] != registry_fingerprint(): raise ValueError("visual recipe registry release is unavailable")
     archetype = ARCHETYPES.get(value["archetype_id"])
     if archetype is None: raise ValueError("visual recipe archetype is unavailable")
