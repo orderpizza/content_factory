@@ -38,6 +38,17 @@ def footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
     return f'<footer class="visual-footer"><span>{_text(brand_name)}</span><span>{ordinal:02d} / {total:02d}</span></footer>'
 
 
+def expression_footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
+    """The expression carousel has an editorial footer, not the shared UI footer."""
+    action = "Swipe →" if ordinal == 1 else "Keep learning! →" if ordinal == total else ""
+    return (
+        '<footer class="expression-footer">'
+        f'<div class="expression-brand"><strong>{_text(brand_name)}</strong><span>Small Steps. A Bigger You.</span></div>'
+        f'<span class="expression-action">{_text(action)}</span>'
+        '</footer>'
+    )
+
+
 def icon(name: str) -> str:
     paths = {
         "lightbulb": '<path d="M9 18h6M10 22h4M8.2 14.4A6 6 0 1 1 15.8 14.4c-.8.7-1.3 1.5-1.5 2.6H9.7c-.2-1.1-.7-1.9-1.5-2.6Z"/>',
@@ -56,7 +67,8 @@ def icon_badge(name: str) -> str:
 
 
 def marker_highlight(text: str, *, variant: str = "marker_highlight_01") -> str:
-    return f'<span class="marker-highlight {variant}">{_text(text)}</span>'
+    path = "M3 14 C28 7 59 12 82 9 S135 13 177 7 L176 17 C135 20 102 15 73 18 S27 14 4 20 Z" if variant == "marker_highlight_01" else "M3 13 C27 9 48 14 76 10 S132 14 177 8 L176 17 C136 19 105 15 76 18 S28 15 4 19 Z"
+    return f'<span class="marker-highlight {variant}"><svg viewBox="0 0 180 24" preserveAspectRatio="none" aria-hidden="true"><path d="{path}"/></svg><span>{_text(text)}</span></span>'
 
 
 def underline_swash(*, variant: str = "underline_swash_01") -> str:
@@ -64,7 +76,7 @@ def underline_swash(*, variant: str = "underline_swash_01") -> str:
 
 
 def accent_rays(*, variant: str = "accent_rays_01") -> str:
-    return f'<svg class="accent-rays {variant}" viewBox="0 0 70 70" aria-hidden="true"><path d="M35 4v15M35 51v15M4 35h15M51 35h15M13 13l11 11M46 46l11 11M57 13 46 24M24 46 13 57" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>'
+    return f'<svg class="accent-rays {variant}" viewBox="0 0 70 70" aria-hidden="true"><path d="M8 58 28 38M39 10v27M51 24 67 15" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>'
 
 
 def definition_card(body: str, *, pronunciation: bool = False) -> str:
@@ -139,10 +151,24 @@ def _inline_emphasis(value: str, target: str) -> str:
     return "".join(pieces)
 
 
+def expression_emphasis(value: str, target: str) -> str:
+    """Use a blue editorial marker for the expression in examples and dialogue."""
+    if not target.strip():
+        return _text(value)
+    pieces: list[str] = []
+    cursor = 0
+    for match in re.finditer(re.escape(target), value, flags=re.IGNORECASE):
+        pieces.append(_text(value[cursor:match.start()]))
+        pieces.append(f'<span class="expression-emphasis">{_text(match.group())}</span>')
+        cursor = match.end()
+    pieces.append(_text(value[cursor:]))
+    return "".join(pieces)
+
+
 def expression_definition_card(body: str) -> str:
     definition, *note = _lines(body)
-    note_html = "" if not note else f'<aside class="support-note">{icon_badge("pin")}<p>{_text(" ".join(note))}</p></aside>'
-    return f'<section class="expression-definition">{icon_badge("lightbulb")}<p>{_text(definition)}</p></section>{note_html}'
+    note_html = "" if not note else f'<aside class="support-note">{icon_badge("check")}<p>{_text(" ".join(note))}</p></aside>'
+    return f'<section class="expression-definition"><p>{_text(definition)}</p></section>{note_html}'
 
 
 def expression_checklist(body: str) -> str:
@@ -150,7 +176,7 @@ def expression_checklist(body: str) -> str:
 
 
 def expression_examples(body: str, target: str) -> str:
-    return '<section class="expression-examples">' + ''.join(f'<article class="example-card"><span>EXAMPLE {index}</span><p>{_inline_emphasis(line, target)}</p></article>' for index, line in enumerate(_lines(body), start=1)) + '</section>'
+    return '<section class="expression-examples">' + ''.join(f'<article class="example-card"><p>{expression_emphasis(line, target)}</p></article>' for line in _lines(body)) + '</section>'
 
 
 def avatar(asset: dict[str, str], *, side: str) -> str:
@@ -165,7 +191,7 @@ def expression_dialogue(body: str, target: str, avatars: list[dict[str, str]]) -
         speaker = avatars[index % 2]
         raw = line.split(":", 1)
         label, copy = (raw[0].upper(), raw[1].strip()) if len(raw) == 2 else ("MIA" if side == "left" else "JAY", line)
-        rows.append(f'<div class="expression-bubble-row {side}">{avatar(speaker, side=side)}<div><span class="bubble-label">{_text(label)}</span><p class="expression-bubble">{_inline_emphasis(copy, target)}</p></div></div>')
+        rows.append(f'<div class="expression-bubble-row {side}">{avatar(speaker, side=side)}<div><p class="expression-bubble">{expression_emphasis(copy, target)}</p></div></div>')
     return '<section class="expression-dialogue">' + ''.join(rows) + '</section>'
 
 
@@ -173,22 +199,37 @@ def expression_summary(body: str) -> str:
     return '<section class="expression-summary">' + ''.join(f'<div class="summary-row">{icon_badge("check")}<p>{_text(line)}</p></div>' for line in _lines(body)) + '</section>'
 
 
+def expression_heading(value: str, layout: str, *, icon_name: str | None = None) -> str:
+    heading = title_block(value, class_name=f"expression-title {layout}-title {headline_scale(value)}")
+    return heading if icon_name is None else f'<div class="expression-heading {layout}-heading">{icon_badge(icon_name)}{heading}</div>'
+
+
+def expression_topbar(label: str) -> str:
+    return f'<header class="expression-topbar">{eyebrow(label)}<span class="expression-page">{{page}}</span></header>'
+
+
+def expression_hero_title(value: str) -> str:
+    """Split the expression deterministically to preserve the cover's two-line grammar."""
+    words = value.split(maxsplit=1)
+    if len(words) == 2:
+        return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{marker_highlight(words[0])}<span class="hero-title-rest">{_text(words[1])}</span></h1>'
+    return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{marker_highlight(value)}</h1>'
+
+
 def expression_layout(unit: dict[str, Any], variant: str, *, avatars: list[dict[str, str]]) -> str:
     title, body = unit["title"], unit["body"]
-    title_html = title_block(title, class_name=f"expression-title {headline_scale(title)}")
     if variant == "hook_hero":
-        hero_title = f'<h1 class="title expression-title {headline_scale(title)}">{marker_highlight(title)}</h1>'
-        return f'<main class="layout expression-layout hook-hero">{eyebrow("ENGLISH EXPRESSIONS")}{accent_rays()}{hero_title}<p class="hook-teaser">{_text(body)}</p><div class="swipe-cue">SWIPE {icon("arrow_right")}</div></main>'
+        return f'<main class="layout expression-layout hook-hero">{expression_topbar("ENGLISH EXPRESSIONS")}{accent_rays()}{expression_hero_title(title)}<p class="hook-teaser">{_text(body)}</p></main>'
     if variant == "meaning_definition":
-        return f'<main class="layout expression-layout meaning-definition">{eyebrow("WHAT IT MEANS")}{title_html}<div class="definition-stack">{expression_definition_card(body)}</div></main>'
+        return f'<main class="layout expression-layout meaning-definition">{expression_topbar("MEANING")}{expression_heading("What does it mean?", "meaning", icon_name="lightbulb")}<div class="definition-stack">{expression_definition_card(body)}</div></main>'
     if variant == "use_case_checklist":
-        return f'<main class="layout expression-layout use-case-checklist">{eyebrow("WHEN TO USE IT")}{title_html}{expression_checklist(body)}<aside class="teaching-note">{icon_badge("pin")}<span>Natural, friendly and low-pressure.</span></aside></main>'
+        return f'<main class="layout expression-layout use-case-checklist">{expression_topbar("WHEN TO USE IT")}{expression_heading("Use it when…", "checklist")}{expression_checklist(body)}<aside class="teaching-note">{icon_badge("pin")}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
     if variant == "example_cards":
-        return f'<main class="layout expression-layout example-cards">{eyebrow("IN A SENTENCE")}{title_html}{expression_examples(body, title)}{underline_swash()}</main>'
+        return f'<main class="layout expression-layout example-cards">{expression_topbar("EXAMPLE")}{expression_heading("In a sentence", "examples")}{expression_examples(body, title)}{accent_rays()}</main>'
     if variant == "dialogue_bubbles":
-        return f'<main class="layout expression-layout dialogue-bubbles">{eyebrow("HEAR IT NATURALLY")}{title_html}{expression_dialogue(body, title, avatars)}</main>'
+        return f'<main class="layout expression-layout dialogue-bubbles">{expression_topbar("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}{accent_rays()}</main>'
     if variant == "takeaway_summary":
-        return f'<main class="layout expression-layout takeaway-summary">{eyebrow("QUICK RECALL")}{icon_badge("target")}{title_html}{expression_summary(body)}<p class="closing-line">Use it to make a new moment feel easier.</p>{underline_swash(variant="underline_swash_02")}</main>'
+        return f'<main class="layout expression-layout takeaway-summary">{expression_topbar("KEY TAKEAWAY")}{expression_heading("Remember!", "summary", icon_name="target")}{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{underline_swash(variant="underline_swash_02")}</div>{accent_rays()}</main>'
     raise ValueError("unsupported expression breakdown layout")
 
 
@@ -223,6 +264,27 @@ def render_layout(unit: dict[str, Any], variant: str, *, avatars: list[dict[str,
 
 EXPRESSION_CSS = """
 .icon{width:1em;height:1em;display:block}.icon-badge{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--surface-secondary,var(--surface));color:var(--accent);flex:0 0 auto}.marker-highlight{display:inline;background:linear-gradient(transparent 48%,var(--highlight,#f6dc73) 48% 92%,transparent 92%);padding:0 .08em}.underline-swash{display:block;color:var(--accent);width:175px;height:17px}.accent-rays{position:absolute;color:var(--accent);width:70px;height:70px}.expression-layout{position:relative;min-height:0}.expression-title{font-size:72px;line-height:.98;margin-bottom:0;max-width:11ch}.headline_xl{font-size:100px}.headline_l{font-size:82px}.headline_m{font-size:66px}.hook-hero{display:flex;flex-direction:column;justify-content:center;padding:36px 0 58px}.hook-hero .eyebrow{position:absolute;top:0}.hook-hero .accent-rays{right:4%;top:14%}.hook-teaser{font-size:30px;line-height:1.26;max-width:18ch;margin:42px 0 0;color:var(--muted)}.swipe-cue{position:absolute;bottom:3px;right:0;font-size:14px;font-weight:800;letter-spacing:.1em;color:var(--accent);display:flex;align-items:center;gap:9px}.swipe-cue .icon{width:24px}.meaning-definition{display:grid;grid-template-rows:auto auto 1fr;gap:30px}.definition-stack{align-self:stretch;display:flex;flex-direction:column;justify-content:center;gap:24px}.expression-definition,.support-note{background:var(--surface);border-radius:32px;padding:32px;box-shadow:0 14px 34px #17212b12}.expression-definition{min-height:220px;display:flex;flex-direction:column;justify-content:space-between}.expression-definition p{font-size:31px;line-height:1.29;margin:28px 0 0;max-width:22ch}.support-note{display:flex;gap:16px;align-items:center;background:var(--surface-secondary,var(--surface));padding:20px 26px}.support-note .icon-badge,.teaching-note .icon-badge{width:36px;height:36px}.support-note p{font-size:20px;margin:0;color:var(--muted)}.use-case-checklist{display:flex;flex-direction:column;gap:24px}.expression-checklist{display:flex;flex-direction:column;gap:13px;flex:1;justify-content:center}.check-row,.summary-row{display:flex;align-items:center;gap:18px;background:var(--surface);border-radius:21px;padding:19px 22px}.check-row p,.summary-row p{font-size:26px;line-height:1.2;margin:0}.check-row .icon-badge,.summary-row .icon-badge{width:38px;height:38px;background:var(--accent);color:var(--surface)}.teaching-note{display:flex;align-items:center;gap:12px;padding:16px 18px;background:var(--surface-secondary,var(--surface));border-radius:17px;font-size:18px;color:var(--muted)}.example-cards{display:grid;grid-template-rows:auto auto 1fr auto;gap:28px}.expression-examples{display:grid;grid-template-rows:1fr 1fr;gap:22px;min-height:0}.example-card{background:var(--surface);border-radius:28px;padding:28px 31px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 14px 34px #17212b12}.example-card span{font-size:13px;font-weight:800;letter-spacing:.12em;color:var(--accent);margin-bottom:17px}.example-card p{font-size:28px;line-height:1.27;margin:0}.dialogue-bubbles{display:grid;grid-template-rows:auto auto 1fr;gap:19px}.expression-dialogue{display:flex;flex-direction:column;justify-content:center;gap:14px}.expression-bubble-row{display:flex;align-items:flex-end;gap:13px}.expression-bubble-row.right{flex-direction:row-reverse}.avatar{width:58px;height:58px;border-radius:50%;background:var(--accent-secondary,var(--accent));display:grid;place-items:end;overflow:hidden;flex:0 0 auto;border:4px solid var(--surface)}.avatar img{width:100%;height:100%;object-fit:contain}.avatar-placeholder{width:78%;height:78%;border-radius:50% 50% 38% 38%;background:var(--surface);color:var(--accent);display:grid;place-items:center;font-weight:900;font-size:22px}.expression-bubble-row>div{max-width:75%}.bubble-label{display:block;font-size:11px;letter-spacing:.1em;font-weight:800;margin:0 0 4px 9px;color:var(--muted)}.right .bubble-label{text-align:right;margin-right:9px}.expression-bubble{margin:0;padding:16px 19px;background:var(--surface);border-radius:21px 21px 21px 6px;font-size:23px;line-height:1.27}.right .expression-bubble{background:var(--accent);color:var(--surface);border-radius:21px 21px 6px 21px}.takeaway-summary{display:flex;flex-direction:column;gap:22px;padding-top:4px}.takeaway-summary>.icon-badge{width:60px;height:60px}.expression-summary{display:flex;flex-direction:column;gap:12px;flex:1;justify-content:center;background:var(--surface);border-radius:31px;padding:26px}.closing-line{font-size:21px;line-height:1.25;color:var(--muted);margin:0}.takeaway-summary .underline-swash{margin-left:auto}
+"""
+
+EXPRESSION_RECOMPOSE_CSS = """
+/* Expression breakdown: content-fitted, layout-specific teaching compositions. */
+.expression-layout{--space-16:16px;--space-24:24px;--space-32:32px;--space-48:48px;--space-64:64px;--space-80:80px}.expression-layout .eyebrow{margin-bottom:var(--space-16)}.expression-layout .expression-title{margin:0;letter-spacing:-.055em;line-height:1.02;max-width:12ch}.expression-heading{display:flex;align-items:center;gap:var(--space-16)}.expression-heading .icon-badge{width:56px;height:56px;box-shadow:none}.expression-heading .title{margin:0}.meaning-title.headline_xl,.checklist-title.headline_xl,.examples-title.headline_xl,.dialogue-title.headline_xl,.summary-title.headline_xl{font-size:64px}.meaning-title.headline_l,.checklist-title.headline_l,.examples-title.headline_l,.dialogue-title.headline_l,.summary-title.headline_l{font-size:58px}.meaning-title.headline_m,.checklist-title.headline_m,.examples-title.headline_m,.dialogue-title.headline_m,.summary-title.headline_m{font-size:52px}.marker-highlight{position:relative;display:inline-block;background:none;padding:0 .04em;isolation:isolate}.marker-highlight svg{position:absolute;z-index:-1;left:-2%;bottom:1%;width:104%;height:48%;overflow:visible;fill:var(--highlight,#f6dc73);opacity:.92}.marker-highlight span{position:relative}.underline-swash{width:142px;height:14px}.underline-swash path{stroke-width:6}.accent-rays{width:58px;height:58px}.hook-hero{display:block;padding:330px 0 0}.hook-hero .eyebrow{top:0}.hook-hero .expression-title{max-width:9ch}.hook-hero .expression-title.headline_xl{font-size:94px}.hook-hero .expression-title.headline_l{font-size:82px}.hook-hero .expression-title.headline_m{font-size:70px}.hook-hero .accent-rays{top:35%;right:3%}.hook-teaser{font-size:33px;line-height:1.24;max-width:17ch;margin:var(--space-24) 0 0}.swipe-cue{bottom:6px}.meaning-definition{display:block;padding-top:8px}.meaning-heading{margin-top:var(--space-24)}.definition-stack{display:flex;align-items:stretch;gap:12px;margin:var(--space-32) 0 0}.expression-definition{min-height:0;padding:var(--space-32);border-radius:26px;box-shadow:0 8px 20px #17212b0a}.expression-definition p{font-size:31px;line-height:1.27;max-width:24ch;margin:0}.support-note{padding:14px 18px;border-radius:16px;box-shadow:none}.support-note .icon-badge{width:30px;height:30px}.support-note p{font-size:19px;line-height:1.25}.use-case-checklist{display:block;padding-top:8px}.use-case-checklist .expression-title{max-width:10ch}.expression-checklist{display:flex;gap:10px;margin:var(--space-32) 0 0}.check-row{gap:14px;border-radius:16px;padding:15px 18px;box-shadow:none}.check-row p{font-size:25px;line-height:1.2}.check-row .icon-badge{width:34px;height:34px}.teaching-note{margin-top:14px;padding:14px 16px;border-radius:14px;font-size:18px}.example-cards{display:block;padding-top:8px}.examples-heading{margin-top:var(--space-24)}.expression-examples{display:flex;gap:16px;margin:var(--space-32) 0 0}.example-card{min-height:0;padding:23px 25px;border-radius:22px;box-shadow:0 7px 18px #17212b08}.example-card span{margin-bottom:10px}.example-card p{font-size:27px;line-height:1.3}.example-card .marker-highlight svg{height:52%;opacity:1}.example-cards .underline-swash{margin:18px 0 0 10px}.dialogue-bubbles{display:block;padding-top:8px}.dialogue-heading{margin-top:var(--space-24)}.expression-dialogue{display:flex;gap:10px;margin:var(--space-32) 0 0}.expression-bubble-row{gap:12px}.avatar{width:70px;height:70px;border-width:4px}.expression-bubble-row>div{max-width:80%}.expression-bubble{padding:17px 21px;font-size:25px;line-height:1.25}.bubble-label{margin-bottom:3px}.takeaway-summary{display:block;padding-top:8px}.summary-heading{margin-top:var(--space-24)}.summary-heading .icon-badge{width:58px;height:58px}.expression-summary{display:flex;gap:14px;margin:var(--space-32) 0 0;padding:24px 26px;border-radius:25px;box-shadow:0 7px 18px #17212b08}.summary-row{gap:14px;padding:0;background:transparent;border-radius:0}.summary-row p{font-size:25px;line-height:1.25}.summary-row .icon-badge{width:34px;height:34px}.closing-line{font-size:21px;margin:var(--space-24) 0 0}.takeaway-summary .underline-swash{margin:12px 0 0 auto}
+"""
+
+EXPRESSION_RECOMPOSE_FINAL_CSS = """
+/* The six expression units share tokens, but each owns its composition. */
+.frame:has(.expression-layout){padding:56px 64px 42px;gap:14px;background:linear-gradient(145deg,color-mix(in srgb,var(--bg) 88%,white),var(--bg) 64%,color-mix(in srgb,var(--bg) 82%,var(--surface-secondary)))}
+.expression-layout{font-family:"Avenir Next","Arial Rounded MT Bold",Arial,sans-serif;color:var(--text);overflow:hidden}
+.expression-topbar{position:absolute;inset:0 0 auto;display:flex;align-items:center;justify-content:space-between;height:34px}.expression-topbar .eyebrow{position:static;margin:0;color:var(--text);font-size:15px;letter-spacing:.18em;font-weight:800}.expression-page{font-size:16px;letter-spacing:.08em;font-weight:800;color:var(--text)}
+.expression-footer{height:58px;display:flex;align-items:end;justify-content:space-between;color:var(--text)}.expression-brand{display:flex;flex-direction:column;gap:2px}.expression-brand strong{font-size:18px;line-height:1;font-weight:900;letter-spacing:-.04em}.expression-brand span{font-size:11px;line-height:1.1;font-weight:600}.expression-action{min-width:180px;text-align:right;font-size:15px;font-weight:800;color:var(--text)}
+.expression-layout .expression-title{font-family:"Avenir Next","Arial Rounded MT Bold",Arial,sans-serif;font-weight:900;letter-spacing:-.075em;color:var(--text)}.expression-heading{gap:24px}.expression-heading .icon-badge{width:100px;height:100px;background:color-mix(in srgb,var(--highlight) 45%,white);color:var(--text)}.expression-heading .icon{width:55px;height:55px;stroke-width:1.8}.meaning-title.headline_xl,.checklist-title.headline_xl,.examples-title.headline_xl,.summary-title.headline_xl{font-size:62px;line-height:.98}.meaning-title.headline_l,.checklist-title.headline_l,.examples-title.headline_l,.summary-title.headline_l{font-size:58px;line-height:.98}.meaning-title.headline_m,.checklist-title.headline_m,.examples-title.headline_m,.summary-title.headline_m{font-size:52px;line-height:1}
+.expression-emphasis,.example-card .expression-emphasis{display:inline;color:#075da9;font-size:inherit;font-weight:900;line-height:1.04;letter-spacing:normal;margin:0;background:#afd8f5;border-radius:5px;padding:0 .08em;white-space:nowrap;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.hook-hero{display:block;padding:206px 0 0}.hook-hero .expression-topbar{top:0}.expression-hero-title{display:flex;flex-direction:column;align-items:flex-start;gap:20px;max-width:7ch!important;margin:0}.expression-hero-title.headline_xl{font-size:230px;line-height:.72}.expression-hero-title.headline_l{font-size:192px;line-height:.76}.expression-hero-title.headline_m{font-size:154px;line-height:.82}.expression-hero-title .marker-highlight{line-height:.8;padding:0 .03em}.expression-hero-title .marker-highlight svg{left:-7%;bottom:-10%;width:114%;height:80%;fill:var(--highlight);opacity:1}.hero-title-rest{padding-left:.02em}.hook-hero .accent-rays{top:388px;right:36px;width:102px;height:102px;color:var(--text)}.hook-teaser{font-size:45px;line-height:1.22;font-weight:500;color:var(--text);max-width:15ch;margin:76px 0 0}
+.meaning-definition{display:block;padding-top:142px}.meaning-heading{margin:0}.meaning-definition .expression-heading .icon-badge{width:138px;height:138px}.meaning-definition .expression-heading .icon{width:68px;height:68px}.meaning-definition .meaning-title{font-size:78px!important}.meaning-definition .definition-stack{display:flex;flex-direction:column;gap:32px;margin:82px 0 0}.meaning-definition .expression-definition{min-height:350px;background:linear-gradient(145deg,#f2f3f4,#f7f7f8);padding:52px 52px;border-radius:42px;box-shadow:none}.meaning-definition .expression-definition p{margin:0;font-size:42px;line-height:1.3;color:var(--text);max-width:20ch}.meaning-definition .support-note{display:flex;align-items:center;gap:25px;background:linear-gradient(100deg,#d9efdf,#d1ead8);padding:31px 34px;border-radius:34px;box-shadow:none}.meaning-definition .support-note .icon-badge{width:66px;height:66px;background:#2b9066;color:white}.meaning-definition .support-note .icon{width:38px;height:38px}.meaning-definition .support-note p{font-size:27px;line-height:1.28;font-weight:600;color:var(--text)}
+.use-case-checklist{display:block;padding-top:128px}.use-case-checklist .expression-heading{margin:0}.use-case-checklist .expression-title{font-size:94px;line-height:.91;max-width:7ch}.use-case-checklist .expression-checklist{display:flex;flex-direction:column;gap:46px;margin:78px 0 0}.use-case-checklist .check-row{display:grid;grid-template-columns:68px 1fr;align-items:start;gap:26px;padding:0;background:transparent;border-radius:0}.use-case-checklist .check-row .icon-badge{width:64px;height:64px;background:#2e9364;color:#fff}.use-case-checklist .check-row .icon{width:36px;height:36px;stroke-width:2.5}.use-case-checklist .check-row p{font-size:37px;line-height:1.2;font-weight:500;color:var(--text);max-width:19ch}.use-case-checklist .teaching-note{display:flex;align-items:center;gap:24px;margin:74px 0 0;padding:32px 34px;background:linear-gradient(100deg,#ccebd7,#d9f2df);border-radius:34px;color:var(--text);font-size:27px;line-height:1.25;font-weight:600}.use-case-checklist .teaching-note .icon-badge{width:62px;height:62px;background:transparent;color:#267a52}.use-case-checklist .teaching-note .icon{width:54px;height:54px}
+.example-cards{display:block;padding-top:132px}.example-cards .examples-heading{margin:0}.example-cards .expression-title{font-size:92px}.example-cards .expression-examples{display:flex;flex-direction:column;gap:40px;margin:78px 0 0}.example-cards .example-card{min-height:290px;width:100%;display:flex;align-items:flex-start;background:rgba(255,255,255,.88);border-radius:42px;padding:50px 52px;box-shadow:none}.example-cards .example-card p{width:100%;margin:0;font-size:42px;line-height:1.25;font-weight:500;color:var(--text);max-width:18ch;text-align:left}.example-cards .accent-rays{position:absolute;width:86px;height:86px;right:34px;top:1050px;color:#f2bd22}
+.dialogue-bubbles{display:block;padding-top:98px}.dialogue-bubbles .expression-dialogue{display:flex;flex-direction:column;gap:42px;margin:105px 0 0}.dialogue-bubbles .expression-bubble-row{gap:24px;align-items:center}.dialogue-bubbles .expression-bubble-row.right{padding-left:40px}.dialogue-bubbles .avatar{width:156px;height:156px;border:0;background:linear-gradient(145deg,#c9ddff,#b8b8ef);padding:8px;box-shadow:none}.dialogue-bubbles .avatar-right{background:linear-gradient(145deg,#ffd3df,#f1bad0)}.dialogue-bubbles .avatar img{border-radius:50%;object-fit:contain}.dialogue-bubbles .avatar-placeholder{font-size:46px;background:white;color:var(--text)}.dialogue-bubbles .expression-bubble-row>div{max-width:575px}.dialogue-bubbles .expression-bubble{margin:0;padding:32px 34px;background:#fff;border-radius:36px 36px 36px 10px;font-size:34px;line-height:1.24;font-weight:500;color:var(--text);box-shadow:none}.dialogue-bubbles .right .expression-bubble{background:#ffe2e9;color:var(--text);border-radius:36px 36px 10px 36px}.dialogue-bubbles .accent-rays{position:absolute;right:22px;top:760px;width:74px;height:74px;color:var(--text)}
+.takeaway-summary{display:block;padding-top:136px}.takeaway-summary .summary-heading{margin:0}.takeaway-summary .summary-heading .icon-badge{width:138px;height:138px;background:color-mix(in srgb,var(--highlight) 50%,white);color:#d94745}.takeaway-summary .summary-heading .icon{width:78px;height:78px;stroke-width:1.8}.takeaway-summary .expression-title{font-size:92px}.takeaway-summary .expression-summary{display:flex;flex-direction:column;gap:36px;margin:80px 0 0;padding:48px 46px;background:linear-gradient(145deg,#fff1c9,#ffedbc);border-radius:42px;box-shadow:none}.takeaway-summary .summary-row{display:grid;grid-template-columns:66px 1fr;align-items:start;gap:24px;padding:0;background:transparent}.takeaway-summary .summary-row .icon-badge{width:62px;height:62px;background:#f3b318;color:#fff}.takeaway-summary .summary-row .icon{width:35px;height:35px;stroke-width:2.7}.takeaway-summary .summary-row p{font-size:31px;line-height:1.25;font-weight:500;color:var(--text)}.closing-lockup{margin:78px 0 0 35px;position:relative;display:inline-block}.closing-line{font-family:"Snell Roundhand","Bradley Hand",cursive;font-size:47px;line-height:1.11;font-style:italic;font-weight:600;color:var(--text);margin:0}.closing-lockup .underline-swash{width:455px;height:30px;color:#f0be19;margin:14px 0 0 -8px}.closing-lockup .underline-swash path{stroke-width:8}.takeaway-summary .accent-rays{position:absolute;right:0;bottom:66px;width:70px;height:70px;color:#efb917}
 """
 
 PRIMITIVE_CSS = """

@@ -31,11 +31,11 @@ EXPRESSION_FIXTURE = {
     "roles": ["hook", "explanation", "explanation", "example", "example", "takeaway"],
     "units": [
         ("Break the ice", "Start a conversation and make people feel more comfortable."),
-        ("What it means", "To start a conversation and make people feel more comfortable, especially in a new or awkward situation.\nSimilar to: make people feel at ease."),
-        ("When to use it", "Meeting someone for the first time\nAn awkward or quiet atmosphere\nIncluding someone in a group\nEntering a new environment"),
+        ("What it means", "To start a conversation and make people feel more comfortable, especially in a new or awkward situation.\nSimilar to: make a friendly start to a conversation."),
+        ("When to use it", "You meet someone for the first time\nThe atmosphere feels awkward or quiet\nYou want to include someone in a group\nYou’re in a new environment"),
         ("Break the ice", "She told a funny story to break the ice at the meeting.\nI asked a casual question to break the ice with new classmates."),
-        ("Break the ice", "Mia: It feels quiet in here.\nJay: I can break the ice with a question.\nMia: Great, ask about everyone's weekend.\nJay: That should help everyone relax."),
-        ("Remember this", "Use it when a moment feels awkward\nStart with a friendly, simple comment\nHelp people feel more comfortable"),
+        ("Break the ice", "A: It’s my first day here. I don’t really know anyone yet.\nB: No worries! Let’s break the ice. What do you like to do in your free time?\nA: I’m into hiking. How about you?"),
+        ("Remember this", "Use it to start conversations and make others feel comfortable\nIt works well in new or awkward situations\nA simple question can help break the ice"),
     ],
 }
 
@@ -84,7 +84,12 @@ def main() -> None:
                     path = directory / f"{stem}.html"
                     path.write_text(_unit_html(unit, spec, recipe, ordinal, len(roles)), encoding="utf-8")
                     page.goto(path.as_uri(), wait_until="load")
-                    if not page.evaluate("document.body.scrollHeight <= document.body.clientHeight && document.body.scrollWidth <= document.body.clientWidth"):
+                    if not page.evaluate(
+                        "document.body.scrollHeight <= document.body.clientHeight && "
+                        "document.body.scrollWidth <= document.body.clientWidth && "
+                        "Array.from(document.querySelectorAll('[data-bound]')).every("
+                        "node => node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth)"
+                    ):
                         raise RuntimeError(f"gallery layout overflow: {archetype_id} unit {ordinal}")
                     page.screenshot(path=str(path.with_suffix(".png")), type="png")
         finally:

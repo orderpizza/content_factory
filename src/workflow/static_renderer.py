@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 from .store import WorkflowStore
 from .workers import local_operation
 from .visual_registry import ARCHETYPES, THEMES, TYPOGRAPHY, brand_policy_for_account, validate_recipe, validate_unit_layouts
-from .visual_primitives import EXPRESSION_CSS, PRIMITIVE_CSS, footer, render_layout
+from .visual_primitives import EXPRESSION_CSS, EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS, PRIMITIVE_CSS, expression_footer, footer, render_layout
 from .visual_expression import avatar_provenance, resolve_dialogue_avatars, validate_expression_units
 
 
@@ -262,15 +262,18 @@ def _unit_html(
                   if "subtle_dots_v1" in decorations else
                   "linear-gradient(135deg, transparent 0 72%, " + theme["accent"] + "22 72% 73%, transparent 73%)"
                   if "soft_wave_v1" in decorations else "none")
-    content = render_layout(unit, layout_variant, avatars=avatars)
+    content = render_layout(unit, layout_variant, avatars=avatars).replace("{page}", f"{ordinal} / {total}")
     content = content.replace("<main ", "<main data-bound ", 1)
+    footer_html = expression_footer(ordinal, total, brand_name=brand_name) if recipe["archetype_id"] == "expression_breakdown_v1" else footer(ordinal, total, brand_name=brand_name)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
 {font_face}
 {PRIMITIVE_CSS}
 {EXPRESSION_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
+{EXPRESSION_RECOMPOSE_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
+{EXPRESSION_RECOMPOSE_FINAL_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
 :root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --surface-secondary:{theme.get('surface_secondary', theme['surface'])}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --accent-secondary:{theme.get('accent_secondary', theme['accent'])}; --highlight:{theme.get('highlight', theme['accent'])}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; }}
-</style></head><body><div class="frame">{content}{footer(ordinal, total, brand_name=brand_name)}</div></body></html>"""
+</style></head><body><div class="frame">{content}{footer_html}</div></body></html>"""
 
 
 def _asset(path: Path, role: str, ordinal: int, width: int, height: int) -> dict[str, Any]:

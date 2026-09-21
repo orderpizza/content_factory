@@ -79,7 +79,10 @@ bounded copy capacities. These bounds are intentional readability gates rather
 than a request to progressively shrink type: headlines select one of the fixed
 `headline_xl`, `headline_l` or `headline_m` scales from word/character counts.
 The archetype uses a controlled six-palette sequence, not random per-slide
-colors, and fixed spacing tokens in its renderer primitives.
+colors, and fixed spacing tokens in its renderer primitives. Its six named
+layouts own the expression carousel's top-right page counter and editorial
+brand footer; slide one and slide six alone add their registered directional
+actions. Other archetypes retain the shared footer treatment.
 
 ## Local visual assets
 
