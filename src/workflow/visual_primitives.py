@@ -80,14 +80,6 @@ def expression_blue_marker(value: str, target: str) -> str:
     return "".join(pieces)
 
 
-def expression_emphasis_rays(*, tone: str = "navy", class_name: str = "") -> str:
-    return (
-        f'<svg class="expression-rays expression-rays-{tone} {class_name}" viewBox="0 0 76 74" aria-hidden="true">'
-        '<path d="M9 62 31 39M43 12 39 38M57 29 72 23" fill="none" '
-        'stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>'
-    )
-
-
 def expression_lightbulb_icon() -> str:
     return (
         '<span class="expression-sticker expression-lightbulb"><svg viewBox="0 0 120 120" aria-hidden="true">'
@@ -103,7 +95,7 @@ def expression_target_icon() -> str:
         '<span class="expression-sticker expression-target"><svg viewBox="0 0 120 120" aria-hidden="true">'
         '<circle class="target-outer" cx="54" cy="64" r="34"/><circle class="target-white" cx="54" cy="64" r="25"/>'
         '<circle class="target-mid" cx="54" cy="64" r="17"/><circle class="target-white" cx="54" cy="64" r="9"/><circle class="target-mid" cx="54" cy="64" r="4"/>'
-        '<path class="target-arrow" d="m76 44 27-27M91 17h12v12M78 42l8 8"/>'
+        '<path class="target-arrow" d="M22 96 95 23M76 23h19v19"/>'
         '</svg></span>'
     )
 
@@ -114,9 +106,8 @@ def expression_check_icon(*, tone: str = "green") -> str:
 
 def expression_note_icon() -> str:
     return (
-        '<span class="expression-note-icon"><svg viewBox="0 0 74 74" aria-hidden="true">'
-        '<path d="m44 10 20 20-9 5-10 19-7 10-3-13-19-10 18-10 5-9Z" fill="currentColor"/>'
-        '<path d="m20 55-9 9" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>'
+        '<span class="expression-note-icon"><svg viewBox="0 0 24 24" aria-hidden="true">'
+        '<path fill="currentColor" transform="rotate(-45 12 12)" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.3v6h1.4v-6H18v-2l-2-2Z"/>'
         '</svg></span>'
     )
 
@@ -240,7 +231,15 @@ def expression_emphasis(value: str, target: str) -> str:
 
 def expression_definition_card(body: str) -> str:
     definition, *note = _lines(body)
-    note_html = "" if not note else f'<aside class="support-note">{expression_check_icon()}<p>{_text(" ".join(note))}</p></aside>'
+    note_html = ""
+    if note:
+        note_text = " ".join(note)
+        if note_text.lower().startswith("similar to:"):
+            detail = note_text.split(":", 1)[1].strip()
+            note_copy = f'<span class="support-label">Similar to:</span><span>{_text(detail)}</span>'
+        else:
+            note_copy = _text(note_text)
+        note_html = f'<aside class="support-note">{expression_check_icon()}<p>{note_copy}</p></aside>'
     return f'<section class="expression-definition"><p>{_text(definition)}</p></section>{note_html}'
 
 
@@ -287,7 +286,7 @@ def expression_hero_title(value: str) -> str:
     if len(words) == 2:
         return (
             f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">'
-            f'<span class="hero-break-wrap">{expression_marker_highlight(words[0], color="yellow")}{expression_emphasis_rays(class_name="hero-title-rays")}</span>'
+            f'<span class="hero-break-wrap">{expression_marker_highlight(words[0], color="yellow")}</span>'
             f'<span class="hero-title-rest">{_text(words[1])}</span></h1>'
         )
     return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{expression_marker_highlight(value, color="yellow")}</h1>'
@@ -302,11 +301,11 @@ def expression_layout(unit: dict[str, Any], variant: str, *, avatars: list[dict[
     if variant == "use_case_checklist":
         return f'<main class="layout expression-layout use-case-checklist">{expression_header("WHEN TO USE IT")}<h1 class="title expression-title checklist-title">Use it<br>when…</h1>{expression_checklist(body)}<aside class="teaching-note">{expression_note_icon()}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
     if variant == "example_cards":
-        return f'<main class="layout expression-layout example-cards">{expression_header("EXAMPLE")}<h1 class="title expression-title examples-title">In a sentence</h1>{expression_examples(body, title)}{expression_emphasis_rays(tone="yellow", class_name="example-card-rays")}</main>'
+        return f'<main class="layout expression-layout example-cards">{expression_header("EXAMPLE")}<h1 class="title expression-title examples-title">In a sentence</h1>{expression_examples(body, title)}</main>'
     if variant == "dialogue_bubbles":
-        return f'<main class="layout expression-layout dialogue-bubbles">{expression_header("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}{expression_emphasis_rays(class_name="dialogue-rays")}</main>'
+        return f'<main class="layout expression-layout dialogue-bubbles">{expression_header("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}</main>'
     if variant == "takeaway_summary":
-        return f'<main class="layout expression-layout takeaway-summary">{expression_header("KEY TAKEAWAY")}<div class="summary-heading">{expression_target_icon()}<h1 class="title expression-title summary-title">Remember!</h1></div>{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{expression_handdrawn_underline()}</div>{expression_emphasis_rays(tone="yellow", class_name="summary-rays")}</main>'
+        return f'<main class="layout expression-layout takeaway-summary">{expression_header("KEY TAKEAWAY")}<div class="summary-heading">{expression_target_icon()}<h1 class="title expression-title summary-title">Remember!</h1></div>{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{expression_handdrawn_underline()}</div></main>'
     raise ValueError("unsupported expression breakdown layout")
 
 
@@ -380,6 +379,26 @@ EXPRESSION_FORENSIC_CSS = """
 .dialogue-bubbles{display:block;padding-top:1px}.dialogue-bubbles .expression-dialogue{display:flex;flex-direction:column;gap:0;margin:180px 0 0}.expression-bubble-row{display:flex;align-items:center;gap:25px}.expression-bubble-row.right{flex-direction:row-reverse;margin:53px 34px 0 0}.expression-bubble-row.left:nth-child(3){margin-top:40px}.expression-bubble-row>div{position:relative;max-width:590px}.avatar{width:138px;height:138px;padding:7px;border:0;border-radius:50%;background:linear-gradient(145deg,#c8d8fc,#b6b8ef);overflow:hidden;flex:0 0 auto;box-shadow:none}.avatar-right{background:linear-gradient(145deg,#ffd5e0,#efb9d2)}.avatar img{width:100%;height:100%;object-fit:contain;border-radius:50%}.expression-bubble{position:relative;margin:0;padding:27px 31px;background:#fff;border-radius:34px 34px 34px 10px;font-family:var(--expression-body-font);font-size:35px;line-height:1.24;font-weight:520;color:var(--text);box-shadow:none}.left .expression-bubble::before{content:"";position:absolute;bottom:10px;left:-12px;width:25px;height:25px;background:#fff;clip-path:polygon(100% 0,100% 100%,0 100%)}.right .expression-bubble{background:#ffe1e9;border-radius:34px 34px 10px 34px}.right .expression-bubble::after{content:"";position:absolute;right:-12px;bottom:10px;width:25px;height:25px;background:#ffe1e9;clip-path:polygon(0 0,0 100%,100% 100%)}.dialogue-rays{position:absolute;right:18px;top:800px;width:70px;height:68px}
 /* 6. Takeaway */
 .takeaway-summary{display:block;padding-top:126px}.summary-heading{display:flex;align-items:center;gap:21px}.summary-heading .expression-sticker{width:144px;height:144px}.summary-heading .expression-title{font-size:89px;line-height:.95}.expression-summary{display:flex;flex-direction:column;gap:29px;min-height:370px;margin:74px 0 0;padding:43px 43px;background:linear-gradient(145deg,#fff2ca,#ffedbf);border-radius:41px;box-shadow:none}.summary-row{display:grid;grid-template-columns:62px 1fr;align-items:start;gap:22px;padding:0;background:none;border-radius:0}.summary-row .expression-check-icon{width:60px;height:60px}.summary-row p{font-family:var(--expression-body-font);font-size:29px;line-height:1.29;font-weight:550;margin:0;color:var(--text)}.closing-lockup{display:inline-block;position:relative;margin:66px 0 0 31px}.closing-line{font-family:var(--expression-handwriting-font);font-size:53px;line-height:1.08;font-style:normal;font-weight:700;letter-spacing:-.035em;color:#16223d;margin:0;transform:rotate(-2deg);transform-origin:left center}.expression-handdrawn-underline{display:block;width:470px;height:40px;color:#efbd19;margin:8px 0 0 -4px}.summary-rays{position:absolute;right:4px;bottom:71px;width:66px;height:64px}
+/* Hook target refinement: reference-scale chrome, lighter display title, anchored rays. */
+.expression-topbar .eyebrow{font-size:20px}
+.expression-page{font-size:20px}
+.expression-brand strong{font-size:20px}
+.expression-brand span{font-size:13px}
+.expression-action{min-width:190px;font-size:18px}
+.hook-hero{padding-top:206px}
+.expression-hero-title{gap:20px;max-width:7ch!important;font-size:230px!important;line-height:.72!important}
+.expression-layout .expression-title.expression-hero-title{font-weight:700}
+.hook-teaser{font-size:60px;line-height:1.22;max-width:650px;margin-top:76px}
+/* Meaning target refinement: larger, lighter display title and fuller copy blocks. */
+.meaning-definition .meaning-title{font-family:var(--expression-display-font);font-size:122px!important;line-height:.9;letter-spacing:-.075em;font-weight:500;max-width:650px}
+.expression-layout .expression-title{font-family:var(--expression-display-font);font-weight:700}
+.meaning-definition .meaning-title{font-weight:700}
+.meaning-definition .expression-definition{align-items:flex-start;padding:34px 40px}
+.meaning-definition .expression-definition p{font-family:var(--expression-body-font);font-size:49px;line-height:1.27;font-weight:500;max-width:18ch}
+.meaning-definition .support-note{padding:20px 24px}
+.meaning-definition .support-note p{font-family:var(--expression-body-font);font-size:30px;line-height:1.25;font-weight:500;max-width:18ch}
+.meaning-definition .support-label{display:block}
+.closing-line{font-family:"Apple Chancery","Bradley Hand","Segoe Print",cursive;font-size:53px;line-height:1.08;font-style:normal;font-weight:600;letter-spacing:-.035em}
 """
 
 

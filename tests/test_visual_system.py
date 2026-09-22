@@ -126,7 +126,7 @@ class VisualRegistryTests(unittest.TestCase):
         self.assertIn("Swipe →", markup[0])
         self.assertIn("Keep learning! →", markup[5])
         self.assertIn("expression-marker-yellow", markup[0])
-        self.assertIn("hero-title-rays", markup[0])
+        self.assertNotIn('<svg class="expression-rays', "".join(markup))
         self.assertIn("expression-marker-blue", markup[3])
         self.assertIn("expression-lightbulb", markup[1])
         self.assertIn("What does", markup[1])

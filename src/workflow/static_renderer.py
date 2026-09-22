@@ -268,7 +268,7 @@ def _unit_html(
     expression_fonts = "" if recipe["archetype_id"] != "expression_breakdown_v1" else (
         "--expression-display-font:'ContentFactoryPinned',sans-serif;--expression-body-font:'ContentFactoryPinned',sans-serif;--expression-handwriting-font:'ContentFactoryPinned',cursive;"
         if font is not None else
-        "--expression-display-font:'Archivo Black','League Spartan','Arial Black',sans-serif;--expression-body-font:'Manrope','Inter','Arial',sans-serif;--expression-handwriting-font:'Caveat','Bradley Hand','Segoe Print',cursive;"
+        "--expression-display-font:'Avenir Next','Arial Rounded MT Bold',Arial,sans-serif;--expression-body-font:'Manrope','Inter','Arial',sans-serif;--expression-handwriting-font:'Caveat','Bradley Hand','Segoe Print',cursive;"
     )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
