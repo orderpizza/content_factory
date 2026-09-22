@@ -81,8 +81,9 @@ than a request to progressively shrink type: headlines select one of the fixed
 The archetype uses a controlled six-palette sequence, not random per-slide
 colors, and fixed spacing tokens in its renderer primitives. Its six named
 layouts own the expression carousel's top-right page counter and editorial
-brand footer; slide one and slide six alone add their registered directional
-actions. Other archetypes retain the shared footer treatment.
+brand footer; slides one through five carry the registered directional action,
+while the final slide has no next-slide cue. Other archetypes retain the shared
+footer treatment.
 
 ## Local visual assets
 
@@ -143,9 +144,12 @@ archetype is still tested, not curated. This image path creates review assets on
 
 `GeminiImageRenderer` generates one 5:4 storyboard image containing six clearly
 separated portrait panels in a three-column by two-row order. It sends no reference
-images. The renderer deterministically crops the six equal cells left-to-right,
-top-to-bottom, center-fits each to 1080×1350, then adds overlays. The cells are
-the only fixed layout rule; Gemini retains creative control within each panel.
+images. The renderer adaptively finds the border-connected background family,
+trims its outer frame, and identifies two vertical and one horizontal
+low-information gutter seams. It then crops the six panels left-to-right,
+top-to-bottom and center-fits each once to 1080×1350. If confidence checks cannot
+distinguish margins or gutters, it records an equal-grid fallback rather than
+failing a valid storyboard. Gemini retains creative control within each panel.
 
 Renderer-owned prompts interpret `expression_breakdown_v1` as hook,
 meaning/definition, use cases, examples, short dialogue and takeaway. The one
@@ -158,7 +162,7 @@ noise. Recipe composition, theme, typography tokens and component coordinates ne
 enter the prompt. Existing package/recipe validity gates still apply; adaptation
 does not author image prompts.
 
-The isolated Vertex adapter makes one 5:4, 1K image request per supported carousel
+The isolated Vertex adapter makes one 5:4, 2K image request per supported carousel
 by default, with SDK retries disabled. Its model and image size remain
 environment-configurable, and the requested size must be supported by the selected
 model. It sends only the storyboard prompt, with no image parts;
@@ -166,26 +170,29 @@ model. It sends only the storyboard prompt, with no image parts;
 transport. Prompts forbid branding, counters and footer CTAs and reserve the top
 10%, bottom 14% and generous side margins in every panel. Each storyboard output
 must be a single PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and
-within 0.04 of the 5:4 aspect ratio. Equal cells are then center-cropped and
-Lanczos-resized to exactly 1080×1350. These checks reject invalid image
+within 0.04 of the 5:4 aspect ratio. Border-background and projection analysis
+finds panel bounds without assuming an exact canvas color; an auditable equal-grid
+fallback is used only when that analysis lacks confidence. Each crop is
+Lanczos-resized exactly once to 1080×1350. These checks reject invalid image
 data/geometry, not inaccurate words or poor visual design. Exact model-rendered
 text and design quality require human review.
 
-After splitting, Pillow applies deterministic, transparent header/category and
-page-counter text plus a lower-left `o2_english` brand. It draws no header/footer
-bars or panels. Locally available bold fonts, contrast-safe strokes and shadows,
-and local arrow geometry keep the text legible without obscuring the artwork. The
-previous tagline is absent. Slides 1–5 receive a short swipe cue and arrow; a
-deterministic render-seeded selection rotates five non-repeating phrases from the
-curated CTA set, while slide 6 receives no next-slide cue. Six final JPEGs use the
-existing `delivery_jpeg` asset role so the dashboard shows the exact processed
-bytes. That role does not make a review-only package deliverable. The raw
-storyboard image is retained as a traceability/debug artifact only, not a review
-asset or a dashboard contact sheet.
+After splitting, Pillow applies deterministic transparent header/category and
+page-counter text plus a lower-left `o2_english` brand on a single subdued RGBA
+layer. Header and footer use the same local font, size, color and opacity; there
+are no bars, panels, strokes, outlines, shadows or glows. Slides 1–5 place their
+CTA and matching arrow on the same footer baseline; a deterministic render-seeded
+selection rotates five non-repeating phrases from the curated CTA set, while slide
+6 receives no next-slide cue. The six processed `preview_png` assets are the
+exact dashboard review bytes. The raw storyboard is retained unchanged in its
+provider PNG/JPEG format as a traceability/debug artifact only, not a review asset
+or dashboard contact sheet. The image renderer is review-only; the production
+delivery boundary continues to require JPEG and is not reached by this path.
 
 The manifest records engine/model, prompt and overlay versions, storyboard grid,
-prompt hash, one invocation ID, raw storyboard filename/bytes/hash, every source
-cell, final filename/hash, transparent-overlay version and deterministic footer
+prompt hash, one invocation ID, raw storyboard filename/MIME/extension/bytes/hash,
+raw dimensions, detected outer crop, gutter seams, source rectangles, fallback
+status, final filename/hash, transparent-overlay version and deterministic footer
 CTA choices. Package/recipe lineage and Pillow identity remain intact. The one
 invocation request hash contains the prompt only. No raw prompts enter diagnostic
 logs or model ledgers. All six final assets commit with one ReviewRequest only
@@ -195,20 +202,21 @@ remains in the invocation ledger.
 The one storyboard call has one admission and accounting record against the shared
 daily/job limits, using image prices. A current live claim is required for the
 bounded call; an expired claim cannot be revived. An interrupted carousel is never
-resumed automatically. Generation, splitting, normalization or overlay failures
-fail the whole render without a partial review, per-cell repair or automatic HTML
-fallback. Only a daily budget refusal before the storyboard call may defer without
-a provider call. Manual
+resumed automatically. Generation, normalization or overlay failures fail the
+whole render without a partial review, per-cell repair or automatic HTML fallback.
+A low-confidence split alone uses the recorded equal-grid fallback. Only a daily
+budget refusal before the storyboard call may defer without a provider call. Manual
 refinement/review-feedback creates fresh work for a complete rerun; no in-place
 render retry command is provided.
 
 ## Execution and assets
 
-Playwright Chromium loads local generated HTML, waits for fonts, verifies
-bounded layout and produces PNG previews. Pillow converts exact local JPEG
-delivery bytes. The renderer validates geometry, encoding, byte limits, ordered
-counts and hashes. A layout overflow fails the run rather than truncating copy
-or shrinking it to fit.
+Playwright Chromium loads local generated HTML, waits for fonts, verifies bounded
+layout and produces PNG previews. The HTML production renderer creates JPEG
+delivery bytes at its delivery-ready boundary; Gemini review rendering retains its
+PNG masters. The renderer validates geometry, encoding, byte limits, ordered
+counts and hashes. A layout overflow fails the run rather than truncating copy or
+shrinking it to fit.
 
 The HTML engine yields `preview_html`, `preview_png` and `delivery_jpeg` per unit. Output is
 written into a run-specific temporary directory, fsynced and promoted; successful

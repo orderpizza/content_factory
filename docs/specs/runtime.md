@@ -70,7 +70,7 @@ Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
 Review rendering defaults to `--renderer auto`: supported Instagram archetypes
-use sequential Gemini designer generation; `--renderer html` keeps deterministic rendering.
+use one Gemini 3×2 storyboard-image generation; `--renderer html` keeps deterministic rendering.
 Production keeps its existing HTML renderer and eligibility gates.
 [Visual rendering](visual-rendering.md#gemini-designer-review-rendering) owns
 image processing and review asset behavior.

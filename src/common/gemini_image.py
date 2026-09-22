@@ -1,6 +1,7 @@
 """Single-attempt Vertex storyboard-image transport; no JSON generation."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 from common.gemini import GeminiUsage, VertexGeminiClient
 
@@ -11,7 +12,19 @@ def configured_image_model() -> str:
 
 def configured_image_size() -> str:
     """Return the requested Gemini image resolution for review assets."""
-    return os.getenv("GEMINI_IMAGE_SIZE") or "1K"
+    return os.getenv("GEMINI_IMAGE_SIZE") or "2K"
+
+
+@dataclass(frozen=True)
+class GeneratedImage:
+    """One provider image, preserving its bytes and declared media type."""
+
+    data: bytes
+    mime_type: str
+
+    @property
+    def extension(self) -> str:
+        return {"image/png": ".png", "image/jpeg": ".jpg"}[self.mime_type]
 
 
 class VertexGeminiImageClient(VertexGeminiClient):
@@ -19,7 +32,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
         kwargs.setdefault("model", configured_image_model())
         super().__init__(**kwargs)
 
-    def generate_image(self, prompt: str) -> bytes:
+    def generate_image(self, prompt: str) -> GeneratedImage:
         from google import genai
         from google.genai import types
 
@@ -61,7 +74,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
                 if inline is not None and not getattr(part, "thought", False):
                     if inline.mime_type not in {"image/png", "image/jpeg"} or not inline.data:
                         raise ValueError("image generation returned an unsupported image")
-                    images.append(inline.data)
+                    images.append(GeneratedImage(inline.data, inline.mime_type))
         if len(images) != 1:
-            raise ValueError("image generation must return exactly one slide")
+            raise ValueError("image generation must return exactly one storyboard")
         return images[0]

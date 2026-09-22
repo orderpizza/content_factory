@@ -12,10 +12,10 @@ import unittest
 from PIL import Image, ImageDraw
 
 from common.gemini import GeminiUsage
-from common.gemini_image import VertexGeminiImageClient, configured_image_model, configured_image_size
+from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model, configured_image_size
 from workflow.gemini_image_renderer import (
     DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, FOOTER_BRAND, PROMPT_VERSION,
-    build_storyboard_prompt, footer_cta_phrases, split_storyboard, apply_overlays,
+    build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata, apply_overlays,
 )
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
 from workflow.model_budget import ModelBudgetPolicy
@@ -33,13 +33,30 @@ def slide_image(index=0):
     return stream.getvalue()
 
 
-def storyboard_image():
+def storyboard_image(image_format='PNG'):
     image = Image.new('RGB', (1200, 960))
     draw = ImageDraw.Draw(image)
     for ordinal, color in enumerate(COLORS):
         column, row = ordinal % 3, ordinal // 3
         draw.rectangle((column * 400, row * 480, (column + 1) * 400 - 1,
                         (row + 1) * 480 - 1), fill=color)
+    stream = BytesIO()
+    image.save(stream, format=image_format)
+    return stream.getvalue()
+
+
+def storyboard_with_margins(*, margin=32, column_gutter=26, row_gutter=30, background='#b9aa9a'):
+    panel_height = 450
+    height = margin * 2 + panel_height * 2 + row_gutter
+    panel_width = round((height * 1.25 - margin * 2 - column_gutter * 2) / 3)
+    width = margin * 2 + panel_width * 3 + column_gutter * 2
+    image = Image.new('RGB', (width, height), background)
+    draw = ImageDraw.Draw(image)
+    for ordinal, color in enumerate(COLORS):
+        column, row = ordinal % 3, ordinal // 3
+        left = margin + column * (panel_width + column_gutter)
+        top = margin + row * (panel_height + row_gutter)
+        draw.rectangle((left, top, left + panel_width - 1, top + panel_height - 1), fill=color)
     stream = BytesIO()
     image.save(stream, format='PNG')
     return stream.getvalue()
@@ -49,16 +66,17 @@ class FakeImageClient:
     model = 'fake-image-model'
     last_usage = GeminiUsage(100, 200, 300, model)
 
-    def __init__(self, data=None, error=None):
+    def __init__(self, data=None, error=None, mime_type='image/png'):
         self.data = data
         self.error = error
+        self.mime_type = mime_type
         self.calls = []
 
     def generate_image(self, prompt):
         self.calls.append(prompt)
         if self.error:
             raise self.error
-        return storyboard_image() if self.data is None else self.data
+        return GeneratedImage(storyboard_image() if self.data is None else self.data, self.mime_type)
 
 
 class ImagePipelineTests(unittest.TestCase):
@@ -91,8 +109,16 @@ class ImagePipelineTests(unittest.TestCase):
             build_storyboard_prompt({**package, 'platform': 'x'}, value)
 
     def test_storyboard_split_and_transparent_overlays(self):
-        slides = split_storyboard(storyboard_image())
+        split = split_storyboard_with_metadata(storyboard_with_margins())
+        slides = split.slides
         self.assertEqual(len(slides), 6)
+        self.assertFalse(split.metadata['fallback_used'])
+        for actual, expected in zip(split.metadata['outer_crop_box'], [32, 32, 1209, 962]):
+            self.assertLessEqual(abs(actual - expected), 5)
+        for actual in [item['width'] for item in split.metadata['gutters']['vertical']]:
+            self.assertLessEqual(abs(actual - 26), 5)
+        self.assertLessEqual(abs(split.metadata['gutters']['horizontal'][0]['width'] - 30), 5)
+        self.assertEqual(len(split.metadata['source_rectangles']), 6)
         for ordinal, (slide, color) in enumerate(zip(slides, COLORS), 1):
             self.assertEqual(slide.size, (1080, 1350))
             expected = Image.new('RGB', (1, 1), color).getpixel((0, 0))
@@ -108,6 +134,24 @@ class ImagePipelineTests(unittest.TestCase):
         with self.assertRaises(Exception):
             split_storyboard(b'not an image')
 
+    def test_adaptive_split_handles_different_nonwhite_margin_and_gutters(self):
+        split = split_storyboard_with_metadata(storyboard_with_margins(
+            margin=44, column_gutter=18, row_gutter=42, background='#58717a'))
+        self.assertFalse(split.metadata['fallback_used'])
+        for actual, expected in zip(split.metadata['outer_crop_box'], [44, 44, 1244, 986]):
+            self.assertLessEqual(abs(actual - expected), 5)
+        for actual in [item['width'] for item in split.metadata['gutters']['vertical']]:
+            self.assertLessEqual(abs(actual - 18), 5)
+        self.assertLessEqual(abs(split.metadata['gutters']['horizontal'][0]['width'] - 42), 5)
+        for slide, color in zip(split.slides, COLORS):
+            self.assertEqual(slide.getpixel((540, 675)), Image.new('RGB', (1, 1), color).getpixel((0, 0)))
+
+    def test_split_falls_back_when_margins_and_gutters_are_not_detectable(self):
+        split = split_storyboard_with_metadata(storyboard_image())
+        self.assertTrue(split.metadata['fallback_used'])
+        self.assertEqual(split.metadata['method'], 'equal_grid_fallback_v1')
+        self.assertEqual(len(split.slides), 6)
+
     def test_footer_ctas_are_deterministic_and_stop_after_slide_five(self):
         self.assertEqual(footer_cta_phrases(42), footer_cta_phrases(42))
         phrases = footer_cta_phrases(42)
@@ -117,7 +161,7 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertNotIn('Small Steps. A Bigger You.',
                          Path('src/workflow/gemini_image_renderer.py').read_text())
 
-    def test_vertex_transport_makes_one_5x4_1k_call_without_references_or_retries(self):
+    def test_vertex_transport_makes_one_5x4_2k_call_without_references_or_retries(self):
         client = VertexGeminiImageClient(project='test', model='test-image', max_output_tokens=8000)
         response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=1,
             candidates_token_count=2, thoughts_token_count=3, total_token_count=6), candidates=[
@@ -127,13 +171,14 @@ class ImagePipelineTests(unittest.TestCase):
         sdk = MagicMock()
         sdk.models.generate_content.return_value = response
         with patch('google.genai.Client', return_value=sdk) as create:
-            self.assertEqual(client.generate_image('literal prompt'), storyboard_image())
+            image = client.generate_image('literal prompt')
+        self.assertEqual(image, GeneratedImage(storyboard_image(), 'image/png'))
         self.assertEqual(create.call_args.kwargs['http_options'].retry_options.attempts, 1)
         kwargs = sdk.models.generate_content.call_args.kwargs
         self.assertEqual(kwargs['contents'].parts[0].text, 'literal prompt')
         self.assertEqual(len(kwargs['contents'].parts), 1)
         self.assertEqual(kwargs['config'].image_config.aspect_ratio, '5:4')
-        self.assertEqual(kwargs['config'].image_config.image_size, '1K')
+        self.assertEqual(kwargs['config'].image_config.image_size, '2K')
         self.assertEqual(client.last_usage.output_tokens, 5)
         sdk.close.assert_called_once()
 
@@ -170,7 +215,10 @@ class ImageWorkflowTests(unittest.TestCase):
             assets = list(store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal'))
             self.assertEqual([asset['ordinal'] for asset in assets], list(range(1, 7)))
             for ordinal, asset in enumerate(assets, 1):
+                self.assertEqual(asset['asset_role'], 'preview_png')
+                self.assertEqual(asset['mime_type'], 'image/png')
                 with Image.open(asset['local_path']) as image:
+                    self.assertEqual(image.format, 'PNG')
                     self.assertEqual(image.size, (1080, 1350))
                     self.assertEqual(image.getpixel((540, 675)), Image.new('RGB', (1, 1), COLORS[ordinal - 1]).getpixel((0, 0)))
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
@@ -184,8 +232,11 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertIsNone(manifest['slides'][5]['footer_cta'])
             self.assertEqual(manifest['storyboard']['columns'], 3)
             self.assertEqual(manifest['storyboard']['rows'], 2)
+            self.assertTrue(manifest['storyboard']['split']['fallback_used'])
             raw = self.artifacts / 'render-1' / manifest['storyboard']['raw']['filename']
             self.assertEqual(raw.read_bytes(), storyboard_image())
+            self.assertEqual(raw.name, 'raw-storyboard.png')
+            self.assertEqual(manifest['storyboard']['raw']['mime_type'], 'image/png')
             self.assertNotIn(str(raw), [asset['local_path'] for asset in assets])
             self.assertEqual([slide['source_cell'] for slide in manifest['slides']], [
                 {'row': 1, 'column': 1}, {'row': 1, 'column': 2}, {'row': 1, 'column': 3},
@@ -197,10 +248,24 @@ class ImageWorkflowTests(unittest.TestCase):
                              csrf_token='', production=False).count('<img '), 6)
             self.assertEqual(before, store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
 
-    def test_image_defaults_use_the_new_model_and_1k_storyboard(self):
+    def test_jpeg_storyboard_is_retained_with_its_provider_extension(self):
+        with WorkflowStore(self.path) as store:
+            self.prepare(store)
+            worker = DispatchVisualRenderer(
+                store, self.artifacts,
+                image_client=FakeImageClient(storyboard_image('JPEG'), mime_type='image/jpeg'),
+            )
+            self.assertIsNotNone(worker.run_once(), getattr(worker, 'last_operation', None))
+            manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
+            raw = self.artifacts / 'render-1' / manifest['storyboard']['raw']['filename']
+            self.assertEqual(raw.name, 'raw-storyboard.jpg')
+            self.assertEqual(raw.read_bytes(), storyboard_image('JPEG'))
+            self.assertEqual(manifest['storyboard']['raw']['mime_type'], 'image/jpeg')
+
+    def test_image_defaults_use_the_new_model_and_2k_storyboard(self):
         with patch.dict('os.environ', {}, clear=True):
             self.assertEqual(configured_image_model(), 'gemini-3.1-flash-image')
-            self.assertEqual(configured_image_size(), '1K')
+            self.assertEqual(configured_image_size(), '2K')
 
     def test_generation_and_processing_fail_terminal_without_fallback(self):
         for client in (FakeImageClient(error=RuntimeError('provider failed')), FakeImageClient(data=b'bad')):

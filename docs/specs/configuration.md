@@ -48,7 +48,7 @@ conversations.
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex project/location |
 | `GEMINI_MODEL` | Model ID; `VERTEX_AI_MODEL` is also accepted by the client |
 | `GEMINI_IMAGE_MODEL` | Storyboard review image model, default gemini-3.1-flash-image |
-| `GEMINI_IMAGE_SIZE` | Storyboard review image output size, default `1K`; choose a size supported by the configured model |
+| `GEMINI_IMAGE_SIZE` | Storyboard review image output size, default `2K`; choose a size supported by the configured model |
 | `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Separate image-model token prices, required before image calls |
 | `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Explicit configured-model prices |
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD` | Shared model spending warning/hard cap |
@@ -88,7 +88,7 @@ existing UTC-day and ContentJob limits. Configure image input/output rates for
 the chosen image model; use a conservative output rate covering image and text
 output tokens. These settings are required lazily before a supported image
 render, not for planning or HTML-only work. The default Gemini 3.1 Flash Image
-request sets a 5:4 storyboard aspect ratio and 1K image size; change
+request sets a 5:4 storyboard aspect ratio and 2K image size; change
 `GEMINI_IMAGE_SIZE` only to another size supported by the selected model. The image output limit
 includes image tokens and any thinking. `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS` and
 `GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` override the image phase allowances.

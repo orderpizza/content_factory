@@ -38,7 +38,9 @@ def _review_preview(
     public_text = package.get("public_text") or package.get("caption") or package.get("post_text") or ""
     assets = connection.execute(
         "SELECT render_asset_id,ordinal FROM render_assets WHERE render_run_id=? "
-        "AND asset_role='delivery_jpeg' ORDER BY ordinal LIMIT 8",
+        "AND asset_role=CASE WHEN EXISTS (SELECT 1 FROM render_assets d "
+        "WHERE d.render_run_id=render_assets.render_run_id AND d.asset_role='delivery_jpeg') "
+        "THEN 'delivery_jpeg' ELSE 'preview_png' END ORDER BY ordinal LIMIT 8",
         (review["render_run_id"],),
     ).fetchall()
     images = "".join(
