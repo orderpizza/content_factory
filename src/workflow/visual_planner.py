@@ -32,6 +32,9 @@ class VisualPlanner:
         ).fetchone()
         if row is None:
             raise ValueError("visual plan references a missing ContentPackage")
+        if not self.production and row["pipeline_id"] in {"ai_tech", "psychology"}:
+            self.store.block_visual_plan(run)
+            return None
         package, intent = json.loads(row["package_json"]), validate_intent(json.loads(row["visual_intent_json"]))
         units = package.get("visual_units")
         if not isinstance(units, list):

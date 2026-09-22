@@ -11,7 +11,6 @@ from database.current import (
     SchemaError,
     connect,
     initialize_database,
-    migrate_database,
     validate_database,
 )
 from dashboard import render_detection_dashboard
@@ -84,7 +83,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=8", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=9", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):
@@ -139,7 +138,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
                 side_effect=[SourceCollectionError("transport_error", "temporary"), success],
             ):
                 first = collector.run_due(
-                    now=now, source_ids={"nasa_recently_published_rss_v1"}
+                    now=now, source_ids={"openai_news_rss_v1"}
                 )[0]
                 store.connection.execute(
                     "UPDATE source_collection_attempts SET next_attempt_at=? "
@@ -148,7 +147,7 @@ class DetectionDashboardSliceTests(unittest.TestCase):
                 )
                 store.connection.commit()
                 second = collector.run_due(
-                    now=now, source_ids={"nasa_recently_published_rss_v1"}
+                    now=now, source_ids={"openai_news_rss_v1"}
                 )[0]
             executions = store.connection.execute(
                 "SELECT request_ordinal, status FROM source_request_executions "
@@ -169,60 +168,6 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         )
         self.assertEqual(health_count, 1)
 
-    def test_youtube_quota_is_reserved_by_utc_request_day_before_outbound_call(self):
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        with DetectionStore(self.database_path) as store:
-            source = store.connection.execute(
-                "SELECT * FROM detection_source_instances "
-                "WHERE stable_id='youtube_us_most_popular_v1'"
-            ).fetchone()
-            store.connection.execute(
-                "UPDATE detection_source_instances SET quota_limit=1 "
-                "WHERE detection_source_instance_id=?",
-                (source["detection_source_instance_id"],),
-            )
-            prior = store.connection.execute(
-                "INSERT INTO source_collection_attempts "
-                "(source_instance_id, configuration_release_id, scheduled_for, request_json, "
-                "request_hash, item_count, complete, quota_units_reserved, status, "
-                "attempt_limit, created_at, completed_at) "
-                "VALUES (?,?,?,?,?,0,1,1,'completed',3,?,?)",
-                (
-                    source["detection_source_instance_id"], source["configuration_release_id"],
-                    (now - timedelta(days=1)).isoformat(), "{}", "c" * 64,
-                    (now - timedelta(days=1)).isoformat(),
-                    (now - timedelta(days=1)).isoformat(),
-                ),
-            )
-            store.connection.execute(
-                "INSERT INTO source_request_executions "
-                "(source_collection_attempt_id, source_instance_id, request_ordinal, quota_day, "
-                "quota_units, status, reserved_at, completed_at) "
-                "VALUES (?,?,1,?,1,'succeeded',?,?)",
-                (
-                    prior.lastrowid, source["detection_source_instance_id"], now.date().isoformat(),
-                    now.isoformat(), now.isoformat(),
-                ),
-            )
-            store.connection.commit()
-            with patch.dict("os.environ", {"YOUTUBE_API_KEY": "test-key"}), patch(
-                "detection.collector.collect_source"
-            ) as outbound:
-                outcome = DetectionCollector(
-                    store, instance_id="collector-quota-test"
-                ).run_due(now=now, source_ids={"youtube_us_most_popular_v1"})[0]
-            latest = store.connection.execute(
-                "SELECT a.failure_category, h.classification "
-                "FROM source_collection_attempts a JOIN source_health h "
-                "ON h.source_collection_attempt_id=a.source_collection_attempt_id "
-                "WHERE a.source_collection_attempt_id=?",
-                (outcome["attempt_id"],),
-            ).fetchone()
-
-        outbound.assert_not_called()
-        self.assertEqual(outcome["status"], "failed")
-        self.assertEqual(latest["failure_category"], "quota_limited")
-        self.assertEqual(latest["classification"], "quota_limited")
 
     def test_collection_scout_selection_and_dashboard_feed_share_sqlite_boundary(self):
         now = datetime(2026, 9, 7, 12, 7, tzinfo=timezone.utc)
@@ -231,18 +176,18 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         shared_activity = 1000.0
 
         def fake_collect(source):
-            if source["stable_id"] == "nasa_recently_published_rss_v1":
+            if source["stable_id"] == "openai_news_rss_v1":
                 items = (
                     CollectedItem(
-                        "nasa-shared", "Shared Opportunity", shared_activity,
-                        rank=1, source_item_id="nasa-shared",
-                        canonical_url="https://www.nasa.gov/shared",
+                        "publisher-shared", "Shared Opportunity", shared_activity,
+                        rank=1, source_item_id="publisher-shared",
+                        canonical_url="https://openai.com/shared",
                         provider_time=collection_time.isoformat(),
                     ),
                     CollectedItem(
-                        "nasa-other", "Other Topic", 1.0,
-                        rank=100, source_item_id="nasa-other",
-                        canonical_url="https://www.nasa.gov/other",
+                        "publisher-other", "Other Topic", 1.0,
+                        rank=100, source_item_id="publisher-other",
+                        canonical_url="https://openai.com/other",
                         provider_time=collection_time.isoformat(),
                     ),
                 )
@@ -274,9 +219,9 @@ class DetectionDashboardSliceTests(unittest.TestCase):
                 collection = DetectionCollector(store, instance_id="collector-test").run_due(
                     now=now,
                     source_ids={
-                        "nasa_recently_published_rss_v1",
+                        "openai_news_rss_v1",
                         "hacker_news_top_stories_v1",
-                        "youtube_us_most_popular_v1",
+                        "google_ai_rss_v1",
                     },
                 )
             result = DetectionScout(store, instance_id="scout-test").run(now=now)
@@ -366,32 +311,6 @@ class DetectionDashboardSliceTests(unittest.TestCase):
         self.assertIn("1 selected", filtered)
         self.assertIn("Raw Feed Items<b>1</b>", filtered)
         self.assertNotIn("Other Topic", filtered)
-
-    def test_timestamp_migration_normalizes_legacy_offsets_without_reset(self):
-        with WorkflowStore(self.database_path) as store:
-            store.create_human_idea("timestamp migration", command_id="timestamp-migration")
-        connection = connect(self.database_path)
-        try:
-            connection.execute("UPDATE content_threads SET created_at=?,updated_at=?", (
-                "2026-09-21T20:16:00+02:00", "2026-09-21T18:16:00.500000Z",
-            ))
-            connection.execute("UPDATE schema_migrations SET version=7,checksum=?,applied_at=?", (
-                "3ca7f26a4c3372222df2b9a77a9618db68f7fa15f03a16070b693c0a8dfa7e0f",
-                "2026-09-21T18:16:00+00:00",
-            ))
-            connection.execute("PRAGMA user_version=7")
-            connection.commit()
-        finally:
-            connection.close()
-        self.assertTrue(migrate_database(self.database_path))
-        connection = connect(self.database_path, read_only=True)
-        try:
-            row = connection.execute("SELECT created_at,updated_at FROM content_threads LIMIT 1").fetchone()
-            self.assertEqual(tuple(row), ("2026-09-21T18:16:00", "2026-09-21T18:16:00"))
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
-            validate_database(connection)
-        finally:
-            connection.close()
 
 
 if __name__ == "__main__":

@@ -5,19 +5,17 @@ from .evidence import text, link, json_detail, render_storage_status
 
 
 def render_threads(connection, *, limit=20, interactive=False, csrf_token='', thread_id=None, thread_page=1, revision_page=1, message_page=1):
-    from .workflow import _hidden, _review_preview, _production_status
+    from .workflow import _hidden, _review_preview
+    from .flow import render_job_progress
     limit = max(1, min(int(limit), 100))
     thread_page = max(1, min(int(thread_page), 10000))
     revision_page = max(1, min(int(revision_page), 10000))
     message_page = max(1, min(int(message_page), 10000))
-    production = connection.execute('SELECT 1 FROM production_configurations LIMIT 1').fetchone() is not None
+    production = False
     parts = ["<section class='workflow card' id='threads'><h2>Ideas &amp; threads</h2>",
              '<p>Detection goes directly to Determination with frozen source evidence. Human ideas go through Intake first. Each selected domain produces one ContentJob.</p>']
     parts.append(render_storage_status(connection))
-    if production:
-        parts.append(_production_status(connection))
-    else:
-        parts.append('<p class="notice">Development catalog · synthetic destinations · no public delivery.</p>')
+
     if interactive:
         parts.append("<form method='post' action='/commands'><h3>Submit an idea</h3>"
                      f"{_hidden('csrf_token', csrf_token)}{_hidden('command_kind', 'new_idea')}{_hidden('command_id', str(uuid.uuid4()))}"
@@ -87,7 +85,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                 parts.append(f"<p class='notice'><b>{text(decision['outcome'])}</b> · {text(decision['opportunity_value'])}</p><p>{text(decision['rationale'])}</p>")
                 parts.append(json_detail('Decision warnings', decision['warnings_json']))
                 routes = connection.execute('SELECT * FROM determination_routes WHERE determination_decision_id=? ORDER BY pipeline_id', (decision['determination_decision_id'],)).fetchall()
-                parts.append('<h4>Five domain routes</h4><div class="route-grid">')
+                parts.append('<h4>Three domain routes</h4><div class="route-grid">')
                 for route in routes:
                     parts.append(f"<section class='route {text(route['disposition'])}'><h3>{text(route['pipeline_id'])} · {text(route['disposition'])}</h3><p><b>Fit:</b> {text(route['fit'])}</p><p>{text(route['reason'])}</p>")
                     if route['angle_json']:
@@ -102,6 +100,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                         parts.append(json_detail('Immutable job recipe',job['recipe_json']) + json_detail('Output plan',job['output_plan_json']))
                         if generation:
                             parts.append(json_detail('Latest generation attempt',dict(generation),diagnostic=True))
+                        parts.append(render_job_progress(connection, jid))
                         reviews = connection.execute('SELECT v.review_request_id FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE c.content_job_id=? ORDER BY v.review_request_id DESC LIMIT 20',(jid,)).fetchall()
                         for review in reviews:
                             parts.append(_review_preview(connection,review[0],interactive=interactive,csrf_token=csrf_token,production=production))

@@ -311,9 +311,11 @@ class WorkflowStore:
             raise ValueError("unknown pipeline")
         if type(enabled) is not bool or type(generation_ready) is not bool:
             raise ValueError("fixture readiness must be boolean")
+        if len(outputs) > 1:
+            raise ValueError("a domain has one Instagram destination")
         normalized = []
         for output in outputs:
-            if output.get("platform") not in {"instagram", "x"} or not str(output.get("account", "")).strip():
+            if output.get("platform") not in {"instagram"} or not str(output.get("account", "")).strip():
                 raise ValueError("fixture output requires a supported platform and explicit account")
             if not isinstance(output.get("content_format"), str) or not output["content_format"].strip():
                 raise ValueError("fixture output requires a format")
@@ -559,7 +561,7 @@ class WorkflowStore:
                 }
                 if not isinstance(destination, dict) or set(destination) != required:
                     raise ValueError("production destination has an invalid closed shape")
-                if destination["platform"] not in {"instagram", "x"}:
+                if destination["platform"] not in {"instagram"}:
                     raise ValueError("unsupported production platform")
                 for key in ("destination_key", "account_key", "provider_account_id", "secret_ref"):
                     if not isinstance(destination[key], str) or not destination[key].strip():
@@ -572,44 +574,11 @@ class WorkflowStore:
                     raise ValueError("production account key must be a stable local identifier")
                 if not re.fullmatch(r"[0-9]{1,30}", destination["provider_account_id"]):
                     raise ValueError("production provider account ID must be numeric")
-                expected_secret = (
-                    "INSTAGRAM_ACCESS_TOKEN" if destination["platform"] == "instagram"
-                    else "X_USER_ACCESS_TOKEN"
-                )
-                if destination["secret_ref"] != expected_secret:
-                    raise ValueError("production destination uses an unsupported secret reference")
+                if destination["secret_ref"] != "DELIVERY_TOKEN":
+                    raise ValueError("inactive delivery boundary requires a generic secret reference")
                 config = destination["config"]
-                if destination["platform"] == "instagram":
-                    expected_config = {
-                        "graph_api_version", "r2_account_id", "r2_bucket_name",
-                        "r2_public_domain", "adapter_version",
-                    }
-                    if set(config) != expected_config:
-                        raise ValueError("Instagram destination configuration has an invalid closed shape")
-                    public = urlsplit(str(config["r2_public_domain"]))
-                    if (
-                        not re.fullmatch(r"v[0-9]{1,3}\.[0-9]{1,3}", str(config["graph_api_version"]))
-                        or config["adapter_version"] != "meta_instagram_carousel_v1"
-                        or not all(isinstance(config[key], str) and config[key].strip()
-                                   for key in expected_config)
-                        or public.scheme != "https" or not public.hostname
-                        or public.username or public.password or public.query or public.fragment
-                        or public.path not in {"", "/"}
-                    ):
-                        raise ValueError("Instagram destination configuration is unsafe or unsupported")
-                else:
-                    expected_config = {
-                        "api_origin", "media_upload_path", "create_post_path",
-                        "adapter_version", "image_max_bytes",
-                    }
-                    if set(config) != expected_config or config != {
-                        "api_origin": "https://api.x.com",
-                        "media_upload_path": "/2/media/upload",
-                        "create_post_path": "/2/tweets",
-                        "adapter_version": "x_static_post_delivery_v1",
-                        "image_max_bytes": 5_000_000,
-                    }:
-                        raise ValueError("X destination configuration is unsafe or unsupported")
+                if config != {"adapter_version": "unimplemented"}:
+                    raise ValueError("posting provider implementation is outside the current baseline")
                 policy = destination["posting_policy"]
                 if not isinstance(policy, dict) or set(policy) != {
                     "timezone", "max_posts_per_day", "min_post_interval_minutes",
@@ -685,10 +654,7 @@ class WorkflowStore:
                     raise ValueError("duplicate production pipeline/destination binding")
                 seen.add(pair)
                 destination = next(item for item in destinations if item["destination_key"] == destination_key)
-                expected_format = (
-                    "instagram_static_carousel_v2" if destination["platform"] == "instagram"
-                    else "x_static_post_v1"
-                )
+                expected_format = "instagram_static_carousel_v2"
                 if binding["content_format"] != expected_format:
                     raise ValueError("production binding format does not match its platform")
                 self.connection.execute(
@@ -815,6 +781,21 @@ class WorkflowStore:
     def fail_claim(self, table: str, key: str, row: Any, reason: str) -> None:
         with self.transaction():
             self._finish_claim(table,key,row,"failed",now(),safe_diagnostic(reason))
+
+    def block_visual_plan(self, run: Any) -> None:
+        """Stop unsupported domains before consulting inactive HTML capabilities."""
+        with self.transaction():
+            if self._cancel_if_closed("visual_plan_runs", run, now()):
+                return
+            self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "blocked", now(),
+                               "Gemini visual renderer not implemented for this domain.")
+
+    def block_render(self, run: Any, reason: str) -> None:
+        """Finish an expected capability stop without an error or paid retry."""
+        with self.transaction():
+            if self._cancel_if_closed("render_runs", run, now()):
+                return
+            self._finish_claim("render_runs", "render_run_id", run, "blocked", now(), reason)
 
     def defer_model_budget_claim(self, table: str, key: str, row: Any, reason: str) -> None:
         """Defer a daily-cap refusal; terminally stop a ContentJob-cap refusal."""
@@ -1052,8 +1033,8 @@ class WorkflowStore:
 
     def record_decision(self, request: Any, decision: dict[str, Any]) -> int:
         moment = now(); routes = decision["routes"]
-        if {item["pipeline_id"] for item in routes} != set(WORKFLOW_PIPELINES) or len(routes) != 5:
-            raise ValueError("determination must persist exactly five routes")
+        if {item["pipeline_id"] for item in routes} != set(WORKFLOW_PIPELINES) or len(routes) != len(WORKFLOW_PIPELINES):
+            raise ValueError("determination must persist exactly three routes")
         selected = any(item["disposition"] == "selected" for item in routes)
         expected = "accepted" if selected else ("blocked" if any(item["disposition"] == "blocked" for item in routes) else "not_recommended")
         if decision["outcome"] != expected:
@@ -1081,7 +1062,7 @@ class WorkflowStore:
             if route["disposition"] == "selected":
                 if not cap or not cap["enabled"] or not cap["generation_ready"] or not outputs:
                     raise ValueError("selected route lacks ready frozen capability")
-                if len(outputs) > 2 or len({o["platform"] for o in outputs}) != len(outputs):
+                if len(outputs) > 1 or len({o["platform"] for o in outputs}) != len(outputs):
                     raise ValueError("output plan allows at most one output per platform")
         with self.transaction():
             if self._cancel_if_closed("determination_requests", request, moment):
@@ -2289,11 +2270,6 @@ class WorkflowStore:
                 or item["bytes"] > 8_000_000 for item in validated
             ):
                 raise ValueError("Instagram delivery assets violate the frozen static-carousel contract")
-        elif row["platform"] == "x":
-            if len(validated) != 1 or validated[0]["mime"] != "image/jpeg" or (
-                validated[0]["width"], validated[0]["height"]
-            ) != (1200, 675) or validated[0]["bytes"] > 5_000_000:
-                raise ValueError("X delivery asset violates the frozen single-image contract")
         else:
             raise ValueError("unsupported production delivery platform")
         result = dict(row)

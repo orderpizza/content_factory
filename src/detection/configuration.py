@@ -16,7 +16,6 @@ from .normalization import canonical_title
 SOURCE_KINDS = {
     "publisher_feed_collector_v1",
     "wikimedia_enwiki_pageviews_v1",
-    "youtube_most_popular_v1",
     "hacker_news_top_stories_v1",
 }
 ROOT_FIELDS = {
@@ -231,12 +230,6 @@ def _validate_source(source: Any) -> None:
             "access": "all-access",
             "agent": "all-agents",
         }
-    elif kind == "youtube_most_popular_v1":
-        if source["delivery_format"] != "json":
-            raise ConfigurationError("YouTube source must declare json")
-        expected = {"max_items": 50, "region_code": "US", "parts": ["snippet", "statistics"]}
-        if source["quota_limit"] != 1000 or source["secret_ref"] != "YOUTUBE_API_KEY":
-            raise ConfigurationError("YouTube v1 requires its documented quota and secret reference")
     else:
         if source["delivery_format"] != "json":
             raise ConfigurationError("Hacker News source must declare json")

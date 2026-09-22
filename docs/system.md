@@ -1,64 +1,46 @@
-# Content Factory System Guide
+# Content Factory system
 
-This is the architecture and document-owner index. Read
-[current operations](current-state.md), then only the focused contracts relevant
-to the change. [The roadmap](plans/target-implementation.md) is the sole future
-backlog. Specs describe implemented behavior and its limits, not proposed features.
+This guide owns architecture and document routing. Focused specs describe current
+code, configuration and persisted contracts.
 
-## Current Objective
+## Current boundary
 
-Make both Detection and human ideation observable through Determination and
-ContentJobs on the local Mac Mini. SQLite is the only cross-worker handoff.
-The dashboard is the human interface; it never invokes a worker or provider.
-
-Pipelines are domain intelligence, not accounts or platforms.
-[The domain catalog](pipelines/domains.md) owns the five remits and quality criteria.
-
-## Components, Inputs, and Persisted Outputs
+The three domains are `english`, `ai_tech`, `psychology`. Each has one Instagram
+destination. Domain IDs are editorial identities, never account IDs. Both
+Detection and human ideas are first-class inputs for every domain.
 
 ```text
-Source / Feed → Collector → Raw Feed Items → lexical clusters
-  → local semantic resolution → frozen Clusters → attention scoring
-  → complete Detection Selection → Opportunities
-  → ContentThread + source-backed BriefRevision + DeterminationRequest
+Source / Feed → Collector → Raw Feed Item → lexical clustering
+→ local semantic resolution → frozen Cluster scoring → committed Opportunity
+→ source-backed BriefRevision + DeterminationRequest
 
-Human idea/reply → ContentThread + message + IntakeRequest
-  → Intake clarification, or BriefRevision + DeterminationRequest
+Human idea / reply → ContentThread + IntakeRequest
+→ clarification or BriefRevision + DeterminationRequest
 
-Determination → decision + five domain routes
-  → each selected route: ContentJob + pending GenerationRun
+Determination → three domain assessments → selected ContentJob + GenerationRun
+→ canonical content → Instagram adaptation → visual recipe → Gemini rendering
+→ ReviewRequest + exact slides → dashboard
 ```
 
-`--planning-only` stops here. The existing downstream implementation is:
+SQLite is the only persisted cross-worker interface. Workers claim records; they
+never call the next worker. Detection is LLM-free: lexical `canonicalization_v2`,
+pinned local MiniLM resolution and frozen `attention_v3` scoring. It selects
+attention evidence, never editorial domains. Determination evaluates all three
+remits against immutable evidence and catalogs.
 
-```text
-GenerationRun → CanonicalContent + OutputRequests
-  → AdaptationRun → ContentPackage → VisualPlanRun → VisualRecipe
-  → RenderRun → ReviewRequest
-  → exact human Post now → PostRequest + PostRecord → Posting Agent
-```
+English `expression_breakdown_v1` uses the accepted one-call Gemini storyboard
+and local splitting/overlays. AI/Tech and Psychology stop at rendering with an
+explicit `blocked` capability state. No HTML fallback or fake review assets are
+created. The deterministic visual library and HTML renderer remain preserved
+inactive, with gallery tooling and tests. Shared recipe/claim plumbing remains
+where it supports the accepted English path.
 
-Detection's `canonicalization_v2` handles lexical equivalence only. Pinned
-local MiniLM compares plausible recent lexical clusters; its decisions are
-frozen before deterministic `attention_v3` scoring. Linked members do not pool
-scoring credit. Detection never calls an LLM or chooses an editorial domain.
-
-Idea Intake interprets bounded human conversation, not routes or content.
-Determination evaluates all five domains against the request's immutable
-catalog and source evidence. Zero, one or several distinct angles may be chosen.
-Each selected route atomically creates a job; no worker directly calls the next.
-
-The dashboard shows Raw Feed Items, Clusters, Opportunities and ContentJobs as
-separate linked views. Collection-attempt, source-health and Cluster Selection
-statuses have different owners. Storage measurements are advisory through job
-creation; they never admit or deny planning work.
-
-Adaptation owns platform copy, metadata and bounded semantic visual intent. The
-shared Visual Planner selects a recipe from the version-controlled visual
-registry; the renderer owns assets and exact tokens; posting only delivers
-approved content. Default development destinations are synthetic
-and non-deliverable. Production and delivery are explicit separate modes and
-require configuration, readiness and exact per-package authorization.
+The current acceptance boundary is review-ready slides visible in the dashboard.
+Generic review → posting/delivery → external delivery records and R2 staging
+remain preserved, but no posting provider or public-delivery CLI is composed.
+The dashboard reads evidence and persists review/planning commands; it invokes
+neither providers nor workers. Planning through ContentJob creation ignores
+storage admission; monitoring remains advisory there.
 
 ## Document Router
 
@@ -69,17 +51,16 @@ require configuration, readiness and exact per-package authorization.
 | Executable schema and record inventory | [SQLite records](specs/data/records.md) |
 | SQL/JSON contract ownership | [Contracts](contracts/README.md) |
 | Detection and semantic evidence | [Detection](specs/detection.md) |
-| Human conversation, briefs, five-domain decisions | [Intake and Determination](specs/idea-intake-and-determination.md) |
+| Human conversation, briefs, three-domain decisions | [Intake and Determination](specs/idea-intake-and-determination.md) |
 | Domain editorial policy | [Domains](pipelines/domains.md) |
 | Nonsecret releases and settings | [Configuration](specs/configuration.md) |
 | Dashboard visibility and commands | [Dashboard](specs/dashboard.md) |
 | Polling, claims, retries and process operation | [Runtime](specs/runtime.md) |
 | Canonical generation and adaptation | [Content production](specs/content-production.md) |
-| Instagram and X payloads | [Platform outputs](specs/platform-outputs.md) |
+| Instagram payloads | [Platform outputs](specs/platform-outputs.md) |
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
-| Provider facts | [Meta](platforms/meta.md), [X](platforms/x.md) |
 
 ### Required reading for a code change
 
@@ -93,21 +74,16 @@ also read the data model, SQLite records and executable contract.
 | Dashboard | Dashboard and the owning stage contract |
 | Generation/adaptation | Content production, domains, platform outputs, reliability |
 | Rendering | Visual rendering, platform outputs, runtime, reliability |
-| Posting/review | Posting, dashboard, platform outputs, reliability, runtime, selected provider |
+| Posting/review | Posting, dashboard, platform outputs, reliability, runtime, owning record contract |
 | Runtime/budgets/storage | Runtime, reliability, configuration and owning stage |
 | Schema/configuration | Data model, records, configuration and affected stage contracts |
 
-## Keeping the documents efficient
 
-- README is the entry point, not a second runbook.
-- Current state owns runnable capabilities, copyable operations and the project map.
-- Each focused spec owns its detailed rules; link rather than repeat them elsewhere.
-- SQL and in-code schemas own exact executable fields; prose explains meaning and limits.
-- Roadmap owns proposed behavior, acceptance criteria and human decisions.
-- Keep no dated audit/decision archive or verification diary. Git retains source
-  history; immutable runtime records retain operational evidence.
-- Keep version IDs only where code/configuration/persistence actually uses them.
+## Documentation maintenance
 
-Change the owning spec with its implementation, and update this router only when
-ownership or top-level boundaries change. [Agent instructions](../AGENTS.md) own
-the editing and verification workflow.
+README is the short entry point; current state owns runnable commands. Each
+focused spec owns one contract; executable SQL and in-code schemas own exact
+fields. Update the owner with code changes and link instead of duplicating.
+Keep no roadmap, audit diary or migration narrative. Git retains source history;
+immutable records retain runtime evidence. [Agent instructions](../AGENTS.md)
+own safe editing and verification.

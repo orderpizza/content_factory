@@ -1,7 +1,7 @@
 # Idea Intake and Determination Specification
 
 **Document role:** Tier 2 current planning contract.
-**Owner:** Human conversation, immutable briefs, five-domain decisions and job creation.
+**Owner:** Human conversation, immutable briefs, three-domain decisions and job creation.
 
 ## Two entry paths
 
@@ -65,9 +65,9 @@ evaluations. Automatic cross-thread semantic coverage reuse is not implemented.
 
 ## Frozen catalog
 
-Setup registers five domains before any handoff. The shared catalog reader
+Setup registers three domains before any handoff. The shared catalog reader
 provides each domain's remit, enabled/generation-ready state and eligible output
-bindings. Development bindings are synthetic Instagram/X fixtures, not verified
+bindings. Development bindings are synthetic Instagram fixtures, not verified
 social accounts. Production catalog readiness is checked from persisted facts.
 
 Each DeterminationRequest freezes its brief, evidence and catalog at creation.
@@ -83,20 +83,19 @@ against current capabilities.
 
 ## Determination
 
-Gemini evaluates `english`, `ai_tools`, `personal_finance`,
-`business_side_hustle` and `psychology_behavior` independently. Selected
+Gemini evaluates `english`, `ai_tech` and `psychology` independently. Selected
 domains must offer substantively distinct reader value; skipping is normal.
 Disabled/unready domains and outputs cannot be selected.
 
 Response schema and semantic validation are owned by
 `src/workflow/gemini_determination.py`. Required aggregate fields are
-`outcome`, `opportunity_value`, `rationale`, `warnings` and exactly five routes.
+`outcome`, `opportunity_value`, `rationale`, `warnings` and exactly three routes.
 Each route has a registered `pipeline_id`, `disposition` (`selected`,
 `skipped`, `blocked`), `fit`, nonempty `reason`, optional angle and outputs.
 
 A selected angle requires `angle_kind`, `canonical_target`, `audience`,
 `thesis` and `reader_value`. Outputs must match ready entries from the frozen
-catalog, at most one per platform and two total.
+catalog, exactly one Instagram binding for each selected route.
 
 - `accepted`: at least one selected route.
 - `blocked`: no selection and at least one operationally blocked route.
@@ -104,7 +103,7 @@ catalog, at most one per platform and two total.
 
 Validation failure fails the claim and writes the model-attempt outcome; it
 does not persist a partial decision. Finalization atomically writes the decision,
-five route assessments, and one ContentJob + pending GenerationRun per selected
+three route assessments, and one ContentJob + pending GenerationRun per selected
 route. The job freezes its domain/angle recipe and output plan. No output
 binding means no selected job.
 

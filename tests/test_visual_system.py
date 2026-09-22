@@ -62,10 +62,10 @@ class VisualRegistryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_unit_layouts(value, roles)
 
-    def test_x_rejects_multi_slide_archetypes_but_keeps_shared_cards(self):
+    def test_library_platform_policy_accepts_only_instagram(self):
         with self.assertRaises(ValueError):
             recipe("phrase_sheet_v1", platform="x", roles=["hook"])
-        value = recipe("vocab_card_minimal_v1", platform="x", roles=["hook"])
+        value = recipe("vocab_card_minimal_v1", platform="instagram", roles=["hook", "explanation", "explanation", "example", "takeaway"])
         self.assertEqual(value["archetype_id"], "vocab_card_minimal_v1")
 
     def test_production_filters_experimental_and_accepts_complete_curated_recipe(self):

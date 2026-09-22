@@ -202,20 +202,15 @@ Supported source kinds are:
 
 | Source kind / stable ID | Scope and measurement | Collection policy | Required provenance and guardrails |
 | --- | --- | --- | --- |
-| `publisher_feed_collector_v1` | An operator-approved publisher feed. One source instance is one exact feed URL, which declares either RSS or Atom as its delivery format; the collector does not combine both formats for one source. The raw measure is unique published feed items that join a canonical cluster during a trailing 24-hour UTC window. | Poll each enabled feed every 15 minutes. De-duplicate by feed GUID, or normalized link/title when GUID is absent. | Store source-instance ID, publisher/display name, feed URL, declared delivery format, item GUID/link, published/collected time, title, and raw item count. Only allow HTTPS feeds with an explicit coverage note. A feed is enabled only through the persisted source registry. |
+| `publisher_feed_collector_v1` | An operator-approved publisher feed. One source instance is one exact feed URL, which declares either RSS or Atom as its delivery format; the collector does not combine both formats for one source. The raw measure is unique published feed items that join a canonical cluster during a trailing 24-hour UTC window. | Poll each enabled feed hourly. De-duplicate by feed GUID, or normalized link/title when GUID is absent. | Store source-instance ID, publisher/display name, feed URL, declared delivery format, item GUID/link, published/collected time, title, and raw item count. Only allow HTTPS feeds with an explicit coverage note. A feed is enabled only through the persisted source registry. |
 | `wikimedia_enwiki_pageviews_v1` | The daily most-viewed English Wikipedia articles (`en.wikipedia.org`, all access, all agents) for the preceding completed UTC day. The raw measure is the reported daily view count and rank. | Fetch once after the provider's daily data is available; subsequent Scout polls reuse the same completed-day snapshot. | Store article identifier/title, report date, rank, view count, endpoint/version, and collection time. Exclude non-content/navigation entries and duplicate article identities before clustering. |
-| `youtube_most_popular_v1` | The configured first 50 positions of the returned `mostPopular` video chart for one region across all categories. The initial instance is the US chart. The raw measure is chart rank plus returned video statistics at collection time; it is not search or keyword-trend data. | Poll every 30 minutes using exactly one `videos.list` request with `chart=mostPopular`, `regionCode=US`, `maxResults=50`, and `part=snippet,statistics`; omit `videoCategoryId` and `pageToken`. Enforce a local ceiling of 1,000 quota units per UTC day. Stop collection and record `quota_limited` once the ceiling is reached. | Store video ID, title, channel ID/title, published time, category, chart position, returned statistics, collection time, request parameters, and provider/API version. Never use `search.list`. |
 | `hacker_news_top_stories_v1` | The configured first 100 positions of the published Hacker News Top Stories ID list and each listed story's current rank and score. The raw measure is story rank plus score at collection time. | Poll the Top Stories list every 30 minutes, retain its full-list hash/count, take positions 1–100, then fetch one detail record for every selected ID in that same attempt. | Store HN item ID, title, outbound URL when present, score, rank, author, provider time, collection time, and item type. Ignore deleted/dead/non-story entries for cluster creation but retain the collection diagnostic. |
 
 The Wikimedia adapter uses project pageview/top-pages data. Recheck endpoint,
 availability and attribution requirements before a provider change; see the
 [Wikimedia project-metrics reference](https://doc.wikimedia.org/generated-data-platform/aqs/analytics-api/examples/project-metrics.html).
 
-The YouTube adapter uses the official [`videos.list` chart endpoint](https://developers.google.com/youtube/v3/docs/videos/list),
-which documents `mostPopular`, `regionCode`, and its one-unit quota cost. The
-local ceiling is a Content Factory safety limit, not a claim about a provider's
-default quota; recheck the [YouTube quota documentation](https://developers.google.com/youtube/v3/getting-started)
-before changing it. The Hacker News adapter uses the public
+The Hacker News adapter uses the public
 [Hacker News API](https://github.com/HackerNews/API) Top Stories list and item
 records. These references describe interfaces, not live account or endpoint readiness.
 
@@ -229,20 +224,37 @@ added to the registry.
 
 ### Configured source instances
 
-The configured publisher-feed coverage is deliberately narrow; it is not a
-general-news sample.
+The configured roster is deliberately small. Both Detection and human ideas may
+route to any domain; these source topics do not impose routing restrictions.
 
-| Source-instance ID | Provider and coverage | Interface | Policy |
-| --- | --- | --- | --- |
-| `nasa_recently_published_rss_v1` | NASA's recent web-content stream; not all science, space or general-news attention. | [NASA feed](https://www.nasa.gov/feed/) — configured as RSS 2.0. | Enabled; poll every 15 minutes; no credentials. Retain feed-supplied provenance/metadata, never scrape linked article bodies. |
-| `wikimedia_enwiki_daily_v1` | English Wikipedia — completed daily Top Pageviews report. | Wikimedia Analytics API/data response. | **Configured state:** enabled; fetch once for each completed UTC day after availability. |
-| `youtube_us_most_popular_v1` | YouTube — US `mostPopular` chart across all categories. It is the complete chart returned by the provider, not all videos published in the US. | YouTube Data API `videos.list`; JSON. | **Configured state:** disabled by default in development; enable with setup --include-youtube; poll every 30 minutes; 1,000 local quota-unit ceiling per UTC day. The data model permits further regional instances, but Korea is not enabled in the initial roster. |
-| `hacker_news_top_stories_v1` | Hacker News — Top Stories ranking. It is the complete provider Top Stories list, not every Hacker News submission. | Hacker News API; JSON. | **Configured state:** enabled; poll every 30 minutes; no credentials. |
+| Source-instance ID | Provider / coverage | Endpoint |
+| --- | --- | --- |
+| `wikimedia_enwiki_daily_v1` | Wikimedia — English Wikipedia completed daily Top Pageviews report. | [Official endpoint](https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia.org/all-access) |
+| `hacker_news_top_stories_v1` | Hacker News — First 100 positions of the Hacker News Top Stories list. | [Official endpoint](https://hacker-news.firebaseio.com/v0) |
+| `openai_news_rss_v1` | OpenAI — Official AI releases and research updates. | [Official endpoint](https://openai.com/news/rss.xml) |
+| `google_ai_rss_v1` | Google AI — Official Google AI updates. | [Official endpoint](https://blog.google/innovation-and-ai/technology/ai/rss/) |
+| `nature_psychology_rss_v1` | Nature Psychology — Psychology research and news; linked evidence, not full articles. | [Official endpoint](https://www.nature.com/subjects/psychology.rss) |
+| `sciencedaily_psychology_rss_v1` | ScienceDaily Psychology — Psychology research summaries; claims require their underlying evidence. | [Official endpoint](https://www.sciencedaily.com/rss/mind_brain/psychology.xml) |
+| `voa_grammar_rss_v1` | VOA Everyday Grammar — English grammar and usage lessons. | [Official endpoint](https://learningenglish.voanews.com/api/zoroqql-vomx-tpeptpqq) |
+| `voa_expressions_rss_v1` | VOA Words and Their Stories — English idioms and expressions. | [Official endpoint](https://learningenglish.voanews.com/api/zmypyl-vomx-tpeyry_) |
+| `cambridge_words_rss_v1` | Cambridge About Words — English vocabulary, expressions and usage. | [Official endpoint](https://dictionaryblog.cambridge.org/feed/) |
 
-No Atom or additional regional instance is configured. Source selection supplies
-trend observations; it does not authorize reuse of publisher creative or article
-text. Setup materializes this registry, but does not prove live availability.
-Source expansion belongs in [the roadmap](../plans/target-implementation.md).
+All are enabled and keyless. Publisher RSS feeds poll hourly; HN polls every
+30 minutes and Wikimedia once per completed day. AI/Tech has three sources,
+Psychology two, English three, and Wikimedia supplies general attention.
+The two VOA feeds share one independence group, so they never manufacture
+independent corroboration. VOA endpoints are linked by its
+[official RSS directory](https://learningenglish.voanews.com/rssfeeds);
+[ScienceDaily](https://www.sciencedaily.com/newsfeeds.htm) and
+[Nature Psychology](https://www.nature.com/subjects/psychology) publish feed links.
+
+Collection retains source identity, title, canonical URL, provider/collection
+time and minimal feed provenance. It neither scrapes articles nor retains their
+full text. Feed availability does not grant republication rights. Publisher
+feeds are sorted by supplied publication time (undated entries follow), then
+bounded to 100 items. Older excess entries are outside the collection window,
+not a transport failure. Malformed selected entries still make the attempt
+incomplete. Response-size/DTD/redirect safety checks remain enforced.
 
 ### Source-instance registry
 
@@ -253,13 +265,13 @@ expected poll cadence and availability interval, static trust weight,
 `independence_group`, supported language/region scope, quota limit where
 applicable, configuration fingerprint, and audit timestamps. An
 `independence_group` represents one underlying publisher or platform: multiple
-feeds from NASA share `nasa`; every regional YouTube chart shares `youtube`.
+VOA feeds share `voa`.
 It never stores credentials. A run freezes the enabled source-instance
 configuration it used so every observation remains interpretable.
 
 Initial static trust weight is `1.00` for every initial source kind. This is not an
 editorial-quality assertion: source-health reliability is calculated separately
-from successful collection, timeliness, and completeness. A future change to a
+from successful collection, timeliness, and completeness. A change to a
 source's static trust weight must be versioned and justified here.
 
 ## Canonicalization and clustering — `canonicalization_v2`
@@ -287,7 +299,7 @@ transliterate, infer entities, or use fuzzy/semantic similarity. Numerals are
 significant: `Artemis 2` and `Artemis 3` remain different keys. Source records
 whose provider exposes a canonical identity use that identity as their
 source-item key as well: Wikimedia uses its supplied canonical article title;
-YouTube uses video ID; Hacker News uses item ID; publisher feeds use GUID, then
+Hacker News uses item ID; publisher feeds use GUID, then
 canonical link, then the normalized title. These item keys de-duplicate source
 observations but do not by themselves determine cross-source clustering.
 
@@ -342,7 +354,7 @@ receives `provider_time_clamped`. Measurement-window assignment always uses
 `effective_observed_at` and is consequently stable on retry.
 
 Provider-native identities are durable even when display metadata changes. A
-YouTube video ID or Hacker News item ID keeps one logical source item; each
+Hacker News item ID keeps one logical source item; each
 collection stores a new immutable observation snapshot with its observed title
 and metadata. A title change never produces a new source identity or changes an
 already frozen cluster membership. The current title may be shown as a
@@ -525,7 +537,6 @@ same source kind, never a cross-source population.
 | --- | --- | --- | --- | --- |
 | `publisher_feed_collector_v1` | `W` contains feed items with a provider `published_at` in `W`; if absent, use first `collected_at`. `A_s` is the number of distinct contributing `independence_group` values for the cluster, after per-item de-duplication. | `B_s` is the stated daily median. Rank clusters by `A_s` for `P_s`. The same GUID (or fallback item key) contributes once per `W`, even if returned by many polls; a different item from the same group does not increase `A_s`. | One HTTPS GET of each configured feed URL per scheduled attempt. A `200` response must parse with no fatal parser error and all returned entries must be processed; an unexpected `304` fails because requests are unconditional and no cache body is available. The collector does not follow linked article pages or feed pagination/`rel=next`. | A failed/invalid/incomplete feed attempt degrades that source instance. A valid earlier complete snapshot may support a degraded contribution only within the shared health window. Persistence counts `W` once when it has at least one valid matching item. |
 | `wikimedia_enwiki_pageviews_v1` | `W` is the single completed UTC report day `D`; raw observation is the provider row's article title, rank, and pageviews for `D`. `A_s` is that reported pageview count (distinct article/day rows within the scoring lexical cluster; repeated polls do not add views). | `B_s` is the daily median for the same article/cluster. `P_s` ranks rows by `A_s`, with provider rank only as the deterministic tie-breaker. Re-fetching the same report date reuses its stored content-hash snapshot and contributes no second observation. | Request exactly the completed-day English Wikipedia Top Pageviews report. It is complete only when the response declares the requested report date and every returned content/article row has been parsed; do not fetch article bodies, redirects, or another date to fill gaps. The endpoint has no client pagination in this contract. | A missing, malformed, late, or partial report is degraded/unavailable under the shared health rule; its missing day is excluded from `B_s`. Persistence counts each valid report day once. |
-| `youtube_most_popular_v1` | `W` contains all complete 30-minute chart snapshots. Raw observation is a video ID, rank `r` in `1..50`, and returned `viewCount`, `likeCount`, and `commentCount` when present. For a cluster, `A_s = max(51-r)` over its matching video observations in `W`; provider counters are retained as evidence but do not change `A_s`. | `B_s` is the daily median of this best-rank activity. `P_s` ranks clusters by `A_s`; the best rank, then video ID, breaks an equal-activity tie before the shared midrank calculation. The same video may appear in many snapshots but supplies only its best rank in `W`; separate videos in one cluster likewise use the best rank, not a sum. | Reserve one local quota unit before one request with exactly `part=snippet,statistics`, `chart=mostPopular`, `regionCode=US`, `maxResults=50`, no category, and no page token. Exactly 50 unique, ranked video records are required for completeness. `maxResults=50` is the intended chart limit, so no pagination is attempted. Every outbound request, including a retry that reaches YouTube, consumes one local reserved unit; no request starts after the 1,000-unit UTC-day ceiling. | A provider error, fewer than 50 valid ranked records, duplicate/missing ranks, or exhausted local ceiling makes the attempt incomplete; quota exhaustion is unavailable, not a zero-activity observation. A valid prior chart can contribute only while degraded under the shared health rule. Persistence counts `W` once if it has at least one valid matching chart observation. |
 | `hacker_news_top_stories_v1` | `W` contains all complete 30-minute top-100 snapshots. Raw observation is HN item ID, rank `r` in `1..100`, and nonnegative score `q`. For a cluster, `A_s = max((101-r)/100 * log2(q+1))` over matching story observations in `W`, rounded to six decimals before ranking. | `B_s` is the daily median of that activity. `P_s` ranks clusters by `A_s`; best rank, then highest score, then lowest HN item ID breaks an equal-activity tie before shared midrank. A repeated item across polls contributes its single greatest calculated activity in `W`; multiple matching stories use the maximum, not a sum. | Fetch the Top Stories ID list once; preserve its full count/hash; select first 100 IDs in list order; request each selected item once in the same attempt. The intended chart limit is 100, so no further IDs/pages are fetched. Complete means list plus all 100 item responses arrived and every position is accounted for; deleted/dead/non-story items are recorded as excluded diagnostics rather than clusters. | Any missing list/item response, unaccounted rank, malformed score, or timeout makes the attempt incomplete. A valid prior snapshot can contribute only while degraded under the shared health rule. Persistence counts `W` once if it has at least one valid matching story observation. |
 
 A source contribution is **healthy** when its latest complete valid collection
@@ -534,7 +545,7 @@ collection has reported an error or incompleteness. It is **degraded** when a
 valid complete collection exists within three availability intervals but the
 latest attempt failed, was incomplete, or is late. It is **unavailable** when
 no valid complete collection exists within three availability intervals, or
-when the local YouTube quota ceiling is reached; unavailable contributions are
+when a configured local quota ceiling is reached; unavailable contributions are
 excluded until a later valid collection. `R_s` is static trust weight times
 `1.0` for healthy or `0.5` for degraded. The precise health reason and
 reference collection are persisted.

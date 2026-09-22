@@ -1,5 +1,5 @@
 {
-  "release_name": "detection-semantic-events",
+  "release_name": "three-domain-detection",
   "scope_key": "global",
   "schema_id": "configuration_manifest_v4",
   "schema_version": 4,
@@ -19,31 +19,6 @@
         "material_score_delta": 0.15
       },
       "sources": [
-        {
-          "stable_id": "nasa_recently_published_rss_v1",
-          "source_kind": "publisher_feed_collector_v1",
-          "adapter_version": "publisher_feed_adapter_v1",
-          "provider_name": "NASA",
-          "endpoint_url": "https://www.nasa.gov/feed/",
-          "delivery_format": "rss",
-          "coverage_note": "NASA recently published web content.",
-          "enabled": true,
-          "cadence_seconds": 900,
-          "availability_seconds": 900,
-          "trust_weight": 1,
-          "independence_group": "nasa",
-          "language_scope": "en",
-          "region_scope": null,
-          "quota_limit": null,
-          "secret_ref": null,
-          "allowed_redirect_hosts": [
-            "nasa.gov",
-            "www.nasa.gov"
-          ],
-          "options": {
-            "max_items": 100
-          }
-        },
         {
           "stable_id": "wikimedia_enwiki_daily_v1",
           "source_kind": "wikimedia_enwiki_pageviews_v1",
@@ -72,35 +47,6 @@
           }
         },
         {
-          "stable_id": "youtube_us_most_popular_v1",
-          "source_kind": "youtube_most_popular_v1",
-          "adapter_version": "youtube_most_popular_adapter_v1",
-          "provider_name": "YouTube",
-          "endpoint_url": "https://www.googleapis.com/youtube/v3/videos",
-          "delivery_format": "json",
-          "coverage_note": "United States mostPopular chart across all categories.",
-          "enabled": true,
-          "cadence_seconds": 1800,
-          "availability_seconds": 1800,
-          "trust_weight": 1,
-          "independence_group": "youtube",
-          "language_scope": null,
-          "region_scope": "US",
-          "quota_limit": 1000,
-          "secret_ref": "YOUTUBE_API_KEY",
-          "allowed_redirect_hosts": [
-            "www.googleapis.com"
-          ],
-          "options": {
-            "max_items": 50,
-            "region_code": "US",
-            "parts": [
-              "snippet",
-              "statistics"
-            ]
-          }
-        },
-        {
           "stable_id": "hacker_news_top_stories_v1",
           "source_kind": "hacker_news_top_stories_v1",
           "adapter_version": "hacker_news_top_stories_adapter_v1",
@@ -119,6 +65,174 @@
           "secret_ref": null,
           "allowed_redirect_hosts": [
             "hacker-news.firebaseio.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "openai_news_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "OpenAI",
+          "endpoint_url": "https://openai.com/news/rss.xml",
+          "delivery_format": "rss",
+          "coverage_note": "Official AI releases and research updates.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "openai",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "openai.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "google_ai_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "Google AI",
+          "endpoint_url": "https://blog.google/innovation-and-ai/technology/ai/rss/",
+          "delivery_format": "rss",
+          "coverage_note": "Official Google AI updates.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "google",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "blog.google"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "nature_psychology_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "Nature Psychology",
+          "endpoint_url": "https://www.nature.com/subjects/psychology.rss",
+          "delivery_format": "rss",
+          "coverage_note": "Psychology research and news; linked evidence, not full articles.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "nature",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "www.nature.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "sciencedaily_psychology_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "ScienceDaily Psychology",
+          "endpoint_url": "https://www.sciencedaily.com/rss/mind_brain/psychology.xml",
+          "delivery_format": "rss",
+          "coverage_note": "Psychology research summaries; claims require their underlying evidence.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "sciencedaily",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "www.sciencedaily.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "voa_grammar_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "VOA Everyday Grammar",
+          "endpoint_url": "https://learningenglish.voanews.com/api/zoroqql-vomx-tpeptpqq",
+          "delivery_format": "rss",
+          "coverage_note": "English grammar and usage lessons.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "voa",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "learningenglish.voanews.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "voa_expressions_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "VOA Words and Their Stories",
+          "endpoint_url": "https://learningenglish.voanews.com/api/zmypyl-vomx-tpeyry_",
+          "delivery_format": "rss",
+          "coverage_note": "English idioms and expressions.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "voa",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "learningenglish.voanews.com"
+          ],
+          "options": {
+            "max_items": 100
+          }
+        },
+        {
+          "stable_id": "cambridge_words_rss_v1",
+          "source_kind": "publisher_feed_collector_v1",
+          "adapter_version": "publisher_feed_adapter_v1",
+          "provider_name": "Cambridge About Words",
+          "endpoint_url": "https://dictionaryblog.cambridge.org/feed/",
+          "delivery_format": "rss",
+          "coverage_note": "English vocabulary, expressions and usage.",
+          "enabled": true,
+          "cadence_seconds": 3600,
+          "availability_seconds": 3600,
+          "trust_weight": 1,
+          "independence_group": "cambridge",
+          "language_scope": "en",
+          "region_scope": null,
+          "quota_limit": null,
+          "secret_ref": null,
+          "allowed_redirect_hosts": [
+            "dictionaryblog.cambridge.org"
           ],
           "options": {
             "max_items": 100

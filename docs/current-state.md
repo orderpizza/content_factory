@@ -2,245 +2,142 @@
 
 ## System state
 
-The application uses one current SQLite schema, version **8**, defined in
-[application-schema.sql](contracts/application-schema.sql). Setup creates a
-fresh database. Existing exact-v7 databases use the deliberate
-`scripts/migrate_database.py --database <path>` timestamp upgrade; it preserves
-records and instants, without a reset. Version and SQL checksum are checked on
-store open. SQLite WAL, foreign keys, claim versions and immutable evidence
-protect worker boundaries. Content Factory timestamps are UTC-naive
-second-precision ISO strings (`YYYY-MM-DDTHH:MM:SS`).
+The current schema is **9**, defined by
+[application-schema.sql](contracts/application-schema.sql). The schema adds the
+explicit blocked visual-planning/render states and restricts platform bindings to Instagram.
+Use a fresh development database with a new filename. Existing databases are
+refused by version/checksum validation; setup never resets or migrates them.
+All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
-Implemented planning paths:
+Automatic Detection and human ideas both feed three-domain Determination:
+`english`, `ai_tech`, `psychology`. Each selected domain creates a ContentJob and
+one Instagram output. Detection uses configured public sources, local MiniLM
+and deterministic scoring. Human Intake can clarify before freezing a brief.
 
-- **Detection:** Hacker News, NASA RSS and Wikimedia daily collection;
-  deterministic lexical canonicalization; pinned local MiniLM semantic event
-  resolution; immutable Scout input and resolution; attention scoring and
-  shortlist; direct source-backed brief and Determination request.
-- **Human ideation:** dashboard/CLI ideas and replies; persisted conversation;
-  Gemini Intake clarification or immutable brief. Refining a trend thread keeps
-  its original Detection evidence.
-- **Determination:** Gemini assesses all five domains; validates reasons,
-  angles and ready frozen output bindings; commits five routes and a ContentJob
-  plus pending GenerationRun for each selected domain.
-- **Visual planning:** each platform ContentPackage carries bounded semantic
-  `visual_intent`; a deterministic shared registry planner selects a coherent
-  archetype/preset and approved safe variants, then commits one immutable
-  VisualRecipe before a renderer claim. The source-controlled registry supplies
-  reusable families, compositions, themes, typography, components and
-  decorations as authoring primitives. Curated first-wave vocabulary, bold-cover,
-  comparison, phrase-sheet, question-sheet, serif, dialogue, scenario and step
-  archetypes use real per-unit layouts. `expression_breakdown_v1` is a tested,
-  Instagram-only shared capability with a fixed six-slide English-expression
-  grammar; it remains non-production until visual review. Its gallery uses
-  deterministic avatar placeholders until local approved PNGs are installed at
-  `assets/visual/avatars/`; production would require those assets and records
-  their hashes. Experimental archetypes are preview-only.
-  `scripts/render_visual_gallery.py` renders offline development samples under
-  `data/artifacts/visual-gallery`. Instagram and X plan independently.
-- **Dashboard:** four linked views: Raw Feed Items → Clusters → Opportunities
-  → ContentJobs, with separate collection-attempt, source-health and Cluster
-  Selection statuses. Semantic evidence, Scout runs, worker history, queues,
-  conversation, briefs, frozen catalogs, route reasoning and model usage remain
-  inspectable. Opportunities require an actual Determination handoff, not a score alone.
+`--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
+the workflow runs planning only; default workers are deterministic fixtures.
+`--gemini --review-preview` enables canonical generation, Instagram adaptation,
+visual planning and Gemini review rendering. English expression breakdowns
+produce six 1080×1350 PNG review slides. AI/Tech and Psychology stop at rendering preparation
+with VisualPlanRun `blocked` and “Gemini visual renderer not implemented for this domain.”
+Other English formats are also blocked explicitly. No HTML fallback is active.
 
-The deterministic default workers are fixtures, not editorial intelligence.
-`--gemini --planning-only` is the intended live planning trial. It does not run
-generation, adaptation, rendering or posting. Synthetic Instagram/X bindings
-allow routing evaluation without delivery credentials.
-
-Downstream Gemini generation/adaptation, Gemini sequential designer review rendering,
-static Playwright rendering, review,
-credentialed Instagram/X single-post adapters, R2 staging/cleanup, reconciliation,
-budgets and maintenance exist. They require separate explicit preview/production/
-delivery modes and are not activated by planning setup.
+The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
+Determination routes, jobs, adaptation/render progress and exact review slides.
+Accept/reject/request-changes commands do not publish. Generic posting/delivery
+records and R2 staging are preserved outside this pass; provider delivery is not
+implemented in the current baseline. The deterministic visual library, local
+assets and HTML gallery renderer are preserved inactive.
 
 ## Fresh setup
 
-For an existing configured `.venv`, skip dependency installation. Fresh-machine
-prerequisites are Python 3.10+ and uv (installed separately). From the repository
-root, install the locked
-dependencies; Chromium is needed for browser tests and real rendering:
+Use the existing `.venv`. On a fresh machine install Python 3.10+ and uv, then:
 
 ```sh
 uv sync --frozen --extra dev
 .venv/bin/python -m playwright install chromium
 ```
 
-These installation commands download dependencies. They do not call Gemini or
-publish content. Copy the tracked `.env.example` to ignored `.env` if needed,
-fill it locally, and follow [configuration](specs/configuration.md) for settings.
-
-Create a new database on the Mac Mini:
-
-```sh
-.venv/bin/python scripts/setup_development.py --database data/development.db
-```
-
-This creates schema, active nonsecret Detection configuration, five development
-capabilities with two synthetic platforms each, and an initial storage sample.
-It refuses any existing filename and performs no collection or paid inference.
-For an uncached model add `--download-model`; this downloads only the pinned
-public model files, not application data. Local inference thereafter is offline.
-
-YouTube is disabled unless setup uses `--include-youtube`; leave it disabled
-while its API key is on hold. X delivery is also on hold; the synthetic X
-routing binding does not call X.
-
-`.env.example` lists supported settings. Keep actual values in ignored `.env`
-or the process environment. Process values take precedence; restart each
-process after editing settings. Set `CONTENT_FACTORY_DB_PATH=data/development.db`
-so all processes use the same database. Explicit `--database` takes precedence.
-
-## Planning session
-
-First inspect local prerequisites without making a network call:
+Chromium supports browser tests and inactive visual-library tooling. Copy
+`.env.example` to ignored `.env` if needed and configure values locally; process
+environment overrides the file. See [configuration](specs/configuration.md).
+Create a new database (choose another filename if this one exists):
 
 ```sh
-.venv/bin/python scripts/check_smoke_readiness.py --database data/development.db --mode planning
+.venv/bin/python scripts/setup_development.py --database data/baseline.db
 ```
 
-Then run each command in a separate terminal:
+Setup registers all three domains with one synthetic Instagram binding each and
+an initial storage sample; it makes no provider call. `--download-model` explicitly
+provisions the pinned public MiniLM files if uncached. Set
+`CONTENT_FACTORY_DB_PATH=data/baseline.db` so every process uses the same database.
+
+## Planning and review sessions
+
+Check local prerequisites without network calls:
 
 ```sh
-.venv/bin/python scripts/run_detection.py --database data/development.db --poll
-.venv/bin/python scripts/run_workflow.py --database data/development.db --gemini --planning-only --poll
-.venv/bin/python scripts/serve_dashboard.py --database data/development.db
+.venv/bin/python scripts/check_smoke_readiness.py --database data/baseline.db --mode planning
 ```
 
-Open http://127.0.0.1:8787. Submit an idea, inspect Intake status, answer any
-question in the same thread, then inspect its brief, all five route assessments
-and ContentJobs. `pending` GenerationRuns are the expected stopping point.
-
-Detection checks due collection and Scout slots every 30 seconds. Workflow
-checks Intake then Determination every 5 seconds; both intervals are adjustable
-with `--poll-interval`. Ctrl+C stops cleanly. Without `--poll`, each runs once.
-The embedding model is reused by a running Detection poller.
-
-The Detection command makes public source reads. The Gemini workflow makes
-paid calls under configured admission limits. No social credentials are needed.
-A healthy collection need not produce a selected trend: selection gates are
-deliberately conservative. Inspect observed/deferred clusters and score
-evidence before changing thresholds.
-Single-source history readiness needs seven healthy completed baseline days;
-before that, selection requires two independent contributing groups within one
-lexical scoring cluster. Semantic links do not satisfy that requirement by
-pooling groups. A fresh database may therefore show observations without any
-automatic ContentJobs during warm-up. Human ideation can be tested immediately.
-
-CLI input is also supported:
+Run each process in a separate terminal:
 
 ```sh
-.venv/bin/python scripts/create_local_idea.py "teach break the ice in business meetings" --database data/development.db
-.venv/bin/python scripts/create_local_idea.py "focus on intermediate learners" --thread-id 1 --row-version 2 --database data/development.db
+.venv/bin/python scripts/run_detection.py --database data/baseline.db --poll
+.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --planning-only --poll
+.venv/bin/python scripts/serve_dashboard.py --database data/baseline.db
 ```
 
-Use the actual thread ID and current row version shown by the dashboard.
-Human refinement creates a new revision; it never rewrites prior work.
-
-## Advisory storage monitoring, growth and diagnostics
-
-Planning does not consult storage admission: dashboard/CLI ideas and refinements,
-Intake, Detection, Determination and ContentJob creation work with missing, stale,
-clock-invalid, warning, critical or emergency samples. Actual SQLite/OS write
-failures still fail. The UI distinguishes unavailable measurements from measured
-disk pressure. Downstream generation/delivery safety rules remain separate.
-To refresh observability without starting Gemini or consuming jobs:
+Open http://127.0.0.1:8787. Submit ideas or answer clarification in the same thread.
+Inspect frozen evidence, all three routes and jobs. To generate review content,
+replace the planning workflow process with:
 
 ```sh
-.venv/bin/python scripts/run_storage_monitor.py --database data/development.db --poll
+.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --review-preview --poll
 ```
 
-Use the exact database shown by your dashboard; different paths do not share
-storage samples. The workflow poller already samples storage, so the extra
-process is optional. Refreshing measurements requires no schema reset.
+This makes paid Gemini calls under configured budgets. It can consume pending
+jobs. Review rendering uses one 5:4, 2K storyboard call for the supported English
+format, adaptive splitting and transparent overlays. Original PNG/JPEG bytes are
+retained for debugging; only the six processed PNGs are review assets. Failures
+do not trigger automatic paid retries. See [visual rendering](specs/visual-rendering.md).
 
-The dashboard shows daily table/JSON growth and component sizes. Measurement
-does not delete data. [Reliability](specs/reliability.md#storage-backup-and-retention)
-owns sampling and downstream admission; [the roadmap](plans/target-implementation.md#storage-measurement-and-retention)
-owns retention design and measurement review.
+Detection polls due work every 30 seconds; workflow polls every five seconds.
+`--poll-interval` changes the delay, and Ctrl+C stops cleanly. A healthy collection
+need not select an Opportunity. A single-source history needs seven healthy
+completed baseline days; before then selection requires two independent groups
+within one lexical cluster. Semantic links do not pool scoring credit.
+Human ideation is immediately available for every domain.
 
-Safe JSON diagnostic logs rotate under `data/logs`; see [runtime](specs/runtime.md#diagnostic-logging)
-for limits and [configuration](specs/configuration.md) for overrides. The dashboard
-updates in place every ten seconds without erasing drafts or collapsing evidence.
+```sh
+.venv/bin/python scripts/create_local_idea.py "teach break the ice in business meetings" --database data/baseline.db
+.venv/bin/python scripts/create_local_idea.py "focus on intermediate learners" --thread-id 1 --row-version 2 --database data/baseline.db
+```
+
+Use the actual thread ID and version. Refinement creates immutable new work.
+
+## Monitoring and maintenance
+
+Planning ignores storage admission, including missing/stale/critical samples;
+actual SQLite/OS errors still fail. Generation/adaptation/render gates remain
+separate. The workflow refreshes advisory samples; an independent model-free
+monitor is also available:
+
+```sh
+.venv/bin/python scripts/run_storage_monitor.py --database data/baseline.db --poll
+```
+
+The dashboard shows daily row/JSON growth and component sizes. Measurement never
+deletes data. [Reliability](specs/reliability.md#storage-backup-and-retention)
+owns backup/retention and [runtime](specs/runtime.md#diagnostic-logging) owns safe
+rotating diagnostics. The dashboard refreshes every ten seconds, preserving drafts.
 
 ## Project map
 
 | Path | Responsibility |
 | --- | --- |
-| `src/database/current.py` | Explicit initialization and current schema validation |
-| `src/detection/` | Source adapters, collection, normalization, semantic resolution, scoring, Scout |
-| `src/workflow/store.py` | Transactions, claims, immutable handoffs, commands and production state |
-| `src/workflow/catalog.py` | Shared catalog read model and domain remit |
-| `src/workflow/gemini_intake.py`, `gemini_determination.py` | Real planning workers |
-| `src/workflow/visual_registry.py`, `visual_planner.py` | Version-controlled visual capabilities and deterministic recipe selection |
-| `src/workflow/development.py` | Fresh non-deliverable development setup |
-| `src/dashboard/` | Detection, evidence, thread/decision and review read models |
-| `scripts/serve_dashboard.py` | Loopback HTTP, CSRF commands and verified assets |
-| `src/common/gemini.py`, `gemini_image.py` | Isolated Vertex JSON and single-attempt image transports |
-| `src/workflow/gemini_image_renderer.py`, `static_renderer.py` | Explicit renderer dispatch, sequential designer rendering, deterministic overlays and local HTML rendering |
-| `src/workflow/model_budget.py` | Priced phase/daily/job admission |
-| `src/workflow/maintenance.py` | Storage sampling and verified SQLite maintenance |
-| `scripts/run_storage_monitor.py`, `src/workflow/storage_growth.py` | Model-free storage freshness and daily size-only measurement |
-| `src/common/operation_log.py` | Allowlisted, rotating process diagnostics |
-| `config/releases/detection.json` | Nonsecret source and algorithm policy |
-| `tests/` | Offline boundaries, full planning flows and production safety |
+| `src/database/current.py` | Explicit initialization and schema validation |
+| `src/detection/` | Public collection, normalization, semantic resolution, scoring and Scout |
+| `src/workflow/store.py` | Transactions, claims, immutable handoffs and commands |
+| `src/workflow/catalog.py` | Three editorial remits and catalog read model |
+| `src/workflow/gemini_intake.py`, `gemini_determination.py` | Planning workers |
+| `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
+| `src/workflow/gemini_image_renderer.py` | English storyboard, local processing and explicit rendering boundary |
+| `src/workflow/visual_registry.py`, `visual_planner.py` | Frozen semantic recipes and preserved visual registry |
+| `src/workflow/static_renderer.py`, `visual_primitives.py` | Preserved inactive HTML visual library |
+| `src/dashboard/` | Evidence, progress and review read models |
+| `src/common/gemini.py`, `gemini_image.py` | Isolated single-attempt model transports |
+| `config/releases/detection.json` | Active nonsecret source and algorithm policy |
+| `tests/` | Offline behavior, safety, image fixtures and dashboard checks |
 
-## Production setup and operation
-
-Planning is intentionally separate from preview and delivery. To inspect real
-generated assets, use `run_workflow.py --gemini --review-preview --poll`.
-The default `--renderer auto` makes one 2K, 5:4 storyboard call for supported
-Instagram review carousels, initially `expression_breakdown_v1`. The generated
-three-column by two-row storyboard is adaptively trimmed and split locally into
-six panels, then Lanczos-normalized to 1080×1350 before transparent, subdued
-text overlays. The original PNG/JPEG raw storyboard remains traceability-only;
-the six processed PNG slides are the dashboard review assets. Configure the
-separate image-model prices in
-[configuration](specs/configuration.md). `--renderer html`
-keeps the existing deterministic renderer available. Other archetypes and
-production retain HTML rendering; X is unchanged. Image generation and processing
-failures do not auto-retry. No live call is part of routine verification.
-Without `--planning-only`, workers may consume pending jobs.
-
-For real destinations, configure explicit account/profile settings with
-`scripts/configure_production.py`, run
-`scripts/run_maintenance.py --restore-verify`, and use
-`check_smoke_readiness.py --mode production` before a production trial.
-Consult `--help` and [configuration](specs/configuration.md) for exact inputs.
-Use a separate freshly configured database for a different catalog intent;
-requests keep their creation-time catalog.
-
-`--production` requires `--gemini --review-preview`, priced budgets and a backup
-root. `--delivery` additionally composes credentialed adapters.
-Only an exact dashboard **Post now** command authorizes public delivery.
-Do not enable delivery for this planning trial.
-
-## Verification and remaining limits
-
-Run local verification without provider calls:
+## Verification
 
 ```sh
 .venv/bin/python scripts/run_tests.py
 .venv/bin/python scripts/check_docs.py
 ```
 
-Coverage includes both planning paths, advisory storage conditions, frozen
-Detection replay, job creation, budget/publication safety, and desktop/mobile
-dashboard behavior. Browser tests check preserved drafts and incremental refresh.
-
-`scripts/run_tests.py` uses fakes for Gemini, sources and social providers;
-local HTTP and Playwright rendering are exercised. `scripts/check_docs.py`
-checks current references, schema inventory and documented configuration.
-Neither establishes live account access or editorial quality.
-
-Live planning and editorial acceptance require a separate authorized trial.
-Local preflight checks cached files/configuration, not ADC authorization or
-provider availability. Semantic resolution is conservative but heuristic and
-can miss equivalences; it does not pool cross-cluster scoring credit.
-
-There is no automatic failed-model replay; a deliberate human reply can create
-a new Intake revision in an open thread. Generation validates structure and
-reference membership, not factual truth. Production is not ready merely because
-fixtures pass. [The roadmap](plans/target-implementation.md) owns all remaining
-capabilities and acceptance work.
+These use fake providers and temporary databases; no paid inference or public
+posting occurs. Browser tests and inactive gallery rendering run locally.
+Tests protect the accepted English mechanics, not the aesthetic or factual
+quality of every model response. Live editorial results require human review.

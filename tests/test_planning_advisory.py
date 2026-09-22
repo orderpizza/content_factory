@@ -74,7 +74,7 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM determination_requests').fetchone()[0], 1)
                 self.assertIsNotNone(self.decide(store))
                 self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0], 1)
-                self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM determination_routes').fetchone()[0], 5)
+                self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM determination_routes').fetchone()[0], 3)
                 self.assertEqual(store.connection.execute('SELECT status FROM generation_runs').fetchone()[0], 'pending')
                 # This round does not weaken the separate downstream safety policy.
                 self.assertIsNone(store.claim('generation_runs', 'generation_run_id', 'generation-test'))
@@ -152,7 +152,7 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 condition(store, value)
                 with DetectionStore(path) as detection:
                     with patch('detection.collector.collect_source', return_value=evidence):
-                        DetectionCollector(detection).run_due(now=at, source_ids={'hacker_news_top_stories_v1', 'nasa_recently_published_rss_v1'})
+                        DetectionCollector(detection).run_due(now=at, source_ids={'hacker_news_top_stories_v1', 'openai_news_rss_v1'})
                     scout = DetectionScout(detection, encoder=FakeEncoder())
                     evaluate = scout._evaluate
                     def eligible(*args):

@@ -23,7 +23,7 @@ immutable. The [data model](data-model.md) owns identities and constraints;
 ## Canonical generation
 
 A job freezes the brief, selected domain/angle, source context and at most one
-Instagram plus one X binding. Generation makes one Gemini drafting call for
+Instagram binding. Generation makes one Gemini drafting call for
 the claimed run. Its closed `canonical_content_v1` schema contains:
 
 - hook, context, 2–8 key points, 0–8 examples, takeaway and optional CTA;
@@ -58,7 +58,7 @@ angle. Closed schemas, claim-ID mappings and local limits are defined in
 The first model call returns body and metadata together:
 
 - In preview mode, invalid output fails the run without a metadata repair call.
-- In production mode, a valid adapted body is checkpointed with its hash.
+- In the preserved inactive delivery mode, a valid adapted body is checkpointed with its hash.
   If only metadata validation fails, one metadata-only repair call is permitted
   for that claim. A persisted body can be used on an explicitly recoverable run;
   it is not redrafted. Invocation identity and cost-uncertainty guards still apply.
@@ -67,19 +67,19 @@ The first model call returns body and metadata together:
 
 A metadata failure does not discard or regenerate canonical content. Canonical
 content commits before adaptation begins. Failure on one output does not rerun
-generation or invalidate a completed sibling.
+generation.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
 adaptation and creates its first pending VisualPlanRun. The shared deterministic
 planner selects a compatible curated visual archetype/preset, then resolves only
 its approved variants and commits a separate immutable VisualRecipe before
 creating its RenderRun. Rendering retries use the exact package and recipe.
-Synthetic packages remain non-deliverable. Supported Instagram review packages
-can use the Gemini designer rendering path described in
+Synthetic packages remain non-deliverable. English expression-breakdown review packages
+use the Gemini rendering path; other domains stop as described in
 [visual rendering](visual-rendering.md#gemini-designer-review-rendering).
 Adaptation owns exact semantic copy and visual intent, never final image prompts;
 the renderer interprets `expression_breakdown_v1` as six semantic slide roles
-rather than its deterministic CSS/layout choices. The HTML path is preserved.
+rather than its deterministic CSS/layout choices. The HTML library is preserved inactive.
 
 ## Spending and recovery
 
@@ -103,7 +103,3 @@ Existing approved or in-flight siblings are not silently cancelled.
 Checks fence closed/cancelled threads at handoff boundaries, but the dashboard
 does not expose a general cancel-thread command. Exact delivery cancellation
 belongs to [posting](posting.md).
-
-Canonical reuse, evidence-entailment validation, approved reference catalogs,
-capacity scheduling and audited recovery commands are tracked only in
-[the roadmap](../plans/target-implementation.md).

@@ -113,4 +113,28 @@ def render_job(connection, job_id):
     run=connection.execute('SELECT * FROM generation_runs WHERE content_job_id=? ORDER BY run_number DESC LIMIT 1',(job_id,)).fetchone()
     origin=f"Opportunity #{row['seed_candidate_id']}" if row['origin']=='trend' else f"Human thread #{row['thread_id']}"
     return (f"<section class='card' id='job-detail'><h2>ContentJob #{job_id}</h2><p>{text(row['pipeline_id'])} · latest generation: {text(run['status'] if run else 'missing')}</p><p>From {link(origin,thread_id=row['thread_id'])} · immutable brief #{row['brief_revision_id']}</p>"+
-            json_detail('Immutable job recipe',row['recipe_json'])+json_detail('Output plan',row['output_plan_json'])+'</section>')
+            json_detail('Immutable job recipe',row['recipe_json'])+json_detail('Output plan',row['output_plan_json'])+render_job_progress(connection,job_id)+'</section>')
+
+
+def render_job_progress(connection, job_id):
+    """Show persisted production progress, including expected capability stops."""
+    rows = connection.execute(
+        "SELECT o.output_request_id,o.platform,a.status adaptation_status,a.failure_reason adaptation_reason,"
+        "v.status planning_status,v.failure_reason planning_reason,r.status render_status,r.failure_reason render_reason "
+        "FROM canonical_contents c JOIN output_requests o ON o.canonical_content_id=c.canonical_content_id "
+        "LEFT JOIN adaptation_runs a ON a.output_request_id=o.output_request_id "
+        "LEFT JOIN content_packages p ON p.adaptation_run_id=a.adaptation_run_id "
+        "LEFT JOIN visual_plan_runs v ON v.content_package_id=p.content_package_id "
+        "LEFT JOIN visual_recipes vr ON vr.visual_plan_run_id=v.visual_plan_run_id "
+        "LEFT JOIN render_runs r ON r.visual_recipe_id=vr.visual_recipe_id "
+        "WHERE c.content_job_id=? ORDER BY o.output_request_id,a.adaptation_run_id,v.visual_plan_run_id,r.render_run_id LIMIT 30",
+        (job_id,),
+    ).fetchall()
+    parts = []
+    for row in rows:
+        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Adaptation: {text(row['adaptation_status'] or 'pending')} · Visual planning: {text(row['planning_status'] or 'pending')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
+        for key in ('adaptation_reason', 'planning_reason', 'render_reason'):
+            if row[key]:
+                parts.append(f"<p>{text(row[key])}</p>")
+        parts.append('</div>')
+    return ''.join(parts)

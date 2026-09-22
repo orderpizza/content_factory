@@ -5,20 +5,12 @@
 
 ## Executable schema
 
-[application-schema.sql](../../contracts/application-schema.sql) is the complete
-current schema (user_version 8). `database.current.initialize_database` executes
-it atomically for an empty database, records the exact SHA-256 in
-`schema_migrations`, enables WAL and validates foreign keys.
-The ledger contains one current schema row. The explicit
-`scripts/migrate_database.py --database <path>` upgrade supports the exact v7
-ledger only and normalizes every native timestamp column to UTC-naive seconds
-without changing instants or resetting records.
-
-Store open validates version/checksum and foreign keys. Dashboard refresh
-validates version/checksum but avoids rescanning all foreign keys each time.
-Initialization refuses an incompatible database without converting it, except
-for that deliberate v7-to-v8 timestamp migration.
-`setup_development.py` additionally refuses any existing filename.
+[`application-schema.sql`](../../contracts/application-schema.sql) is the
+authoritative schema, at version 9. All workers open and validate databases through
+`database.current`: foreign keys are enabled, and the schema version and ledger
+checksum must match the tracked contract. Initialization creates a fresh database
+in WAL mode or validates an already-current database; it never resets or migrates
+an incompatible database. Development setup requires a new filename.
 
 ## Record groups
 

@@ -1,4 +1,4 @@
-"""Gemini-backed five-domain Determination worker for the workflow."""
+"""Gemini-backed three-domain Determination worker for the workflow."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ _OUTPUT_SCHEMA = {
     "additionalProperties": False,
     "properties": {
         "output_binding_id": {"type": "integer"},
-        "platform": {"type": "string", "enum": ["instagram", "x"]},
+        "platform": {"type": "string", "enum": ["instagram"]},
         "account": {"type": "string"},
         "content_format": {"type": "string"},
         "output_contract_version": {"type": "string"},
@@ -57,8 +57,8 @@ DETERMINATION_SCHEMA: dict[str, Any] = {
         "warnings": {"type": "array", "items": {"type": "string"}},
         "routes": {
             "type": "array",
-            "minItems": 5,
-            "maxItems": 5,
+            "minItems": 3,
+            "maxItems": 3,
             "items": {
                 "type": "object",
                 "required": ["pipeline_id", "disposition", "fit", "reason", "outputs"],
@@ -173,7 +173,7 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
         raise ValueError("warnings must be a list of strings")
     routes = value.get("routes")
     if not isinstance(routes, list) or len(routes) != len(WORKFLOW_PIPELINES):
-        raise ValueError("determination must return exactly five routes")
+        raise ValueError("determination must return exactly three routes")
     if {route.get("pipeline_id") for route in routes if isinstance(route, Mapping)} != set(WORKFLOW_PIPELINES):
         raise ValueError("determination must return one route for every registered domain")
 
@@ -272,9 +272,8 @@ def _validate_angle(pipeline_id: str, angle: Any) -> None:
 
 def _determination_prompt(snapshot: dict[str, Any]) -> str:
     return """You are the Determination worker for a local content factory.
-Evaluate the frozen brief and evidence independently against all five domain
-pipelines: english, ai_tools, personal_finance, business_side_hustle, and
-psychology_behavior. Return exactly one route assessment per domain. Be honest
+Evaluate the frozen brief and evidence independently against all three domain
+pipelines: english, ai_tech, and psychology. Return exactly one route assessment per domain. Be honest
 about weak fits: skipping is a successful decision. Select a domain only when
 its expertise fits the topic and audience and it offers substantively different
 reader value from every other selected domain. Consider evidence, timeliness,

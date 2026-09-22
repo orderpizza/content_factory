@@ -25,9 +25,7 @@ from .visual_expression import avatar_provenance, resolve_dialogue_avatars, vali
 
 PROFILES = {
     "static_instagram_review_v1": {"width": 1080, "height": 1350, "minimum": 5, "maximum": 8},
-    "static_x_review_v1": {"width": 1200, "height": 675, "minimum": 1, "maximum": 1},
     "static_instagram_delivery_v1": {"width": 1080, "height": 1350, "minimum": 5, "maximum": 8},
-    "static_x_delivery_v1": {"width": 1200, "height": 675, "minimum": 1, "maximum": 1},
 }
 
 
@@ -229,7 +227,7 @@ def _render_spec(package: Any, *, production: bool = False) -> dict[str, Any]:
     if not isinstance(package, dict):
         raise ValueError("render package is invalid")
     platform = package.get("platform")
-    profile_id = ("static_instagram_delivery_v1" if production else "static_instagram_review_v1") if platform == "instagram" else ("static_x_delivery_v1" if production else "static_x_review_v1") if platform == "x" else None
+    profile_id = ("static_instagram_delivery_v1" if production else "static_instagram_review_v1") if platform == "instagram" else None
     profile = PROFILES.get(profile_id)
     if profile is None or package.get("delivery_ready") is not production:
         raise ValueError("package/platform renderer safety mode does not match")

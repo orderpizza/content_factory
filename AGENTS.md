@@ -5,7 +5,7 @@
 1. Read `docs/system.md` for architecture and document ownership.
 2. Read `docs/current-state.md` for implemented modes and safe operations.
 3. Follow the required-reading matrix in the system guide for the affected boundary.
-   Read provider/domain references only when that detail is relevant.
+   Read domain references when that detail is relevant.
 
 ## System boundaries
 
@@ -13,11 +13,12 @@
   Do not introduce direct worker calls, distributed queues or cloud workers.
 - Detection is LLM-free: deterministic lexical canonicalization, local MiniLM
   resolution and frozen deterministic scoring. Gemini is limited to Intake,
-  Determination, canonical generation and output adaptation.
+  Determination, canonical generation, Instagram adaptation and image rendering.
 - Use Source / Feed, Raw Feed Item, Cluster, Opportunity, Determination Decision
   and ContentJob. An Opportunity requires a committed Detection handoff.
 - A selected domain/angle creates a job. Generate platform-neutral canonical
-  content once per job, then adapt independently for Instagram and X.
+  content once per job, then adapt for its Instagram destination.
+  The only domains are `english`, `ai_tech`, `psychology`.
   Domain IDs are not account IDs.
 - Adaptation owns copy/metadata; the shared renderer owns assets; posting only
   delivers exact reviewed content. Every destination needs its own Post now.
@@ -26,8 +27,13 @@
 - Planning through ContentJob creation ignores storage admission. Monitoring is
   advisory; actual write errors and downstream production gates still apply.
 - Deterministic workers are the default. `--gemini --planning-only` stops at jobs.
-  Preview, production and delivery are separate explicit modes; synthetic
-  destinations cannot publish. No video or X threads are implemented.
+  `--gemini --review-preview` enables generation through review. Actual provider
+  delivery is outside the current implementation scope.
+- Preserve the accepted English `expression_breakdown_v1` Gemini storyboard,
+  splitting, transparent overlays and six-slide review behavior. AI/Tech and
+  Psychology stop explicitly at rendering; never silently fall back to HTML.
+- The deterministic visual library and its HTML renderer are preserved inactive;
+  keep their assets, primitives, registry, gallery tooling and useful tests.
 
 ## Change discipline
 
@@ -55,10 +61,8 @@
 Keep one owner for each contract, as routed by `docs/system.md`. Update the owner
 in the same change; link to it instead of duplicating its detail. Update
 `docs/current-state.md` when runnable capabilities or operations change.
-Future requirements and genuine human decisions belong in
-`docs/plans/target-implementation.md`, with explicit acceptance criteria.
 
-Keep repository documentation current or forward-looking. Do not add dated
+Keep repository documentation current. Do not add dated
 audit registers, decision archives, migration narratives, verification diaries
 or superseded algorithm descriptions. Retain version identifiers only when used
 by running code, configuration or persisted evidence. Runtime history belongs in

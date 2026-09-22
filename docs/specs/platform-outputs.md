@@ -1,90 +1,30 @@
-# Platform Output Contracts
+# Instagram outputs
 
-**Owner:** Adapted copy, metadata, claim mappings and visual-unit composition.
-**Implementation:** `src/workflow/gemini_adaptation.py`.
-These are enforced local limits, not claims about providers' current maximums.
+**Owner:** Current platform copy and semantic-unit contract.
 
-## Shared package
+The only active platform is Instagram, using `instagram_static_carousel_v2`.
+Every current domain has one destination binding. Adaptation consumes immutable
+canonical content for that frozen destination, preserving angle, claims,
+qualifications and meaning. It never writes assets or posting authorization.
 
-Each `output_adaptation_v1` package freezes platform, account, format, public
-text, private tags, hashtags, alt text, claim mappings, ordered visual units,
-closed semantic `visual_intent` and delivery-ready flag. Production selects a delivery profile; preview selects a
-non-deliverable review profile. A delivery-ready package alone does not authorize
-a public post.
+`workflow.gemini_adaptation.adaptation_schema` owns exact fields. A package has
+5–8 ordered visual units beginning with hook and ending with takeaway, caption,
+optional CTA, private tags, hashtags, alt text, claim mappings and semantic
+visual intent. English `expression_breakdown_v1` requires six units with roles
+hook, explanation, explanation, example, example, takeaway.
 
-Every canonical claim ID must appear in public-text or visual-unit mappings.
-Unknown/duplicate IDs are rejected. ID coverage does not verify that the public
-wording faithfully expresses the claim; human review remains necessary.
+Local limits: title 120 characters, body 600, caption summary 1100, total caption
+1500; CTA at most 12 words/120 characters or null; 2–6 unique private tags, at most
+8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
+canonical claim must be mapped into copy or units. A body checkpoint permits a
+bounded metadata-only repair without rewriting validated creative.
 
-| Field | Local validation |
-| --- | --- |
-| Private tags | 2–6 unique NFKC/casefold/whitespace-normalized strings, sorted |
-| Hashtags | Unique lowercase ASCII `#[a-z0-9_]{1,48}`, sorted |
-| Alt text | 1–1,000 code points |
-| Visual unit | Closed role/title/body/claim_ids shape |
-| Unit role | hook, explanation, example or takeaway |
-| Unit title/body | 1–120 / 1–600 code points after normalization |
+Active packages are review-only and not delivery-ready. Review assets are six
+1080×1350 PNGs for supported English content. AI/Tech and Psychology stop at the
+explicit rendering capability boundary. [Visual rendering](visual-rendering.md)
+owns image prompts, splitting, overlays and asset manifests.
 
-`visual_intent_v1` has bounded primary structure, tone, density, emphasis targets
-and image need. It contains no template ID, color, font, geometry, CSS, HTML,
-SVG, JavaScript or remote asset URL. The shared Visual Planner owns registered
-recipe selection. The renderer accepts structured units, never model-authored
-HTML/CSS. The planner maps each frozen unit role to a registered,
-archetype-bound per-unit layout variant in the immutable VisualRecipe; adaptation
-does not name layouts. [Visual rendering](visual-rendering.md#visual-planning-and-recipes) owns exact profiles,
-geometry and assets. [Content production](content-production.md) owns checkpoints
-and sibling isolation.
-
-Some archetypes deliberately add a narrower registered package grammar. The
-tested Instagram-only `expression_breakdown_v1`, for example, requires six
-roles in order: `hook`, `explanation`, `explanation`, `example`, `example`,
-`takeaway`. Adaptation still supplies only semantic title/body content; the
-planner and renderer select and validate the corresponding named layouts.
-
-## Instagram — `instagram_static_carousel_v2`
-
-One package has 5–8 ordered units, beginning with a hook and ending with a
-takeaway. These constraints apply to every domain; there is no separate
-English slide grammar or word-count validator.
-
-The caption serializer joins the canonical hook, generated summary, optional
-CTA and optional hashtag block with blank lines.
-
-| Field | Local bound |
-| --- | --- |
-| Summary | 1–1,100 code points |
-| Optional CTA | At most 12 whitespace-separated words and 120 code points |
-| Final caption | At most 1,500 code points |
-| Hashtags | 0–8 |
-
-Canonical meaning, qualifications and source attribution must remain visible
-where needed. Private metadata is not a substitute for public disclosure.
-The [Meta adapter](../platforms/meta.md) delivers reviewed JPEGs and exact caption;
-it never generates copy.
-
-## X — `x_static_post_v1`
-
-One image accompanies native post text. The card role is hook, explanation or
-takeaway. It is not an Instagram carousel forwarded to X.
-
-| Field | Preview | Production |
-| --- | --- | --- |
-| Post text before hashtags | 1–800 code points | 1–800 code points |
-| Final text including hashtag block | At most 900 code points | At most 280 locally weighted characters |
-| Hashtags | 0–2 | 0–2 |
-
-The production counter accounts for URL weighting, combining marks and wide
-characters; it is not a complete `twitter-text` implementation. Preview success
-therefore does not establish X delivery conformance. The [X reference](../platforms/x.md)
-describes the adapter and live acceptance limits.
-
-X threads are not supported by the schemas, renderer or delivery worker.
-Their required per-post safety design belongs in [the roadmap](../plans/target-implementation.md).
-
-## Independent review
-
-Each destination has its own package, render, review and delivery authorization.
-Review concerns the exact images, full public text, destination and hashes.
-Approving one destination never approves another. Posting cannot shorten text,
-append hashtags, convert assets or repair a package; changes need fresh work and
-review. [Posting](posting.md) owns that authorization boundary.
+The preserved inactive HTML library retains its Instagram review/delivery
+profiles and JPEG validation for downstream record tests. It is not an active
+rendering alternative. Generic [posting records](posting.md) preserve exact
+review identity; no provider implementation is composed.

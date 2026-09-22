@@ -18,7 +18,7 @@ The [operations guide](../current-state.md) owns copyable session commands.
 | `serve_dashboard.py` | Loopback visibility and human commands; no worker invocation |
 | `create_local_idea.py` | CLI equivalent of idea/reply handoff |
 | `enable_placeholder_route.py` | Explicit manual single-domain fixture registration |
-| `check_smoke_readiness.py` | Read-only planning/preview/production/delivery prerequisites |
+| `check_smoke_readiness.py` | Read-only planning/preview prerequisites |
 | `run_storage_monitor.py` | Local storage sampling and daily growth measurement; optional polling, no model/source calls |
 | `run_maintenance.py` | Verified backup, checkpoint, optional restore verification and storage sample |
 
@@ -45,13 +45,9 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 
 | Flags | Workers |
 | --- | --- |
-| Default | Deterministic fixture Intake, Determination, generation, adaptation, visual planner, renderer and disabled PostingAgent |
-| `--gemini` | Gemini Intake/Determination; downstream fixtures |
-| `--planning-only` | Intake/Determination only, leaving new GenerationRuns pending |
-| `--gemini --planning-only` | Live Gemini planning trial, no downstream production |
-| `--gemini --review-preview` | Also Gemini generation/adaptation, deterministic visual planning and dispatched Gemini-image/HTML review rendering |
-| `--gemini --review-preview --production` | Immutable real-destination catalog and production rendering/admission |
-| Above plus `--delivery` | Credentialed posting, R2 cleanup and reconciliation |
+| Default / `--planning-only` | Deterministic fixture Intake and Determination only |
+| `--gemini` / `--gemini --planning-only` | Gemini Intake and Determination; pending GenerationRuns remain untouched |
+| `--gemini --review-preview` | Also Gemini generation/adaptation, visual planning and Gemini review rendering |
 
 StorageMonitor runs before workers in every mode and refreshes its sample at
 most every five minutes. Monitoring is advisory through ContentJob creation:
@@ -62,18 +58,17 @@ Actual database write failures may still fail. Downstream generation, rendering
 and delivery retain the separate [storage policy](reliability.md#storage-action-matrix).
 The independent monitor requires no Gemini configuration and consumes no jobs.
 
-`--planning-only` cannot be combined with preview, production or delivery.
+`--planning-only` cannot be combined with preview.
 `--poll` repeats the pass every five seconds by default; each worker claims at
 most one item per pass. Results print every pass. Invalid/non-finite intervals
 are rejected; Ctrl+C stops cleanly. Idle polls only update heartbeats.
 Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
-Review rendering defaults to `--renderer auto`: supported Instagram archetypes
-use one Gemini 3×2 storyboard-image generation; `--renderer html` keeps deterministic rendering.
-Production keeps its existing HTML renderer and eligibility gates.
-[Visual rendering](visual-rendering.md#gemini-designer-review-rendering) owns
-image processing and review asset behavior.
+Review rendering uses one Gemini storyboard call for the supported English format.
+AI/Tech and Psychology visual planning stops as blocked without a model call or HTML
+fallback. [Visual rendering](visual-rendering.md#gemini-designer-review-rendering)
+owns image processing and review assets.
 
 Real Gemini composition always requires a priced ModelBudgetPolicy.
 No real providers are invoked by deterministic fixture mode.
@@ -83,8 +78,7 @@ No real providers are invoked by deterministic fixture mode.
 Claims use SQLite write transactions, owner, version and lease expiry. Only a
 current owner with a live lease can finalize. Long generation/adaptation/render
 operations use their ten-minute initial lease; planning uses bounded shorter
-claims. Designer rendering renews a still-live render claim before each slide
-call, retaining the same owner/version. Fenced finalization prevents a stale
+claims. The storyboard call requires a still-live render claim. Fenced finalization prevents a stale
 worker from creating children.
 
 Local work without external-call history can be recovered under attempt limits.

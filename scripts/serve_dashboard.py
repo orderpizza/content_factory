@@ -189,13 +189,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         command_id=command_id,
                     )
                     notice = f"Preview #{record_id} recorded as {decision}; delivery remains disabled."
-                elif command_kind == "post_now":
-                    record_id = store.authorize_post_now(
-                        self._integer(values, "review_id"),
-                        row_version=self._integer(values, "row_version"),
-                        command_id=command_id,
-                    )
-                    notice = f"Post now authorization created delivery record #{record_id}."
                 elif command_kind == "review_changes":
                     record_id = store.request_review_changes(
                         self._integer(values, "review_id"),
@@ -204,28 +197,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         command_id=command_id,
                     )
                     notice = f"Changes queued as Intake request #{record_id}."
-                elif command_kind == "cancel_delivery":
-                    record_id = store.cancel_delivery(
-                        self._integer(values, "post_record_id"),
-                        row_version=self._integer(values, "row_version"),
-                        command_id=command_id,
-                    )
-                    notice = f"Delivery #{record_id} cancelled before final publication."
-                elif command_kind == "request_reconciliation":
-                    record_id = store.request_publication_reconciliation(
-                        self._integer(values, "post_record_id"), command_id=command_id,
-                    )
-                    notice = f"Reconciliation request #{record_id} queued; no retry was authorized."
-                elif command_kind == "resolve_reconciliation":
-                    record_id = store.resolve_publication_unknown(
-                        self._integer(values, "reconciliation_request_id"),
-                        reconciliation_check_id=self._integer(values, "reconciliation_check_id"),
-                        decision=self._one(values, "decision"),
-                        note=self._one(values, "note"),
-                        row_version=self._integer(values, "row_version"),
-                        command_id=command_id,
-                    )
-                    notice = f"Reconciliation #{record_id} recorded; no publication call was made."
                 else:
                     raise ValueError("unsupported dashboard command")
                 if command_kind in {"new_idea", "continue_thread", "review_changes"}:

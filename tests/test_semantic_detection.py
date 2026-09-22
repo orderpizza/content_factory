@@ -33,7 +33,7 @@ class FakeEncoder:
         return [self.vectors.get(t, [1.0] + [0.0] * 383) for t in texts]
 
 
-def observation(title, index, *, hours=0, source="nasa", group=None):
+def observation(title, index, *, hours=0, source="publisher", group=None):
     return {"canonical_key": canonical_title(title, "canonicalization_v2"), "title": title,
             "trend_id": index, "trend_observation_id": index, "canonical_url": None,
             "effective_observed_at": (AT - timedelta(hours=hours)).isoformat(),
@@ -58,7 +58,7 @@ class SemanticResolutionTests(unittest.TestCase):
 
     def test_similarity_never_overrides_conflicting_event_signals(self):
         cases = [
-            ("NASA launches Artemis 2 mission", "NASA launches Artemis 3 mission", "numeric_conflict"),
+            ("Publisher launches Artemis 2 mission", "Publisher launches Artemis 3 mission", "numeric_conflict"),
             ("OpenAI launches Atlas browser", "OpenAI launches Orion browser", "entity_conflict"),
             ("OpenAI launches Atlas browser", "OpenAI recalls Atlas browser", "event_conflict"),
             ("OpenAI launches Atlas browser", "OpenAI will not launch Atlas browser", "negation_conflict"),
@@ -135,7 +135,7 @@ class SemanticScoutTests(unittest.TestCase):
 
     def test_inferred_merge_cannot_manufacture_breadth_or_shortlist_eligibility(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": "OpenAI unveils Atlas web browser"})
             result = DetectionScout(store, encoder=FakeEncoder()).run(now=AT)
             self.assertEqual(result["candidate_count"], 1)
@@ -150,7 +150,7 @@ class SemanticScoutTests(unittest.TestCase):
 
     def test_frozen_replay_uses_no_encoder_and_is_immutable(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": "OpenAI unveils Atlas web browser"})
             encoder = FakeEncoder(); scout = DetectionScout(store, encoder=encoder)
             with patch.object(scout, "_finalize", side_effect=RuntimeError("after resolution")):
@@ -158,7 +158,7 @@ class SemanticScoutTests(unittest.TestCase):
             before = load_resolution(store.connection, 1)
             release_id = store.active_release()["configuration_release_id"]
             expected = evaluate(store.connection, 1, release_id, self.manifest)
-            self.collect(store, {"nasa_recently_published_rss_v1": "NASA launches Artemis 3 mission"}, at=AT + timedelta(hours=1))
+            self.collect(store, {"openai_news_rss_v1": "Publisher launches Artemis 3 mission"}, at=AT + timedelta(hours=1))
             self.assertEqual(expected, evaluate(store.connection, 1, release_id, self.manifest))
             newer = deepcopy(self.manifest); newer["release_name"] = "changed-threshold"
             newer["components"]["detection"]["semantic_resolution"]["link_threshold"] = .99
@@ -181,7 +181,7 @@ class SemanticScoutTests(unittest.TestCase):
     def test_linking_does_not_increase_any_scoring_component(self):
         with DetectionStore(self.path) as store:
             other = "OpenAI unveils Atlas web browser"
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": other})
             separate = FakeEncoder({other: [0., 1.] + [0.] * 382})
             DetectionScout(store, encoder=separate).run(now=AT)
@@ -196,7 +196,7 @@ class SemanticScoutTests(unittest.TestCase):
 
     def test_stale_owner_cannot_persist_resolution(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": "OpenAI unveils Atlas web browser"})
             encoder = FakeEncoder()
             original = encoder.encode
@@ -210,7 +210,7 @@ class SemanticScoutTests(unittest.TestCase):
 
     def test_expired_inference_cannot_freeze_or_create_candidates(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": "OpenAI unveils Atlas web browser"})
             with patch("detection.semantic.monotonic", side_effect=[0, 601]), self.assertRaisesRegex(RuntimeError, "claim lost"):
                 DetectionScout(store, encoder=FakeEncoder()).run(now=AT)
@@ -220,7 +220,7 @@ class SemanticScoutTests(unittest.TestCase):
     def test_selected_event_cannot_seed_again_when_its_root_leaves_the_window(self):
         with DetectionStore(self.path) as store:
             other = "OpenAI unveils Atlas web browser"
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": other})
             scout = DetectionScout(store, encoder=FakeEncoder())
             evaluate_original = scout._evaluate
@@ -235,9 +235,9 @@ class SemanticScoutTests(unittest.TestCase):
                 self.assertEqual(scout.run(now=AT)["selected_count"], 1)
                 later = AT + timedelta(days=22)
                 # Sources are collected in stable-ID order: HN owns the first
-                # trend ID/root. Only the NASA wording is observed again.
+                # trend ID/root. Only the Publisher wording is observed again.
                 survivor = "OpenAI launches Atlas browser"
-                self.collect(store, {"nasa_recently_published_rss_v1": survivor,
+                self.collect(store, {"openai_news_rss_v1": survivor,
                                      "hacker_news_top_stories_v1": survivor}, at=later)
                 self.assertEqual(scout.run(now=later)["selected_count"], 0)
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_threads").fetchone()[0], 1)
@@ -245,7 +245,7 @@ class SemanticScoutTests(unittest.TestCase):
 
     def test_missing_model_fails_closed_before_scoring(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, {"nasa_recently_published_rss_v1": "OpenAI launches Atlas browser",
+            self.collect(store, {"openai_news_rss_v1": "OpenAI launches Atlas browser",
                                  "hacker_news_top_stories_v1": "OpenAI unveils Atlas web browser"})
             encoder = FakeEncoder()
             with patch.object(encoder, "encode", side_effect=OSError("model unavailable")), self.assertRaises(OSError):

@@ -1,8 +1,7 @@
-"""Credentialed Phase-1 delivery adapters behind the v4 SQLite safety boundary.
+"""Inactive generic delivery orchestration and transient R2 helpers.
 
-No object in this module is constructed by the default workflow runner. The
-production runner opts in explicitly, and tests inject transports/fakes so they
-never contact Gemini, R2, Meta, or X.
+The workflow runner does not construct these objects. Provider adapters are
+unimplemented; offline boundary tests inject transports and fake adapters.
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ import secrets
 from common.diagnostics import safe_diagnostic
 
 from .store import WorkflowStore
-from .gemini_adaptation import _x_weighted_length
 
 
 class DeliveryConfigurationError(RuntimeError):
@@ -123,7 +121,7 @@ class JsonHttpTransport:
 
 
 class R2TransientRelay:
-    """Upload and verify exact reviewed JPEG bytes for Meta's public fetch."""
+    """Upload and verify exact reviewed JPEG bytes for external public fetch."""
 
     def __init__(
         self,
@@ -246,165 +244,6 @@ class R2TransientRelay:
 ResourceRecorder = Callable[..., int]
 
 
-class InstagramDeliveryAdapter:
-    platform = "instagram"
-
-    def __init__(
-        self,
-        *,
-        transport: JsonHttpTransport | None = None,
-        relay_factory: Callable[[Mapping[str, Any]], R2TransientRelay] | None = None,
-        pause: Callable[[float], None] = sleep,
-        clock: Callable[[], float] = monotonic,
-    ):
-        self.transport = transport or JsonHttpTransport()
-        self.relay_factory = relay_factory or (lambda config: R2TransientRelay(config))
-        self.pause = pause
-        self.clock = clock
-
-    def stage(self, context: dict[str, Any], record: ResourceRecorder) -> dict[str, Any]:
-        token = os.getenv(str(context["secret_ref"]))
-        if not token:
-            raise DeliveryConfigurationError(f"{context['secret_ref']} is required")
-        config = context["destination_config"]
-        version = _required_setting(config, "graph_api_version")
-        user_id = str(context["provider_account_id"])
-        origin = f"https://graph.facebook.com/{version}"
-        headers = {"Authorization": "Bearer " + token}
-        relay = self.relay_factory(config)
-        deadline = self.clock() + 240
-        children: list[str] = []
-        r2_keys: list[str] = []
-        for asset in context["assets"]:
-            key = _r2_object_key(context, asset)
-            public_url = str(config["r2_public_domain"]).rstrip("/") + "/" + quote(key, safe="/")
-            # Persist the exact intended object key before the external PUT.
-            # A crash at any later point therefore has an idempotent cleanup
-            # target, even if the provider response or HEAD verification is lost.
-            resource_id = record(
-                resource_type="r2_object", remote_id=key,
-                asset_ordinal=int(asset["ordinal"]), status="created",
-                safe_metadata={"public_url": public_url, "sha256": asset["sha256"]},
-            )
-            staged_key, staged_url = relay.stage(context, asset, key=key)
-            if staged_key != key or staged_url != public_url:
-                raise DeliveryError(
-                    "r2_verification", "R2 relay changed the persisted staging identity",
-                    False, "r2_upload",
-                )
-            r2_keys.append(key)
-            record(resource_id=resource_id, status="ready")
-            response = self.transport.request_json(
-                "POST", f"{origin}/{user_id}/media", headers=headers,
-                form={"image_url": public_url, "is_carousel_item": "true"},
-                timeout=_remaining(deadline, self.clock), stage="meta_child_create",
-            )
-            child = _provider_id(response, "meta_child_create")
-            children.append(child)
-            child_resource_id = record(
-                resource_type="meta_child_container", remote_id=child,
-                asset_ordinal=int(asset["ordinal"]), status="created", safe_metadata={},
-            )
-            self._wait_ready(origin, child, headers, deadline)
-            record(resource_id=child_resource_id, status="ready")
-        response = self.transport.request_json(
-            "POST", f"{origin}/{user_id}/media", headers=headers,
-            form={"media_type": "CAROUSEL", "children": ",".join(children),
-                  "caption": context["package"]["caption"]},
-            timeout=_remaining(deadline, self.clock), stage="meta_parent_create",
-        )
-        parent = _provider_id(response, "meta_parent_create")
-        parent_resource_id = record(
-            resource_type="meta_parent_container", remote_id=parent,
-            status="created", safe_metadata={},
-        )
-        self._wait_ready(origin, parent, headers, deadline)
-        record(resource_id=parent_resource_id, status="ready")
-        return {"origin": origin, "user_id": user_id, "headers": headers, "parent_id": parent,
-                "r2_keys": r2_keys}
-
-    def publish(self, context: Mapping[str, Any], staged: Mapping[str, Any]) -> str:
-        response = self.transport.request_json(
-            "POST", f"{staged['origin']}/{staged['user_id']}/media_publish",
-            headers=staged["headers"], form={"creation_id": staged["parent_id"]},
-            timeout=20, stage="meta_media_publish",
-        )
-        return _provider_id(response, "meta_media_publish")
-
-    def _wait_ready(
-        self, origin: str, resource_id: str, headers: Mapping[str, str], deadline: float
-    ) -> None:
-        while True:
-            response = self.transport.request_json(
-                "GET", f"{origin}/{resource_id}?fields=id,status_code,status", headers=headers,
-                timeout=_remaining(deadline, self.clock), stage="meta_container_status",
-            )
-            status = response.get("status_code")
-            if status == "FINISHED":
-                return
-            if status in {"ERROR", "EXPIRED"}:
-                raise DeliveryError("provider_processing", str(status), False, "meta_container_status")
-            if status != "IN_PROGRESS":
-                raise DeliveryError("invalid_response", "unknown Meta container status", False,
-                                    "meta_container_status")
-            wait = min(10.0, _remaining(deadline, self.clock))
-            self.pause(wait)
-
-
-class XDeliveryAdapter:
-    platform = "x"
-
-    def __init__(self, *, transport: JsonHttpTransport | None = None):
-        self.transport = transport or JsonHttpTransport()
-
-    def stage(self, context: dict[str, Any], record: ResourceRecorder) -> dict[str, Any]:
-        token = os.getenv(str(context["secret_ref"]))
-        if not token:
-            raise DeliveryConfigurationError(f"{context['secret_ref']} is required")
-        config = context["destination_config"]
-        origin = _required_setting(config, "api_origin").rstrip("/")
-        headers = {"Authorization": "Bearer " + token}
-        asset = context["assets"][0]
-        if _x_weighted_length(str(context["package"]["post_text"])) > 280:
-            raise DeliveryError("validation", "X text exceeds weighted 280-character limit", False,
-                                "x_media_upload")
-        data = Path(asset["path"]).read_bytes()
-        if len(data) != int(asset["bytes"]) or sha256(data).hexdigest() != asset["sha256"]:
-            raise DeliveryError("validation", "reviewed X asset changed", False, "x_media_upload")
-        response = self.transport.request_json(
-            "POST", origin + _required_setting(config, "media_upload_path"), headers=headers,
-            json_body={"media": base64.b64encode(data).decode("ascii"), "media_category": "tweet_image"},
-            timeout=30, maximum_bytes=1_000_000, stage="x_media_upload",
-        )
-        media = response.get("data")
-        media_id = None if not isinstance(media, dict) else media.get("id")
-        if not isinstance(media_id, str) or not media_id.isdigit():
-            raise DeliveryError("invalid_response", "X upload response lacked data.id", False,
-                                "x_media_upload")
-        record(resource_type="x_media", remote_id=media_id, asset_ordinal=1,
-               status="created", safe_metadata={"sha256": asset["sha256"]})
-        self.transport.request_json(
-            "POST", origin + "/2/media/metadata", headers=headers,
-            json_body={"id": media_id, "metadata": {"alt_text": {"text": context["package"]["alt_text"]}}},
-            timeout=20, stage="x_media_metadata",
-        )
-        return {"origin": origin, "headers": headers, "media_id": media_id,
-                "create_post_path": _required_setting(config, "create_post_path")}
-
-    def publish(self, context: Mapping[str, Any], staged: Mapping[str, Any]) -> str:
-        response = self.transport.request_json(
-            "POST", staged["origin"] + staged["create_post_path"], headers=staged["headers"],
-            json_body={"text": context["package"]["post_text"],
-                       "media": {"media_ids": [staged["media_id"]]}},
-            timeout=20, stage="x_create_post",
-        )
-        data = response.get("data")
-        post_id = None if not isinstance(data, dict) else data.get("id")
-        if not isinstance(post_id, str) or not post_id.isdigit():
-            raise DeliveryError("invalid_response", "X response lacked data.id", False, "x_create_post")
-        return post_id
-
-
 class CredentialedPostingAgent:
     """Post exact reviewed packages; never generate or modify creative."""
 
@@ -412,16 +251,12 @@ class CredentialedPostingAgent:
         self,
         store: WorkflowStore,
         *,
-        instagram: InstagramDeliveryAdapter | None = None,
-        x: XDeliveryAdapter | None = None,
+        adapters: Mapping[str, Any] | None = None,
         artifact_root: str | Path | None = None,
         instance_id: str = "posting-production",
     ):
         self.store = store
-        self.adapters = {
-            "instagram": instagram or InstagramDeliveryAdapter(),
-            "x": x or XDeliveryAdapter(),
-        }
+        self.adapters = dict(adapters or {})
         self.instance_id = instance_id
         self.artifact_root = None if artifact_root is None else Path(artifact_root).resolve()
 
@@ -598,53 +433,7 @@ class PublicationReconciliationWorker:
                 "config": json.loads(row["config_json"])}
 
     def _lookup(self, context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        token = os.getenv(str(context["secret_ref"]))
-        if not token:
-            raise DeliveryConfigurationError(f"{context['secret_ref']} is required")
-        headers = {"Authorization": "Bearer " + token}
-        if context["platform"] == "instagram":
-            config = context["config"]
-            origin = f"https://graph.facebook.com/{config['graph_api_version']}"
-            response = self.transport.request_json(
-                "GET", f"{origin}/{context['provider_account_id']}/media?"
-                "fields=id,media_type,timestamp,caption,permalink,children{id}&limit=25",
-                headers=headers, timeout=20, stage="meta_reconciliation",
-            )
-            data = response.get("data") if isinstance(response.get("data"), list) else []
-            target = context["package"]["caption"]
-            matches = [str(item.get("id")) for item in data if isinstance(item, dict)
-                       and item.get("caption") == target and item.get("id")]
-        elif context["platform"] == "x":
-            origin = str(context["config"]["api_origin"]).rstrip("/")
-            response = self.transport.request_json(
-                "GET", f"{origin}/2/users/{context['provider_account_id']}/tweets?"
-                "max_results=10&tweet.fields=created_at,attachments",
-                headers=headers, timeout=20, stage="x_reconciliation",
-            )
-            data = response.get("data") if isinstance(response.get("data"), list) else []
-            target = context["package"]["post_text"]
-            matches = [str(item.get("id")) for item in data if isinstance(item, dict)
-                       and item.get("text") == target and item.get("id")]
-        else:
-            raise DeliveryConfigurationError("unsupported reconciliation platform")
-        evidence = {
-            "platform": context["platform"],
-            "queried_items": len(data),
-            "exact_text_hash": sha256(target.encode("utf-8")).hexdigest(),
-            "matching_ids": matches[:10],
-            "match_count": len(matches),
-            "human_confirmation_required": True,
-        }
-        # Text equality is not a publication-identity proof; even zero matches
-        # can be eventual-consistency or pagination. Preserve human resolution.
-        return "ambiguous" if matches else "confirmed_not_published", evidence
-
-
-def _provider_id(value: Mapping[str, Any], stage: str) -> str:
-    identifier = value.get("id")
-    if not isinstance(identifier, str) or not identifier:
-        raise DeliveryError("invalid_response", "provider response lacked id", False, stage)
-    return identifier
+        raise DeliveryConfigurationError("posting provider reconciliation is not implemented")
 
 
 def _r2_object_key(context: Mapping[str, Any], asset: Mapping[str, Any]) -> str:
@@ -664,13 +453,6 @@ def _required_setting(config: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value:
         raise DeliveryConfigurationError(f"production setting {key} is required")
     return value
-
-
-def _remaining(deadline: float, clock: Callable[[], float]) -> float:
-    value = deadline - clock()
-    if value <= 0:
-        raise DeliveryError("deadline", "delivery execution deadline elapsed", True, "pre_final")
-    return min(20.0, value)
 
 
 def _http_category(status: int) -> str:

@@ -89,50 +89,6 @@ class SmokeReadinessTests(unittest.TestCase):
         if production:
             initialize_database(self.database)
 
-    def production_configuration(self, font: Path) -> dict:
-        font_hash = sha256(font.read_bytes()).hexdigest()
-        destination = {
-            "destination_key": "x:smoke",
-            "platform": "x",
-            "account_key": "smoke",
-            "provider_account_id": "654321",
-            "secret_ref": "X_USER_ACCESS_TOKEN",
-            "enabled": True,
-            "config": {
-                "api_origin": "https://api.x.com",
-                "media_upload_path": "/2/media/upload",
-                "create_post_path": "/2/tweets",
-                "adapter_version": "x_static_post_delivery_v1",
-                "image_max_bytes": 5_000_000,
-            },
-            "posting_policy": {
-                "timezone": "Asia/Seoul",
-                "max_posts_per_day": 1,
-                "min_post_interval_minutes": 1200,
-                "authorization_ttl_hours": 48,
-            },
-        }
-        return {
-            "policy_version": "production_configuration_v1",
-            "approved_by": "test-owner",
-            "approved_at": now(),
-            "profile_approved": True,
-            "renderer_profile": {
-                "profile_version": "static_social_delivery_profiles_v1",
-                "template_version": "static_social_template_v1",
-                "font_path": str(font.resolve()),
-                "font_sha256": font_hash,
-            },
-            "destinations": [destination],
-            "bindings": [
-                {
-                    "pipeline_id": pipeline,
-                    "destination_key": destination["destination_key"],
-                    "content_format": "x_static_post_v1",
-                }
-                for pipeline in WORKFLOW_PIPELINES
-            ],
-        }
 
     @staticmethod
     def environment() -> dict[str, str]:
@@ -144,14 +100,15 @@ class SmokeReadinessTests(unittest.TestCase):
             "GEMINI_DAILY_WARNING_USD": "1.00",
             "GEMINI_DAILY_HARD_LIMIT_USD": "2.00",
             "GEMINI_JOB_HARD_LIMIT_USD": "0.50",
-            "X_USER_ACCESS_TOKEN": "secret-value-must-not-appear",
+            "GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD": "1",
         }
 
     def test_preview_preflight_requires_only_local_gemini_and_renderer_inputs(self):
         self.migrate(production=False)
         report = inspect_smoke_readiness(
             self.database, self.artifacts, None,
-            mode="preview", environment={"GOOGLE_CLOUD_PROJECT": "fixture-project"},
+            mode="preview", environment=self.environment(),
             dependency_probe=dependencies_ready,
         )
         self.assertEqual(report["status"], "ready")
@@ -160,45 +117,6 @@ class SmokeReadinessTests(unittest.TestCase):
             item["check"] for item in report["checks"]
         })
 
-    def test_delivery_preflight_closes_local_gates_and_never_exposes_secrets(self):
-        self.migrate(production=True)
-        font = self.root / "font.ttf"
-        font.write_bytes(b"fixture-font")
-        with WorkflowStore(self.database, catalog_kind="production") as store:
-            store.register_production_configuration(self.production_configuration(font))
-            destination_id = int(store.connection.execute(
-                "SELECT social_destination_id FROM social_destinations"
-            ).fetchone()[0])
-            store.record_destination_readiness(
-                destination_id, status="ready", reasons=[], facts={"fixture": True},
-                valid_for=timedelta(hours=1),
-            )
-            service = MaintenanceService(store, self.backups)
-            service.backup()
-            StorageMonitor(store, self.artifacts, self.backups).run_once()
-
-        report = inspect_smoke_readiness(
-            self.database, self.artifacts, self.backups,
-            mode="delivery", environment=self.environment(),
-            dependency_probe=dependencies_ready,
-        )
-        self.assertEqual(report["status"], "ready")
-        encoded = json.dumps(report)
-        self.assertNotIn("secret-value-must-not-appear", encoded)
-        self.assertIn("x_secrets", {item["check"] for item in report["checks"]})
-
-        missing = self.environment()
-        del missing["X_USER_ACCESS_TOKEN"]
-        blocked = inspect_smoke_readiness(
-            self.database, self.artifacts, self.backups,
-            mode="delivery", environment=missing,
-            dependency_probe=dependencies_ready,
-        )
-        self.assertEqual(blocked["status"], "blocked")
-        self.assertTrue(any(
-            item["check"] == "x_secrets" and item["status"] == "blocked"
-            for item in blocked["checks"]
-        ))
 
     def test_workflow_pass_updates_heartbeat_without_idle_run_spam(self):
         self.migrate(production=False)

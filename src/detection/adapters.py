@@ -1,4 +1,4 @@
-"""Bounded, deterministic adapters for the four documented detection sources."""
+"""Bounded, deterministic adapters for the configured Detection sources."""
 
 from __future__ import annotations
 
@@ -11,13 +11,12 @@ from io import BytesIO
 from http.client import HTTPSConnection
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 from xml.etree import ElementTree
 import gzip
 import ipaddress
 import json
-import os
 import socket
 import time
 import zlib
@@ -227,8 +226,6 @@ def _collect_source(row: Any) -> CollectionResult:
         return _collect_feed(row)
     if kind == "wikimedia_enwiki_pageviews_v1":
         return _collect_wikimedia(row)
-    if kind == "youtube_most_popular_v1":
-        return _collect_youtube(row)
     if kind == "hacker_news_top_stories_v1":
         return _collect_hacker_news(row)
     raise SourceCollectionError("adapter_missing", f"No adapter for {kind}")
@@ -251,11 +248,12 @@ def _collect_feed(row: Any) -> CollectionResult:
     if root.tag not in {"rss", "{http://www.w3.org/2005/Atom}feed"} or (root.tag == "rss" and root.find("channel") is None):
         raise SourceCollectionError("parse_failed", "Response is not an RSS/Atom feed")
     entries = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+    entries.sort(key=lambda entry: _parse_any_time(_xml_text(entry, "pubDate") or _xml_text(entry, "published") or _xml_text(entry, "updated")) or "", reverse=True)
     items: list[CollectedItem] = []
     events: list[ItemEvent] = []
     seen_keys: set[str] = set()
     if len(entries) > config["options"]["max_items"]:
-        events.append(ItemEvent("rejected_oversized", "feed exceeds configured item bound", config["options"]["max_items"] + 1))
+        events.append(ItemEvent("excluded_out_of_scope", "older feed entries exceed configured collection window", config["options"]["max_items"] + 1))
     for ordinal, entry in enumerate(entries[: config["options"]["max_items"]], start=1):
         title = _xml_text(entry, "title")
         if not title:
@@ -285,7 +283,7 @@ def _collect_feed(row: Any) -> CollectionResult:
             payload={"feed_url": final_url, "redirects": redirects},
         ))
     return CollectionResult(
-        items=tuple(items), events=tuple(events), complete=len(entries) <= config["options"]["max_items"] and not any(e.disposition.startswith("rejected_") for e in events),
+        items=tuple(items), events=tuple(events), complete=not any(e.disposition.startswith("rejected_") for e in events),
         response_hash=sha256(body).hexdigest(), latency_ms=int((time.monotonic() - started) * 1000),
     )
 
@@ -301,8 +299,10 @@ def _xml_link(entry: ElementTree.Element) -> str | None:
     node = entry.find("link")
     if node is not None and node.text:
         return node.text.strip()
-    node = entry.find("{http://www.w3.org/2005/Atom}link")
-    return node.get("href") if node is not None else None
+    for node in entry.findall("{http://www.w3.org/2005/Atom}link"):
+        if node.get("rel", "alternate") == "alternate" and node.get("href"):
+            return node.get("href")
+    return None
 
 
 def _parse_any_time(value: str) -> str | None:
@@ -397,66 +397,6 @@ def _collect_wikimedia(row: Any) -> CollectionResult:
             f"Report validation failed: rows={len(articles)}, limit={limit}, "
             f"declared_date={declared_date}, requested_date={requested_date}"
         ),
-    )
-
-
-def _collect_youtube(row: Any) -> CollectionResult:
-    config = _source_config(row)
-    secret_ref = config["secret_ref"]
-    api_key = os.getenv(secret_ref or "")
-    if not api_key:
-        raise SourceCollectionError("configuration_missing", f"Required secret reference is unresolved: {secret_ref}")
-    options = config["options"]
-    query = urlencode({
-        "part": ",".join(options["parts"]), "chart": "mostPopular",
-        "regionCode": options["region_code"], "maxResults": options["max_items"], "key": api_key,
-    })
-    started = time.monotonic()
-    body, _headers, _final_url, _redirects = _bounded_get(
-        f"{row['endpoint_url']}?{query}", allowed_hosts=config["allowed_redirect_hosts"]
-    )
-    try:
-        payload = json.loads(_decode_utf8(body))
-        records = payload["items"]
-        if not isinstance(records, list):
-            raise TypeError("items must be an array")
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
-        raise SourceCollectionError("parse_failed", "Malformed YouTube chart response") from error
-    items: list[CollectedItem] = []
-    events: list[ItemEvent] = []
-    seen: set[str] = set()
-    for rank, record in enumerate(records[:options["max_items"]], start=1):
-        if not isinstance(record, dict) or not isinstance(record.get("snippet"), dict) or not isinstance(record.get("statistics", {}), dict):
-            events.append(ItemEvent("rejected_invalid", "malformed video metadata", rank))
-            continue
-        video_id = record.get("id", "")
-        if not isinstance(video_id, str):
-            events.append(ItemEvent("rejected_invalid", "invalid video identity", rank))
-            continue
-        snippet = record.get("snippet", {})
-        if not video_id or video_id in seen or not snippet.get("title"):
-            events.append(ItemEvent("rejected_invalid", "missing/duplicate video identity or title", rank, video_id or None))
-            continue
-        seen.add(video_id)
-        stats = record.get("statistics", {})
-        items.append(CollectedItem(
-            source_item_key=video_id, source_item_id=video_id,
-            title=snippet["title"],
-            canonical_url=f"https://www.youtube.com/watch?v={video_id}",
-            provider_time=_parse_any_time(str(snippet.get("publishedAt", ""))),
-            activity=float(51 - rank), rank=rank,
-            payload={
-                "channel_id": snippet.get("channelId"), "channel_title": snippet.get("channelTitle"),
-                "category_id": snippet.get("categoryId"), "view_count": stats.get("viewCount"),
-                "like_count": stats.get("likeCount"), "comment_count": stats.get("commentCount"),
-            },
-        ))
-    complete = len(records) == options["max_items"] and len(items) == options["max_items"]
-    return CollectionResult(
-        items=tuple(items), events=tuple(events), complete=complete,
-        response_hash=sha256(body).hexdigest(), latency_ms=int((time.monotonic() - started) * 1000),
-        failure_category=None if complete else "partial_response",
-        failure_detail=None if complete else f"Expected {options['max_items']} unique videos, received {len(items)}",
     )
 
 

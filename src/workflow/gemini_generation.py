@@ -41,7 +41,7 @@ DOMAIN_FIELDS: dict[str, dict[str, str]] = {
         "usage_notes": "list",
         "avoid_misuse": "list",
     },
-    "ai_tools": {
+    "ai_tech": {
         "product_or_feature": "string",
         "change_summary": "string",
         "as_of_context": "string",
@@ -50,26 +50,7 @@ DOMAIN_FIELDS: dict[str, dict[str, str]] = {
         "use_cases": "list",
         "limitations": "list",
     },
-    "personal_finance": {
-        "event_or_topic": "string",
-        "as_of_context": "string",
-        "jurisdiction_or_population": "string",
-        "mechanism": "string",
-        "consumer_implications": "list",
-        "uncertainty": "string",
-        "watch_points": "list",
-        "disclaimer": "string",
-    },
-    "business_side_hustle": {
-        "customer_problem": "string",
-        "opportunity_hypothesis": "string",
-        "mechanism": "string",
-        "examples": "list",
-        "prerequisites": "list",
-        "costs_and_risks": "list",
-        "validation_actions": "list",
-    },
-    "psychology_behavior": {
+    "psychology": {
         "observed_behavior": "string",
         "context": "string",
         "concept": "string",

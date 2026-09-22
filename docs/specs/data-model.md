@@ -62,7 +62,7 @@ delivery catalogs; fixture bindings have no deliverable destination.
 
 `determination_requests` freeze brief, evidence and catalog.
 `determination_decisions` records aggregate editorial value;
-`determination_routes` records exactly five selected/skipped/blocked assessments.
+`determination_routes` records exactly three selected/skipped/blocked assessments.
 `content_jobs` and `generation_runs` are created only for selected routes.
 The decision, routes and jobs commit atomically.
 
@@ -99,7 +99,8 @@ does not migrate old schemas or auto-delete existing databases.
 | Collection/Scout | pending → claimed → completed; bounded retry/failure |
 | Intake | pending → claimed → completed / needs_clarification / failed / cancelled |
 | Determination | pending → claimed → completed / retry_wait / failed / cancelled |
-| Generation/adaptation/visual planning/render | pending → claimed → succeeded / retry_wait / failed / cancelled |
+| Generation/adaptation | pending → claimed → succeeded / retry_wait / failed / cancelled |
+| Visual planning/render | pending → claimed → succeeded / blocked / retry_wait / failed / cancelled |
 | Review | awaiting_review → approved / changes_requested / rejected / invalidated |
 | Delivery | pending → claimed → publishing → published / failed / publication_unknown |
 | Reconciliation | pending → claimed → needs_human → resolved |
@@ -114,7 +115,4 @@ Intake commits its brief and Determination request in one transaction.
 Determination commits all routes/jobs/runs in one transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
-
-Schema version 8 and its checksum identify the current database contract. The
-explicit v7-to-v8 migration normalizes native timestamp columns without changing
-their instants; it never resets data. Other incompatible databases are refused.
+Schema version 9 adds the expected blocked rendering state and Instagram-only platform constraints. Fresh setup never upgrades an existing database.

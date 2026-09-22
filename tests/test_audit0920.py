@@ -103,7 +103,7 @@ class Audit0920Tests(unittest.TestCase):
             self.assertNotIn(forbidden,output.getvalue())
         decision = next(r for r in lines if r.get('decision_id'))
         self.assertEqual(decision['selected_count'],1)
-        self.assertEqual(decision['skipped_count'],4)
+        self.assertEqual(decision['skipped_count'],2)
         self.assertTrue(decision['job_ids'])
         self.assertTrue(any(r['event']=='model_result' and r.get('model_id') for r in lines))
 

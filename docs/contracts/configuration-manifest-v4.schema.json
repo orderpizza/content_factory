@@ -147,7 +147,6 @@
           "enum": [
             "publisher_feed_collector_v1",
             "wikimedia_enwiki_pageviews_v1",
-            "youtube_most_popular_v1",
             "hacker_news_top_stories_v1"
           ]
         },

@@ -1,4 +1,4 @@
-"""Report offline preview/production/delivery smoke blockers without provider calls."""
+"""Report offline planning/preview smoke blockers without provider calls."""
 
 from argparse import ArgumentParser
 from pathlib import Path
@@ -24,8 +24,8 @@ def main() -> None:
     ))
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument(
-        "--mode", choices=("planning", "preview", "production", "delivery"), default="planning",
-        help="preview checks Gemini/rendering; later modes add production and delivery gates",
+        "--mode", choices=("planning", "preview"), default="planning",
+        help="planning checks local planning; preview checks Gemini/rendering",
     )
     args = parser.parse_args()
     report = inspect_smoke_readiness(

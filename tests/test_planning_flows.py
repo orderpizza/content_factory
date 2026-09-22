@@ -34,16 +34,16 @@ class PlanningFlowTests(unittest.TestCase):
 
     def test_fresh_setup_has_current_schema_catalog_and_no_external_work(self):
         with WorkflowStore(self.path) as store:
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 8)
-            self.assertEqual(len(store.catalog()), 5)
-            self.assertTrue(all(len(c['outputs'])==2 and c['remit']['description'] for c in store.catalog()))
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 9)
+            self.assertEqual(len(store.catalog()), 3)
+            self.assertTrue(all(len(c['outputs'])==1 and c['remit']['description'] for c in store.catalog()))
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_threads').fetchone()[0], 0)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM social_destinations').fetchone()[0], 0)
-            self.assertEqual(store.connection.execute("SELECT enabled FROM detection_source_instances WHERE stable_id='youtube_us_most_popular_v1'").fetchone()[0], 0)
+            self.assertEqual(len(store.catalog()), 3)
         with self.assertRaises(FileExistsError):
             prepare_development_database(self.path)
 
-    def test_human_clarification_to_five_routes_and_content_job_is_visible(self):
+    def test_human_clarification_to_three_routes_and_content_job_is_visible(self):
         with WorkflowStore(self.path) as store:
             store.create_human_idea('Teach something', command_id='idea')
             worker = GeminiIntakeWorker(store, FakeGeminiClient({'open_questions':['Which expression?']}))
@@ -56,9 +56,9 @@ class PlanningFlowTests(unittest.TestCase):
             decision = gemini_fixtures.GeminiWorkflowTests.decision(store.catalog())
             GeminiDeterminationWorker(store, FakeGeminiClient(decision)).run_once()
             html = render_threads(store.connection, thread_id=row[0], interactive=True)
-            for fragment in ['break the ice', 'business meetings', 'ContentJob #1', 'Five domain routes', 'english', 'psychology_behavior', 'fake-gemini', 'Frozen Determination input']:
+            for fragment in ['break the ice', 'business meetings', 'ContentJob #1', 'Three domain routes', 'english', 'psychology', 'fake-gemini', 'Frozen Determination input']:
                 self.assertIn(fragment, html)
-            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM determination_routes').fetchone()[0], 5)
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM determination_routes').fetchone()[0], 3)
             self.assertEqual(store.connection.execute('SELECT status FROM generation_runs').fetchone()[0], 'pending')
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM canonical_contents').fetchone()[0], 0)
             with self.assertRaises(sqlite3.IntegrityError):
@@ -69,7 +69,7 @@ class PlanningFlowTests(unittest.TestCase):
         evidence = CollectionResult((CollectedItem('launch','OpenAI launches Atlas browser',100,rank=1,provider_time=at.isoformat()),),(),True,'a'*64,1)
         with DetectionStore(self.path) as detection:
             with patch('detection.collector.collect_source', return_value=evidence):
-                DetectionCollector(detection).run_due(now=at,source_ids={'hacker_news_top_stories_v1','nasa_recently_published_rss_v1'})
+                DetectionCollector(detection).run_due(now=at,source_ids={'hacker_news_top_stories_v1','openai_news_rss_v1'})
             scout = DetectionScout(detection,encoder=FakeEncoder())
             # This test exercises handoff/UI, not score policy. Semantic and
             # attention suites independently guard eligibility and score credit.
@@ -87,9 +87,9 @@ class PlanningFlowTests(unittest.TestCase):
         with WorkflowStore(self.path) as store:
             request = store.connection.execute('SELECT * FROM determination_requests').fetchone()
             frozen = json.loads(request['input_snapshot_json'])
-            self.assertEqual(len(frozen['catalog']),5)
+            self.assertEqual(len(frozen['catalog']),3)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM intake_requests').fetchone()[0],0)
-            GeminiDeterminationWorker(store,FakeGeminiClient(gemini_fixtures.GeminiWorkflowTests.decision(frozen['catalog'],selected_pipeline='ai_tools'))).run_once()
+            GeminiDeterminationWorker(store,FakeGeminiClient(gemini_fixtures.GeminiWorkflowTests.decision(frozen['catalog'],selected_pipeline='ai_tech'))).run_once()
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0],1)
             row = store.connection.execute('SELECT * FROM content_threads').fetchone()
             store.continue_human_thread(row['thread_id'],'Explain practical use cases',command_id='refine',expected_row_version=row['row_version'])

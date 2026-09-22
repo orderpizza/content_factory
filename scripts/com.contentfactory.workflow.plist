@@ -9,9 +9,7 @@
         <string>/Users/YOUR_USERNAME/content_factory/.venv/bin/python</string>
         <string>/Users/YOUR_USERNAME/content_factory/scripts/run_workflow.py</string>
         <string>--gemini</string>
-        <string>--review-preview</string>
-        <string>--production</string>
-        <string>--delivery</string>
+        <string>--planning-only</string>
         <string>--poll</string>
     </array>
     <key>WorkingDirectory</key>

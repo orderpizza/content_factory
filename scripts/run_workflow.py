@@ -1,12 +1,8 @@
-"""Run or poll the persisted workflow workers.
+"""Run persisted planning workers, or opt into Gemini review generation.
 
-The default workers are local placeholders. ``--gemini`` opts human Idea Intake
-and Determination into Vertex Gemini; detected trends already arrive at
-Determination with a source-backed brief. ``--review-preview`` additionally enables
-Gemini canonical generation/adaptation and dispatched image/HTML review rendering.
-``--production`` switches to the immutable real-destination catalog and
-delivery profiles; ``--delivery`` additionally runs credentialed posting and
-R2 cleanup. Every public post still requires a dashboard Post now command.
+Deterministic default workers exercise planning boundaries only.
+--gemini --planning-only stops at jobs. --gemini --review-preview produces
+English Gemini review slides; unsupported domains stop explicitly at rendering.
 """
 
 from __future__ import annotations
@@ -27,7 +23,6 @@ from database.current import SchemaError, validate_database
 from workflow import (
     WORKFLOW_PIPELINES,
     AdaptationWorker,
-    CredentialedPostingAgent,
     DeterminationWorker,
     GeminiAdaptationWorker,
     GeminiDeterminationWorker,
@@ -37,11 +32,7 @@ from workflow import (
     ModelBudgetConfigurationError,
     ModelBudgetPolicy,
     PipelineRunner,
-    PublicationReconciliationWorker,
-    PostingAgent,
-    R2CleanupWorker,
     VisualPlanner,
-    VisualRenderer,
     WorkflowStore,
 )
 from workflow.maintenance import StorageMonitor
@@ -50,58 +41,9 @@ from workflow.gemini_image_renderer import DispatchVisualRenderer
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _placeholder_outputs(pipeline: str) -> list[dict[str, object]]:
-    reason = "auto-registered placeholder for Gemini evaluation"
-    return [
-        {
-            "platform": "instagram",
-            "account": f"fixture_{pipeline}",
-            "content_format": "instagram_static_carousel_v2",
-            "ready": True,
-            "safe_reason": reason,
-        },
-        {
-            "platform": "x",
-            "account": f"fixture_{pipeline}",
-            "content_format": "x_static_post_v1",
-            "ready": True,
-            "safe_reason": reason,
-        },
-    ]
-
-
 def register_gemini_placeholder_capabilities(store: WorkflowStore) -> None:
-    """Idempotently expose five synthetic domains to Gemini Determination."""
-    for pipeline in WORKFLOW_PIPELINES:
-        try:
-            store.register_capability(
-                pipeline,
-                enabled=True,
-                generation_ready=True,
-                outputs=_placeholder_outputs(pipeline),
-            )
-        except ValueError:
-            # Immutable fixture registration rejects changed input. Validate the
-            # complete catalog below instead of mutating the prior definition.
-            pass
-    catalog = {item["pipeline_id"]: item for item in store.catalog()}
-    if set(catalog) != set(WORKFLOW_PIPELINES):
-        raise ValueError("Gemini workflow requires all five placeholder capabilities")
-    for pipeline in WORKFLOW_PIPELINES:
-        capability = catalog[pipeline]
-        expected = {
-            (item["platform"], item["account"], item["content_format"])
-            for item in _placeholder_outputs(pipeline)
-        }
-        actual = {
-            (item["platform"], item["account"], item["content_format"])
-            for item in capability["outputs"]
-            if item["ready"]
-        }
-        if not capability["enabled"] or not capability["generation_ready"] or actual != expected:
-            raise ValueError(
-                f"existing immutable fixture for {pipeline} conflicts with the Gemini placeholder catalog"
-            )
+    from workflow.development import configure_development_catalog
+    configure_development_catalog(store)
 
 
 _RUNTIME_TYPES = {
@@ -188,22 +130,12 @@ def main() -> None:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
-    parser.add_argument("--renderer", choices=("auto", "html"), default="auto",
-                        help="review renderer: auto uses Gemini for supported Instagram archetypes; html preserves local rendering")
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument("-gemini", "--gemini", action="store_true", help="use Gemini for Intake and Determination only")
     parser.add_argument(
         "--review-preview",
         action="store_true",
         help="also use Gemini for content/adaptation and render real local review assets",
-    )
-    parser.add_argument(
-        "--production", action="store_true",
-        help="use real destinations, priced Gemini admission, and delivery-ready profiles",
-    )
-    parser.add_argument(
-        "--delivery", action="store_true",
-        help="run credentialed Posting/R2 cleanup workers; requires --production and Post now authorization",
     )
     parser.add_argument("-poll", "--poll", action="store_true", help="keep polling until interrupted")
     parser.add_argument("--poll-interval", type=float, default=5.0, metavar="SECONDS")
@@ -213,65 +145,25 @@ def main() -> None:
     configure_logging('workflow')
     if not math.isfinite(args.poll_interval) or args.poll_interval <= 0:
         parser.error("--poll-interval must be greater than zero")
-    if args.planning_only and (args.review_preview or args.production or args.delivery):
+    if args.planning_only and (args.review_preview):
         parser.error("--planning-only cannot compose downstream workers")
     if args.review_preview and not args.gemini:
         parser.error("--review-preview requires --gemini")
-    if args.production and not (args.gemini and args.review_preview):
-        parser.error("--production requires --gemini --review-preview")
-    if args.delivery and not args.production:
-        parser.error("--delivery requires --production")
-    if args.production and not args.backups:
-        parser.error("--production requires --backups or CONTENT_FACTORY_BACKUP_ROOT")
     try:
         budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
-        store_context = (
-            WorkflowStore(
-                args.database,
-                catalog_kind="production",
-                model_budget_policy=budget_policy,
-                enforce_storage=True,
-            )
-            if args.production else WorkflowStore(args.database, model_budget_policy=budget_policy, enforce_storage=True)
-        )
-        with store_context as store:
-            if args.production:
-                validate_database(store.connection)
-                catalog = store.catalog()
-                if len(catalog) != len(WORKFLOW_PIPELINES):
-                    raise ValueError("production catalog must register all five domains")
-            elif args.gemini:
-                register_gemini_placeholder_capabilities(store)
+        with WorkflowStore(args.database, model_budget_policy=budget_policy, enforce_storage=True) as store:
+            register_gemini_placeholder_capabilities(store)
             intake_worker = GeminiIntakeWorker(store) if args.gemini else IdeaIntakeWorker(store)
             determination_worker = (
                 GeminiDeterminationWorker(store) if args.gemini else DeterminationWorker(store)
             )
             workers = (intake_worker, determination_worker)
-            if not args.planning_only:
-                pipeline_worker = (
-                    GeminiPipelineRunner(store) if args.review_preview else PipelineRunner(store)
-                )
-                adaptation_worker = (
-                    GeminiAdaptationWorker(store, production=args.production)
-                    if args.review_preview else AdaptationWorker(store)
-                )
-                renderer_worker = (
-                    DispatchVisualRenderer(store, args.artifacts, production=args.production, renderer=args.renderer)
-                    if args.review_preview else VisualRenderer(store, args.artifacts)
-                )
-                workers = (
-                    intake_worker, determination_worker, pipeline_worker,
-                    adaptation_worker, VisualPlanner(store, production=args.production), renderer_worker,
+            if args.review_preview:
+                workers += (
+                    GeminiPipelineRunner(store), GeminiAdaptationWorker(store),
+                    VisualPlanner(store), DispatchVisualRenderer(store, args.artifacts),
                 )
             workers = (StorageMonitor(store, args.artifacts, args.backups or ROOT / "data/backups"),) + workers
-            if args.production:
-                if args.delivery:
-                    workers += (
-                        CredentialedPostingAgent(store, artifact_root=args.artifacts), R2CleanupWorker(store),
-                        PublicationReconciliationWorker(store),
-                    )
-            elif not args.planning_only:
-                workers += (PostingAgent(store),)
             if not args.poll:
                 _run_pass(workers)
                 return

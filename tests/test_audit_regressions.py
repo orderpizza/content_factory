@@ -52,7 +52,7 @@ class AuditRegressionTests(unittest.TestCase):
             )
         sources = {"hacker_news_top_stories_v1"}
         if two_sources:
-            sources.update({"nasa_recently_published_rss_v1", "youtube_us_most_popular_v1"})
+            sources.update({"openai_news_rss_v1", "google_ai_rss_v1"})
         with patch("detection.collector.collect_source", side_effect=collect):
             DetectionCollector(store).run_due(now=at, source_ids=sources)
 
@@ -79,7 +79,7 @@ class AuditRegressionTests(unittest.TestCase):
             self.assertEqual(result["candidate_count"], 0)
             self.assertEqual(store.connection.execute(
                 "SELECT COUNT(*) FROM scout_evaluation_inputs"
-            ).fetchone()[0], 4)
+            ).fetchone()[0], 9)
             self.assertEqual(tuple(store.connection.execute(
                 "SELECT input_frozen_at,input_hash FROM scout_evaluation_runs"
             ).fetchone()), before)
@@ -114,7 +114,7 @@ class AuditRegressionTests(unittest.TestCase):
         initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 9)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -184,7 +184,8 @@ class AuditRegressionTests(unittest.TestCase):
                         )}
                         with patch.dict(module["main"].__globals__, factories):
                             module["main"]()
-                        self.assertEqual(factories["VisualRenderer"].call_args.args[1], os.environ["CONTENT_FACTORY_ARTIFACT_ROOT"])
+                        self.assertEqual(factories["StorageMonitor"].call_args.args[1], os.environ["CONTENT_FACTORY_ARTIFACT_ROOT"])
+                        factories["VisualRenderer"].assert_not_called()
                     else:
                         module["main"]()
                 self.assertEqual(worker_store.call_args.args[0], str(self.path))

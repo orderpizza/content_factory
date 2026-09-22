@@ -33,9 +33,9 @@ class WorkflowV2Tests(unittest.TestCase):
             decision_id = DeterminationWorker(store).run_once()
             self.assertIsNotNone(decision_id)
             routes = store.connection.execute("SELECT disposition FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
-            self.assertEqual(len(routes), 5)
+            self.assertEqual(len(routes), 3)
             self.assertEqual(sum(row[0] == "selected" for row in routes), 1)
-            self.assertIn("Five domain routes", render_workflow_trace(store.connection))
+            self.assertIn("Three domain routes", render_workflow_trace(store.connection))
             self.assertIsNotNone(PipelineRunner(store).run_once())
             self.assertIsNotNone(AdaptationWorker(store).run_once())
             self.assertIsNotNone(VisualPlanner(store).run_once())
@@ -63,7 +63,7 @@ class WorkflowV2Tests(unittest.TestCase):
             outcome = store.connection.execute("SELECT outcome FROM determination_decisions WHERE determination_decision_id=?", (decision_id,)).fetchone()[0]
             routes = store.connection.execute("SELECT disposition,fit FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
             self.assertEqual(outcome, "not_recommended")
-            self.assertEqual(len(routes), 5)
+            self.assertEqual(len(routes), 3)
             self.assertTrue(all(row[0] == "skipped" and row[1] == "not_evaluated" for row in routes))
 
     def test_human_can_answer_intake_clarification_and_refine_same_thread(self):

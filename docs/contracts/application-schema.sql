@@ -1,4 +1,4 @@
--- Current application schema. Fresh databases and the explicit v7-to-v8 timestamp migration.
+-- Current application schema for explicit fresh-database initialization.
 
 CREATE TABLE schema_migrations (
     schema_migration_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -461,7 +461,7 @@ CREATE TABLE pipeline_capabilities (
 CREATE TABLE output_bindings (
     output_binding_id INTEGER PRIMARY KEY AUTOINCREMENT,
     pipeline_capability_id INTEGER NOT NULL REFERENCES pipeline_capabilities(pipeline_capability_id) ON DELETE RESTRICT,
-    platform TEXT NOT NULL CHECK (platform IN ('instagram','x')),
+    platform TEXT NOT NULL CHECK (platform IN ('instagram')),
     account TEXT NOT NULL,
     content_format TEXT NOT NULL,
     output_contract_version TEXT NOT NULL,
@@ -576,7 +576,7 @@ CREATE TABLE visual_plan_runs (
     visual_plan_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
     content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     run_number INTEGER NOT NULL CHECK(run_number>0),
-    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled','blocked')),
     claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
     attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
     fallback_from_visual_recipe_id INTEGER REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
@@ -601,7 +601,7 @@ CREATE TABLE render_runs (
     content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
     run_number INTEGER NOT NULL CHECK(run_number>0),
-    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled','blocked')),
     claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
     attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
     manifest_json TEXT CHECK(manifest_json IS NULL OR json_valid(manifest_json)), failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
@@ -704,7 +704,7 @@ CREATE TABLE social_destinations (
     configuration_release_id INTEGER NOT NULL
         REFERENCES configuration_releases(configuration_release_id) ON DELETE RESTRICT,
     destination_key TEXT NOT NULL,
-    platform TEXT NOT NULL CHECK(platform IN ('instagram','x')),
+    platform TEXT NOT NULL CHECK(platform IN ('instagram')),
     account_key TEXT NOT NULL,
     provider_account_id TEXT NOT NULL,
     secret_ref TEXT NOT NULL,
@@ -1038,4 +1038,4 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;

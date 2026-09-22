@@ -33,7 +33,7 @@ File existence alone is never proof of a completed render or reviewed asset.
 final-send markers and reconciliation. Once a public request might have been
 sent, the result is published or unknown, never automatically retryable.
 Staging cleanup is separately audited and cannot undo a confirmed publication.
-All current provider reconciliation requires human resolution.
+Preserved generic reconciliation requires human resolution; no provider lookup is active.
 
 ## Gemini accounting
 
@@ -59,11 +59,9 @@ Changing process configuration does not erase existing spend.
 
 Image rendering uses a separate price policy against that same ledger and records
 `image_rendering` invocations on RenderRuns. Expired image claims with external
-history fail instead of being reclaimed for another paid call. Sequential designer
-slides have separate reservations and invocation identities; only the next slide
-after a successful prior call may start under the same live claim attempt. A
-budget refusal after generation has begun fails the render instead of deferring
-a partial carousel for automatic replay.
+history fail instead of being reclaimed for another paid call. One storyboard call has one reservation and invocation identity; local processing
+failures preserve that evidence without another paid attempt. A pre-call daily
+budget refusal may defer safely.
 
 The provider's returned usage settles reservations; absent usage retains the
 worst-case uncertain reservation. The client captures usage before JSON parsing
@@ -75,8 +73,7 @@ accounting-recovery command yet.
 The local input guard is 32,000 serialized request characters, not exact input
 tokenization. Output allowance is sent to the client. Configured input-token
 maxima are reservation assumptions, not a separately implemented tokenizer or
-provider count-tokens check. Hardening this assumption is tracked in
-[the roadmap](../plans/target-implementation.md#reliability-and-scale).
+provider count-tokens check.
 
 The client projects array cardinality limits into wire-schema descriptions for
 Vertex while retaining types, required fields and closed objects. Local worker
@@ -98,8 +95,7 @@ fail. Monitor measurement failure is observable but does not stop planning.
 
 ### Storage action matrix
 
-A current sample is at most ten minutes old. The production runner/dashboard
-enforce the following downstream policy; it is not a planning safety gate.
+A current sample is at most ten minutes old. The review runner enforces the following downstream policy; it is not a planning safety gate.
 
 | Action | Normal | Warning | Critical | Emergency / missing / stale / clock-invalid |
 | --- | --- | --- | --- | --- |
@@ -128,8 +124,7 @@ keeps 14 newest snapshots plus eight older weekly representatives.
 
 There is no automatic database-row or terminal-rendered-asset age deletion.
 Backup pruning and transient R2 cleanup are not database retention. Measurement
-does not delete evidence or authorize deletion. Retention design belongs in
-[the roadmap](../plans/target-implementation.md#storage-measurement-and-retention).
+does not delete evidence or authorize deletion.
 
 ## Input, privacy and local access
 
@@ -161,6 +156,4 @@ multiuser authentication system.
 
 Offline tests cover fencing, atomic handoffs, checkpoints, manifests, storage
 edge cases and publication uncertainty. They do not prove editorial truth,
-live authorization or provider exactly-once behavior. Future capacity scheduling,
-reuse, recovery controls and multi-post safety are specified only in
-[the roadmap](../plans/target-implementation.md).
+live authorization or provider exactly-once behavior.

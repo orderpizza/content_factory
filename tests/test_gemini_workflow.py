@@ -91,13 +91,6 @@ class GeminiWorkflowTests(unittest.TestCase):
                         "ready": True,
                         "safe_reason": "Gemini workflow test fixture",
                     },
-                    {
-                        "platform": "x",
-                        "account": f"fixture_{pipeline}",
-                        "content_format": "x_static_post_v1",
-                        "ready": True,
-                        "safe_reason": "Gemini workflow test fixture",
-                    },
                 ],
             )
 
@@ -154,7 +147,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "usage_notes": ["Use it when people are meeting or feel awkward."],
                 "avoid_misuse": ["Do not use it for literal ice unless making a joke."],
             },
-            "ai_tools": {
+            "ai_tech": {
                 "product_or_feature": "AI meeting assistant",
                 "change_summary": "A hypothetical assistant workflow for meeting preparation.",
                 "as_of_context": "Conceptual example; no current product claim.",
@@ -163,26 +156,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "use_cases": ["Prepare for a first team meeting."],
                 "limitations": ["A human must review tone and accuracy."],
             },
-            "personal_finance": {
-                "event_or_topic": "First-meeting spending expectations",
-                "as_of_context": "General educational scenario, not current market data.",
-                "jurisdiction_or_population": "General adult audience.",
-                "mechanism": "Set a small budget before a social business meeting.",
-                "consumer_implications": ["A preset limit can reduce impulsive spending."],
-                "uncertainty": "Individual circumstances differ.",
-                "watch_points": ["Check whether an expense is reimbursable."],
-                "disclaimer": "Educational information, not individualized financial advice.",
-            },
-            "business_side_hustle": {
-                "customer_problem": "New groups can struggle to start productive conversation.",
-                "opportunity_hypothesis": "A facilitation prompt pack may help meeting hosts.",
-                "mechanism": "Test structured opening prompts with a small group.",
-                "examples": ["A prompt card for a client workshop."],
-                "prerequisites": ["Access to willing test participants."],
-                "costs_and_risks": ["Prompts may feel generic without audience research."],
-                "validation_actions": ["Interview five meeting facilitators."],
-            },
-            "psychology_behavior": {
+            "psychology": {
                 "observed_behavior": "People often hesitate in an unfamiliar group.",
                 "context": "A first business meeting.",
                 "concept": "Social uncertainty.",
@@ -232,15 +206,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                     {"role": "takeaway", "title": "Try it deliberately", "body": "Use the idiom when someone helps a new group relax.", "claim_ids": []},
                 ],
             }
-        return {
-            **common,
-            "post_text": "Break the ice describes easing the initial tension in an unfamiliar social situation.",
-            "visual_unit": {
-                "role": "hook", "title": "Break the ice",
-                "body": "Ease the first awkward moment—not the literal ice.",
-                "claim_ids": [],
-            },
-        }
+        raise ValueError("unsupported platform")
 
     def prepare_english_canonical(self, store: WorkflowStore, *, command_id: str = "production") -> int:
         self.register_catalog(store)
@@ -263,12 +229,8 @@ class GeminiWorkflowTests(unittest.TestCase):
         instagram = GeminiAdaptationWorker(
             store, FakeGeminiClient(self.adaptation_response("instagram"))
         ).run_once()
-        x_package = GeminiAdaptationWorker(
-            store, FakeGeminiClient(self.adaptation_response("x"))
-        ).run_once()
         self.assertIsNotNone(instagram)
-        self.assertIsNotNone(x_package)
-        return [instagram, x_package]
+        return [instagram]
 
     def test_gemini_intake_produces_valid_brief(self):
         client = FakeGeminiClient(brief())
@@ -301,7 +263,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             catalog = store.catalog()
             self.assertEqual({item["pipeline_id"] for item in catalog}, set(WORKFLOW_PIPELINES))
             self.assertTrue(all(item["enabled"] and item["generation_ready"] for item in catalog))
-            self.assertTrue(all(len(item["outputs"]) == 2 for item in catalog))
+            self.assertTrue(all(len(item["outputs"]) == 1 for item in catalog))
             self.assertTrue(all(
                 output["account"] == f"fixture_{item['pipeline_id']}"
                 for item in catalog for output in item["outputs"]
@@ -339,14 +301,14 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "WHERE determination_decision_id=? ORDER BY pipeline_id",
                 (decision_id,),
             ).fetchall()
-            self.assertEqual(len(routes), 5)
+            self.assertEqual(len(routes), 3)
             self.assertEqual(sum(route["disposition"] == "selected" for route in routes), 1)
             self.assertTrue(all(route["reason"] for route in routes))
             selected = next(route for route in routes if route["disposition"] == "selected")
             self.assertIsNotNone(selected["angle_json"])
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_jobs").fetchone()[0], 1)
             self.assertIs(client.calls[0]["schema"], DETERMINATION_SCHEMA)
-            self.assertIn("all five domain", client.calls[0]["prompt"])
+            self.assertIn("all three domain", client.calls[0]["prompt"])
 
     def test_gemini_determination_rejects_low_value_idea_without_jobs(self):
         with WorkflowStore(self.path) as store:
@@ -365,7 +327,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "SELECT disposition,reason FROM determination_routes WHERE determination_decision_id=?",
                 (decision_id,),
             ).fetchall()
-            self.assertEqual(len(routes), 5)
+            self.assertEqual(len(routes), 3)
             self.assertTrue(all(route["disposition"] == "skipped" and route["reason"] for route in routes))
 
     def test_schema_validation_fails_claim_without_persisting_garbage(self):
@@ -437,7 +399,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                         "SELECT COUNT(*) FROM output_requests WHERE canonical_content_id=?",
                         (canonical_id,),
                     ).fetchone()[0]
-                    self.assertEqual(output_count, 2)
+                    self.assertEqual(output_count, 1)
                     job_recipe = json.loads(store.connection.execute(
                         "SELECT recipe_json FROM content_jobs WHERE content_job_id=("
                         "SELECT content_job_id FROM canonical_contents WHERE canonical_content_id=?)",
@@ -481,29 +443,23 @@ class GeminiWorkflowTests(unittest.TestCase):
             canonical_id = self.prepare_english_canonical(store, command_id="adapt-valid")
             instagram_client = FakeGeminiClient(self.adaptation_response("instagram"))
             instagram_id = GeminiAdaptationWorker(store, instagram_client).run_once()
-            x_client = FakeGeminiClient(self.adaptation_response("x"))
-            x_id = GeminiAdaptationWorker(store, x_client).run_once()
-            self.assertIsNotNone(instagram_id)
-            self.assertIsNotNone(x_id)
             packages = store.connection.execute(
                 "SELECT p.package_json FROM content_packages p JOIN output_requests o "
                 "ON o.output_request_id=p.output_request_id "
                 "WHERE o.canonical_content_id=? ORDER BY o.output_request_id",
                 (canonical_id,),
             ).fetchall()
-            self.assertEqual(len(packages), 2)
-            instagram, x_package = [json.loads(row[0]) for row in packages]
+            self.assertEqual(len(packages), 1)
+            instagram = json.loads(packages[0][0])
             self.assertEqual(len(instagram["visual_units"]), 5)
             self.assertEqual(instagram["visual_intent"]["primary_structure"], "dialogue")
-            self.assertEqual(x_package["visual_intent"]["primary_structure"], "editorial")
             self.assertFalse(instagram["delivery_ready"])
-            self.assertFalse(x_package["delivery_ready"])
             self.assertIn("synthetic_destination_review_only", instagram_client.calls[0]["prompt"])
             self.assertEqual(
                 store.connection.execute(
                     "SELECT COUNT(*) FROM visual_plan_runs WHERE status='pending'"
                 ).fetchone()[0],
-                2,
+                1,
             )
 
     def test_adaptation_thinking_policy_is_scoped_to_gemini_three(self):
@@ -534,10 +490,8 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(store.connection.execute(
                 "SELECT COUNT(*) FROM content_packages"
             ).fetchone()[0], 0)
-            # The sibling output can still adapt the same canonical content.
-            self.assertIsNotNone(GeminiAdaptationWorker(
-                store, FakeGeminiClient(self.adaptation_response("x"))
-            ).run_once())
+            self.assertIsNone(GeminiAdaptationWorker(store, client).run_once())
+            self.assertEqual(len(client.calls), 1)
 
     def test_gemini_adaptation_rejects_unmapped_canonical_claim(self):
         with WorkflowStore(self.path) as store:
@@ -556,7 +510,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(invocation["outcome"], "schema_failed")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_packages").fetchone()[0], 0)
 
-    def test_static_renderer_produces_exact_review_assets_for_both_platforms(self):
+    def test_static_renderer_produces_exact_review_assets_for_inactive_library(self):
         artifact_root = Path(self.temporary.name) / "artifacts"
         with WorkflowStore(self.path) as store:
             package_ids = self.prepare_packages(store, command_id="render-valid")
@@ -567,11 +521,8 @@ class GeminiWorkflowTests(unittest.TestCase):
                 ).fetchall()
             }
             self.assertIsNotNone(VisualPlanner(store).run_once())
-            self.assertIsNotNone(VisualPlanner(store).run_once())
             first_review = StaticVisualRenderer(store, artifact_root).run_once()
-            second_review = StaticVisualRenderer(store, artifact_root).run_once()
             self.assertIsNotNone(first_review)
-            self.assertIsNotNone(second_review)
             reviews = store.connection.execute(
                 "SELECT content_package_id,status FROM review_requests ORDER BY review_request_id"
             ).fetchall()
@@ -586,7 +537,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "JOIN render_runs r ON r.render_run_id=a.render_run_id "
                 "GROUP BY r.content_package_id ORDER BY r.content_package_id"
             ).fetchall()
-            self.assertEqual([row["count"] for row in asset_counts], [15, 3])
+            self.assertEqual([row["count"] for row in asset_counts], [15])
             for row in store.connection.execute(
                 "SELECT local_path,width,height,mime_type FROM render_assets "
                 "WHERE asset_role='delivery_jpeg'"

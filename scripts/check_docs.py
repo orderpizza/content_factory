@@ -1,5 +1,6 @@
 """Validate current documentation links, schema inventory and configuration."""
 from pathlib import Path
+import ast
 import json
 import re
 import sqlite3
@@ -18,7 +19,7 @@ REQUIRED = ["docs/system.md", "docs/current-state.md", "docs/specs/detection.md"
             "docs/specs/data-model.md", "docs/specs/data/records.md",
             "docs/specs/configuration.md", "docs/specs/runtime.md",
             "docs/contracts/application-schema.sql", "docs/contracts/README.md",
-            "docs/plans/target-implementation.md", ".env.example"]
+            ".env.example"]
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.M)
 
@@ -78,12 +79,35 @@ def main():
     except Exception as error:
         errors.append(f"Detection configuration is invalid: {type(error).__name__}")
     domains = re.findall(r"^\| `([a-z0-9_]+)` \|", (ROOT/"docs/pipelines/domains.md").read_text(), re.M)
-    if set(domains) != set(WORKFLOW_PIPELINES) or len(domains) != 5:
-        errors.append("Domain reference must contain exactly five registered domains")
+    if set(domains) != set(WORKFLOW_PIPELINES) or len(domains) != 3:
+        errors.append("Domain reference must contain exactly three registered domains")
     settings = (ROOT/"docs/specs/configuration.md").read_text()
     for key in re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M):
         if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|GENERATION|ADAPTATION)_MAX_(INPUT|OUTPUT)_TOKENS", key):
             errors.append(f"Undocumented environment variable: {key}")
+    inventory = set(re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M))
+    # Literal environment reads plus the existing bounded model-budget expansion.
+    from workflow.model_budget import DEFAULT_PHASE_LIMITS
+    used = {f"GEMINI_{phase.upper()}_MAX_{direction}_TOKENS"
+            for phase in DEFAULT_PHASE_LIMITS for direction in ("INPUT", "OUTPUT")}
+    used |= {f"{prefix}_{direction}_COST_PER_MILLION_USD"
+             for prefix in ("GEMINI", "GEMINI_IMAGE") for direction in ("INPUT", "OUTPUT")}
+    for source in [*(ROOT/"src").rglob("*.py"), *(ROOT/"scripts").glob("*.py")]:
+        if source.name == "check_docs.py":
+            continue
+        for node in ast.walk(ast.parse(source.read_text())):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = ast.unparse(node.func)
+            if name == "_decimal" or name.endswith((".getenv", ".get")):
+                key = node.args[0]
+                if isinstance(key, ast.Constant) and isinstance(key.value, str) and re.fullmatch(r"[A-Z][A-Z0-9_]+", key.value):
+                    used.add(key.value)
+    used.discard("VERTEX_AI_MODEL")  # Internal compatibility alias; one preferred name.
+    for key in used - inventory:
+        errors.append(f"Environment lookup absent from .env.example: {key}")
+    for key in inventory - used:
+        errors.append(f"Unused operator environment variable: {key}")
     for path in (ROOT/"docs/contracts").glob("*.schema.json"):
         try:
             json.loads(path.read_text())

@@ -1,8 +1,8 @@
 """Persisted workflow workers and dashboard commands.
 
 The default workers remain deterministic fixtures. Opt-in Gemini workers cover
-Intake through validated rendering. The v4 path additionally exposes explicit,
-fail-closed production delivery after exact human authorization.
+Intake through review rendering. Generic delivery/R2 helpers are preserved
+inactive and are not composed by the current workflow.
 """
 
 from .gemini_determination import GeminiDeterminationWorker
@@ -15,12 +15,10 @@ from .delivery import (
     CredentialedPostingAgent,
     DeliveryConfigurationError,
     DeliveryError,
-    InstagramDeliveryAdapter,
     JsonHttpTransport,
     PublicationReconciliationWorker,
     R2CleanupWorker,
     R2TransientRelay,
-    XDeliveryAdapter,
 )
 from .static_renderer import StaticVisualRenderer
 from .visual_planner import VisualPlanner
@@ -33,7 +31,7 @@ __all__ = [
     "GeminiPipelineRunner", "GeminiAdaptationWorker",
     "PipelineRunner", "AdaptationWorker", "VisualPlanner", "VisualRenderer", "StaticVisualRenderer", "PostingAgent",
     "CredentialedPostingAgent", "DeliveryConfigurationError", "DeliveryError",
-    "InstagramDeliveryAdapter", "XDeliveryAdapter", "R2TransientRelay", "R2CleanupWorker",
+    "R2TransientRelay", "R2CleanupWorker",
     "JsonHttpTransport", "ModelBudgetPolicy", "ModelBudgetConfigurationError", "ModelBudgetExceeded",
     "PublicationReconciliationWorker",
     "inspect_smoke_readiness",

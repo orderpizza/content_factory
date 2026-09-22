@@ -45,13 +45,13 @@ class HybridDetectionTests(unittest.TestCase):
         self.assertFalse(initialize_database(self.path))
         self.assertFalse(initialize_database(self.path))
         with DetectionStore(self.path) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 9)
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
 
     def test_midday_daily_report_and_live_feed_both_contribute(self):
         with DetectionStore(self.path) as store:
             self.collect(store, "wikimedia_enwiki_daily_v1")
-            self.collect(store, "nasa_recently_published_rss_v1")
+            self.collect(store, "openai_news_rss_v1")
             result = DetectionScout(store).run(now=self.at)
             self.assertEqual(result["candidate_count"], 1)
             row = store.connection.execute("SELECT * FROM trend_candidates").fetchone()
@@ -101,8 +101,8 @@ class HybridDetectionTests(unittest.TestCase):
         with DetectionStore(self.path) as store:
             for offset in reversed(range(2, 9)):
                 at = (self.at - timedelta(days=offset)).replace(hour=23, minute=59)
-                self.collect(store, "nasa_recently_published_rss_v1", at=at, empty=True)
-            self.collect(store, "nasa_recently_published_rss_v1")
+                self.collect(store, "openai_news_rss_v1", at=at, empty=True)
+            self.collect(store, "openai_news_rss_v1")
             DetectionScout(store).run(now=self.at)
             breakdown = json.loads(store.connection.execute("SELECT score_breakdown_json FROM trend_candidates").fetchone()[0])
             source = breakdown["source_components"][0]
@@ -113,7 +113,7 @@ class HybridDetectionTests(unittest.TestCase):
     def test_compatible_release_retains_history_and_existing_selected_handoff(self):
         with DetectionStore(self.path) as store:
             self.collect(store, "wikimedia_enwiki_daily_v1")
-            self.collect(store, "nasa_recently_published_rss_v1")
+            self.collect(store, "openai_news_rss_v1")
             DetectionScout(store).run(now=self.at)
             count = store.connection.execute("SELECT COUNT(*) FROM content_threads").fetchone()[0]
             newer = deepcopy(self.manifest)
@@ -125,7 +125,7 @@ class HybridDetectionTests(unittest.TestCase):
 
     def test_retry_uses_exact_frozen_historical_health(self):
         with DetectionStore(self.path) as store:
-            self.collect(store, "nasa_recently_published_rss_v1")
+            self.collect(store, "openai_news_rss_v1")
             scout = DetectionScout(store)
             with patch.object(scout, "_finalize", side_effect=RuntimeError("fixture after freeze")):
                 with self.assertRaises(RuntimeError):
@@ -133,7 +133,7 @@ class HybridDetectionTests(unittest.TestCase):
             before = store.connection.execute("SELECT snapshot_json FROM scout_frozen_evidence").fetchone()[0]
             with store.connection:
                 store.connection.execute("UPDATE scout_evaluation_runs SET next_attempt_at=?", (self.at.isoformat(),))
-            self.collect(store, "nasa_recently_published_rss_v1", at=self.at + timedelta(minutes=16), empty=True)
+            self.collect(store, "openai_news_rss_v1", at=self.at + timedelta(minutes=61), empty=True)
             self.assertEqual(scout.run(now=self.at + timedelta(minutes=20))["status"], "completed")
             self.assertEqual(store.connection.execute("SELECT snapshot_json FROM scout_frozen_evidence").fetchone()[0], before)
 
@@ -142,7 +142,7 @@ class HybridDetectionTests(unittest.TestCase):
                                   events=(ItemEvent("rejected_invalid", "missing rank", source_ordinal=2),),
                                   complete=False, response_hash="b" * 64, latency_ms=1)
         with DetectionStore(self.path) as store, patch("detection.collector.collect_source", return_value=result):
-            DetectionCollector(store).run_due(now=self.at, source_ids={"nasa_recently_published_rss_v1"})
+            DetectionCollector(store).run_due(now=self.at, source_ids={"openai_news_rss_v1"})
             evidence = store.connection.execute("SELECT * FROM source_execution_evidence").fetchone()
             self.assertEqual(evidence["complete"], 0)
             self.assertEqual(json.loads(evidence["evidence_json"])["items"][0]["title"], "Valid partial item")
@@ -170,8 +170,9 @@ class HybridDetectionTests(unittest.TestCase):
     def test_quota_reservations_survive_release_activation(self):
         limited = deepcopy(self.manifest)
         limited["release_name"] = "quota-fixture"
-        source = next(s for s in limited["components"]["detection"]["sources"] if s["stable_id"] == "youtube_us_most_popular_v1")
-        with DetectionStore(self.path) as store, patch.dict("os.environ", {"YOUTUBE_API_KEY": "fixture-key"}):
+        source = next(s for s in limited["components"]["detection"]["sources"] if s["stable_id"] == "openai_news_rss_v1")
+        source["quota_limit"] = 1000
+        with DetectionStore(self.path) as store:
             store.apply_manifest(limited)
             self.collect(store, source["stable_id"])
             # Model an already exhausted day without 1,000 fixture executions.
@@ -180,14 +181,14 @@ class HybridDetectionTests(unittest.TestCase):
             limited["release_name"] = "quota-fixture-next-release"
             store.apply_manifest(limited)
             with patch("detection.collector.collect_source") as provider:
-                DetectionCollector(store).run_due(now=self.at + timedelta(minutes=16), source_ids={source["stable_id"]})
+                DetectionCollector(store).run_due(now=self.at + timedelta(minutes=61), source_ids={source["stable_id"]})
             provider.assert_not_called()
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM source_request_executions").fetchone()[0], 1)
 
     def test_v3_observations_and_population_are_immutable(self):
         import sqlite3
         with DetectionStore(self.path) as store:
-            self.collect(store, "nasa_recently_published_rss_v1")
+            self.collect(store, "openai_news_rss_v1")
             DetectionScout(store).run(now=self.at)
             for query in ("UPDATE trend_observations SET activity=999", "UPDATE scout_prominence_populations SET population_json='[]'"):
                 with self.assertRaises(sqlite3.IntegrityError), store.connection:

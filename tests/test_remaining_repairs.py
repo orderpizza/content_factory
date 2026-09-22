@@ -30,45 +30,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RemainingRepairTests(unittest.TestCase):
-    def test_instagram_probe_uses_root_env_and_current_version_without_leaking_token(self):
-        root = Path(self.tmp.name)
-        (root / ".env").write_text(
-            "INSTAGRAM_USER_ID=123456\nINSTAGRAM_ACCESS_TOKEN=local-fixture-token\n"
-            "META_GRAPH_API_VERSION=v24.0\nINSTAGRAM_GRAPH_API_VERSION=v23.0\n",
-            encoding="utf-8",
-        )
-        main = runpy.run_path(str(ROOT / "scripts/test_instagram_credentials.py"))["main"]
-        output = StringIO()
-        with patch.dict(main.__globals__, {"ROOT": root}), patch.dict("os.environ", {}, clear=True), \
-                patch("sys.argv", ["probe"]), patch.dict(main.__globals__) as namespace:
-            from unittest.mock import MagicMock
-            transport = MagicMock()
-            transport.return_value.__enter__.return_value.read.return_value = b'{"id":"123456","username":"fixture"}'
-            namespace["urlopen"] = transport
-            with redirect_stdout(output):
-                main()
-            request = transport.call_args.args[0]
-            self.assertEqual(urlsplit(request.full_url).path, "/v24.0/123456")
-            self.assertEqual(parse_qs(urlsplit(request.full_url).query)["access_token"], ["local-fixture-token"])
-            self.assertNotIn("local-fixture-token", output.getvalue())
-            transport.side_effect = HTTPError(
-                request.full_url, 401, "Unauthorized", {},
-                BytesIO(b'{"error":{"code":190,"message":"bad local-fixture-token"}}'),
-            )
-            with self.assertRaises(SystemExit) as failure:
-                main()
-            self.assertIn("190", str(failure.exception))
-            self.assertNotIn("local-fixture-token", str(failure.exception))
-
-        with patch.dict(main.__globals__, {"ROOT": root}), \
-                patch.dict("os.environ", {"INSTAGRAM_ACCESS_TOKEN": "process-fixture-token"}, clear=True), \
-                patch("sys.argv", ["probe", "--local-only"]), redirect_stdout(StringIO()) as output:
-            main()
-            report = json.loads(output.getvalue())
-            self.assertEqual(report["token_source"], "process_environment")
-            self.assertEqual(report["token_length"], len("process-fixture-token"))
-            self.assertFalse(report["network_calls_made"])
-            self.assertNotIn("process-fixture-token", output.getvalue())
 
     def test_dashboard_refresh_is_visibility_gated_and_csp_hashed(self):
         from hashlib import sha256
@@ -313,8 +274,8 @@ class RemainingRepairTests(unittest.TestCase):
         result = CollectionResult(items=(CollectedItem("stable-guid", "Stable item", 1),), events=(), complete=True, response_hash="a" * 64, latency_ms=1)
         with DetectionStore(self.path) as store, patch("detection.collector.collect_source", return_value=result):
             collector = DetectionCollector(store)
-            collector.run_due(now=start, source_ids={"nasa_recently_published_rss_v1"})
-            collector.run_due(now=start + timedelta(days=1), source_ids={"nasa_recently_published_rss_v1"})
+            collector.run_due(now=start, source_ids={"openai_news_rss_v1"})
+            collector.run_due(now=start + timedelta(days=1), source_ids={"openai_news_rss_v1"})
             rows = store.connection.execute("SELECT effective_observed_at FROM trend_observations").fetchall()
             self.assertEqual([r[0] for r in rows], ["2026-09-08T12:00:00"] * 2)
 
@@ -340,7 +301,7 @@ class RemainingRepairTests(unittest.TestCase):
             freeze_resolution(store.connection, run, manifest["components"]["detection"]["semantic_resolution"],
                               scout.encoder, owner=scout.instance_id, claim_version=claim)
             original = scout._evaluate(run, release, manifest, start, attempts)
-            collector.run_due(now=start + timedelta(minutes=1), source_ids={"nasa_recently_published_rss_v1"})
+            collector.run_due(now=start + timedelta(minutes=1), source_ids={"openai_news_rss_v1"})
             self.assertEqual(tuple(store.connection.execute("SELECT * FROM trend_observations ORDER BY trend_observation_id LIMIT 1").fetchone()), before)
             self.assertEqual(scout._evaluate(run, release, manifest, start, attempts), original)
 

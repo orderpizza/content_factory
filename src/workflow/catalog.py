@@ -3,15 +3,13 @@ from common.timestamps import utc_now
 from typing import Any
 import json
 
-WORKFLOW_PIPELINES = ("english", "ai_tools", "personal_finance", "business_side_hustle", "psychology_behavior")
+WORKFLOW_PIPELINES = ("english", "ai_tech", "psychology")
 
 
 DOMAIN_REMITS = {
     "english": "Teach usable English expressions, vocabulary and pragmatic context to language learners; popularity alone is not a teaching angle.",
-    "ai_tools": "Explain AI tools, capabilities, limitations and practical use cases with evidence.",
-    "personal_finance": "Explain consumer financial implications and tradeoffs without personalized investment advice.",
-    "business_side_hustle": "Assess commercial mechanisms, entrepreneurship and realistic business opportunities.",
-    "psychology_behavior": "Explain evidence-grounded behavior and communication; do not invent diagnoses.",
+    "ai_tech": "Explain AI tools, capabilities, limitations and practical use cases with evidence.",
+    "psychology": "Explain evidence-grounded behavior and communication; do not invent diagnoses.",
 }
 
 def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:

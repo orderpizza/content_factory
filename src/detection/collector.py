@@ -7,7 +7,6 @@ from dataclasses import asdict
 from hashlib import sha256
 from typing import Any
 import json
-import os
 import socket
 import sqlite3
 from time import monotonic
@@ -108,10 +107,7 @@ class DetectionCollector:
         ).fetchone()
         if row["status"] == "completed":
             return {"source": source["stable_id"], "attempt_id": attempt_id, "status": "already_completed"}
-        reserve_quota = not (
-            source["source_kind"] == "youtube_most_popular_v1"
-            and not os.getenv(source["secret_ref"] or "")
-        )
+        reserve_quota = True
         claim_version, execution_id, claim_status = self._claim(
             source, attempt_id, current, reserve_quota=reserve_quota
         )
@@ -269,7 +265,7 @@ class DetectionCollector:
         self.store.connection.execute("BEGIN IMMEDIATE")
         with self.store.connection:
             quota_units = 0
-            if source["source_kind"] == "youtube_most_popular_v1" and reserve_quota:
+            if source["quota_limit"] is not None and reserve_quota:
                 quota_day = current.date().isoformat()
                 used = int(self.store.connection.execute(
                     "SELECT COALESCE(SUM(e.quota_units), 0) FROM source_request_executions e "
@@ -419,7 +415,7 @@ class DetectionCollector:
                 if not key:
                     continue
                 if source["source_kind"] in {
-                    "youtube_most_popular_v1", "hacker_news_top_stories_v1"
+                    "hacker_news_top_stories_v1",
                 }:
                     effective_text, time_status = serialize_timestamp(collected_at), "collection_time_measurement"
                 else:

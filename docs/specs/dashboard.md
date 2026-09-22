@@ -84,9 +84,10 @@ thread. It shows origin, status, updated time, row version and Detection backlin
 - Current full brief; thread detail can page through every prior revision.
 - Frozen source/conversation context and creation-time capability catalog.
 - Determination status, outcome, opportunity value, rationale and warnings.
-- All five route cards, including fit, stopping reasons, selected angle fields,
+- All three route cards, including fit, stopping reasons, selected angle fields,
   output bindings and resulting immutable ContentJob recipe/output plan.
-- Latest GenerationRun and existing review previews for each job.
+- Generation, adaptation, visual planning and rendering progress for each job,
+  including blocked rendering reasons and exact English six-slide review assets.
 - Recent Gemini invocation outcome, model, token usage, estimated cost and safe
   diagnostics.
 
@@ -96,11 +97,9 @@ reply. A new revision does not overwrite older work.
 
 ## Commands
 
-Supported forms persist `new_idea`, `continue_thread`, preview approval/
-rejection/changes, exact `post_now`, pre-final cancellation, reconciliation
-request and human reconciliation resolution. Production controls remain
-conditional on exact delivery-ready assets and current destination readiness.
-Development fixture packages cannot authorize public delivery.
+Supported forms persist `new_idea`, `continue_thread`, review approval,
+rejection and changes. Delivery/provider controls and commands are not exposed.
+Review acceptance does not create posting authorization.
 
 Commands are idempotent by command ID, with compare-and-swap row versions where
 needed. New ideas and replies redirect to their resulting thread. Form bodies

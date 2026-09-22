@@ -52,10 +52,10 @@ class DocumentationTests(unittest.TestCase):
 
     def test_duplicate_or_platform_specific_domain_is_rejected(self):
         self.alter('docs/pipelines/domains.md',lambda text:text.replace('`english`','`english_instagram`'))
-        self.assertIn('exactly five',self.run_check())
+        self.assertIn('exactly three',self.run_check())
 
     def test_schema_version_disagreement_is_rejected(self):
-        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 8','user_version = 99'))
+        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 9','user_version = 99'))
         self.assertIn('schema version disagrees',self.run_check())
 
     def test_undocumented_table_is_rejected(self):
@@ -65,3 +65,12 @@ class DocumentationTests(unittest.TestCase):
     def test_undocumented_environment_variable_is_rejected(self):
         self.alter('.env.example',lambda text:text+'\nNEW_UNDOCUMENTED_KEY=\n')
         self.assertIn('Undocumented environment variable',self.run_check())
+
+    def test_undocumented_code_lookup_is_rejected(self):
+        self.alter('src/common/gemini.py', lambda text: text + '\nvalue = os.getenv("NEW_RUNTIME_SETTING")\n')
+        self.assertIn('Environment lookup absent from .env.example: NEW_RUNTIME_SETTING', self.run_check())
+
+    def test_unused_template_setting_is_rejected(self):
+        self.alter('.env.example', lambda text: text + '\nUNUSED_SETTING=\n')
+        self.alter('docs/specs/configuration.md', lambda text: text + '\nUNUSED_SETTING\n')
+        self.assertIn('Unused operator environment variable: UNUSED_SETTING', self.run_check())

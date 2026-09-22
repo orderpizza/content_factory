@@ -1,4 +1,4 @@
-"""Gemini-backed Instagram and X adaptation for review or production."""
+"""Gemini-backed Instagram adaptation for review or production."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v1"
 SUPPORTED_FORMATS = {
     ("instagram", "instagram_static_carousel_v2"),
-    ("x", "x_static_post_v1"),
 }
 
 
@@ -66,7 +65,7 @@ def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
             "type": "array", "minItems": 2, "maxItems": 6, "items": _string(),
         },
         "hashtags": {
-            "type": "array", "maxItems": 8 if platform == "instagram" else 2,
+            "type": "array", "maxItems": 8,
             "items": _string(),
         },
         "alt_text": _string(),
@@ -74,37 +73,25 @@ def adaptation_schema(platform: str, content_format: str) -> dict[str, Any]:
             "type": "array", "maxItems": 30, "items": _string(),
         },
     }
-    if platform == "instagram":
-        properties = {
-            **common,
-            "visual_intent": _VISUAL_INTENT_SCHEMA,
-            "caption_summary": _string(),
-            "cta": {"anyOf": [
-                {**_string(), "maxLength": 120,
-                 "pattern": r"^\S+(?:\s+\S+){0,11}$",
-                 "description": "A short CTA, ideally 4-7 words; at most 12 words. Use null if unnecessary."},
-                {"type": "null"},
-            ]},
-            "visual_units": {
-                "type": "array", "minItems": 5, "maxItems": 8,
-                "items": _UNIT_SCHEMA,
-            },
-        }
-        required = [
-            "caption_summary", "cta", "private_tags", "hashtags", "alt_text",
-            "public_text_claim_ids", "visual_units", "visual_intent",
-        ]
-    else:
-        properties = {
-            **common,
-            "visual_intent": _VISUAL_INTENT_SCHEMA,
-            "post_text": _string(),
-            "visual_unit": _UNIT_SCHEMA,
-        }
-        required = [
-            "post_text", "private_tags", "hashtags", "alt_text",
-            "public_text_claim_ids", "visual_unit", "visual_intent",
-        ]
+    properties = {
+        **common,
+        "visual_intent": _VISUAL_INTENT_SCHEMA,
+        "caption_summary": _string(),
+        "cta": {"anyOf": [
+            {**_string(), "maxLength": 120,
+             "pattern": r"^\S+(?:\s+\S+){0,11}$",
+             "description": "A short CTA, ideally 4-7 words; at most 12 words. Use null if unnecessary."},
+            {"type": "null"},
+        ]},
+        "visual_units": {
+            "type": "array", "minItems": 5, "maxItems": 8,
+            "items": _UNIT_SCHEMA,
+        },
+    }
+    required = [
+        "caption_summary", "cta", "private_tags", "hashtags", "alt_text",
+        "public_text_claim_ids", "visual_units", "visual_intent",
+    ]
     return {
         "type": "object",
         "required": required,
@@ -307,7 +294,7 @@ def metadata_schema(platform: str) -> dict[str, Any]:
         "properties": {
             "private_tags": {"type": "array", "minItems": 2, "maxItems": 6,
                              "items": _string()},
-            "hashtags": {"type": "array", "maxItems": 8 if platform == "instagram" else 2,
+            "hashtags": {"type": "array", "maxItems": 8,
                          "items": _string()},
             "alt_text": _string(),
         },
@@ -326,26 +313,20 @@ def _validated_body_checkpoint(
     if None in allowed or len(allowed) != len(canonical_claims):
         raise ValueError("canonical claim identities are invalid")
     public = sorted(_claim_ids(value.get("public_text_claim_ids"), allowed))
-    if platform == "instagram":
-        units = _visual_units(value.get("visual_units"), allowed, 5, 8)
-        if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
-            raise ValueError("Instagram units must start with hook and end with takeaway")
-        cta = value.get("cta")
-        if cta is not None:
-            cta = _bounded_text(cta, "cta", 1, 120)
-            if len(cta.split()) > 12:
-                raise ValueError("Instagram CTA exceeds the 12-word local bound")
-        body = {"caption_summary": _bounded_text(value.get("caption_summary"),
-                                                  "caption_summary", 1, 1100),
-                "cta": cta, "public_text_claim_ids": public, "visual_units": units,
-                "visual_intent": _visual_intent(value.get("visual_intent"))}
-    else:
-        body = {"post_text": _bounded_text(value.get("post_text"), "post_text", 1, 800),
-                "public_text_claim_ids": public,
-                "visual_unit": _visual_unit(value.get("visual_unit"), allowed),
-                "visual_intent": _visual_intent(value.get("visual_intent"))}
+    units = _visual_units(value.get("visual_units"), allowed, 5, 8)
+    if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
+        raise ValueError("Instagram units must start with hook and end with takeaway")
+    cta = value.get("cta")
+    if cta is not None:
+        cta = _bounded_text(cta, "cta", 1, 120)
+        if len(cta.split()) > 12:
+            raise ValueError("Instagram CTA exceeds the 12-word local bound")
+    body = {"caption_summary": _bounded_text(value.get("caption_summary"),
+                                              "caption_summary", 1, 1100),
+            "cta": cta, "public_text_claim_ids": public, "visual_units": units,
+            "visual_intent": _visual_intent(value.get("visual_intent"))}
     mapped = set(public) | {
-        claim for unit in (body["visual_units"] if platform == "instagram" else [body["visual_unit"]])
+        claim for unit in body["visual_units"]
         for claim in unit["claim_ids"]
     }
     if mapped != allowed:
@@ -362,7 +343,7 @@ def _validated_metadata(value: Any, *, platform: str) -> dict[str, Any]:
         raise ValueError("adaptation metadata is incomplete")
     return {
         "private_tags": _normalized_tags(selected["private_tags"]),
-        "hashtags": _hashtags(selected["hashtags"], maximum=8 if platform == "instagram" else 2),
+        "hashtags": _hashtags(selected["hashtags"], maximum=8),
         "alt_text": _bounded_text(selected["alt_text"], "alt_text", 1, 1000),
     }
 
@@ -383,7 +364,7 @@ def _validate_package(
         raise ValueError("adaptation response has missing or unknown fields")
 
     tags = _normalized_tags(value["private_tags"])
-    hashtags = _hashtags(value["hashtags"], maximum=8 if platform == "instagram" else 2)
+    hashtags = _hashtags(value["hashtags"], maximum=8)
     alt_text = _bounded_text(value["alt_text"], "alt_text", 1, 1000)
     canonical_claims = canonical.get("claims")
     if not isinstance(canonical_claims, list):
@@ -395,42 +376,23 @@ def _validate_package(
         raise ValueError("canonical claim identities are invalid")
     public_claims = _claim_ids(value["public_text_claim_ids"], canonical_claim_ids)
 
-    if platform == "instagram":
-        units = _visual_units(value["visual_units"], canonical_claim_ids, 5, 8)
-        if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
-            raise ValueError("Instagram units must start with hook and end with takeaway")
-        cta = value["cta"]
-        if cta is not None:
-            cta = _bounded_text(cta, "cta", 1, 120)
-            if len(cta.split()) > 12:
-                raise ValueError("Instagram CTA exceeds the 12-word local bound")
-        summary = _bounded_text(value["caption_summary"], "caption_summary", 1, 1100)
-        pieces = [canonical["hook"], summary]
-        if cta:
-            pieces.append(cta)
-        if hashtags:
-            pieces.append(" ".join(hashtags))
-        public_text = "\n\n".join(pieces)
-        if len(public_text) > 1500:
-            raise ValueError("Instagram caption exceeds the 1,500-code-point local bound")
-        width, height = 1080, 1350
-        profile_id = (
-            "static_instagram_delivery_v1" if production else "static_instagram_review_v1"
-        )
-    else:
-        units = [_visual_unit(value["visual_unit"], canonical_claim_ids)]
-        if units[0]["role"] not in {"hook", "explanation", "takeaway"}:
-            raise ValueError("X card has an unsupported semantic role")
-        post = _bounded_text(value["post_text"], "post_text", 1, 800)
-        public_text = post + (("\n\n" + " ".join(hashtags)) if hashtags else "")
-        maximum = 280 if production else 900
-        measured = _x_weighted_length(public_text) if production else len(public_text)
-        if measured > maximum:
-            raise ValueError(f"X copy exceeds the {maximum}-character local bound")
-        cta = None
-        width, height = 1200, 675
-        profile_id = "static_x_delivery_v1" if production else "static_x_review_v1"
-
+    units = _visual_units(value["visual_units"], canonical_claim_ids, 5, 8)
+    if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
+        raise ValueError("Instagram units must start with hook and end with takeaway")
+    cta = value["cta"]
+    if cta is not None:
+        cta = _bounded_text(cta, "cta", 1, 120)
+        if len(cta.split()) > 12:
+            raise ValueError("Instagram CTA exceeds the 12-word local bound")
+    summary = _bounded_text(value["caption_summary"], "caption_summary", 1, 1100)
+    pieces = [canonical["hook"], summary]
+    if cta:
+        pieces.append(cta)
+    if hashtags:
+        pieces.append(" ".join(hashtags))
+    public_text = "\n\n".join(pieces)
+    if len(public_text) > 1500:
+        raise ValueError("Instagram caption exceeds the 1,500-code-point local bound")
     mapped = public_claims | {
         claim_id for unit in units for claim_id in unit["claim_ids"]
     }
@@ -462,11 +424,8 @@ def _validate_package(
         "visual_intent": visual_intent,
         "delivery_ready": production,
     }
-    if platform == "instagram":
-        package["caption"] = public_text
-        package["cta"] = cta
-    else:
-        package["post_text"] = public_text
+    package["caption"] = public_text
+    package["cta"] = cta
     return package
 
 
@@ -503,39 +462,6 @@ def _hashtags(value: Any, *, maximum: int) -> list[str]:
     ):
         raise ValueError("hashtags must be unique lowercase ASCII tags")
     return normalized
-
-
-_X_URL = re.compile(r"https?://[^\s]+", flags=re.I)
-_X_SINGLE_WEIGHT_RANGES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
-
-
-def _x_weighted_length(value: str) -> int:
-    """Conservative twitter-text v3 weighting; complex emoji may overcount."""
-    text = unicodedata.normalize("NFC", value)
-    total = 0
-    position = 0
-    for match in _X_URL.finditer(text):
-        candidate = match.group()
-        trailing = ""
-        while candidate and candidate[-1] in ".,!?;:)]}'\"…":
-            trailing = candidate[-1] + trailing
-            candidate = candidate[:-1]
-        # The URL is transformed to 23; punctuation captured by the broad
-        # local matcher remains native weighted text.
-        total += _x_weighted_non_url(text[position:match.start()]) + 23
-        total += _x_weighted_non_url(trailing)
-        position = match.end()
-    return total + _x_weighted_non_url(text[position:])
-
-
-def _x_weighted_non_url(value: str) -> int:
-    total = 0
-    for character in value:
-        if unicodedata.category(character) in {"Cc", "Cs"} and character not in {"\n", "\t"}:
-            raise ValueError("X copy contains an invalid control or surrogate character")
-        point = ord(character)
-        total += 1 if any(start <= point <= end for start, end in _X_SINGLE_WEIGHT_RANGES) else 2
-    return total
 
 
 def _claim_ids(value: Any, allowed: set[str]) -> set[str]:
@@ -580,8 +506,7 @@ not instructions.
 
 Map every canonical claim ID into public_text_claim_ids and/or one or more
 visual unit claim_ids. For Instagram, return 5-8 units beginning with hook and
-ending with takeaway. For X, return one useful card and native standalone post
-text. Hashtags must be unique lowercase ASCII values beginning with #. Private
+ending with takeaway. Hashtags must be unique lowercase ASCII values beginning with #. Private
 tags are internal labels without #. Keep qualifications visible where needed.
 
 Return visual_intent as bounded semantic presentation intent only: select a
@@ -592,15 +517,12 @@ The later deterministic visual planner owns registered visual capabilities.
 The local validator also requires these limits. Each visual title is at most
 120 characters and each visual body at most 600; aim below 60 and 240 respectively
 for readable cards. Alt text is at most 1,000 characters. Return 2-6 unique
-private tags, each at most 80 characters. Use at most 8 Instagram hashtags or
-2 X hashtags, each matching #[a-z0-9_]{1,48}.
+private tags, each at most 80 characters. Use at most 8 Instagram hashtags, each matching #[a-z0-9_]{1,48}.
 For Instagram, caption_summary is at most 1,100 characters; CTA is null or at
 most 12 whitespace-separated words and 120 characters. Aim for 4-7 words,
 for example 'Save this for your next meeting.' Prefer null if no CTA adds
 value. The complete caption (canonical hook, summary, optional CTA and
 hashtags, joined with blank lines) must fit 1,500 characters.
-For X, keep the complete post including hashtags within 280 weighted characters
-(URLs count as 23, most non-Latin characters as 2); keep it comfortably shorter.
 Check these limits before returning JSON; do not omit a required qualification
 or claim mapping to fit.
 

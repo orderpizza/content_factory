@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import replace
 from decimal import Decimal
 from io import BytesIO
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -84,6 +85,9 @@ class ImagePipelineTests(unittest.TestCase):
         value = recipe('expression_breakdown_v1', roles=EXPRESSION_ROLES)
         package = {'platform': 'instagram', 'visual_units': deepcopy(EXPRESSION_UNITS)}
         prompt = build_storyboard_prompt(package, value)
+        # Characterization of the accepted full English design brief and fixture copy.
+        self.assertEqual(sha256(prompt.encode()).hexdigest(),
+                         'b093726a0c22236fd1cecae4fa994e2910b0f46bb8610c893f9f516999061e79')
         content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
         self.assertEqual(content['total'], 6)
         self.assertEqual([slide['title'] for slide in content['slides']],
@@ -338,21 +342,19 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertIsNone(DispatchVisualRenderer(store, self.artifacts, image_client=client).run_once())
             self.assertEqual(client.calls, [])
 
-    def test_unsupported_instagram_and_x_use_html(self):
+
+
+    def test_unsupported_english_format_blocks_without_html_fallback(self):
         with WorkflowStore(self.path) as store:
             self.fixture.prepare_packages(store)
-            VisualPlanner(store).run_once()
-            VisualPlanner(store).run_once()
+            self.assertIsNotNone(VisualPlanner(store).run_once())
             client = FakeImageClient()
             worker = DispatchVisualRenderer(store, self.artifacts, image_client=client)
-            self.assertIsNotNone(worker.run_once())
-            self.assertIsNotNone(worker.run_once())
+            with patch('workflow.static_renderer.StaticVisualRenderer._render_assets', side_effect=AssertionError('HTML invoked')):
+                self.assertIsNone(worker.run_once())
+                self.assertIsNone(worker.run_once())
             self.assertEqual(client.calls, [])
-
-    def test_explicit_html_path_remains_available(self):
-        with WorkflowStore(self.path) as store:
-            self.prepare(store)
-            client = FakeImageClient()
-            worker = DispatchVisualRenderer(store, self.artifacts, renderer='html', image_client=client)
-            self.assertIsNotNone(worker.run_once(), getattr(worker, 'last_operation', None))
-            self.assertEqual(client.calls, [])
+            row = store.connection.execute('SELECT status,failure_reason FROM render_runs').fetchone()
+            self.assertEqual(tuple(row), ('blocked', 'Gemini visual renderer not implemented for this English format.'))
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
+            self.assertFalse(self.artifacts.exists())

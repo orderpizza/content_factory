@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model
 from .model_budget import ModelBudgetPolicy
+from .workers import local_operation
 from .static_renderer import StaticVisualRenderer, _asset
 from .visual_primitives import EXPRESSION_LABELS
 
@@ -529,23 +530,28 @@ class GeminiImageRenderer(StaticVisualRenderer):
 
 
 class DispatchVisualRenderer(StaticVisualRenderer):
-    """Explicit auto/HTML dispatch; production retains its existing lifecycle gates."""
-    def __init__(self, store, artifact_root, *, production=False, renderer="auto", image_client=None):
-        super().__init__(store, artifact_root, production=production)
-        if renderer not in {"auto", "html"}:
-            raise ValueError("unsupported renderer selection")
-        self.renderer = renderer
+    """Active review renderer: English Gemini storyboard, or an explicit capability stop."""
+    def __init__(self, store, artifact_root, *, image_client=None):
+        super().__init__(store, artifact_root, instance_id="renderer-gemini-review")
         self.image_renderer = GeminiImageRenderer(store, artifact_root, client=image_client)
 
+    @local_operation("render_runs", "render_run_id")
     def _process(self, run):
         row = self.store.connection.execute(
-            "SELECT p.package_json,v.recipe_json FROM content_packages p "
-            "JOIN visual_recipes v ON v.visual_recipe_id=? WHERE p.content_package_id=?",
+            "SELECT p.package_json,v.recipe_json,j.pipeline_id FROM content_packages p "
+            "JOIN visual_recipes v ON v.visual_recipe_id=? "
+            "JOIN output_requests o ON o.output_request_id=p.output_request_id "
+            "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+            "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
+            "WHERE p.content_package_id=?",
             (run["visual_recipe_id"], run["content_package_id"]),
         ).fetchone()
-        selected = (self.renderer == "auto" and not self.production and row is not None
-                    and supports_image_rendering(json.loads(row[0]), json.loads(row[1])))
-        worker = self.image_renderer if selected else self
-        result = self.image_renderer._process(run) if selected else super()._process(run)
-        self.last_operation = getattr(worker, "last_operation", None)
-        return result
+        if row is None:
+            raise ValueError("render run references a missing package")
+        if row["pipeline_id"] != "english":
+            self.store.block_render(run, "Gemini visual renderer not implemented for this domain.")
+            return None
+        if not supports_image_rendering(json.loads(row["package_json"]), json.loads(row["recipe_json"])):
+            self.store.block_render(run, "Gemini visual renderer not implemented for this English format.")
+            return None
+        return self.image_renderer._process(run)
