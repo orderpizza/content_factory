@@ -132,54 +132,67 @@ Review mode uses local system fonts and is not delivery-ready. Production mode l
 local font, verifies its exact hash and embeds its bytes; it records profile,
 template, font, Playwright/browser and Pillow identities in the manifest.
 
-## Gemini composite review rendering
+## Gemini designer review rendering
 
 `run_workflow.py --gemini --review-preview` defaults to `--renderer auto`.
-`DispatchVisualRenderer` selects `gemini_image_v1` for supported Instagram
+`DispatchVisualRenderer` selects `gemini_designer_v1` for supported Instagram
 review packages, initially `expression_breakdown_v1`; other recipes and production
 continue through HTML/Playwright. `--renderer html` explicitly selects the existing
 deterministic path. Production lifecycle gates remain intact: the expression
 archetype is still tested, not curated. This image path creates review assets only.
 
-`GeminiImageRenderer` reuses the shared fenced artifact/review lifecycle and
-reads the frozen package and recipe. A renderer-owned semantic grammar registry
-maps the initial archetype to hook, meaning/definition, use cases, examples,
-short dialogue and takeaway, in that order. Its prompt includes the exact unit
-titles/bodies, broad cohesive modern educational editorial direction, a 3×2
-row-major sheet and 5:4 master aspect ratio. It excludes recipe composition,
-theme, typography, component coordinates and other low-level design tokens.
-The existing package/recipe validity gates still apply. Adaptation does not
-write or persist an image prompt.
+`GeminiImageRenderer` generates six individual slides sequentially. Slide 1
+establishes the visual language. Slide 2 receives slide 1's raw generated image;
+slides 3–6 receive slide 1 plus the immediately previous raw image. At most two
+internal images accompany each request, before overlays. There is no external
+reference-image input, composite sheet or splitting step.
 
-The isolated Vertex image adapter makes one request for exactly one composite,
-with SDK retries disabled. No reference images or per-slide generation are
-supported. The prompt forbids branding, counters and footer CTAs; it reserves
-the top 10% and bottom 14% of every cell and generous side margins for local
-processing. Readability and exact generated text still require human inspection.
-The provider's dimensions need not be exact: local validation requires a single
-PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and aspect ratio
-within 0.04 of 5:4. Six equal logical cells use integer boundary rounding,
-then centered 4:5 crop and Lanczos resize to 1080×1350.
+Renderer-owned prompts interpret `expression_breakdown_v1` as hook,
+meaning/definition, use cases, examples, short dialogue and takeaway. Each prompt
+contains only that slide's exact title/body, semantic role, role-sensitive design
+direction and continuity instructions. The first slide establishes an attractive,
+modern educational editorial style; later slides preserve palette logic,
+typography feel, illustration feel and polish while adapting composition to the
+role. Prior slide layouts and text must not be copied. Recipe composition, theme,
+typography tokens and component coordinates never enter these prompts. Existing
+package/recipe validity gates still apply; adaptation does not author image prompts.
 
-After resizing, Pillow applies deterministic header/category, page counter and
-footer chrome. Branding text and first/final CTA wording are shared with the
-expression HTML footer; review overlays use Pillow's bundled font and local
-arrow geometry. Six final JPEGs are persisted as the existing `delivery_jpeg`
-asset role so the dashboard displays the exact review bytes. That role does not
-make the review-only package deliverable. The composite is an intermediate file
-identified by name, byte count and hash in the manifest, never a review asset.
-The manifest records engine, image model, invocation, prompt version/hash,
-overlay version and Pillow version alongside package/recipe lineage. The prompt
-is reproducible from frozen inputs and renderer version; raw prompts are not
-written to diagnostic logs or model ledgers.
+The isolated Vertex adapter makes one 4:5 image request per slide with SDK retries
+disabled. It sends internal image bytes through the SDK's inline image parts;
+[the SDK documentation](https://googleapis.github.io/python-genai/) describes that
+transport. Prompts forbid branding, counters and footer CTAs and reserve the top
+10%, bottom 14% and generous side margins. Each output must be a single PNG/JPEG,
+at least 480×600, at most 40 million pixels/40 MB and within 0.04 of the 4:5 aspect
+ratio. A centered crop and Lanczos resize normalize it to exactly 1080×1350.
+These checks reject invalid image data/geometry, not inaccurate words or poor
+visual design. Exact model-rendered text and design quality require human review.
 
-Image calls use separate model prices but the same daily/job accounting ledger;
-see [configuration](configuration.md#model-admission). Invocation history fences
-lost calls from automatic replay. Generation or processing failures fail the
-render without retries, per-slide repair or automatic visual fallback. A bad
-panel requires a manually initiated new whole-composite generation. Existing
-human refinement/review-feedback flows create fresh work; there is no in-place
-render retry command. Pre-call daily-budget deferrals make no provider request.
+After normalization, Pillow applies deterministic header/category, page counter,
+brand, tagline and first/final CTA chrome. Wording is shared with the expression
+HTML footer; review overlays use Pillow's bundled font and local arrow geometry.
+Six final JPEGs use the existing `delivery_jpeg` asset role so the dashboard
+shows the exact overlaid bytes. That role does not make a review-only package
+deliverable. Raw slide images are intermediate files, excluded from review assets.
+
+The manifest records engine/model, prompt and overlay versions, and per-slide
+prompt hash, invocation ID, reference slide ordinals/hashes, raw filename/bytes/hash
+and final filename/hash. Package/recipe lineage and Pillow identity remain intact.
+Invocation request hashes include reference hashes; ledger prompt versions add a
+`/slide-N` suffix for individual call identity. No raw prompts enter diagnostic
+logs or model ledgers. All six final assets commit with one ReviewRequest only
+after complete success. Failed temporary output is removed; paid-call evidence
+remains in the invocation ledger.
+
+Every slide has separate admission and accounting against the shared daily/job
+limits, using image prices. A current live claim is checked and renewed for ten
+minutes before each bounded call; an expired claim cannot be revived. The next
+slide requires all earlier calls to have succeeded under the same claim attempt.
+An interrupted carousel is never resumed automatically. Generation, normalization,
+overlay or mid-carousel budget failures fail the whole render without further
+calls, partial review, per-slide repair or automatic HTML fallback. Only a daily
+budget refusal before slide 1 may defer without a provider call. Manual
+refinement/review-feedback creates fresh work for a complete rerun; no in-place
+render retry command is provided.
 
 ## Execution and assets
 
@@ -217,13 +230,13 @@ runtime/font/template fingerprints make the
 render auditable. Byte-for-byte reproduction across different browser or font
 versions is not assumed. Human quality review remains required for typography,
 claims, contrast and editorial usefulness. The first-wave layouts are text-led;
-licensed-asset, chart and SVG rendering remain deferred; generated composite review images are described above. Offline tests
+licensed-asset, chart and SVG rendering remain deferred; sequentially generated review images are described above. Offline tests
 cover both platform geometries, malformed specs, overflow and immutable package
 preservation.
 
 See [platform outputs](platform-outputs.md), [content production](content-production.md)
 and [reliability](reliability.md). Visual admin tooling, LLM candidate selection,
-additional image archetypes, reference conditioning, chart/SVG engines and qualitative design evaluation
+additional image archetypes, external reference conditioning, chart/SVG engines and qualitative design evaluation
 remain future work; new capabilities should be registered rather than added as
 hidden per-domain renderers.
 

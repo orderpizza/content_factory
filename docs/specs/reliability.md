@@ -59,7 +59,11 @@ Changing process configuration does not erase existing spend.
 
 Image rendering uses a separate price policy against that same ledger and records
 `image_rendering` invocations on RenderRuns. Expired image claims with external
-history fail instead of being reclaimed for another paid call.
+history fail instead of being reclaimed for another paid call. Sequential designer
+slides have separate reservations and invocation identities; only the next slide
+after a successful prior call may start under the same live claim attempt. A
+budget refusal after generation has begun fails the render instead of deferring
+a partial carousel for automatic replay.
 
 The provider's returned usage settles reservations; absent usage retains the
 worst-case uncertain reservation. The client captures usage before JSON parsing

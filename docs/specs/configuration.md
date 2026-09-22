@@ -47,7 +47,7 @@ conversations.
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server, default 127.0.0.1:8787 |
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex project/location |
 | `GEMINI_MODEL` | Model ID; `VERTEX_AI_MODEL` is also accepted by the client |
-| `GEMINI_IMAGE_MODEL` | Composite review image model, default gemini-2.5-flash-image |
+| `GEMINI_IMAGE_MODEL` | Sequential review image model, default gemini-2.5-flash-image |
 | `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Separate image-model token prices, required before image calls |
 | `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Explicit configured-model prices |
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD` | Shared model spending warning/hard cap |
@@ -92,7 +92,9 @@ image tokens and any thinking. `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS` and
 Vertex project/location still use the shared settings; choose a location that
 supports the configured image model. The image transport explicitly disables
 SDK retries. [Vertex's image configuration](https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerationConfig)
-defines the 5:4 request aspect ratio.
+defines the 4:5 request aspect ratio. Each carousel makes six sequential calls;
+phase token allowances and reservations apply per slide, including internal
+reference-image input tokens. Budget limits cover the sum of those calls.
 
 Adaptation's output allowance includes thinking and JSON. Gemini 3 adaptation
 uses LOW thinking and temperature 1.0; local schema/metadata validation still

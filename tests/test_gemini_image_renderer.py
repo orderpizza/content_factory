@@ -1,4 +1,4 @@
-"""Offline composite image generation, processing, review and recovery contracts."""
+"""Offline sequential image generation, processing, review and recovery contracts."""
 from copy import deepcopy
 from dataclasses import replace
 from decimal import Decimal
@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw
 from common.gemini import GeminiUsage
 from common.gemini_image import VertexGeminiImageClient
 from workflow.gemini_image_renderer import (
-    DispatchVisualRenderer, build_image_prompt, split_composite, apply_overlays,
+    DispatchVisualRenderer, build_slide_prompt, normalize_slide, apply_overlays,
 )
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
 from workflow.model_budget import ModelBudgetPolicy
@@ -25,15 +25,8 @@ from test_visual_system import EXPRESSION_UNITS, EXPRESSION_ROLES, recipe
 COLORS = ['#d03030', '#30d030', '#3030d0', '#d0d030', '#d030d0', '#30d0d0']
 
 
-def composite():
-    image = Image.new('RGB', (1500, 1200))
-    draw = ImageDraw.Draw(image)
-    for i, color in enumerate(COLORS):
-        x, y = i % 3 * 500, i // 3 * 600
-        draw.rectangle((x, y, x + 499, y + 599), fill=color)
-        # These narrow edge strips must disappear under the centered 4:5 crop.
-        draw.rectangle((x, y, x + 4, y + 599), fill='black')
-        draw.rectangle((x + 495, y, x + 499, y + 599), fill='black')
+def slide_image(index=0):
+    image = Image.new('RGB', (800, 1000), COLORS[index])
     stream = BytesIO()
     image.save(stream, format='PNG')
     return stream.getvalue()
@@ -43,47 +36,49 @@ class FakeImageClient:
     model = 'fake-image-model'
     last_usage = GeminiUsage(100, 200, 300, model)
 
-    def __init__(self, data=None, error=None):
-        self.data = composite() if data is None else data
+    def __init__(self, data=None, error=None, fail_at=1):
+        self.data = data
+        self.fail_at = fail_at
         self.error = error
         self.calls = []
 
-    def generate_image(self, prompt):
-        self.calls.append(prompt)
-        if self.error:
+    def generate_image(self, prompt, *, references=None):
+        self.calls.append((prompt, references))
+        if self.error and len(self.calls) == self.fail_at:
             raise self.error
-        return self.data
+        return slide_image(len(self.calls) - 1) if self.data is None else self.data
 
 
 class ImagePipelineTests(unittest.TestCase):
     def test_semantic_prompt_exact_text_and_no_recipe_tokens(self):
         value = recipe('expression_breakdown_v1', roles=EXPRESSION_ROLES)
         package = {'platform': 'instagram', 'visual_units': deepcopy(EXPRESSION_UNITS)}
-        prompt = build_image_prompt(package, value)
-        for label in ('hook', 'meaning / definition', 'when to use it / use cases',
-                      'examples', 'short conversation / dialogue', 'takeaway / reminder'):
-            self.assertIn(label, prompt)
-        slides = json.loads(prompt[prompt.index('[{"slide"'):])
-        self.assertEqual([x['title'] for x in slides], [x['title'] for x in EXPRESSION_UNITS])
-        self.assertEqual([x['body'] for x in slides], [x['body'] for x in EXPRESSION_UNITS])
-        for field in ('theme_id', 'composition_id', 'typography_id'):
-            self.assertNotIn(value[field], prompt)
-        for word in ('3×2', '5:4', 'Row-major', 'safe area', 'Do not add branding',
-                     'page counters', 'footer CTA', 'top 10%', 'bottom 14%'):
-            self.assertIn(word, prompt)
-        value['theme_id'] = 'never_send_this'
-        self.assertEqual(prompt, build_image_prompt(package, value))
+        for ordinal, unit in enumerate(EXPRESSION_UNITS, 1):
+            prompt = build_slide_prompt(package, value, ordinal)
+            content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
+            self.assertEqual(content['title'], unit['title'])
+            self.assertEqual(content['body'], unit['body'])
+            self.assertEqual(content['slide'], ordinal)
+            for field in ('theme_id', 'composition_id', 'typography_id'):
+                self.assertNotIn(value[field], prompt)
+            for word in ('3×2', '5:4', 'composite', 'grid', 'sheet'):
+                self.assertNotIn(word, prompt.replace('worksheet-like', ''))
+            for word in ('4:5', 'safe area', 'Do not add branding', 'page counters',
+                         'footer CTA', 'top 10%', 'bottom 14%'):
+                self.assertIn(word, prompt)
+            if ordinal > 1:
+                self.assertIn('Preserve style but adapt composition', prompt)
+            modified = {**value, 'theme_id': 'never_send_this'}
+            self.assertEqual(prompt, build_slide_prompt(package, modified, ordinal))
+        self.assertIn('style anchor', build_slide_prompt(package, value, 1))
         with self.assertRaises(ValueError):
-            build_image_prompt({**package, 'platform': 'x'}, value)
+            build_slide_prompt({**package, 'platform': 'x'}, value, 1)
 
-    def test_split_order_center_crop_and_overlays(self):
-        slides = split_composite(composite())
-        self.assertEqual(len(slides), 6)
-        for ordinal, (slide, color) in enumerate(zip(slides, COLORS), 1):
+    def test_normalization_and_overlays(self):
+        for ordinal, color in enumerate(COLORS, 1):
+            slide = normalize_slide(slide_image(ordinal - 1))
             self.assertEqual(slide.size, (1080, 1350))
             expected = Image.new('RGB', (1, 1), color).getpixel((0, 0))
-            self.assertEqual(slide.getpixel((0, 600)), expected)
-            self.assertEqual(slide.getpixel((1079, 600)), expected)
             output = apply_overlays(slide, ordinal, 6, brand_name='O2English')
             self.assertEqual(output.size, (1080, 1350))
             self.assertEqual(output.getpixel((500, 600)), expected)
@@ -91,28 +86,30 @@ class ImagePipelineTests(unittest.TestCase):
             self.assertGreater(len(output.crop((56, 1205, 700, 1290)).getcolors(100000)), 1)
             self.assertEqual(output.tobytes(), apply_overlays(slide, ordinal, 6, brand_name='O2English').tobytes())
         with self.assertRaises(Exception):
-            split_composite(b'not an image')
+            normalize_slide(b'not an image')
         stream = BytesIO()
-        Image.new('RGB', (600, 600)).save(stream, format='PNG')
+        Image.new('RGB', (1500, 1200)).save(stream, format='PNG')
         with self.assertRaises(ValueError):
-            split_composite(stream.getvalue())
+            normalize_slide(stream.getvalue())
 
-    def test_vertex_transport_single_call_no_retries_or_references(self):
+    def test_vertex_transport_single_call_with_bounded_references_no_retries(self):
         client = VertexGeminiImageClient(project='test', model='test-image', max_output_tokens=8000)
         response = SimpleNamespace(usage_metadata=SimpleNamespace(prompt_token_count=1,
             candidates_token_count=2, thoughts_token_count=3, total_token_count=6), candidates=[
                 SimpleNamespace(finish_reason='STOP', content=SimpleNamespace(parts=[
-                    SimpleNamespace(inline_data=SimpleNamespace(mime_type='image/png', data=composite()), thought=False)
+                    SimpleNamespace(inline_data=SimpleNamespace(mime_type='image/png', data=slide_image()), thought=False)
                 ]))])
         sdk = MagicMock()
         sdk.models.generate_content.return_value = response
         with patch('google.genai.Client', return_value=sdk) as create:
-            self.assertEqual(client.generate_image('literal prompt'), composite())
+            self.assertEqual(client.generate_image('literal prompt', references=[slide_image()]), slide_image())
         self.assertEqual(create.call_args.kwargs['http_options'].retry_options.attempts, 1)
         self.assertEqual(sdk.models.generate_content.call_count, 1)
         kwargs = sdk.models.generate_content.call_args.kwargs
-        self.assertEqual(kwargs['contents'], 'literal prompt')
-        self.assertEqual(kwargs['config'].image_config.aspect_ratio, '5:4')
+        self.assertEqual(kwargs['contents'].parts[0].text, 'literal prompt')
+        self.assertEqual(kwargs['contents'].parts[1].inline_data.data, slide_image())
+        self.assertEqual(kwargs['contents'].parts[1].inline_data.mime_type, 'image/png')
+        self.assertEqual(kwargs['config'].image_config.aspect_ratio, '4:5')
         self.assertEqual(client.last_usage.output_tokens, 5)
         sdk.close.assert_called_once()
         response.candidates = []
@@ -139,7 +136,7 @@ class ImageWorkflowTests(unittest.TestCase):
         value = json.loads(store.connection.execute('SELECT recipe_json FROM visual_recipes').fetchone()[0])
         self.assertEqual(value['archetype_id'], 'expression_breakdown_v1')
 
-    def test_one_call_six_review_assets_and_immutable_inputs(self):
+    def test_six_sequential_calls_final_review_assets_and_immutable_inputs(self):
         from dashboard.workflow import _review_preview
         with WorkflowStore(self.path) as store:
             self.prepare(store)
@@ -149,7 +146,11 @@ class ImageWorkflowTests(unittest.TestCase):
             review = worker.run_once()
             self.assertIsNotNone(review, getattr(worker, 'last_operation', None))
             self.assertIsNone(worker.run_once())
-            self.assertEqual(len(client.calls), 1)
+            self.assertEqual(len(client.calls), 6)
+            for index, (prompt, references) in enumerate(client.calls):
+                self.assertIn(f'Slide {index + 1} of 6', prompt)
+                expected = [] if index == 0 else [slide_image(0)] if index == 1 else [slide_image(0), slide_image(index - 1)]
+                self.assertEqual(references, expected)
             assets = list(store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal'))
             self.assertEqual(len(assets), 6)
             self.assertEqual([a['ordinal'] for a in assets], list(range(1, 7)))
@@ -157,11 +158,16 @@ class ImageWorkflowTests(unittest.TestCase):
                 with Image.open(asset['local_path']) as image:
                     self.assertEqual(image.size, (1080, 1350))
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
-            self.assertEqual(manifest['renderer'], 'gemini_image_v1')
+            self.assertEqual(manifest['renderer'], 'gemini_designer_v1')
             self.assertTrue(manifest['review_only'])
-            master = self.artifacts / 'render-1' / manifest['master_composite']['filename']
-            self.assertTrue(master.is_file())
-            self.assertNotIn(str(master), [a['local_path'] for a in assets])
+            self.assertNotIn('master_composite', manifest)
+            self.assertEqual(len(manifest['slides']), 6)
+            for index, provenance in enumerate(manifest['slides'], 1):
+                raw = self.artifacts / 'render-1' / provenance['raw']['filename']
+                self.assertEqual(raw.read_bytes(), slide_image(index - 1))
+                self.assertNotIn(str(raw), [a['local_path'] for a in assets])
+                self.assertEqual(provenance['reference_ordinals'], [] if index == 1 else [1] if index == 2 else [1, index - 1])
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM model_invocations WHERE phase='image_rendering'").fetchone()[0], 6)
             html = _review_preview(store.connection, review, interactive=False, csrf_token='', production=False)
             self.assertEqual(html.count('<img '), 6)
             self.assertEqual(before, store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
@@ -170,7 +176,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(invocation['output_tokens'], 200)
 
     def test_generation_and_processing_fail_terminal_without_fallback(self):
-        for client in (FakeImageClient(error=RuntimeError('provider failed')), FakeImageClient(data=b'bad')):
+        for client in (FakeImageClient(error=RuntimeError('provider failed'), fail_at=4), FakeImageClient(data=b'bad')):
             with self.subTest(error=client.error):
                 # A distinct test database for each independent failure.
                 fixture = workflow_fixtures.GeminiWorkflowTests(); fixture.setUp()
@@ -181,7 +187,7 @@ class ImageWorkflowTests(unittest.TestCase):
                         worker = DispatchVisualRenderer(store, Path(fixture.temporary.name) / 'assets', image_client=client)
                         self.assertIsNone(worker.run_once())
                         self.assertIsNone(worker.run_once())
-                        self.assertEqual(len(client.calls), 1)
+                        self.assertEqual(len(client.calls), 4 if client.error else 1)
                         self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0], 'failed')
                         self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
                         self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM visual_plan_runs').fetchone()[0], 1)
@@ -205,6 +211,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(row['status'], 'settled')
             self.assertEqual(row['settled_micro_usd'], 6200)
             self.assertEqual(row['worst_case_micro_usd'], 256000)
+            self.assertEqual(store.connection.execute("SELECT SUM(settled_micro_usd) FROM gemini_budget_reservations WHERE phase='image_rendering'").fetchone()[0], 37200)
 
     def test_job_limit_prevents_call(self):
         with WorkflowStore(self.path) as store:
@@ -247,6 +254,54 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertIsNone(DispatchVisualRenderer(store, self.artifacts, image_client=client).run_once())
             self.assertEqual(client.calls, [])
             self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0], 'failed')
+
+    def test_mid_carousel_daily_budget_refusal_is_terminal(self):
+        with WorkflowStore(self.path) as store:
+            self.prepare(store)
+            client = FakeImageClient()
+            worker = DispatchVisualRenderer(store, self.artifacts, image_client=client)
+            worker.image_renderer.budget_policy = replace(self.image_policy(),
+                daily_warning_micro_usd=260000, daily_hard_micro_usd=260000)
+            self.assertIsNone(worker.run_once())
+            self.assertEqual(len(client.calls), 1)
+            self.assertIsNone(worker.run_once())
+            self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0], 'failed')
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
+            outcomes = [r[0] for r in store.connection.execute(
+                "SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")]
+            self.assertEqual(outcomes, ['succeeded', 'blocked'])
+
+    def test_invocation_sequence_replay_and_expired_claim_guards(self):
+        with WorkflowStore(self.path) as store:
+            self.prepare(store)
+            run = store.claim('render_runs', 'render_run_id', 'test')
+            arguments = dict(phase='image_rendering', table='render_runs', key='render_run_id', row=run,
+                request_version='test', prompt_version='designer-test', schema_version='test', request_value={}, model_id='fake')
+            with self.assertRaises(RuntimeError):
+                store.begin_model_invocation(**arguments, image_slide_ordinal=2)
+            invocation = store.begin_model_invocation(**arguments, image_slide_ordinal=1)
+            with self.assertRaises(RuntimeError):
+                store.begin_model_invocation(**arguments, image_slide_ordinal=2)
+            store.finish_model_invocation(invocation, outcome='succeeded')
+            with self.assertRaises(RuntimeError):
+                store.begin_model_invocation(**arguments, image_slide_ordinal=1)
+            store.connection.execute("UPDATE render_runs SET lease_expires_at='2000-01-01T00:00:00'")
+            store.connection.commit()
+            with self.assertRaises(RuntimeError):
+                store.begin_model_invocation(**arguments, image_slide_ordinal=2)
+
+    def test_unsupported_instagram_and_x_use_html(self):
+        with WorkflowStore(self.path) as store:
+            self.fixture.prepare_packages(store)
+            VisualPlanner(store).run_once()
+            VisualPlanner(store).run_once()
+            client = FakeImageClient()
+            worker = DispatchVisualRenderer(store, self.artifacts, image_client=client)
+            self.assertIsNotNone(worker.run_once())
+            self.assertIsNotNone(worker.run_once())
+            self.assertEqual(client.calls, [])
+            for row in store.connection.execute('SELECT manifest_json FROM render_runs'):
+                self.assertEqual(json.loads(row[0])['renderer'], 'html_playwright_v1')
 
     def test_explicit_html_path_remains_available(self):
         with WorkflowStore(self.path) as store:

@@ -75,8 +75,8 @@ planner selects a compatible curated visual archetype/preset, then resolves only
 its approved variants and commits a separate immutable VisualRecipe before
 creating its RenderRun. Rendering retries use the exact package and recipe.
 Synthetic packages remain non-deliverable. Supported Instagram review packages
-can use the Gemini composite rendering path described in
-[visual rendering](visual-rendering.md#gemini-composite-review-rendering).
+can use the Gemini designer rendering path described in
+[visual rendering](visual-rendering.md#gemini-designer-review-rendering).
 Adaptation owns exact semantic copy and visual intent, never final image prompts;
 the renderer interprets `expression_breakdown_v1` as six semantic slide roles
 rather than its deterministic CSS/layout choices. The HTML path is preserved.

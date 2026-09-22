@@ -70,9 +70,9 @@ Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
 Review rendering defaults to `--renderer auto`: supported Instagram archetypes
-use Gemini composite generation; `--renderer html` keeps deterministic rendering.
+use sequential Gemini designer generation; `--renderer html` keeps deterministic rendering.
 Production keeps its existing HTML renderer and eligibility gates.
-[Visual rendering](visual-rendering.md#gemini-composite-review-rendering) owns
+[Visual rendering](visual-rendering.md#gemini-designer-review-rendering) owns
 image processing and review asset behavior.
 
 Real Gemini composition always requires a priced ModelBudgetPolicy.
@@ -83,7 +83,9 @@ No real providers are invoked by deterministic fixture mode.
 Claims use SQLite write transactions, owner, version and lease expiry. Only a
 current owner with a live lease can finalize. Long generation/adaptation/render
 operations use their ten-minute initial lease; planning uses bounded shorter
-claims. Fenced finalization prevents a stale worker from creating children.
+claims. Designer rendering renews a still-live render claim before each slide
+call, retaining the same owner/version. Fenced finalization prevents a stale
+worker from creating children.
 
 Local work without external-call history can be recovered under attempt limits.
 An existing model invocation prevents blind automatic replay after lease loss.
