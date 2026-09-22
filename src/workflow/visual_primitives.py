@@ -38,12 +38,20 @@ def footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
     return f'<footer class="visual-footer"><span>{_text(brand_name)}</span><span>{ordinal:02d} / {total:02d}</span></footer>'
 
 
+EXPRESSION_TAGLINE = "Small Steps. A Bigger You."
+EXPRESSION_LABELS = ("ENGLISH EXPRESSIONS", "MEANING", "WHEN TO USE IT", "EXAMPLE", "IN A CONVERSATION", "KEY TAKEAWAY")
+
+
+def expression_action(ordinal: int, total: int) -> str:
+    return "Swipe →" if ordinal == 1 else "Keep learning! →" if ordinal == total else ""
+
+
 def expression_footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
     """The expression carousel has an editorial footer, not the shared UI footer."""
-    action = "Swipe →" if ordinal == 1 else "Keep learning! →" if ordinal == total else ""
+    action = expression_action(ordinal, total)
     return (
         '<footer class="expression-footer">'
-        f'<div class="expression-brand"><strong>{_text(brand_name)}</strong><span>Small Steps. A Bigger You.</span></div>'
+        f'<div class="expression-brand"><strong>{_text(brand_name)}</strong><span>{EXPRESSION_TAGLINE}</span></div>'
         f'<span class="expression-action">{_text(action)}</span>'
         '</footer>'
     )
@@ -295,17 +303,17 @@ def expression_hero_title(value: str) -> str:
 def expression_layout(unit: dict[str, Any], variant: str, *, avatars: list[dict[str, str]]) -> str:
     title, body = unit["title"], unit["body"]
     if variant == "hook_hero":
-        return f'<main class="layout expression-layout hook-hero">{expression_header("ENGLISH EXPRESSIONS")}{expression_hero_title(title)}<p class="hook-teaser">{_text(body)}</p></main>'
+        return f'<main class="layout expression-layout hook-hero">{expression_header(EXPRESSION_LABELS[0])}{expression_hero_title(title)}<p class="hook-teaser">{_text(body)}</p></main>'
     if variant == "meaning_definition":
-        return f'<main class="layout expression-layout meaning-definition">{expression_header("MEANING")}<div class="meaning-heading">{expression_lightbulb_icon()}<h1 class="title expression-title meaning-title">What does<br>it mean?</h1></div><div class="definition-stack">{expression_definition_card(body)}</div></main>'
+        return f'<main class="layout expression-layout meaning-definition">{expression_header(EXPRESSION_LABELS[1])}<div class="meaning-heading">{expression_lightbulb_icon()}<h1 class="title expression-title meaning-title">What does<br>it mean?</h1></div><div class="definition-stack">{expression_definition_card(body)}</div></main>'
     if variant == "use_case_checklist":
-        return f'<main class="layout expression-layout use-case-checklist">{expression_header("WHEN TO USE IT")}<h1 class="title expression-title checklist-title">Use it<br>when…</h1>{expression_checklist(body)}<aside class="teaching-note">{expression_note_icon()}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
+        return f'<main class="layout expression-layout use-case-checklist">{expression_header(EXPRESSION_LABELS[2])}<h1 class="title expression-title checklist-title">Use it<br>when…</h1>{expression_checklist(body)}<aside class="teaching-note">{expression_note_icon()}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
     if variant == "example_cards":
-        return f'<main class="layout expression-layout example-cards">{expression_header("EXAMPLE")}<h1 class="title expression-title examples-title">In a sentence</h1>{expression_examples(body, title)}</main>'
+        return f'<main class="layout expression-layout example-cards">{expression_header(EXPRESSION_LABELS[3])}<h1 class="title expression-title examples-title">In a sentence</h1>{expression_examples(body, title)}</main>'
     if variant == "dialogue_bubbles":
-        return f'<main class="layout expression-layout dialogue-bubbles">{expression_header("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}</main>'
+        return f'<main class="layout expression-layout dialogue-bubbles">{expression_header(EXPRESSION_LABELS[4])}{expression_dialogue(body, title, avatars)}</main>'
     if variant == "takeaway_summary":
-        return f'<main class="layout expression-layout takeaway-summary">{expression_header("KEY TAKEAWAY")}<div class="summary-heading">{expression_target_icon()}<h1 class="title expression-title summary-title">Remember!</h1></div>{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{expression_handdrawn_underline()}</div></main>'
+        return f'<main class="layout expression-layout takeaway-summary">{expression_header(EXPRESSION_LABELS[5])}<div class="summary-heading">{expression_target_icon()}<h1 class="title expression-title summary-title">Remember!</h1></div>{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{expression_handdrawn_underline()}</div></main>'
     raise ValueError("unsupported expression breakdown layout")
 
 

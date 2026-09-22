@@ -49,7 +49,8 @@ The deterministic default workers are fixtures, not editorial intelligence.
 generation, adaptation, rendering or posting. Synthetic Instagram/X bindings
 allow routing evaluation without delivery credentials.
 
-Downstream Gemini generation/adaptation, static Playwright rendering, review,
+Downstream Gemini generation/adaptation, Gemini composite review rendering,
+static Playwright rendering, review,
 credentialed Instagram/X single-post adapters, R2 staging/cleanup, reconciliation,
 budgets and maintenance exist. They require separate explicit preview/production/
 delivery modes and are not activated by planning setup.
@@ -176,7 +177,8 @@ updates in place every ten seconds without erasing drafts or collapsing evidence
 | `src/workflow/development.py` | Fresh non-deliverable development setup |
 | `src/dashboard/` | Detection, evidence, thread/decision and review read models |
 | `scripts/serve_dashboard.py` | Loopback HTTP, CSRF commands and verified assets |
-| `src/common/gemini.py` | Vertex client and JSON/schema transport |
+| `src/common/gemini.py`, `gemini_image.py` | Isolated Vertex JSON and single-attempt image transports |
+| `src/workflow/gemini_image_renderer.py`, `static_renderer.py` | Explicit renderer dispatch, semantic composite processing, deterministic overlays and local HTML rendering |
 | `src/workflow/model_budget.py` | Priced phase/daily/job admission |
 | `src/workflow/maintenance.py` | Storage sampling and verified SQLite maintenance |
 | `scripts/run_storage_monitor.py`, `src/workflow/storage_growth.py` | Model-free storage freshness and daily size-only measurement |
@@ -188,6 +190,13 @@ updates in place every ten seconds without erasing drafts or collapsing evidence
 
 Planning is intentionally separate from preview and delivery. To inspect real
 generated assets, use `run_workflow.py --gemini --review-preview --poll`.
+The default `--renderer auto` uses one Gemini composite image for supported
+Instagram review carousels, initially `expression_breakdown_v1`, then creates
+six 1080×1350 slides with deterministic branding overlays. Configure the separate
+image model prices in [configuration](specs/configuration.md). `--renderer html`
+keeps the existing deterministic renderer available. Other archetypes and
+production retain HTML rendering; X is unchanged. Image generation and processing
+failures do not auto-retry. No live call is part of routine verification.
 Without `--planning-only`, workers may consume pending jobs.
 
 For real destinations, configure explicit account/profile settings with

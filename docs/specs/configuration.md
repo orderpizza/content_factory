@@ -47,10 +47,12 @@ conversations.
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server, default 127.0.0.1:8787 |
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex project/location |
 | `GEMINI_MODEL` | Model ID; `VERTEX_AI_MODEL` is also accepted by the client |
+| `GEMINI_IMAGE_MODEL` | Composite review image model, default gemini-2.5-flash-image |
+| `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Separate image-model token prices, required before image calls |
 | `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Explicit configured-model prices |
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD` | Shared model spending warning/hard cap |
-| `GEMINI_JOB_HARD_LIMIT_USD` | Per-job generation + all adaptation attempts |
-| `GEMINI_<PHASE>_MAX_INPUT_TOKENS`, `GEMINI_<PHASE>_MAX_OUTPUT_TOKENS` | Optional intake/determination/generation/adaptation phase maxima |
+| `GEMINI_JOB_HARD_LIMIT_USD` | Per-job generation + adaptation + image rendering attempts |
+| `GEMINI_<PHASE>_MAX_INPUT_TOKENS`, `GEMINI_<PHASE>_MAX_OUTPUT_TOKENS` | Optional intake/determination/generation/adaptation/image_rendering phase maxima |
 | `YOUTUBE_API_KEY` | Only enabled YouTube collection; disabled in default development setup |
 | `CONTENT_FACTORY_FONT_PATH`, `CONTENT_FACTORY_FONT_SHA256` | Explicit reviewed production font and optional expected fingerprint |
 | `INSTAGRAM_ACCOUNT_KEY` | Internal account label, not Facebook Page ID |
@@ -78,6 +80,19 @@ usage; missing/uncertain usage does not silently release spend.
 | Determination | 12,000 / 4,000 |
 | Generation | 12,000 / 4,000 |
 | Adaptation | 12,000 / 8,000 |
+| Image rendering | 8,000 / 8,000 |
+
+Image rendering uses its own price policy and model identity but shares the
+existing UTC-day and ContentJob limits. Configure image input/output rates for
+the chosen image model; use a conservative output rate covering image and text
+output tokens. These settings are required lazily before a supported image
+render, not for planning or HTML-only work. The image output limit includes
+image tokens and any thinking. `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS` and
+`GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` override the image phase allowances.
+Vertex project/location still use the shared settings; choose a location that
+supports the configured image model. The image transport explicitly disables
+SDK retries. [Vertex's image configuration](https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerationConfig)
+defines the 5:4 request aspect ratio.
 
 Adaptation's output allowance includes thinking and JSON. Gemini 3 adaptation
 uses LOW thinking and temperature 1.0; local schema/metadata validation still

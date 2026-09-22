@@ -49,7 +49,7 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 | `--gemini` | Gemini Intake/Determination; downstream fixtures |
 | `--planning-only` | Intake/Determination only, leaving new GenerationRuns pending |
 | `--gemini --planning-only` | Live Gemini planning trial, no downstream production |
-| `--gemini --review-preview` | Also Gemini generation/adaptation, deterministic visual planning and local real rendering |
+| `--gemini --review-preview` | Also Gemini generation/adaptation, deterministic visual planning and dispatched Gemini-image/HTML review rendering |
 | `--gemini --review-preview --production` | Immutable real-destination catalog and production rendering/admission |
 | Above plus `--delivery` | Credentialed posting, R2 cleanup and reconciliation |
 
@@ -68,6 +68,12 @@ most one item per pass. Results print every pass. Invalid/non-finite intervals
 are rejected; Ctrl+C stops cleanly. Idle polls only update heartbeats.
 Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
+
+Review rendering defaults to `--renderer auto`: supported Instagram archetypes
+use Gemini composite generation; `--renderer html` keeps deterministic rendering.
+Production keeps its existing HTML renderer and eligibility gates.
+[Visual rendering](visual-rendering.md#gemini-composite-review-rendering) owns
+image processing and review asset behavior.
 
 Real Gemini composition always requires a priced ModelBudgetPolicy.
 No real providers are invoked by deterministic fixture mode.

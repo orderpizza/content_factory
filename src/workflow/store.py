@@ -854,13 +854,16 @@ class WorkflowStore:
         schema_version: str,
         request_value: Any,
         model_id: str,
+        budget_policy: Any | None = None,
     ) -> int:
         """Audit a claimed model operation before making its provider call."""
+        policy = budget_policy or self.model_budget_policy
         model_claims = {
             "intake_requests": "intake",
             "determination_requests": "determination",
             "generation_runs": "generation",
             "adaptation_runs": "adaptation",
+            "render_runs": "image_rendering",
         }
         if CLAIM_KEYS.get(table) != key or model_claims.get(table) != phase:
             raise ValueError("model invocation requires a supported AI-phase claim")
@@ -888,6 +891,11 @@ class WorkflowStore:
                 or current["lease_expires_at"] <= moment
             ):
                 raise RuntimeError("stale claim cannot start a model invocation")
+            if table == "render_runs" and self.connection.execute(
+                "SELECT 1 FROM model_invocations WHERE entity_type='render_run' "
+                "AND entity_id=? AND outcome!='blocked' LIMIT 1", (entity_id,),
+            ).fetchone():
+                raise RuntimeError("image render has external history; create fresh manual work")
             existing = self.connection.execute(
                 "SELECT model_invocation_id FROM model_invocations "
                 "WHERE phase=? AND entity_type=? AND entity_id=? AND attempt_ordinal=? "
@@ -898,8 +906,8 @@ class WorkflowStore:
                 raise RuntimeError("model invocation already exists for this claim attempt")
             job_id = self._model_job_id(table, row)
             budget = None
-            if self.model_budget_policy is not None:
-                input_max, output_max, worst_case = self.model_budget_policy.worst_case(phase)
+            if policy is not None:
+                input_max, output_max, worst_case = policy.worst_case(phase)
                 accounting_day = moment[:10]
                 daily_used = int(self.connection.execute(
                     "SELECT COALESCE(SUM(CASE WHEN status='settled' THEN settled_micro_usd "
@@ -915,9 +923,9 @@ class WorkflowStore:
                         "WHERE content_job_id=? AND status IN ('reserved','settled','uncertain')",
                         (job_id,),
                     ).fetchone()[0])
-                if daily_used + worst_case > self.model_budget_policy.daily_hard_micro_usd:
+                if daily_used + worst_case > policy.daily_hard_micro_usd:
                     blocked_reason = "daily Gemini hard limit would be exceeded"
-                elif job_id is not None and job_used + worst_case > self.model_budget_policy.job_hard_micro_usd:
+                elif job_id is not None and job_used + worst_case > policy.job_hard_micro_usd:
                     blocked_reason = "ContentJob Gemini hard limit would be exceeded"
                 budget = (accounting_day, input_max, output_max, worst_case, job_id)
             invocation = self.connection.execute(
@@ -945,10 +953,10 @@ class WorkflowStore:
                     "max_input_tokens,max_output_tokens,daily_limit_micro_usd,daily_warning_micro_usd,"
                     "job_limit_micro_usd) VALUES (?,?,?,?,?,'reserved',?,?,?,?,?,?,?,?,?)",
                     (accounting_day, invocation_id, entity_type, entity_id, worst_case, moment,
-                     job_id, phase, self.model_budget_policy.fingerprint, input_max, output_max,
-                     self.model_budget_policy.daily_hard_micro_usd,
-                     self.model_budget_policy.daily_warning_micro_usd,
-                     self.model_budget_policy.job_hard_micro_usd),
+                     job_id, phase, policy.fingerprint, input_max, output_max,
+                     policy.daily_hard_micro_usd,
+                     policy.daily_warning_micro_usd,
+                     policy.job_hard_micro_usd),
                 )
         if blocked_reason:
             raise ModelBudgetExceeded(blocked_reason)
@@ -957,6 +965,14 @@ class WorkflowStore:
     def _model_job_id(self, table: str, row: Any) -> int | None:
         if table == "generation_runs":
             return int(row["content_job_id"])
+        if table == "render_runs":
+            found = self.connection.execute(
+                "SELECT c.content_job_id FROM content_packages p "
+                "JOIN output_requests o ON o.output_request_id=p.output_request_id "
+                "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+                "WHERE p.content_package_id=?", (row["content_package_id"],),
+            ).fetchone()
+            return None if found is None else int(found[0])
         if table == "adaptation_runs":
             found = self.connection.execute(
                 "SELECT c.content_job_id FROM output_requests o "
@@ -974,16 +990,18 @@ class WorkflowStore:
         usage: Any | None = None,
         response_value: Any | None = None,
         error: str | None = None,
+        budget_policy: Any | None = None,
     ) -> None:
         """Settle safe response metadata without retaining prompts or raw responses."""
+        policy = budget_policy or self.model_budget_policy
         if outcome not in {"succeeded", "transport_failed", "invalid_output", "parse_failed", "schema_failed", "blocked"}:
             raise ValueError("invalid terminal model invocation outcome")
         input_tokens = None if usage is None else int(getattr(usage, "input_tokens", 0) or 0)
         output_tokens = None if usage is None else int(getattr(usage, "output_tokens", 0) or 0)
         total_tokens = None if usage is None else int(getattr(usage, "total_tokens", 0) or 0)
         estimate = None if usage is None else estimated_cost_usd(usage)
-        if usage is not None and self.model_budget_policy is not None:
-            estimated_cost_micro_usd = self.model_budget_policy.actual_cost(
+        if usage is not None and policy is not None:
+            estimated_cost_micro_usd = policy.actual_cost(
                 input_tokens or 0, output_tokens or 0
             )
         else:

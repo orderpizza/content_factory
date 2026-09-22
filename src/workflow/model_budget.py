@@ -24,6 +24,7 @@ DEFAULT_PHASE_LIMITS = {
     "generation": (12_000, 4_000),
     # Carousel JSON and thinking share the provider output-token allowance.
     "adaptation": (12_000, 8_000),
+    "image_rendering": (8_000, 8_000),
 }
 
 
@@ -56,11 +57,12 @@ class ModelBudgetPolicy:
 
     @classmethod
     def from_environment(
-        cls, model_id: str, environment: Mapping[str, str] | None = None
+        cls, model_id: str, environment: Mapping[str, str] | None = None, *, image: bool = False
     ) -> "ModelBudgetPolicy":
         values = os.environ if environment is None else environment
-        input_rate = _decimal("GEMINI_INPUT_COST_PER_MILLION_USD", values)
-        output_rate = _decimal("GEMINI_OUTPUT_COST_PER_MILLION_USD", values)
+        prefix = "GEMINI_IMAGE" if image else "GEMINI"
+        input_rate = _decimal(f"{prefix}_INPUT_COST_PER_MILLION_USD", values)
+        output_rate = _decimal(f"{prefix}_OUTPUT_COST_PER_MILLION_USD", values)
         warning = _micro_usd(_decimal("GEMINI_DAILY_WARNING_USD", values))
         hard = _micro_usd(_decimal("GEMINI_DAILY_HARD_LIMIT_USD", values))
         job = _micro_usd(_decimal("GEMINI_JOB_HARD_LIMIT_USD", values))

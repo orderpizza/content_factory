@@ -52,10 +52,14 @@ ceil(max_input_tokens × input_USD_per_million
 ```
 
 Settled cost plus outstanding reserved/uncertain cost counts toward the UTC-day
-limit. Generation and all adaptation/metadata attempts also share their original
+limit. Generation, image rendering and all adaptation/metadata attempts also share their original
 job cap. Intake and Determination have no job yet and consume only the daily cap.
 Daily exhaustion defers without a provider call; job exhaustion fails visibly.
 Changing process configuration does not erase existing spend.
+
+Image rendering uses a separate price policy against that same ledger and records
+`image_rendering` invocations on RenderRuns. Expired image claims with external
+history fail instead of being reclaimed for another paid call.
 
 The provider's returned usage settles reservations; absent usage retains the
 worst-case uncertain reservation. The client captures usage before JSON parsing

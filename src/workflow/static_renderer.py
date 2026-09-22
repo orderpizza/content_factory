@@ -51,6 +51,8 @@ class StaticVisualRenderer:
         self.instance_id = instance_id
         self.production = production
 
+    engine = "html_playwright_v1"
+
     def run_once(self) -> int | None:
         run = self.store.claim(
             "render_runs", "render_run_id", self.instance_id, lease_seconds=600
@@ -76,7 +78,8 @@ class StaticVisualRenderer:
         avatars: list[dict[str, str]] = []
         if recipe["archetype_id"] == "expression_breakdown_v1":
             validate_expression_units(spec["units"])
-            avatars = resolve_dialogue_avatars(production=self.production)
+            if self.engine == "html_playwright_v1":
+                avatars = resolve_dialogue_avatars(production=self.production)
         brand_name = brand_policy_for_account(package_row["account"])[1]["brand_name"]
         font = self._production_font() if self.production else None
 
@@ -97,51 +100,11 @@ class StaticVisualRenderer:
             prefix=f"render-{run['render_run_id']}-", suffix=".tmp", dir=self.artifact_root
         ))
         assets: list[dict[str, Any]] = []
-        browser_version = "unknown"
         try:
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.launch()
-                browser_version = browser.version
-                try:
-                    page = browser.new_page(
-                        viewport={"width": spec["width"], "height": spec["height"]},
-                        device_scale_factor=1,
-                    )
-                    for ordinal, unit in enumerate(spec["units"], start=1):
-                        html_path = temporary / f"unit-{ordinal:02d}.html"
-                        png_path = temporary / f"unit-{ordinal:02d}.png"
-                        jpeg_path = temporary / f"unit-{ordinal:02d}.jpg"
-                        html_path.write_text(
-                            _unit_html(unit, spec, recipe, ordinal, len(spec["units"]), font=font, avatars=avatars, brand_name=brand_name),
-                            encoding="utf-8",
-                        )
-                        page.goto(html_path.resolve().as_uri(), wait_until="load")
-                        page.evaluate("document.fonts.ready")
-                        layout_ok = page.evaluate(
-                            "Array.from(document.querySelectorAll('[data-bound]')).every("
-                            "node => node.scrollHeight <= node.clientHeight && "
-                            "node.scrollWidth <= node.clientWidth)"
-                        )
-                        if not layout_ok:
-                            raise LayoutOverflow(f"rendered unit {ordinal} overflows its template bounds")
-                        page.screenshot(path=str(png_path), type="png")
-                        with Image.open(png_path) as source:
-                            if source.size != (spec["width"], spec["height"]):
-                                raise ValueError(f"rendered unit {ordinal} has incorrect dimensions")
-                            source.convert("RGB").save(
-                                jpeg_path,
-                                format="JPEG",
-                                quality=92,
-                                optimize=False,
-                                progressive=False,
-                            )
-                        assets.extend([
-                            _asset(html_path, "preview_html", ordinal, spec["width"], spec["height"]),
-                            _asset(png_path, "preview_png", ordinal, spec["width"], spec["height"]),
-                            _asset(jpeg_path, "delivery_jpeg", ordinal, spec["width"], spec["height"]),
-                        ])
-                finally:
-                    browser.close()
+            assets, engine_metadata = self._render_assets(
+                run, package, spec, recipe, temporary, font=font,
+                avatars=avatars, brand_name=brand_name,
+            )
             for path in temporary.iterdir():
                 if path.is_file():
                     with path.open("rb") as handle:
@@ -153,13 +116,13 @@ class StaticVisualRenderer:
                 asset["path"] = str(final_directory / Path(asset["path"]).name)
             manifest = {
                 "schema_version": "render_manifest_v1",
-                "renderer": "html_playwright_v1",
+                "renderer": self.engine,
                 "profile_id": spec["profile_id"],
                 "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
                 "visual_registry_release": recipe["registry_release"],
                 "visual_registry_fingerprint": recipe["registry_fingerprint"],
                 "content_hash": package_row["content_hash"],
-                "browser_version": browser_version,
+                "browser_version": engine_metadata.get("browser_version"),
                 "pillow_version": PIL.__version__,
                 "review_only": not self.production,
                 "profile_version": (
@@ -172,16 +135,66 @@ class StaticVisualRenderer:
                 "font_sha256": None if font is None else font["font_sha256"],
                 "visual_assets": avatar_provenance(avatars),
                 "assets": assets,
+                **engine_metadata,
             }
             return self.store.complete_render(run, manifest, assets)
-        except LayoutOverflow as error:
+        except LayoutOverflow:
             if temporary.exists():
                 shutil.rmtree(temporary)
+            if self.engine != "html_playwright_v1":
+                raise
             return self.store.schedule_visual_fallback(run, reason="registered composition overflow")
         except Exception:
             if temporary.exists():
                 shutil.rmtree(temporary)
             raise
+
+    def _render_assets(self, run, package, spec, recipe, temporary, *, font, avatars, brand_name):
+        assets = []
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            browser_version = browser.version
+            try:
+                page = browser.new_page(
+                    viewport={"width": spec["width"], "height": spec["height"]},
+                    device_scale_factor=1,
+                )
+                for ordinal, unit in enumerate(spec["units"], start=1):
+                    html_path = temporary / f"unit-{ordinal:02d}.html"
+                    png_path = temporary / f"unit-{ordinal:02d}.png"
+                    jpeg_path = temporary / f"unit-{ordinal:02d}.jpg"
+                    html_path.write_text(
+                        _unit_html(unit, spec, recipe, ordinal, len(spec["units"]), font=font, avatars=avatars, brand_name=brand_name),
+                        encoding="utf-8",
+                    )
+                    page.goto(html_path.resolve().as_uri(), wait_until="load")
+                    page.evaluate("document.fonts.ready")
+                    layout_ok = page.evaluate(
+                        "Array.from(document.querySelectorAll('[data-bound]')).every("
+                        "node => node.scrollHeight <= node.clientHeight && "
+                        "node.scrollWidth <= node.clientWidth)"
+                    )
+                    if not layout_ok:
+                        raise LayoutOverflow(f"rendered unit {ordinal} overflows its template bounds")
+                    page.screenshot(path=str(png_path), type="png")
+                    with Image.open(png_path) as source:
+                        if source.size != (spec["width"], spec["height"]):
+                            raise ValueError(f"rendered unit {ordinal} has incorrect dimensions")
+                        source.convert("RGB").save(
+                            jpeg_path,
+                            format="JPEG",
+                            quality=92,
+                            optimize=False,
+                            progressive=False,
+                        )
+                    assets.extend([
+                        _asset(html_path, "preview_html", ordinal, spec["width"], spec["height"]),
+                        _asset(png_path, "preview_png", ordinal, spec["width"], spec["height"]),
+                        _asset(jpeg_path, "delivery_jpeg", ordinal, spec["width"], spec["height"]),
+                    ])
+            finally:
+                browser.close()
+        return assets, {"browser_version": browser_version}
 
     def _production_font(self) -> dict[str, str]:
         row = self.store.connection.execute(

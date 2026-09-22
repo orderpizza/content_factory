@@ -1,7 +1,7 @@
 # Visual Rendering Specification
 
 **Document role:** Tier 2 current rendering contract.
-**Owner:** Shared visual registry, deterministic planning, local rendering and exact asset manifests.
+**Owner:** Shared visual registry, deterministic planning, renderer dispatch and exact asset manifests.
 
 ## Boundary
 
@@ -121,16 +121,65 @@ compatibility or production lifecycle gates.
 | `static_x_review_v1` | 1200×675 | 1 |
 | `static_x_delivery_v1` | 1200×675 | 1 |
 
-The initial dispatcher supports the registered `html_playwright_v1` engine.
+The `html_playwright_v1` engine remains available through `--renderer html`.
 It resolves recipe IDs to deterministic design tokens and applies reusable
 title, eyebrow, definition-card, highlight-strip, phrase-group, speech-bubble,
 comparison-column, scenario-panel, step and footer primitives; the renderer does
-not accept low-level adaptation instructions. Future SVG/chart engines can register an engine without changing
+not accept low-level adaptation instructions. Additional engines can reuse the rendering lifecycle without changing
 the ContentPackage → VisualPlanRun → VisualRecipe → RenderRun boundary.
 
 Review mode uses local system fonts and is not delivery-ready. Production mode loads the approved
 local font, verifies its exact hash and embeds its bytes; it records profile,
 template, font, Playwright/browser and Pillow identities in the manifest.
+
+## Gemini composite review rendering
+
+`run_workflow.py --gemini --review-preview` defaults to `--renderer auto`.
+`DispatchVisualRenderer` selects `gemini_image_v1` for supported Instagram
+review packages, initially `expression_breakdown_v1`; other recipes and production
+continue through HTML/Playwright. `--renderer html` explicitly selects the existing
+deterministic path. Production lifecycle gates remain intact: the expression
+archetype is still tested, not curated. This image path creates review assets only.
+
+`GeminiImageRenderer` reuses the shared fenced artifact/review lifecycle and
+reads the frozen package and recipe. A renderer-owned semantic grammar registry
+maps the initial archetype to hook, meaning/definition, use cases, examples,
+short dialogue and takeaway, in that order. Its prompt includes the exact unit
+titles/bodies, broad cohesive modern educational editorial direction, a 3×2
+row-major sheet and 5:4 master aspect ratio. It excludes recipe composition,
+theme, typography, component coordinates and other low-level design tokens.
+The existing package/recipe validity gates still apply. Adaptation does not
+write or persist an image prompt.
+
+The isolated Vertex image adapter makes one request for exactly one composite,
+with SDK retries disabled. No reference images or per-slide generation are
+supported. The prompt forbids branding, counters and footer CTAs; it reserves
+the top 10% and bottom 14% of every cell and generous side margins for local
+processing. Readability and exact generated text still require human inspection.
+The provider's dimensions need not be exact: local validation requires a single
+PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and aspect ratio
+within 0.04 of 5:4. Six equal logical cells use integer boundary rounding,
+then centered 4:5 crop and Lanczos resize to 1080×1350.
+
+After resizing, Pillow applies deterministic header/category, page counter and
+footer chrome. Branding text and first/final CTA wording are shared with the
+expression HTML footer; review overlays use Pillow's bundled font and local
+arrow geometry. Six final JPEGs are persisted as the existing `delivery_jpeg`
+asset role so the dashboard displays the exact review bytes. That role does not
+make the review-only package deliverable. The composite is an intermediate file
+identified by name, byte count and hash in the manifest, never a review asset.
+The manifest records engine, image model, invocation, prompt version/hash,
+overlay version and Pillow version alongside package/recipe lineage. The prompt
+is reproducible from frozen inputs and renderer version; raw prompts are not
+written to diagnostic logs or model ledgers.
+
+Image calls use separate model prices but the same daily/job accounting ledger;
+see [configuration](configuration.md#model-admission). Invocation history fences
+lost calls from automatic replay. Generation or processing failures fail the
+render without retries, per-slide repair or automatic visual fallback. A bad
+panel requires a manually initiated new whole-composite generation. Existing
+human refinement/review-feedback flows create fresh work; there is no in-place
+render retry command. Pre-call daily-budget deferrals make no provider request.
 
 ## Execution and assets
 
@@ -140,7 +189,7 @@ delivery bytes. The renderer validates geometry, encoding, byte limits, ordered
 counts and hashes. A layout overflow fails the run rather than truncating copy
 or shrinking it to fit.
 
-Each unit yields `preview_html`, `preview_png` and `delivery_jpeg`. Output is
+The HTML engine yields `preview_html`, `preview_png` and `delivery_jpeg` per unit. Output is
 written into a run-specific temporary directory, fsynced and promoted; successful
 finalization atomically persists manifest, asset rows and an exact review request.
 Uncommitted promoted output is quarantined and audited, not silently reused or
@@ -168,13 +217,13 @@ runtime/font/template fingerprints make the
 render auditable. Byte-for-byte reproduction across different browser or font
 versions is not assumed. Human quality review remains required for typography,
 claims, contrast and editorial usefulness. The first-wave layouts are text-led;
-image, licensed-asset, chart and SVG rendering remain deferred. Offline tests
+licensed-asset, chart and SVG rendering remain deferred; generated composite review images are described above. Offline tests
 cover both platform geometries, malformed specs, overflow and immutable package
 preservation.
 
 See [platform outputs](platform-outputs.md), [content production](content-production.md)
 and [reliability](reliability.md). Visual admin tooling, LLM candidate selection,
-image acquisition/generation, chart/SVG engines and qualitative design evaluation
+additional image archetypes, reference conditioning, chart/SVG engines and qualitative design evaluation
 remain future work; new capabilities should be registered rather than added as
 hidden per-domain renderers.
 

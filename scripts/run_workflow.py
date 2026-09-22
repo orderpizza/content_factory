@@ -3,7 +3,7 @@
 The default workers are local placeholders. ``--gemini`` opts human Idea Intake
 and Determination into Vertex Gemini; detected trends already arrive at
 Determination with a source-backed brief. ``--review-preview`` additionally enables
-Gemini canonical generation/adaptation and real local static rendering.
+Gemini canonical generation/adaptation and dispatched image/HTML review rendering.
 ``--production`` switches to the immutable real-destination catalog and
 delivery profiles; ``--delivery`` additionally runs credentialed posting and
 R2 cleanup. Every public post still requires a dashboard Post now command.
@@ -40,12 +40,12 @@ from workflow import (
     PublicationReconciliationWorker,
     PostingAgent,
     R2CleanupWorker,
-    StaticVisualRenderer,
     VisualPlanner,
     VisualRenderer,
     WorkflowStore,
 )
 from workflow.maintenance import StorageMonitor
+from workflow.gemini_image_renderer import DispatchVisualRenderer
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -116,6 +116,7 @@ _RUNTIME_TYPES = {
     "VisualPlanner": ("visual_planner", "visual_recipe"),
     "VisualRenderer": ("visual_renderer", "review_request"),
     "StaticVisualRenderer": ("visual_renderer", "review_request"),
+    "DispatchVisualRenderer": ("visual_renderer", "review_request"),
     "PostingAgent": ("posting_agent", "post_record"),
     "CredentialedPostingAgent": ("posting_agent", "post_record"),
     "R2CleanupWorker": ("cleanup", "delivery_cleanup_task"),
@@ -187,6 +188,8 @@ def main() -> None:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
+    parser.add_argument("--renderer", choices=("auto", "html"), default="auto",
+                        help="review renderer: auto uses Gemini for supported Instagram archetypes; html preserves local rendering")
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument("-gemini", "--gemini", action="store_true", help="use Gemini for Intake and Determination only")
     parser.add_argument(
@@ -253,7 +256,7 @@ def main() -> None:
                     if args.review_preview else AdaptationWorker(store)
                 )
                 renderer_worker = (
-                    StaticVisualRenderer(store, args.artifacts, production=args.production)
+                    DispatchVisualRenderer(store, args.artifacts, production=args.production, renderer=args.renderer)
                     if args.review_preview else VisualRenderer(store, args.artifacts)
                 )
                 workers = (
