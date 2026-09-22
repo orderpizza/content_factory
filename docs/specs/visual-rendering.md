@@ -135,30 +135,36 @@ template, font, Playwright/browser and Pillow identities in the manifest.
 ## Gemini designer review rendering
 
 `run_workflow.py --gemini --review-preview` defaults to `--renderer auto`.
-`DispatchVisualRenderer` selects `gemini_designer_v1` for supported Instagram
+`DispatchVisualRenderer` selects `gemini_designer_v3` for supported Instagram
 review packages, initially `expression_breakdown_v1`; other recipes and production
 continue through HTML/Playwright. `--renderer html` explicitly selects the existing
 deterministic path. Production lifecycle gates remain intact: the expression
 archetype is still tested, not curated. This image path creates review assets only.
 
 `GeminiImageRenderer` generates six individual slides sequentially. Slide 1
-establishes the visual language. Slide 2 receives slide 1's raw generated image;
-slides 3–6 receive slide 1 plus the immediately previous raw image. At most two
-internal images accompany each request, before overlays. There is no external
-reference-image input, composite sheet or splitting step.
+establishes the visual language. Slides 2–6 each receive slide 1's raw generated
+image as their only internal style anchor before overlays; a previous-slide image
+is never passed. There is no external reference-image input, composite sheet or
+splitting step.
 
 Renderer-owned prompts interpret `expression_breakdown_v1` as hook,
 meaning/definition, use cases, examples, short dialogue and takeaway. Each prompt
 contains only that slide's exact title/body, semantic role, role-sensitive design
-direction and continuity instructions. The first slide establishes an attractive,
-modern educational editorial style; later slides preserve palette logic,
-typography feel, illustration feel and polish while adapting composition to the
-role. Prior slide layouts and text must not be copied. Recipe composition, theme,
+direction and continuity instructions. Its v3 global designer brief owns the quality
+bar only: premium visual impact, bold hierarchy, editorial typography, rich color,
+playful asymmetry, layered color blocks, marker swashes and chunky iconography;
+it rejects pale gradients, frosted blobs, thin line-art scenes and generic
+presentation-template output. The separate `expression_breakdown_v1` brief owns
+the six-slide semantic sequence and role-specific directions. Later slides retain
+slide 1's palette, typography, illustration language and polish, but use distinct
+role-appropriate compositions. The anchor's layout and text must not be copied. Recipe composition, theme,
 typography tokens and component coordinates never enter these prompts. Existing
 package/recipe validity gates still apply; adaptation does not author image prompts.
 
-The isolated Vertex adapter makes one 4:5 image request per slide with SDK retries
-disabled. It sends internal image bytes through the SDK's inline image parts;
+The isolated Vertex adapter makes one 4:5, 2K image request per slide by default,
+with SDK retries disabled. Its model and image size remain environment-configurable,
+and the requested size must be supported by the selected model. It sends the one
+internal style-anchor image through the SDK's inline image parts;
 [the SDK documentation](https://googleapis.github.io/python-genai/) describes that
 transport. Prompts forbid branding, counters and footer CTAs and reserve the top
 10%, bottom 14% and generous side margins. Each output must be a single PNG/JPEG,

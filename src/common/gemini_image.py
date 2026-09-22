@@ -8,7 +8,12 @@ from common.gemini import GeminiUsage, VertexGeminiClient
 
 
 def configured_image_model() -> str:
-    return os.getenv("GEMINI_IMAGE_MODEL") or "gemini-2.5-flash-image"
+    return os.getenv("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image"
+
+
+def configured_image_size() -> str:
+    """Return the requested Gemini image resolution for review assets."""
+    return os.getenv("GEMINI_IMAGE_SIZE") or "2K"
 
 
 class VertexGeminiImageClient(VertexGeminiClient):
@@ -22,8 +27,8 @@ class VertexGeminiImageClient(VertexGeminiClient):
 
         self.last_usage = None
         references = references or []
-        if len(references) > 2:
-            raise ValueError("at most two internal slide references are supported")
+        if len(references) > 1:
+            raise ValueError("at most one internal style-anchor reference is supported")
         parts = [types.Part.from_text(text=prompt)]
         for data in references:
             if not isinstance(data, bytes) or len(data) > 40_000_000:
@@ -44,7 +49,9 @@ class VertexGeminiImageClient(VertexGeminiClient):
                 model=self.model, contents=types.Content(role="user", parts=parts),
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT", "IMAGE"], candidate_count=1,
-                    image_config=types.ImageConfig(aspect_ratio="4:5"),
+                    image_config=types.ImageConfig(
+                        aspect_ratio="4:5", image_size=configured_image_size(),
+                    ),
                     max_output_tokens=self.max_output_tokens,
                 ),
             )

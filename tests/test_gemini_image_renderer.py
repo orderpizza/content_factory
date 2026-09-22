@@ -12,9 +12,10 @@ import unittest
 from PIL import Image, ImageDraw
 
 from common.gemini import GeminiUsage
-from common.gemini_image import VertexGeminiImageClient
+from common.gemini_image import VertexGeminiImageClient, configured_image_model, configured_image_size
 from workflow.gemini_image_renderer import (
-    DispatchVisualRenderer, build_slide_prompt, normalize_slide, apply_overlays,
+    DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, GLOBAL_DESIGNER_BRIEF, PROMPT_VERSION,
+    build_slide_prompt, normalize_slide, apply_overlays,
 )
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
 from workflow.model_budget import ModelBudgetPolicy
@@ -67,10 +68,28 @@ class ImagePipelineTests(unittest.TestCase):
                          'footer CTA', 'top 10%', 'bottom 14%'):
                 self.assertIn(word, prompt)
             if ordinal > 1:
-                self.assertIn('Preserve style but adapt composition', prompt)
+                self.assertIn('preserve style but adapt composition', prompt)
+                self.assertIn('slide 1 only', prompt)
+                self.assertIn('vary the layout rhythm', prompt)
+                self.assertNotIn('immediately previous slide', prompt)
             modified = {**value, 'theme_id': 'never_send_this'}
             self.assertEqual(prompt, build_slide_prompt(package, modified, ordinal))
         self.assertIn('style anchor', build_slide_prompt(package, value, 1))
+        prompt = build_slide_prompt(package, value, 1)
+        normalized_prompt = prompt.replace('\n', ' ')
+        for phrase in ('senior social-media art director', 'editorial designer',
+                       'premium Instagram education', 'editorial typography', 'playful asymmetry',
+                       'layered shapes and color blocks', 'marker or highlighter swashes',
+                       'chunky iconography', 'pale pastel blob backgrounds', 'frosted-glass blobs',
+                       'pale gradients', 'thin line-art-only scenes',
+                       'PowerPoint-like presentation templates'):
+            self.assertIn(phrase, normalized_prompt)
+        self.assertNotIn('Semantic sequence:', GLOBAL_DESIGNER_BRIEF)
+        self.assertNotIn('O2English', GLOBAL_DESIGNER_BRIEF)
+        self.assertIn('Archetype: expression_breakdown_v1', EXPRESSION_BREAKDOWN_BRIEF)
+        for step in ('1. Hook', '2. Meaning / definition', '3. When to use it / use cases',
+                     '4. Examples', '5. Short conversation / dialogue', '6. Takeaway / reminder'):
+            self.assertIn(step, EXPRESSION_BREAKDOWN_BRIEF)
         with self.assertRaises(ValueError):
             build_slide_prompt({**package, 'platform': 'x'}, value, 1)
 
@@ -110,6 +129,7 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertEqual(kwargs['contents'].parts[1].inline_data.data, slide_image())
         self.assertEqual(kwargs['contents'].parts[1].inline_data.mime_type, 'image/png')
         self.assertEqual(kwargs['config'].image_config.aspect_ratio, '4:5')
+        self.assertEqual(kwargs['config'].image_config.image_size, '2K')
         self.assertEqual(client.last_usage.output_tokens, 5)
         sdk.close.assert_called_once()
         response.candidates = []
@@ -149,7 +169,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(len(client.calls), 6)
             for index, (prompt, references) in enumerate(client.calls):
                 self.assertIn(f'Slide {index + 1} of 6', prompt)
-                expected = [] if index == 0 else [slide_image(0)] if index == 1 else [slide_image(0), slide_image(index - 1)]
+                expected = [] if index == 0 else [slide_image(0)]
                 self.assertEqual(references, expected)
             assets = list(store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal'))
             self.assertEqual(len(assets), 6)
@@ -158,7 +178,9 @@ class ImageWorkflowTests(unittest.TestCase):
                 with Image.open(asset['local_path']) as image:
                     self.assertEqual(image.size, (1080, 1350))
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
-            self.assertEqual(manifest['renderer'], 'gemini_designer_v1')
+            self.assertEqual(manifest['renderer'], 'gemini_designer_v3')
+            self.assertEqual(manifest['prompt_version'], PROMPT_VERSION)
+            self.assertEqual(manifest['template_version'], 'gemini_carousel_designer_v3')
             self.assertTrue(manifest['review_only'])
             self.assertNotIn('master_composite', manifest)
             self.assertEqual(len(manifest['slides']), 6)
@@ -166,7 +188,7 @@ class ImageWorkflowTests(unittest.TestCase):
                 raw = self.artifacts / 'render-1' / provenance['raw']['filename']
                 self.assertEqual(raw.read_bytes(), slide_image(index - 1))
                 self.assertNotIn(str(raw), [a['local_path'] for a in assets])
-                self.assertEqual(provenance['reference_ordinals'], [] if index == 1 else [1] if index == 2 else [1, index - 1])
+                self.assertEqual(provenance['reference_ordinals'], [] if index == 1 else [1])
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM model_invocations WHERE phase='image_rendering'").fetchone()[0], 6)
             html = _review_preview(store.connection, review, interactive=False, csrf_token='', production=False)
             self.assertEqual(html.count('<img '), 6)
@@ -174,6 +196,11 @@ class ImageWorkflowTests(unittest.TestCase):
             invocation = store.connection.execute("SELECT * FROM model_invocations WHERE phase='image_rendering'").fetchone()
             self.assertEqual(invocation['outcome'], 'succeeded')
             self.assertEqual(invocation['output_tokens'], 200)
+
+    def test_image_defaults_use_the_new_model_and_high_resolution(self):
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(configured_image_model(), 'gemini-3.1-flash-image')
+            self.assertEqual(configured_image_size(), '2K')
 
     def test_generation_and_processing_fail_terminal_without_fallback(self):
         for client in (FakeImageClient(error=RuntimeError('provider failed'), fail_at=4), FakeImageClient(data=b'bad')):

@@ -190,12 +190,13 @@ updates in place every ten seconds without erasing drafts or collapsing evidence
 
 Planning is intentionally separate from preview and delivery. To inspect real
 generated assets, use `run_workflow.py --gemini --review-preview --poll`.
-The default `--renderer auto` generates six individual 4:5 slides sequentially
+The default `--renderer auto` generates six individual 4:5, 2K slides sequentially
 for supported Instagram review carousels, initially `expression_breakdown_v1`.
-Slide 1 anchors the visual style; later calls receive slide 1 and, from slide 3,
-the previous raw slide as bounded style context. Each slide is normalized to
-1080×1350 before deterministic branding overlays. Configure the separate
-image model prices in [configuration](specs/configuration.md). `--renderer html`
+Slide 1 anchors the visual style; every later call receives only slide 1's raw
+image as its bounded style context, keeping the shared art direction while letting
+each role use a distinct composition. Each slide is normalized to 1080×1350 before
+deterministic branding overlays. Configure the separate image model prices in
+[configuration](specs/configuration.md). `--renderer html`
 keeps the existing deterministic renderer available. Other archetypes and
 production retain HTML rendering; X is unchanged. Image generation and processing
 failures do not auto-retry. No live call is part of routine verification.
