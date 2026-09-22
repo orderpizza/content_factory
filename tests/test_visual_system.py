@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 import json
 
 from workflow.static_renderer import _unit_html
-from workflow.visual_primitives import EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS
+from workflow.visual_primitives import EXPRESSION_FORENSIC_CSS, EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS
 from workflow.visual_planner import choose_recipe
 from workflow.visual_registry import ARCHETYPES, validate_intent, validate_recipe, validate_unit_layouts
 from workflow.visual_expression import headline_scale, resolve_dialogue_avatars, validate_expression_units
@@ -125,21 +125,27 @@ class VisualRegistryTests(unittest.TestCase):
         self.assertIn("expression-footer", markup[0])
         self.assertIn("Swipe →", markup[0])
         self.assertIn("Keep learning! →", markup[5])
-        self.assertIn("marker-highlight", markup[0])
-        self.assertIn("expression-emphasis", markup[3])
-        self.assertIn("What does it mean?", markup[1])
+        self.assertIn("expression-marker-yellow", markup[0])
+        self.assertIn("hero-title-rays", markup[0])
+        self.assertIn("expression-marker-blue", markup[3])
+        self.assertIn("expression-lightbulb", markup[1])
+        self.assertIn("What does", markup[1])
         self.assertIn("MEANING", markup[1])
         self.assertIn("In a sentence", markup[3])
         self.assertIn("IN A CONVERSATION", markup[4])
+        self.assertIn("avatar-left", markup[4])
         self.assertIn("Remember!", markup[5])
         self.assertIn("closing-lockup", markup[5])
+        self.assertIn("expression-target", markup[5])
+        self.assertIn("expression-handdrawn-underline", markup[5])
 
     def test_expression_recomposition_uses_content_fitted_layout_rules(self):
         self.assertNotIn("flex:1", EXPRESSION_RECOMPOSE_CSS)
         for selector in ("meaning-definition", "use-case-checklist", "example-cards", "dialogue-bubbles", "takeaway-summary"):
             self.assertIn(selector, EXPRESSION_RECOMPOSE_CSS)
-        for selector in ("expression-topbar", "expression-footer", "expression-emphasis", "expression-hero-title"):
-            self.assertIn(selector, EXPRESSION_RECOMPOSE_FINAL_CSS)
+        for selector in ("expression-topbar", "expression-footer", "expression-marker", "expression-hero-title"):
+            self.assertIn(selector, EXPRESSION_FORENSIC_CSS)
+        self.assertIn("--expression-handwriting-font", EXPRESSION_FORENSIC_CSS)
 
     def test_avatar_manifest_is_safe_and_production_requires_assets(self):
         with TemporaryDirectory() as directory:

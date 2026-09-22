@@ -32,7 +32,7 @@ EXPRESSION_FIXTURE = {
     "units": [
         ("Break the ice", "Start a conversation and make people feel more comfortable."),
         ("What it means", "To start a conversation and make people feel more comfortable, especially in a new or awkward situation.\nSimilar to: make a friendly start to a conversation."),
-        ("When to use it", "You meet someone for the first time\nThe atmosphere feels awkward or quiet\nYou want to include someone in a group\nYou’re in a new environment"),
+        ("When to use it", "You meet someone for the first time\nThe atmosphere feels awkward or quiet\nYou want to include someone in a group\nYou’re in a new environment (e.g., work, school, event)"),
         ("Break the ice", "She told a funny story to break the ice at the meeting.\nI asked a casual question to break the ice with new classmates."),
         ("Break the ice", "A: It’s my first day here. I don’t really know anyone yet.\nB: No worries! Let’s break the ice. What do you like to do in your free time?\nA: I’m into hiking. How about you?"),
         ("Remember this", "Use it to start conversations and make others feel comfortable\nIt works well in new or awkward situations\nA simple question can help break the ice"),

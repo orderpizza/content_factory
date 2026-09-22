@@ -49,6 +49,88 @@ def expression_footer(ordinal: int, total: int, *, brand_name: str = "O2English"
     )
 
 
+def expression_header(label: str) -> str:
+    """Editorial masthead reserved for the fixed expression carousel grammar."""
+    return f'<header class="expression-topbar">{eyebrow(label)}<span class="expression-page">{{page}}</span></header>'
+
+
+def expression_marker_highlight(text: str, *, color: str) -> str:
+    """An authored, slightly uneven marker field placed behind expression text."""
+    paths = {
+        "yellow": "M3 24 C18 14 39 18 58 12 C85 5 113 16 142 10 C165 5 184 14 197 9 L199 39 C171 45 147 36 124 42 C91 49 63 38 38 46 C22 49 10 41 2 43 Z",
+        "blue": "M2 17 C20 11 39 15 59 10 C81 5 106 13 129 8 C153 4 174 13 198 9 L197 31 C171 36 151 28 128 34 C102 39 79 30 57 36 C35 40 17 33 2 36 Z",
+    }
+    return (
+        f'<span class="expression-marker expression-marker-{color}">'
+        f'<svg viewBox="0 0 200 52" preserveAspectRatio="none" aria-hidden="true"><path d="{paths[color]}"/></svg>'
+        f'<span>{_text(text)}</span></span>'
+    )
+
+
+def expression_blue_marker(value: str, target: str) -> str:
+    if not target.strip():
+        return _text(value)
+    pieces: list[str] = []
+    cursor = 0
+    for match in re.finditer(re.escape(target), value, flags=re.IGNORECASE):
+        pieces.append(_text(value[cursor:match.start()]))
+        pieces.append(expression_marker_highlight(match.group(), color="blue"))
+        cursor = match.end()
+    pieces.append(_text(value[cursor:]))
+    return "".join(pieces)
+
+
+def expression_emphasis_rays(*, tone: str = "navy", class_name: str = "") -> str:
+    return (
+        f'<svg class="expression-rays expression-rays-{tone} {class_name}" viewBox="0 0 76 74" aria-hidden="true">'
+        '<path d="M9 62 31 39M43 12 39 38M57 29 72 23" fill="none" '
+        'stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg>'
+    )
+
+
+def expression_lightbulb_icon() -> str:
+    return (
+        '<span class="expression-sticker expression-lightbulb"><svg viewBox="0 0 120 120" aria-hidden="true">'
+        '<path class="sticker-ray" d="M60 11v12M25 25l9 9M95 25l-9 9M14 60h13M106 60H93"/>'
+        '<path class="sticker-fill" d="M60 30c-16 0-28 12-28 28 0 11 6 17 12 23 3 3 4 8 4 12h24c0-4 1-9 4-12 6-6 12-12 12-23 0-16-12-28-28-28Z"/>'
+        '<path class="sticker-line" d="M60 30c-16 0-28 12-28 28 0 11 6 17 12 23 3 3 4 8 4 12h24c0-4 1-9 4-12 6-6 12-12 12-23 0-16-12-28-28-28ZM48 93h24M51 102h18M53 111h14M52 60h16M60 52v19"/>'
+        '</svg></span>'
+    )
+
+
+def expression_target_icon() -> str:
+    return (
+        '<span class="expression-sticker expression-target"><svg viewBox="0 0 120 120" aria-hidden="true">'
+        '<circle class="target-outer" cx="54" cy="64" r="34"/><circle class="target-white" cx="54" cy="64" r="25"/>'
+        '<circle class="target-mid" cx="54" cy="64" r="17"/><circle class="target-white" cx="54" cy="64" r="9"/><circle class="target-mid" cx="54" cy="64" r="4"/>'
+        '<path class="target-arrow" d="m76 44 27-27M91 17h12v12M78 42l8 8"/>'
+        '</svg></span>'
+    )
+
+
+def expression_check_icon(*, tone: str = "green") -> str:
+    return f'<span class="expression-check-icon expression-check-{tone}"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="m8 18 6 6 14-14" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
+
+
+def expression_note_icon() -> str:
+    return (
+        '<span class="expression-note-icon"><svg viewBox="0 0 74 74" aria-hidden="true">'
+        '<path d="m44 10 20 20-9 5-10 19-7 10-3-13-19-10 18-10 5-9Z" fill="currentColor"/>'
+        '<path d="m20 55-9 9" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>'
+        '</svg></span>'
+    )
+
+
+def expression_handdrawn_underline() -> str:
+    return (
+        '<svg class="expression-handdrawn-underline" viewBox="0 0 500 44" preserveAspectRatio="none" aria-hidden="true">'
+        '<path d="M9 29 C94 15 165 31 245 23 C327 14 397 25 488 12" fill="none" '
+        'stroke="currentColor" stroke-width="9" stroke-linecap="round"/>'
+        '<path d="M17 35 C120 23 215 37 313 28 C375 22 433 28 474 20" fill="none" '
+        'stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>'
+    )
+
+
 def icon(name: str) -> str:
     paths = {
         "lightbulb": '<path d="M9 18h6M10 22h4M8.2 14.4A6 6 0 1 1 15.8 14.4c-.8.7-1.3 1.5-1.5 2.6H9.7c-.2-1.1-.7-1.9-1.5-2.6Z"/>',
@@ -152,27 +234,18 @@ def _inline_emphasis(value: str, target: str) -> str:
 
 
 def expression_emphasis(value: str, target: str) -> str:
-    """Use a blue editorial marker for the expression in examples and dialogue."""
-    if not target.strip():
-        return _text(value)
-    pieces: list[str] = []
-    cursor = 0
-    for match in re.finditer(re.escape(target), value, flags=re.IGNORECASE):
-        pieces.append(_text(value[cursor:match.start()]))
-        pieces.append(f'<span class="expression-emphasis">{_text(match.group())}</span>')
-        cursor = match.end()
-    pieces.append(_text(value[cursor:]))
-    return "".join(pieces)
+    """Backward-compatible entry point for the authored blue marker treatment."""
+    return expression_blue_marker(value, target)
 
 
 def expression_definition_card(body: str) -> str:
     definition, *note = _lines(body)
-    note_html = "" if not note else f'<aside class="support-note">{icon_badge("check")}<p>{_text(" ".join(note))}</p></aside>'
+    note_html = "" if not note else f'<aside class="support-note">{expression_check_icon()}<p>{_text(" ".join(note))}</p></aside>'
     return f'<section class="expression-definition"><p>{_text(definition)}</p></section>{note_html}'
 
 
 def expression_checklist(body: str) -> str:
-    return '<section class="expression-checklist">' + ''.join(f'<div class="check-row">{icon_badge("check")}<p>{_text(line)}</p></div>' for line in _lines(body)) + '</section>'
+    return '<section class="expression-checklist">' + ''.join(f'<div class="check-row">{expression_check_icon()}<p>{_text(line)}</p></div>' for line in _lines(body)) + '</section>'
 
 
 def expression_examples(body: str, target: str) -> str:
@@ -196,7 +269,7 @@ def expression_dialogue(body: str, target: str, avatars: list[dict[str, str]]) -
 
 
 def expression_summary(body: str) -> str:
-    return '<section class="expression-summary">' + ''.join(f'<div class="summary-row">{icon_badge("check")}<p>{_text(line)}</p></div>' for line in _lines(body)) + '</section>'
+    return '<section class="expression-summary">' + ''.join(f'<div class="summary-row">{expression_check_icon(tone="yellow")}<p>{_text(line)}</p></div>' for line in _lines(body)) + '</section>'
 
 
 def expression_heading(value: str, layout: str, *, icon_name: str | None = None) -> str:
@@ -205,31 +278,35 @@ def expression_heading(value: str, layout: str, *, icon_name: str | None = None)
 
 
 def expression_topbar(label: str) -> str:
-    return f'<header class="expression-topbar">{eyebrow(label)}<span class="expression-page">{{page}}</span></header>'
+    return expression_header(label)
 
 
 def expression_hero_title(value: str) -> str:
     """Split the expression deterministically to preserve the cover's two-line grammar."""
     words = value.split(maxsplit=1)
     if len(words) == 2:
-        return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{marker_highlight(words[0])}<span class="hero-title-rest">{_text(words[1])}</span></h1>'
-    return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{marker_highlight(value)}</h1>'
+        return (
+            f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">'
+            f'<span class="hero-break-wrap">{expression_marker_highlight(words[0], color="yellow")}{expression_emphasis_rays(class_name="hero-title-rays")}</span>'
+            f'<span class="hero-title-rest">{_text(words[1])}</span></h1>'
+        )
+    return f'<h1 class="title expression-title expression-hero-title {headline_scale(value)}">{expression_marker_highlight(value, color="yellow")}</h1>'
 
 
 def expression_layout(unit: dict[str, Any], variant: str, *, avatars: list[dict[str, str]]) -> str:
     title, body = unit["title"], unit["body"]
     if variant == "hook_hero":
-        return f'<main class="layout expression-layout hook-hero">{expression_topbar("ENGLISH EXPRESSIONS")}{accent_rays()}{expression_hero_title(title)}<p class="hook-teaser">{_text(body)}</p></main>'
+        return f'<main class="layout expression-layout hook-hero">{expression_header("ENGLISH EXPRESSIONS")}{expression_hero_title(title)}<p class="hook-teaser">{_text(body)}</p></main>'
     if variant == "meaning_definition":
-        return f'<main class="layout expression-layout meaning-definition">{expression_topbar("MEANING")}{expression_heading("What does it mean?", "meaning", icon_name="lightbulb")}<div class="definition-stack">{expression_definition_card(body)}</div></main>'
+        return f'<main class="layout expression-layout meaning-definition">{expression_header("MEANING")}<div class="meaning-heading">{expression_lightbulb_icon()}<h1 class="title expression-title meaning-title">What does<br>it mean?</h1></div><div class="definition-stack">{expression_definition_card(body)}</div></main>'
     if variant == "use_case_checklist":
-        return f'<main class="layout expression-layout use-case-checklist">{expression_topbar("WHEN TO USE IT")}{expression_heading("Use it when…", "checklist")}{expression_checklist(body)}<aside class="teaching-note">{icon_badge("pin")}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
+        return f'<main class="layout expression-layout use-case-checklist">{expression_header("WHEN TO USE IT")}<h1 class="title expression-title checklist-title">Use it<br>when…</h1>{expression_checklist(body)}<aside class="teaching-note">{expression_note_icon()}<span>It’s a great way to create a friendly and relaxed atmosphere.</span></aside></main>'
     if variant == "example_cards":
-        return f'<main class="layout expression-layout example-cards">{expression_topbar("EXAMPLE")}{expression_heading("In a sentence", "examples")}{expression_examples(body, title)}{accent_rays()}</main>'
+        return f'<main class="layout expression-layout example-cards">{expression_header("EXAMPLE")}<h1 class="title expression-title examples-title">In a sentence</h1>{expression_examples(body, title)}{expression_emphasis_rays(tone="yellow", class_name="example-card-rays")}</main>'
     if variant == "dialogue_bubbles":
-        return f'<main class="layout expression-layout dialogue-bubbles">{expression_topbar("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}{accent_rays()}</main>'
+        return f'<main class="layout expression-layout dialogue-bubbles">{expression_header("IN A CONVERSATION")}{expression_dialogue(body, title, avatars)}{expression_emphasis_rays(class_name="dialogue-rays")}</main>'
     if variant == "takeaway_summary":
-        return f'<main class="layout expression-layout takeaway-summary">{expression_topbar("KEY TAKEAWAY")}{expression_heading("Remember!", "summary", icon_name="target")}{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{underline_swash(variant="underline_swash_02")}</div>{accent_rays()}</main>'
+        return f'<main class="layout expression-layout takeaway-summary">{expression_header("KEY TAKEAWAY")}<div class="summary-heading">{expression_target_icon()}<h1 class="title expression-title summary-title">Remember!</h1></div>{expression_summary(body)}<div class="closing-lockup"><p class="closing-line">Small conversations<br>can lead to big opportunities!</p>{expression_handdrawn_underline()}</div>{expression_emphasis_rays(tone="yellow", class_name="summary-rays")}</main>'
     raise ValueError("unsupported expression breakdown layout")
 
 
@@ -286,6 +363,25 @@ EXPRESSION_RECOMPOSE_FINAL_CSS = """
 .dialogue-bubbles{display:block;padding-top:98px}.dialogue-bubbles .expression-dialogue{display:flex;flex-direction:column;gap:42px;margin:105px 0 0}.dialogue-bubbles .expression-bubble-row{gap:24px;align-items:center}.dialogue-bubbles .expression-bubble-row.right{padding-left:40px}.dialogue-bubbles .avatar{width:156px;height:156px;border:0;background:linear-gradient(145deg,#c9ddff,#b8b8ef);padding:8px;box-shadow:none}.dialogue-bubbles .avatar-right{background:linear-gradient(145deg,#ffd3df,#f1bad0)}.dialogue-bubbles .avatar img{border-radius:50%;object-fit:contain}.dialogue-bubbles .avatar-placeholder{font-size:46px;background:white;color:var(--text)}.dialogue-bubbles .expression-bubble-row>div{max-width:575px}.dialogue-bubbles .expression-bubble{margin:0;padding:32px 34px;background:#fff;border-radius:36px 36px 36px 10px;font-size:34px;line-height:1.24;font-weight:500;color:var(--text);box-shadow:none}.dialogue-bubbles .right .expression-bubble{background:#ffe2e9;color:var(--text);border-radius:36px 36px 10px 36px}.dialogue-bubbles .accent-rays{position:absolute;right:22px;top:760px;width:74px;height:74px;color:var(--text)}
 .takeaway-summary{display:block;padding-top:136px}.takeaway-summary .summary-heading{margin:0}.takeaway-summary .summary-heading .icon-badge{width:138px;height:138px;background:color-mix(in srgb,var(--highlight) 50%,white);color:#d94745}.takeaway-summary .summary-heading .icon{width:78px;height:78px;stroke-width:1.8}.takeaway-summary .expression-title{font-size:92px}.takeaway-summary .expression-summary{display:flex;flex-direction:column;gap:36px;margin:80px 0 0;padding:48px 46px;background:linear-gradient(145deg,#fff1c9,#ffedbc);border-radius:42px;box-shadow:none}.takeaway-summary .summary-row{display:grid;grid-template-columns:66px 1fr;align-items:start;gap:24px;padding:0;background:transparent}.takeaway-summary .summary-row .icon-badge{width:62px;height:62px;background:#f3b318;color:#fff}.takeaway-summary .summary-row .icon{width:35px;height:35px;stroke-width:2.7}.takeaway-summary .summary-row p{font-size:31px;line-height:1.25;font-weight:500;color:var(--text)}.closing-lockup{margin:78px 0 0 35px;position:relative;display:inline-block}.closing-line{font-family:"Snell Roundhand","Bradley Hand",cursive;font-size:47px;line-height:1.11;font-style:italic;font-weight:600;color:var(--text);margin:0}.closing-lockup .underline-swash{width:455px;height:30px;color:#f0be19;margin:14px 0 0 -8px}.closing-lockup .underline-swash path{stroke-width:8}.takeaway-summary .accent-rays{position:absolute;right:0;bottom:66px;width:70px;height:70px;color:#efb917}
 """
+
+EXPRESSION_FORENSIC_CSS = """
+/* Authored expression carousel pass: intentional editorial geometry, not shared UI. */
+.frame:has(.expression-layout){padding:64px 64px 48px;gap:12px}.expression-layout{font-family:var(--expression-body-font);position:relative;color:var(--text);overflow:hidden}.expression-layout .expression-title{font-family:var(--expression-display-font);font-weight:900;letter-spacing:-.055em;color:var(--text);margin:0;line-height:.93}.expression-topbar{position:absolute;top:0;left:0;right:0;height:auto;display:flex;align-items:center;justify-content:space-between}.expression-topbar .eyebrow{position:static;margin:0;font-size:20px;line-height:1;font-weight:800;letter-spacing:.14em;color:var(--text)}.expression-page{font-size:20px;line-height:1;font-weight:800;letter-spacing:.06em;color:var(--text)}.expression-footer{height:58px;align-items:flex-end;color:var(--text)}.expression-brand{gap:4px}.expression-brand strong{font-family:var(--expression-body-font);font-size:20px;line-height:1;font-weight:850;letter-spacing:-.05em}.expression-brand span{font-family:var(--expression-body-font);font-size:13px;line-height:1;font-weight:650}.expression-action{min-width:190px;font-family:var(--expression-body-font);font-size:18px;line-height:1;font-weight:800}
+.expression-marker{position:relative;display:inline-block;isolation:isolate;white-space:nowrap;line-height:1}.expression-marker svg{position:absolute;z-index:-1;overflow:visible;pointer-events:none}.expression-marker>span{position:relative}.expression-marker-yellow svg{left:-8%;bottom:8%;width:116%;height:58%;fill:#ffe36f;transform:rotate(-1.5deg)}.expression-marker-blue svg{left:-5%;bottom:3%;width:110%;height:56%;fill:#a9d8f4;transform:rotate(-.8deg)}.expression-marker-blue>span{color:#075da9;font-weight:850}.expression-rays{display:block;color:var(--text)}.expression-rays-yellow{color:#f4bd16}.expression-sticker{display:grid;place-items:center;flex:0 0 auto;width:142px;height:142px;border-radius:50%;background:#ffedbb}.expression-sticker svg{width:104px;height:104px}.expression-lightbulb .sticker-fill{fill:#ffd12c}.expression-lightbulb .sticker-line,.expression-lightbulb .sticker-ray{fill:none;stroke:#111d3a;stroke-linecap:round;stroke-linejoin:round}.expression-lightbulb .sticker-line{stroke-width:5.5}.expression-lightbulb .sticker-ray{stroke-width:5}.expression-target .target-outer{fill:#ef6663;stroke:#10203e;stroke-width:3}.expression-target .target-white{fill:#fff9e8;stroke:#10203e;stroke-width:3}.expression-target .target-mid{fill:#ef6663;stroke:#10203e;stroke-width:3}.expression-target .target-arrow{fill:none;stroke:#10203e;stroke-width:6;stroke-linecap:round;stroke-linejoin:round}.expression-check-icon{width:64px;height:64px;display:grid;place-items:center;border-radius:50%;flex:0 0 auto;color:white}.expression-check-icon svg{width:38px;height:38px}.expression-check-green{background:#2d9364}.expression-check-yellow{background:#f3b318}.expression-note-icon{width:68px;height:68px;display:grid;place-items:center;flex:0 0 auto;color:#267a52}.expression-note-icon svg{width:68px;height:68px}
+/* 1. Cover */
+.hook-hero{display:block;padding-top:186px}.expression-hero-title{display:flex;flex-direction:column;align-items:flex-start;gap:14px;max-width:none!important;font-size:126px!important;line-height:.9!important}.hero-break-wrap{position:relative;display:inline-block;transform:rotate(-1.15deg)}.hero-break-wrap .expression-marker-yellow svg{left:-9%;width:119%;height:61%;bottom:5%}.hero-title-rays{position:absolute;left:99%;top:-31px;width:76px;height:74px}.hero-title-rest{display:block;letter-spacing:-.065em}.hook-teaser{font-family:var(--expression-body-font);font-size:39px;line-height:1.3;font-weight:560;max-width:455px;color:var(--text);margin:38px 0 0}
+/* 2. Meaning */
+.meaning-definition{display:block;padding-top:131px}.meaning-heading{display:flex;align-items:center;gap:22px}.meaning-heading .expression-sticker{width:142px;height:142px}.meaning-heading .expression-title{font-size:88px;line-height:.92;max-width:510px}.definition-stack{display:flex;flex-direction:column;gap:32px;margin:77px 0 0}.expression-definition{min-height:354px;display:flex;align-items:center;background:linear-gradient(145deg,#f1f2f4,#f8f8f8);border-radius:41px;padding:48px 52px;box-shadow:none}.expression-definition p{font-family:var(--expression-body-font);font-size:37px;line-height:1.35;font-weight:500;max-width:22ch;margin:0}.support-note{min-height:124px;display:flex;align-items:center;gap:22px;background:linear-gradient(105deg,#daf0df,#d3ebd9);border-radius:31px;padding:22px 29px;box-shadow:none}.support-note .expression-check-icon{width:58px;height:58px}.support-note .expression-check-icon svg{width:34px;height:34px}.support-note p{font-family:var(--expression-body-font);font-size:23px;line-height:1.27;font-weight:700;max-width:28ch;margin:0;color:var(--text)}
+/* 3. Uses */
+.use-case-checklist{display:block;padding-top:119px}.checklist-title{font-size:94px!important;line-height:.92!important;max-width:7ch}.expression-checklist{display:flex;flex-direction:column;gap:42px;margin:59px 0 0}.check-row{display:grid;grid-template-columns:66px 1fr;align-items:start;gap:27px;padding:0;background:none;border-radius:0}.check-row .expression-check-icon{width:64px;height:64px}.check-row p{font-family:var(--expression-body-font);font-size:36px;line-height:1.22;font-weight:570;max-width:20ch;margin:0;color:var(--text)}.teaching-note{display:flex;align-items:center;gap:22px;min-height:121px;margin:67px 0 0;padding:22px 28px;background:linear-gradient(100deg,#d0edda,#d9f0df);border-radius:31px;font-family:var(--expression-body-font);font-size:22px;line-height:1.27;font-weight:700;color:var(--text)}.use-case-checklist .teaching-note{margin:40px 0 0}.teaching-note .expression-note-icon{width:66px;height:66px}.teaching-note span{max-width:31ch}
+/* 4. Examples */
+.example-cards{display:block;padding-top:125px}.examples-title{font-size:93px!important;line-height:.95!important}.expression-examples{display:flex;flex-direction:column;gap:43px;margin:70px 0 0}.example-card{height:293px;min-height:293px;display:flex;align-items:center;background:rgba(255,255,255,.87);border-radius:39px;padding:42px 50px;box-shadow:none}.example-card p,.example-cards .example-card p{font-family:var(--expression-body-font);font-size:37px;line-height:1.27;font-weight:520;max-width:none;margin:0;color:var(--text)}.example-card .expression-marker{font-size:inherit;font-weight:inherit;letter-spacing:inherit;color:inherit;margin:0}.example-card .expression-marker-blue{line-height:1.02}.example-card .expression-marker>span{font-size:inherit;font-weight:850;letter-spacing:inherit;color:#075da9;margin:0}.example-card-rays{position:absolute;right:38px;top:972px;width:72px;height:70px}
+/* 5. Conversation */
+.dialogue-bubbles{display:block;padding-top:1px}.dialogue-bubbles .expression-dialogue{display:flex;flex-direction:column;gap:0;margin:180px 0 0}.expression-bubble-row{display:flex;align-items:center;gap:25px}.expression-bubble-row.right{flex-direction:row-reverse;margin:53px 34px 0 0}.expression-bubble-row.left:nth-child(3){margin-top:40px}.expression-bubble-row>div{position:relative;max-width:590px}.avatar{width:138px;height:138px;padding:7px;border:0;border-radius:50%;background:linear-gradient(145deg,#c8d8fc,#b6b8ef);overflow:hidden;flex:0 0 auto;box-shadow:none}.avatar-right{background:linear-gradient(145deg,#ffd5e0,#efb9d2)}.avatar img{width:100%;height:100%;object-fit:contain;border-radius:50%}.expression-bubble{position:relative;margin:0;padding:27px 31px;background:#fff;border-radius:34px 34px 34px 10px;font-family:var(--expression-body-font);font-size:35px;line-height:1.24;font-weight:520;color:var(--text);box-shadow:none}.left .expression-bubble::before{content:"";position:absolute;bottom:10px;left:-12px;width:25px;height:25px;background:#fff;clip-path:polygon(100% 0,100% 100%,0 100%)}.right .expression-bubble{background:#ffe1e9;border-radius:34px 34px 10px 34px}.right .expression-bubble::after{content:"";position:absolute;right:-12px;bottom:10px;width:25px;height:25px;background:#ffe1e9;clip-path:polygon(0 0,0 100%,100% 100%)}.dialogue-rays{position:absolute;right:18px;top:800px;width:70px;height:68px}
+/* 6. Takeaway */
+.takeaway-summary{display:block;padding-top:126px}.summary-heading{display:flex;align-items:center;gap:21px}.summary-heading .expression-sticker{width:144px;height:144px}.summary-heading .expression-title{font-size:89px;line-height:.95}.expression-summary{display:flex;flex-direction:column;gap:29px;min-height:370px;margin:74px 0 0;padding:43px 43px;background:linear-gradient(145deg,#fff2ca,#ffedbf);border-radius:41px;box-shadow:none}.summary-row{display:grid;grid-template-columns:62px 1fr;align-items:start;gap:22px;padding:0;background:none;border-radius:0}.summary-row .expression-check-icon{width:60px;height:60px}.summary-row p{font-family:var(--expression-body-font);font-size:29px;line-height:1.29;font-weight:550;margin:0;color:var(--text)}.closing-lockup{display:inline-block;position:relative;margin:66px 0 0 31px}.closing-line{font-family:var(--expression-handwriting-font);font-size:53px;line-height:1.08;font-style:normal;font-weight:700;letter-spacing:-.035em;color:#16223d;margin:0;transform:rotate(-2deg);transform-origin:left center}.expression-handdrawn-underline{display:block;width:470px;height:40px;color:#efbd19;margin:8px 0 0 -4px}.summary-rays{position:absolute;right:4px;bottom:71px;width:66px;height:64px}
+"""
+
 
 PRIMITIVE_CSS = """
 *{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden} body{font-family:var(--font);background:var(--bg);color:var(--text)}

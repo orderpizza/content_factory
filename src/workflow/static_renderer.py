@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 from .store import WorkflowStore
 from .workers import local_operation
 from .visual_registry import ARCHETYPES, THEMES, TYPOGRAPHY, brand_policy_for_account, validate_recipe, validate_unit_layouts
-from .visual_primitives import EXPRESSION_CSS, EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS, PRIMITIVE_CSS, expression_footer, footer, render_layout
+from .visual_primitives import EXPRESSION_CSS, EXPRESSION_FORENSIC_CSS, EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS, PRIMITIVE_CSS, expression_footer, footer, render_layout
 from .visual_expression import avatar_provenance, resolve_dialogue_avatars, validate_expression_units
 
 
@@ -265,6 +265,11 @@ def _unit_html(
     content = render_layout(unit, layout_variant, avatars=avatars).replace("{page}", f"{ordinal} / {total}")
     content = content.replace("<main ", "<main data-bound ", 1)
     footer_html = expression_footer(ordinal, total, brand_name=brand_name) if recipe["archetype_id"] == "expression_breakdown_v1" else footer(ordinal, total, brand_name=brand_name)
+    expression_fonts = "" if recipe["archetype_id"] != "expression_breakdown_v1" else (
+        "--expression-display-font:'ContentFactoryPinned',sans-serif;--expression-body-font:'ContentFactoryPinned',sans-serif;--expression-handwriting-font:'ContentFactoryPinned',cursive;"
+        if font is not None else
+        "--expression-display-font:'Archivo Black','League Spartan','Arial Black',sans-serif;--expression-body-font:'Manrope','Inter','Arial',sans-serif;--expression-handwriting-font:'Caveat','Bradley Hand','Segoe Print',cursive;"
+    )
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><style>
 {font_face}
@@ -272,7 +277,8 @@ def _unit_html(
 {EXPRESSION_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
 {EXPRESSION_RECOMPOSE_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
 {EXPRESSION_RECOMPOSE_FINAL_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
-:root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --surface-secondary:{theme.get('surface_secondary', theme['surface'])}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --accent-secondary:{theme.get('accent_secondary', theme['accent'])}; --highlight:{theme.get('highlight', theme['accent'])}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; }}
+{EXPRESSION_FORENSIC_CSS if recipe['archetype_id'] == 'expression_breakdown_v1' else ''}
+:root {{ --bg:{theme['background']}; --surface:{theme['surface']}; --surface-secondary:{theme.get('surface_secondary', theme['surface'])}; --text:{theme['text']}; --muted:{theme['muted']}; --accent:{theme['accent']}; --accent-secondary:{theme.get('accent_secondary', theme['accent'])}; --highlight:{theme.get('highlight', theme['accent'])}; --font:{family}; --tracking:{TYPOGRAPHY[recipe['typography_id']]['tracking']}; --decoration:{decoration}; {expression_fonts} }}
 </style></head><body><div class="frame">{content}{footer_html}</div></body></html>"""
 
 
