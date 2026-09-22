@@ -72,6 +72,8 @@ class StaticVisualRenderer:
         package = json.loads(package_row["package_json"])
         spec = _render_spec(package, production=self.production)
         recipe = validate_recipe(json.loads(package_row["recipe_json"]), production=self.production)
+        if self.engine == "html_playwright_v1" and ARCHETYPES[recipe["archetype_id"]].get("gemini_domain"):
+            raise ValueError("Gemini-only archetype has no HTML renderer")
         validate_unit_layouts(recipe, [unit["role"] for unit in spec["units"]])
         avatars: list[dict[str, str]] = []
         if recipe["archetype_id"] == "expression_breakdown_v1":

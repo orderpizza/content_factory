@@ -11,6 +11,7 @@ from .visual_registry import (ARCHETYPES, DOMAIN_AFFINITY, PLATFORM_POLICY, PRES
                               is_production_eligible, registry_fingerprint,
                               validate_intent)
 from .visual_expression import validate_expression_units
+from .visual_explainers import DOMAIN_ARCHETYPES, validate_domain_units
 
 
 class VisualPlanner:
@@ -32,13 +33,11 @@ class VisualPlanner:
         ).fetchone()
         if row is None:
             raise ValueError("visual plan references a missing ContentPackage")
-        if not self.production and row["pipeline_id"] in {"ai_tech", "psychology"}:
-            self.store.block_visual_plan(run)
-            return None
         package, intent = json.loads(row["package_json"]), validate_intent(json.loads(row["visual_intent_json"]))
         units = package.get("visual_units")
         if not isinstance(units, list):
             raise ValueError("package has no bounded visual units")
+        validate_domain_units(units, row["pipeline_id"])
         forced = None
         if run["fallback_from_visual_recipe_id"] is not None:
             prior = self.store.connection.execute("SELECT recipe_json FROM visual_recipes WHERE visual_recipe_id=?", (run["fallback_from_visual_recipe_id"],)).fetchone()
@@ -117,7 +116,10 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
     brand_policy_id, brand_policy = brand_policy_for_account(account)
     if policy is None or not policy["minimum"] <= unit_count <= policy["maximum"]:
         raise ValueError("platform visual policy rejects this package shape")
-    if intent["image_need"] == "required":
+    domain_archetype = DOMAIN_ARCHETYPES.get(pipeline) if pipeline in {"ai_tech", "psychology"} else None
+    if domain_archetype and force_archetype not in (None, domain_archetype):
+        raise ValueError("unsupported Gemini domain/archetype combination")
+    if intent["image_need"] == "required" and not domain_archetype:
         raise ValueError("no registered archetype supports required images")
     if unit_roles is None:
         unit_roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
@@ -125,6 +127,12 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
         raise ValueError("visual unit roles do not match package shape")
     candidates: list[tuple[int, str, str, dict[str, Any], dict[str, int]]] = []
     for archetype_id, archetype in ARCHETYPES.items():
+        if domain_archetype and archetype_id != domain_archetype:
+            continue
+        if archetype.get("gemini_domain") and archetype["gemini_domain"] != pipeline:
+            continue
+        if archetype_id == "expression_breakdown_v1" and pipeline != "english":
+            continue
         if force_archetype is not None and archetype_id != force_archetype:
             continue
         if platform not in archetype["platforms"] or archetype["family_id"] not in policy["families"] or intent["density"] not in archetype["density_ids"]:
@@ -140,8 +148,7 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
             continue
         semantic = _semantic_score(archetype, intent)
         affinity = DOMAIN_AFFINITY.get(pipeline, {}).get(archetype["family_id"], 0)
-        # English is the pilot affinity. The archetype itself remains available to
-        # every domain when its bounded six-slide grammar and semantics fit.
+        # Preserve the accepted English selection conditions.
         if archetype_id == "expression_breakdown_v1" and pipeline == "english" and intent["primary_structure"] == "cards":
             affinity += 12
         quality = 8 if archetype["lifecycle"] == "curated" else 4
@@ -172,4 +179,6 @@ def choose_recipe(intent: dict[str, Any], *, platform: str, pipeline: str, accou
               **{key: selected[key] for key in ("family_id", "composition_id", "theme_id", "typography_id", "density", "components", "decorations", "image_treatment")},
               "unit_layouts": unit_layouts}
     provenance = {"strategy": "deterministic_archetype_scoring_v2", "candidate_count": len(candidates), "selected_candidate_id": candidate_id, "selected_archetype_id": recipe["archetype_id"], "selected_preset_id": preset_id, "score": {**parts, "total": score}, "platform": platform, "account": account, "brand_policy_id": brand_policy_id}
+    if domain_archetype:
+        provenance.update(strategy="explicit_domain_archetype_v1", pipeline_id=pipeline)
     return recipe, provenance

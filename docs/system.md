@@ -28,12 +28,13 @@ pinned local MiniLM resolution and frozen `attention_v3` scoring. It selects
 attention evidence, never editorial domains. Determination evaluates all three
 remits against immutable evidence and catalogs.
 
-English `expression_breakdown_v1` uses the accepted one-call Gemini storyboard
-and local splitting/overlays. AI/Tech and Psychology stop at rendering with an
-explicit `blocked` capability state. No HTML fallback or fake review assets are
-created. The deterministic visual library and HTML renderer remain preserved
+All three domains use one Gemini storyboard call and shared local splitting
+into six review PNGs: English `expression_breakdown_v1`, AI/Tech
+`ai_tech_explainer_v1`, and Psychology `psychology_explainer_v1`. Domain-specific
+prompts and overlays preserve the accepted English baseline. Unsupported
+domain/archetype combinations stop explicitly, with no HTML fallback. The deterministic visual library and HTML renderer remain preserved
 inactive, with gallery tooling and tests. Shared recipe/claim plumbing remains
-where it supports the accepted English path.
+for all three Gemini profiles.
 
 The current acceptance boundary is review-ready slides visible in the dashboard.
 Generic review → posting/delivery → external delivery records and R2 staging

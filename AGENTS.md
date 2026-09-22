@@ -29,9 +29,10 @@
 - Deterministic workers are the default. `--gemini --planning-only` stops at jobs.
   `--gemini --review-preview` enables generation through review. Actual provider
   delivery is outside the current implementation scope.
-- Preserve the accepted English `expression_breakdown_v1` Gemini storyboard,
-  splitting, transparent overlays and six-slide review behavior. AI/Tech and
-  Psychology stop explicitly at rendering; never silently fall back to HTML.
+- All three active domains use Gemini image rendering. Never silently substitute
+  the inactive HTML renderer. English `expression_breakdown_v1` is the accepted
+  visual baseline and must not be changed incidentally while modifying other
+  domain profiles. Preserve its prompt, splitting, overlays and six-slide review.
 - The deterministic visual library and its HTML renderer are preserved inactive;
   keep their assets, primitives, registry, gallery tooling and useful tests.
 

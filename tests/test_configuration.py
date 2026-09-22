@@ -263,7 +263,6 @@ class SchemaAndEnvironmentTests(unittest.TestCase):
 
 
 DOMAINS = ('english', 'ai_tech', 'psychology')
-REASON = 'Gemini visual renderer not implemented for this domain.'
 
 class DevelopmentCatalogTests(unittest.TestCase):
     def test_exact_catalog_and_no_incidental_database_upgrade(self):

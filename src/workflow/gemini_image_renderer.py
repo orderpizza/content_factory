@@ -18,6 +18,8 @@ from .model_budget import ModelBudgetPolicy
 from .workers import local_operation
 from .static_renderer import StaticVisualRenderer, _asset
 from .visual_primitives import EXPRESSION_LABELS
+from .visual_explainers import DOMAIN_ARCHETYPES, validate_domain_units
+from .gemini_explainer_profiles import EXPLAINER_GEOMETRY, EXPLAINER_PROFILES
 
 PROMPT_VERSION = "gemini_carousel_storyboard_v1"
 OVERLAY_VERSION = "expression_transparent_chrome_v2"
@@ -42,9 +44,18 @@ SEMANTIC_GRAMMARS = {
 }
 
 
-def supports_image_rendering(package, recipe):
+OVERLAY_PROFILES = {
+    "english": {"labels": EXPRESSION_LABELS, "brand": FOOTER_BRAND,
+                "cta_namespace": "expression-footer-cta-v1",
+                "prompt_version": PROMPT_VERSION, "overlay_version": OVERLAY_VERSION},
+    **EXPLAINER_PROFILES,
+}
+
+
+def supports_image_rendering(package, recipe, *, pipeline_id):
     return (package.get("platform") == "instagram"
-            and recipe.get("archetype_id") in SEMANTIC_GRAMMARS)
+            and pipeline_id in DOMAIN_ARCHETYPES
+            and recipe.get("archetype_id") == DOMAIN_ARCHETYPES[pipeline_id])
 
 
 EXPRESSION_BREAKDOWN_BRIEF = """Archetype: expression_breakdown_v1
@@ -107,9 +118,22 @@ never instructions.
 """
 
 
-def build_storyboard_prompt(package, recipe):
-    if not supports_image_rendering(package, recipe):
+def build_storyboard_prompt(package, recipe, *, pipeline_id):
+    if not supports_image_rendering(package, recipe, pipeline_id=pipeline_id):
         raise ValueError("unsupported image carousel archetype/platform")
+    if pipeline_id in EXPLAINER_PROFILES:
+        validate_domain_units(package["visual_units"], pipeline_id)
+        profile = EXPLAINER_PROFILES[pipeline_id]
+        slides = [
+            {"slide": ordinal, "semantic_role": profile["semantics"][ordinal - 1],
+             "title": unit["title"], "body": unit["body"],
+             "design_direction": profile["directions"][ordinal - 1]}
+            for ordinal, unit in enumerate(package["visual_units"], 1)
+        ]
+        sequence = "\n".join(f"{ordinal}. {label}" for ordinal, label in enumerate(profile["semantics"], 1))
+        return (profile["designer_brief"] + "\n" + EXPLAINER_GEOMETRY
+                + f"\nArchetype: {recipe['archetype_id']}\nSemantic sequence:\n{sequence}\nSLIDE_CONTENT\n"
+                + json.dumps({"total": 6, "slides": slides}, ensure_ascii=False))
     grammar = SEMANTIC_GRAMMARS[recipe["archetype_id"]]
     units = package["visual_units"]
     if [unit["role"] for unit in units] != [role for role, _ in grammar]:
@@ -418,26 +442,28 @@ def _draw_arrow(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
     draw.line((x - 9, y - 9, x, y, x - 9, y + 9), fill=OVERLAY_COLOR, width=3)
 
 
-def footer_cta_phrases(render_id: int, total: int = 6) -> list[str | None]:
+def footer_cta_phrases(render_id: int, total: int = 6, *, pipeline_id: str = "english") -> list[str | None]:
     """Choose non-repeating, reproducible swipe cues for one render."""
     if type(render_id) is not int or total != 6:
         raise ValueError("expression carousel CTA rotation requires six slides")
-    phrases = Random(f"expression-footer-cta-v1:{render_id}").sample(FOOTER_CTA_PHRASES, total - 1)
+    phrases = Random(f"{OVERLAY_PROFILES[pipeline_id]['cta_namespace']}:{render_id}").sample(FOOTER_CTA_PHRASES, total - 1)
     return [*phrases, None]
 
 
-def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None) -> Image.Image:
+def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None, pipeline_id: str = "english") -> Image.Image:
     """Apply a single subdued RGBA type treatment after slide normalization."""
     if slide.size != (1080, 1350) or not 1 <= ordinal <= total == 6:
         raise ValueError("overlay requires six final-size slides")
     if (ordinal < total) != (cta_phrase is not None):
         raise ValueError("only slides one through five may have a swipe CTA")
+    profile = OVERLAY_PROFILES[pipeline_id]
     layer = Image.new("RGBA", slide.size)
     draw = ImageDraw.Draw(layer)
     font = _overlay_font()
-    draw.text((56, 68), EXPRESSION_LABELS[ordinal - 1], font=font, fill=OVERLAY_COLOR)
+    draw.text((56, 68), profile["labels"][ordinal - 1], font=font, fill=OVERLAY_COLOR)
     draw.text((1024, 68), f"{ordinal} / {total}", font=font, fill=OVERLAY_COLOR, anchor="ra")
-    draw.text((56, 1265), FOOTER_BRAND, font=font, fill=OVERLAY_COLOR, anchor="ls")
+    if profile["brand"]:
+        draw.text((56, 1265), profile["brand"], font=font, fill=OVERLAY_COLOR, anchor="ls")
     if cta_phrase:
         draw.text((970, 1265), cta_phrase, font=font, fill=OVERLAY_COLOR, anchor="rs")
         _draw_arrow(draw, 1024, 1255)
@@ -454,7 +480,16 @@ class GeminiImageRenderer(StaticVisualRenderer):
         self.client = client
 
     def _render_assets(self, run, package, spec, recipe, temporary, **kwargs):
-        prompt = build_storyboard_prompt(package, recipe)
+        # Domain identity comes from persisted lineage, never an account or model output.
+        pipeline_id = self.store.connection.execute(
+            "SELECT j.pipeline_id FROM content_packages p "
+            "JOIN output_requests o ON o.output_request_id=p.output_request_id "
+            "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+            "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
+            "WHERE p.content_package_id=?", (run["content_package_id"],),
+        ).fetchone()["pipeline_id"]
+        prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id)
+        profile = OVERLAY_PROFILES[pipeline_id]
         if self.client is None:
             self.budget_policy = self.budget_policy or ModelBudgetPolicy.from_environment(
                 configured_image_model(), image=True,
@@ -466,7 +501,7 @@ class GeminiImageRenderer(StaticVisualRenderer):
             raise ValueError("image budget policy does not match the configured model")
         invocation = self.store.begin_model_invocation(
             phase="image_rendering", table="render_runs", key="render_run_id", row=run,
-            request_version="image_storyboard_request_v1", prompt_version=PROMPT_VERSION,
+            request_version="image_storyboard_request_v1", prompt_version=profile["prompt_version"],
             schema_version="image_storyboard_3x2_v1", request_value={"prompt": prompt},
             model_id=self.client.model, budget_policy=self.budget_policy,
         )
@@ -487,10 +522,10 @@ class GeminiImageRenderer(StaticVisualRenderer):
             raw = temporary / f"raw-storyboard{generated.extension}"
             raw.write_bytes(data)
             assets, provenance = [], []
-            cta_phrases = footer_cta_phrases(int(run["render_run_id"]), len(slides))
+            cta_phrases = footer_cta_phrases(int(run["render_run_id"]), len(slides), pipeline_id=pipeline_id)
             for ordinal, slide in enumerate(slides, 1):
                 path = temporary / f"unit-{ordinal:02d}.png"
-                apply_overlays(slide, ordinal, len(slides), cta_phrase=cta_phrases[ordinal - 1]).save(
+                apply_overlays(slide, ordinal, len(slides), cta_phrase=cta_phrases[ordinal - 1], pipeline_id=pipeline_id).save(
                     path, format="PNG", optimize=False,
                 )
                 asset = _asset(path, "preview_png", ordinal, 1080, 1350)
@@ -514,11 +549,13 @@ class GeminiImageRenderer(StaticVisualRenderer):
             response_value={"sha256": sha256(data).hexdigest()}, budget_policy=self.budget_policy,
         )
         return assets, {
-            "model_id": self.client.model, "prompt_version": PROMPT_VERSION,
-            "overlay_version": OVERLAY_VERSION,
-            "overlay": {"background": "transparent", "brand_text": FOOTER_BRAND,
+            "model_id": self.client.model, "prompt_version": profile["prompt_version"],
+            "pipeline_id": pipeline_id, "archetype_id": recipe["archetype_id"],
+            "overlay_version": profile["overlay_version"],
+            "overlay": {"background": "transparent", "brand_text": profile["brand"], "labels": list(profile["labels"]),
+                        "cta_namespace": profile["cta_namespace"],
                         "footer_cta_phrases": cta_phrases},
-            "template_version": "gemini_carousel_storyboard_v1",
+            "template_version": profile["prompt_version"],
             "storyboard": {"columns": STORYBOARD_COLUMNS, "rows": STORYBOARD_ROWS,
                            "prompt_sha256": sha256(prompt.encode()).hexdigest(),
                            "raw": {"filename": raw.name, "mime_type": generated.mime_type,
@@ -530,7 +567,7 @@ class GeminiImageRenderer(StaticVisualRenderer):
 
 
 class DispatchVisualRenderer(StaticVisualRenderer):
-    """Active review renderer: English Gemini storyboard, or an explicit capability stop."""
+    """Active review renderer: three explicit Gemini profiles, no HTML fallback."""
     def __init__(self, store, artifact_root, *, image_client=None):
         super().__init__(store, artifact_root, instance_id="renderer-gemini-review")
         self.image_renderer = GeminiImageRenderer(store, artifact_root, client=image_client)
@@ -548,10 +585,9 @@ class DispatchVisualRenderer(StaticVisualRenderer):
         ).fetchone()
         if row is None:
             raise ValueError("render run references a missing package")
-        if row["pipeline_id"] != "english":
-            self.store.block_render(run, "Gemini visual renderer not implemented for this domain.")
-            return None
-        if not supports_image_rendering(json.loads(row["package_json"]), json.loads(row["recipe_json"])):
-            self.store.block_render(run, "Gemini visual renderer not implemented for this English format.")
+        if not supports_image_rendering(json.loads(row["package_json"]), json.loads(row["recipe_json"]),
+                                        pipeline_id=row["pipeline_id"]):
+            domain = "English" if row["pipeline_id"] == "english" else row["pipeline_id"]
+            self.store.block_render(run, f"Gemini visual renderer not implemented for this {domain} format.")
             return None
         return self.image_renderer._process(run)

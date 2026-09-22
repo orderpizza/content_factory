@@ -2,7 +2,7 @@
 
 Deterministic default workers exercise planning boundaries only.
 --gemini --planning-only stops at jobs. --gemini --review-preview produces
-English Gemini review slides; unsupported domains stop explicitly at rendering.
+six Gemini review slides for each supported English, AI/Tech and Psychology format.
 """
 
 from __future__ import annotations

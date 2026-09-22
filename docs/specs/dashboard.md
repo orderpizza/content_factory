@@ -87,7 +87,7 @@ thread. It shows origin, status, updated time, row version and Detection backlin
 - All three route cards, including fit, stopping reasons, selected angle fields,
   output bindings and resulting immutable ContentJob recipe/output plan.
 - Generation, adaptation, visual planning and rendering progress for each job,
-  including blocked rendering reasons and exact English six-slide review assets.
+  including blocked rendering reasons and exact six-slide review assets for English, AI/Tech and Psychology.
 - Recent Gemini invocation outcome, model, token usage, estimated cost and safe
   diagnostics.
 

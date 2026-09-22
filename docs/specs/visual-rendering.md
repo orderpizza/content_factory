@@ -8,24 +8,35 @@ inactive deterministic visual library.
 Adaptation freezes copy, claim mappings, ordered semantic units and bounded
 `visual_intent`. VisualPlanRun selects an immutable VisualRecipe and atomically
 creates RenderRun. The active `DispatchVisualRenderer` inspects persisted job
-domain and recipe before any image call. Only English `expression_breakdown_v1`
-is supported. Its six roles and layout sequence are preserved.
+domain and recipe before any image call. Supported pairs are exclusively:
 
-AI/Tech and Psychology complete adaptation, then VisualPlanRun
-ends in `blocked` before consulting inactive HTML library capabilities, with `failure_reason` containing
-“Gemini visual renderer not implemented for this domain.” This column is reused
-as the safe explanatory reason; `blocked` is a capability stop, not `failed`.
-Unsupported English formats similarly stop with a format-specific reason.
-No model invocation, HTML fallback, asset or ReviewRequest is created for a
-blocked run. Existing RenderRuns are also fenced by a domain check and become
-blocked if claimed directly. Blocked runs are not polled again. Thread cancellation and live
-claim fencing still apply. The dashboard shows status and reason on job/thread
-pages beside generation and adaptation progress.
+| Domain | Archetype | Prompt version |
+| --- | --- | --- |
+| `english` | `expression_breakdown_v1` | `gemini_carousel_storyboard_v1` |
+| `ai_tech` | `ai_tech_explainer_v1` | `gemini_ai_tech_storyboard_v1` |
+| `psychology` | `psychology_explainer_v1` | `gemini_psychology_storyboard_v1` |
+
+AI/Tech and Psychology use explicit deterministic domain/archetype compatibility,
+recorded as `explicit_domain_archetype_v1` selection provenance. Diversity scores
+cannot select another archetype. Their narrow six-unit validators run during
+adaptation, planning and image prompt construction. The [package contract](content-production.md#instagram-package-contract)
+owns their role sequence, semantic purposes and copy bounds. English selection
+conditions remain unchanged; the two new archetypes are never English candidates.
+Registry release `visual_registry_release_v5` adds the two semantic archetypes
+using the existing minimal editorial recipe envelope. They have no HTML template,
+brand component or fallback archetype. No recipe or canonical schema changes.
+
+Unsupported domain/archetype combinations end RenderRun in `blocked` with a
+format-specific reason. Invalid supported-domain package shapes fail before an
+image call. No HTML fallback, model invocation, asset or ReviewRequest is created
+for an unsupported combination. Blocked runs are not polled again. Thread
+cancellation and live claim fencing still apply. The dashboard shows status and
+reason beside generation and adaptation progress.
 
 `run_workflow.py --gemini --review-preview` composes only Gemini rendering.
 The active strategy is Gemini images followed by small deterministic local
 processing. Shared recipe validation and atomic asset lifecycle are retained to
-protect the accepted English path.
+protect all three paths without changing the accepted English mechanics.
 
 ## Gemini designer review rendering
 
@@ -49,6 +60,20 @@ noise. Recipe composition, theme, typography tokens and component coordinates ne
 enter the prompt. Existing package/recipe validity gates still apply; adaptation
 does not author image prompts.
 
+AI/Tech has a dedicated clean, credible technology editorial brief: interface
+cards, annotated diagrams, processes, practical examples and prominent limitations.
+It avoids robot/hologram/cyberpunk clichés and automatic provider branding.
+Psychology has a warm, calm, human-centered brief: relatable scenarios, possible
+mechanisms and practical responses. It preserves observation/inference/alternative
+explanation distinctions and final qualification, avoiding diagnostic or dark
+psychology imagery. Neither profile asks the image model to research, verify or
+improve claims. Supplied titles and bodies must be rendered exactly, with no
+rewriting, omission, summary or invented text.
+
+The accepted English prompt constants remain unchanged. A frozen SHA-256 test
+protects the complete prompt for the known expression fixture. Separate overlay
+pixel hashes with a fixed bundled font protect all six English slide overlays.
+
 The isolated Vertex adapter makes one 5:4, 2K image request per supported carousel
 by default, with SDK retries disabled. Its model and image size remain
 environment-configurable, and the requested size must be supported by the selected
@@ -65,17 +90,29 @@ data/geometry, not inaccurate words or poor visual design. Exact model-rendered
 text and design quality require human review.
 
 After splitting, Pillow applies deterministic transparent header/category and
-page-counter text plus a lower-left `o2_english` brand on a single subdued RGBA
-layer. Header and footer use the same local font, size, color and opacity; there
+page-counter text on a single subdued RGBA layer. English retains its
+lower-left `o2_english` brand and existing expression labels; AI/Tech and Psychology
+omit footer brand text and never display synthetic account IDs. Header and footer
+use the same local font, size, color and opacity; there
 are no bars, panels, strokes, outlines, shadows or glows. Slides 1–5 place their
 CTA and matching arrow on the same footer baseline; a deterministic render-seeded
 selection rotates five non-repeating phrases from the curated CTA set, while slide
-6 receives no next-slide cue. The six processed `preview_png` assets are the
+6 receives no next-slide cue. English retains seed namespace
+`expression-footer-cta-v1` and overlay version `expression_transparent_chrome_v2`.
+The new domains use separate `ai-tech-footer-cta-v1` / `psychology-footer-cta-v1`
+namespaces and `ai_tech_transparent_chrome_v1` / `psychology_transparent_chrome_v1`
+overlay versions with the same font, geometry, color, opacity, CTA pool and arrow.
+
+AI/Tech overlay labels are AI / TECH, WHAT CHANGED, WHY IT MATTERS, USE CASE,
+LIMITS, TAKEAWAY. Psychology labels are PSYCHOLOGY, THE CONCEPT, WHY IT MAY HAPPEN,
+EXAMPLE, WHAT HELPS, TAKEAWAY. These complement the exact supplied slide copy.
+
+The six processed `preview_png` assets are the
 exact dashboard review bytes. The raw storyboard is retained unchanged in its
 provider PNG/JPEG format as a traceability/debug artifact only, not a review asset
 or dashboard contact sheet. The image renderer creates review assets only.
 
-The manifest records engine/model, prompt and overlay versions, storyboard grid,
+The manifest records domain/archetype IDs, engine/model, prompt and overlay versions, storyboard grid,
 prompt hash, one invocation ID, raw storyboard filename/MIME/extension/bytes/hash,
 raw dimensions, detected outer crop, gutter seams, source rectangles, fallback
 status, final filename/hash, transparent-overlay version and deterministic footer
@@ -101,7 +138,7 @@ render retry command is provided.
 The deterministic library remains available for local visual development and its
 established recipe/asset safety tests. Its implementation is `static_renderer.py`,
 `visual_primitives.py`, `visual_expression.py` and the registry; icons and avatars
-live in `assets/visual/`. Shared recipe plumbing also supports active English rendering.
+live in `assets/visual/`. Shared recipe plumbing also supports all three active Gemini profiles.
 
 HTML/Playwright is used only by gallery/development tooling, with no workflow
 selector or automatic fallback. [Operations](../current-state.md#operator-entrypoints)

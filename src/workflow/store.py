@@ -775,14 +775,6 @@ class WorkflowStore:
         with self.transaction():
             self._finish_claim(table,key,row,"failed",now(),safe_diagnostic(reason))
 
-    def block_visual_plan(self, run: Any) -> None:
-        """Stop unsupported domains before consulting inactive HTML capabilities."""
-        with self.transaction():
-            if self._cancel_if_closed("visual_plan_runs", run, now()):
-                return
-            self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "blocked", now(),
-                               "Gemini visual renderer not implemented for this domain.")
-
     def block_render(self, run: Any, reason: str) -> None:
         """Finish an expected capability stop without an error or paid retry."""
         with self.transaction():

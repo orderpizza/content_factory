@@ -12,9 +12,11 @@ from common.gemini import VertexGeminiClient, configured_model
 
 from .store import WorkflowStore
 from .workers import local_operation
+from .visual_explainers import (AI_TECH_ADAPTATION_GUIDANCE, PSYCHOLOGY_ADAPTATION_GUIDANCE,
+                                EXPLAINER_CAPACITY_GUIDANCE, validate_domain_units)
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v2"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v3"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v1"
 SUPPORTED_FORMATS = {
@@ -167,7 +169,7 @@ class GeminiAdaptationWorker:
             response = {**body, **metadata}
             package = _validate_package(
                 response, canonical, platform=platform, account=output["account"],
-                content_format=content_format, production=True,
+                content_format=content_format, production=True, pipeline_id=output["pipeline_id"],
             )
             self.store.checkpoint_adaptation(run, metadata=metadata)
             return self.store.create_package(run, package)
@@ -205,12 +207,13 @@ class GeminiAdaptationWorker:
                 account=output["account"],
                 content_format=content_format,
                 production=self.production,
+                pipeline_id=output["pipeline_id"],
             )
         except Exception as error:
             body = None
             if self.production:
                 try:
-                    body = _validated_body_checkpoint(response, canonical, platform=platform)
+                    body = _validated_body_checkpoint(response, canonical, platform=platform, pipeline_id=output["pipeline_id"])
                 except ValueError:
                     body = None
             self.store.finish_model_invocation(
@@ -227,7 +230,7 @@ class GeminiAdaptationWorker:
             response = {**body, **metadata}
             package = _validate_package(
                 response, canonical, platform=platform, account=output["account"],
-                content_format=content_format, production=True,
+                content_format=content_format, production=True, pipeline_id=output["pipeline_id"],
             )
             self.store.checkpoint_adaptation(run, metadata=metadata)
             return self.store.create_package(run, package)
@@ -235,7 +238,7 @@ class GeminiAdaptationWorker:
         if self.production:
             self.store.checkpoint_adaptation(
                 run,
-                body=_validated_body_checkpoint(response, canonical, platform=platform),
+                body=_validated_body_checkpoint(response, canonical, platform=platform, pipeline_id=output["pipeline_id"]),
                 metadata=_validated_metadata(response, platform=platform),
             )
         self.store.finish_model_invocation(
@@ -302,7 +305,7 @@ def metadata_schema(platform: str) -> dict[str, Any]:
 
 
 def _validated_body_checkpoint(
-    value: Any, canonical: Mapping[str, Any], *, platform: str
+    value: Any, canonical: Mapping[str, Any], *, platform: str, pipeline_id: str | None = None
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("adapted body must be an object")
@@ -316,6 +319,7 @@ def _validated_body_checkpoint(
     units = _visual_units(value.get("visual_units"), allowed, 5, 8)
     if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
         raise ValueError("Instagram units must start with hook and end with takeaway")
+    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"))
     cta = value.get("cta")
     if cta is not None:
         cta = _bounded_text(cta, "cta", 1, 120)
@@ -356,6 +360,7 @@ def _validate_package(
     account: str,
     content_format: str,
     production: bool = False,
+    pipeline_id: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("Gemini adaptation response must be an object")
@@ -379,6 +384,7 @@ def _validate_package(
     units = _visual_units(value["visual_units"], canonical_claim_ids, 5, 8)
     if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
         raise ValueError("Instagram units must start with hook and end with takeaway")
+    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"))
     cta = value["cta"]
     if cta is not None:
         cta = _bounded_text(cta, "cta", 1, 120)
@@ -496,6 +502,10 @@ def _visual_unit(value: Any, allowed_claims: set[str]) -> dict[str, Any]:
 
 
 def _adaptation_prompt(request_value: dict[str, Any]) -> str:
+    guidance = {"ai_tech": AI_TECH_ADAPTATION_GUIDANCE,
+                "psychology": PSYCHOLOGY_ADAPTATION_GUIDANCE}.get(request_value["pipeline_id"], "")
+    if guidance:
+        guidance += EXPLAINER_CAPACITY_GUIDANCE + "\n"
     return """You are the bounded output-adaptation worker for a local content
 factory. Adapt the immutable canonical object to the one frozen destination.
 Preserve its angle, claims, qualifications, and meaning. Do not invent facts,
@@ -526,7 +536,7 @@ hashtags, joined with blank lines) must fit 1,500 characters.
 Check these limits before returning JSON; do not omit a required qualification
 or claim mapping to fit.
 
-<FROZEN_OUTPUT>
+""" + guidance + """<FROZEN_OUTPUT>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """
 </FROZEN_OUTPUT>
 

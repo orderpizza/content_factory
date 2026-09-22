@@ -425,7 +425,6 @@ class DetectionCollectionTests(unittest.TestCase):
 
 
 DOMAINS = ('english', 'ai_tech', 'psychology')
-REASON = 'Gemini visual renderer not implemented for this domain.'
 
 class ConfiguredFeedTests(unittest.TestCase):
     def test_current_rss_sources_collect_metadata_with_rss_and_atom_fixtures(self):

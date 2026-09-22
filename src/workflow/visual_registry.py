@@ -5,8 +5,10 @@ from hashlib import sha256
 from typing import Any, Mapping
 import json
 
+from .visual_explainers import EXPLAINER_ROLES
 
-REGISTRY_RELEASE = "visual_registry_release_v4"
+
+REGISTRY_RELEASE = "visual_registry_release_v5"
 ENGINES = {"html_playwright_v1"}
 LIFECYCLES = {"experimental", "tested", "curated", "deprecated"}
 INTENT_STRUCTURES = {"editorial", "dialogue", "comparison", "cards", "process", "scenario", "data", "quote"}
@@ -86,7 +88,7 @@ IMAGE_TREATMENTS = {"none_v1", "framed_image_v1", "split_image_text_v1"}
 IMAGE_TREATMENT_LIFECYCLES = {"none_v1": "curated", "framed_image_v1": "experimental", "split_image_text_v1": "experimental"}
 
 
-def _archetype(family: str, composition: str, *, themes: list[str], typography: list[str], components: dict[str, str], optional: dict[str, list[str]], layouts: dict[str, list[str]], platforms: set[str], features: set[str], fallback: str, lifecycle: str = "curated", expected_roles: list[str] | None = None, expected_layouts: list[str] | None = None, palette_sequence: list[str] | None = None) -> dict[str, Any]:
+def _archetype(family: str, composition: str, *, themes: list[str], typography: list[str], components: dict[str, str], optional: dict[str, list[str]], layouts: dict[str, list[str]], platforms: set[str], features: set[str], fallback: str | None, lifecycle: str = "curated", expected_roles: list[str] | None = None, expected_layouts: list[str] | None = None, palette_sequence: list[str] | None = None) -> dict[str, Any]:
     value = {"family_id": family, "composition_ids": [composition], "default_composition_id": composition,
             "theme_ids": themes, "default_theme_id": themes[0], "typography_ids": typography,
             "default_typography_id": typography[0], "density_ids": ["low", "medium", "high"], "default_density": "medium",
@@ -103,7 +105,7 @@ def _archetype(family: str, composition: str, *, themes: list[str], typography: 
     return value
 
 
-# These are shared visual capabilities. English is a pilot affinity, never an owner.
+# Preserved HTML capabilities plus explicit Gemini-only semantic archetypes.
 ARCHETYPES = {
     "expression_breakdown_v1": _archetype("cards_v1", "expression_breakdown_layout_v1", themes=["blue_learning_v1", "cream_editorial_v1", "green_friendly_v1", "blush_examples_v1", "lavender_conversation_v1", "warm_takeaway_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"icon_badge": "round_v1", "checklist_row": "checked_v1", "example_card": "stacked_v1", "avatar": "halo_v1", "note_panel": "pinned_v1", "summary_card": "recall_v1", "footer": "compact_brand_v1"}, optional={"highlight": ["marker_v1", "underline_v1"]}, layouts={"hook": ["hook_hero"], "explanation": ["meaning_definition", "use_case_checklist"], "example": ["example_cards", "dialogue_bubbles"], "takeaway": ["takeaway_summary"]}, platforms={"instagram"}, features={"cards", "target_expression", "takeaway"}, fallback="vocab_card_minimal_v1", lifecycle="tested", expected_roles=["hook", "explanation", "explanation", "example", "example", "takeaway"], expected_layouts=["hook_hero", "meaning_definition", "use_case_checklist", "example_cards", "dialogue_bubbles", "takeaway_summary"], palette_sequence=["blue_learning_v1", "cream_editorial_v1", "green_friendly_v1", "blush_examples_v1", "lavender_conversation_v1", "warm_takeaway_v1"]),
     "vocab_card_minimal_v1": _archetype("cards_v1", "vocab_card_layout_v1", themes=["soft_blue_v1", "minimal_white_v1", "soft_green_v1"], typography=["friendly_sans_v1", "compact_sans_v1"], components={"definition_card": "rounded_v1", "pronunciation_row": "compact_v1", "footer": "compact_brand_v1"}, optional={"progress_cue": ["dots_v1"], "highlight": ["marker_v1"]}, layouts={"hook": ["vocab_hero"], "explanation": ["definition_card"], "example": ["example_card"], "takeaway": ["recall_card"]}, platforms={"instagram"}, features={"cards", "target_expression", "takeaway"}, fallback="editorial_bold_cover_v1"),
@@ -118,6 +120,19 @@ ARCHETYPES = {
     "editorial_clean_v1": _archetype("editorial_v1", "editorial_title_body_v1", themes=["minimal_white_v1", "dark_neutral_v1"], typography=["friendly_sans_v1"], components={"footer": "compact_brand_v1"}, optional={"highlight": ["underline_v1"]}, layouts={"hook": ["default_v1"], "explanation": ["default_v1"], "example": ["default_v1"], "takeaway": ["default_v1"]}, platforms={"instagram"}, features={"editorial", "takeaway"}, fallback="vocab_card_minimal_v1"),
     "category_badge_minimal_v1": _archetype("cards_v1", "vocab_card_layout_v1", themes=["minimal_white_v1"], typography=["friendly_sans_v1"], components={"definition_card": "rounded_v1", "footer": "compact_brand_v1"}, optional={}, layouts={"hook": ["default_v1"], "explanation": ["default_v1"], "example": ["default_v1"], "takeaway": ["default_v1"]}, platforms={"instagram"}, features={"cards"}, fallback="vocab_card_minimal_v1", lifecycle="experimental"),
 }
+# Reuse the smallest valid recipe envelope; these are semantic contracts, not HTML layouts.
+for _domain, _theme in (("ai_tech", "minimal_white_v1"), ("psychology", "warm_cream_v1")):
+    ARCHETYPES[f"{_domain}_explainer_v1"] = {
+        **_archetype(
+            "editorial_v1", "editorial_title_body_v1", themes=[_theme],
+            typography=["friendly_sans_v1"], components={}, optional={},
+            layouts={role: ["default_v1"] for role in set(EXPLAINER_ROLES)},
+            platforms={"instagram"}, features={"editorial", "takeaway"}, fallback=None,
+            expected_roles=list(EXPLAINER_ROLES),
+        ),
+        "gemini_domain": _domain,
+    }
+
 PRESETS = {
     "vocab_card_blue_01": {"archetype_id": "vocab_card_minimal_v1", "family_id": "cards_v1", "composition_id": "vocab_card_layout_v1", "theme_id": "soft_blue_v1", "typography_id": "friendly_sans_v1", "density": "medium", "components": {"definition_card": "rounded_v1", "pronunciation_row": "compact_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},
     "editorial_bold_01": {"archetype_id": "editorial_bold_cover_v1", "family_id": "editorial_v1", "composition_id": "editorial_bold_cover_layout_v1", "theme_id": "minimal_white_v1", "typography_id": "bold_display_v1", "density": "medium", "components": {"section_label": "compact_v1", "footer": "compact_brand_v1"}, "decorations": ["none_v1"], "image_treatment": "none_v1", "lifecycle": "curated"},

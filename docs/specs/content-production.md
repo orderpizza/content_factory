@@ -74,12 +74,11 @@ adaptation and creates its first pending VisualPlanRun. The shared deterministic
 planner selects a compatible curated visual archetype/preset, then resolves only
 its approved variants and commits a separate immutable VisualRecipe before
 creating its RenderRun. RenderRuns reference the exact package and recipe.
-Synthetic packages remain non-deliverable. English expression-breakdown review packages
-use the Gemini rendering path; other domains stop as described in
-[visual rendering](visual-rendering.md#gemini-designer-review-rendering).
-Adaptation owns exact semantic copy and visual intent, never final image prompts;
-the renderer interprets `expression_breakdown_v1` as six semantic slide roles
-rather than its deterministic CSS/layout choices. The HTML library is preserved inactive.
+Synthetic packages remain non-deliverable. All three supported domain formats
+use [Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
+Adaptation owns exact semantic copy and visual intent, never final image prompts.
+The renderer interprets each domain archetype as six semantic slide roles;
+deterministic CSS/layout tokens do not guide Gemini. The HTML library remains inactive.
 
 ## Instagram package contract
 
@@ -98,6 +97,35 @@ Local limits: title 120 characters, body 600, caption summary 1100, total captio
 1500; CTA at most 12 words/120 characters or null; 2–6 unique private tags, at most
 8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
 canonical claim must be mapped into copy or units.
+
+The broad `output_adaptation_v1` schema stays at 5–8 units. Domain-aware local
+validation (including body checkpoints) requires exactly six units for AI/Tech
+and Psychology, with roles `hook, explanation, explanation, example, explanation,
+takeaway`. Adaptation prompt `workflow_gemini_adaptation_prompt_v3` intentionally
+assigns each position:
+
+| Slide | AI/Tech | Psychology |
+| --- | --- | --- |
+| 1 | Hook | Hook / observed pattern |
+| 2 | What changed / what it is | Concept / meaning |
+| 3 | Why it matters / how it works | Possible mechanism |
+| 4 | Practical use / example | Everyday example / scenario |
+| 5 | Limitations / caveats | Practical implication / response |
+| 6 | Takeaway | Takeaway + qualification |
+
+`visual_explainers.py` owns these narrow validators. Titles are at most 80
+characters/12 words; bodies at most 360 characters/60 words; each field has at
+most five nonempty lines. AI/Tech slide 5 and Psychology slide 6 require at least
+20 body characters to reject empty placeholders. These are capacity checks, not
+semantic verification. Human review determines whether a caveat is meaningful,
+qualification is retained and claims are correct. Every canonical claim still
+requires a valid mapping; none may be dropped to satisfy capacity limits.
+
+AI/Tech adaptation uses the canonical feature/change, scope, capabilities, use
+cases and limitations. Psychology uses observed behavior, concept, possible
+mechanism, alternative explanations, scenario, practical implications and
+qualification. Prompts distinguish observation from inference, retain uncertainty
+and prohibit diagnostic language; no new canonical schema or research call exists.
 
 
 ## Spending and recovery

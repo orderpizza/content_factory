@@ -16,10 +16,14 @@ and deterministic scoring. Human Intake can clarify before freezing a brief.
 `--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
 the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, Instagram adaptation,
-visual planning and Gemini review rendering. English expression breakdowns
-produce six 1080×1350 PNG review slides. AI/Tech and Psychology stop at rendering preparation
-with VisualPlanRun `blocked` and “Gemini visual renderer not implemented for this domain.”
-Other English formats are also blocked explicitly. No HTML fallback is active.
+visual planning and Gemini review rendering. All three active domains produce
+six-slide Instagram review carousels through one Gemini 3×2 storyboard call and
+shared local processing into six 1080×1350 PNGs. English uses
+`expression_breakdown_v1` with its accepted educational profile; AI/Tech uses
+`ai_tech_explainer_v1` with clean technology editorial art direction; Psychology
+uses `psychology_explainer_v1` with warm, qualified behavioral education.
+Unsupported domain/archetype combinations block explicitly; invalid package
+shapes fail before the image call. No HTML fallback is active.
 
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
 Determination routes, jobs, adaptation/render progress and exact review slides.
@@ -90,6 +94,32 @@ Human ideation is immediately available for every domain.
 
 Use the actual thread ID and version. Refinement creates immutable new work.
 
+## Optional live visual acceptance
+
+These commands are for owner-run paid acceptance only, after configuring local
+Gemini credentials and budgets. Use a fresh database filename (setup refuses an
+existing path), so the workflow cannot consume unrelated pending work:
+
+```sh
+.venv/bin/python scripts/setup_development.py --database data/pass3-review.db
+.venv/bin/python scripts/create_local_idea.py "English only: teach break the ice in a first meeting, using six slides: hook, meaning, use cases, examples, short dialogue, takeaway." --database data/pass3-review.db
+.venv/bin/python scripts/create_local_idea.py "AI/Tech only: explain a hypothetical AI workflow for drafting a neutral opening question for a meeting. No current product or availability claims. A human must review tone and accuracy." --database data/pass3-review.db
+.venv/bin/python scripts/create_local_idea.py "Psychology only: explain hesitation in an unfamiliar group as an observation. Social uncertainty is one possible explanation; people may simply need time. Offer an optional low-stakes question, without diagnosis or asserted motives." --database data/pass3-review.db
+.venv/bin/python scripts/run_workflow.py --database data/pass3-review.db --artifacts data/artifacts/pass3-review --gemini --review-preview --poll
+```
+
+In another terminal:
+
+```sh
+.venv/bin/python scripts/serve_dashboard.py --database data/pass3-review.db --artifacts data/artifacts/pass3-review
+```
+
+Open http://127.0.0.1:8787, answer any Intake clarification and inspect the
+Determination selections. Manually compare the English baseline, AI/Tech clarity
+and visible caveats, and Psychology qualification across each six-slide review.
+These are human-review acceptance cases, not assertions of live model quality.
+Stop the workflow with Ctrl+C when finished. This flow does not publish.
+
 ## Monitoring and maintenance
 
 Planning ignores storage admission, including missing/stale/critical samples;
@@ -142,7 +172,7 @@ The gallery writes ignored `data/artifacts/visual-gallery` and creates no workfl
 | `src/workflow/catalog.py` | Three editorial remits and catalog read model |
 | `src/workflow/gemini_intake.py`, `gemini_determination.py` | Planning workers |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
-| `src/workflow/gemini_image_renderer.py` | English storyboard, local processing and explicit rendering boundary |
+| `src/workflow/gemini_image_renderer.py` | Three domain storyboard profiles and shared local processing |
 | `src/workflow/visual_registry.py`, `visual_planner.py` | Frozen semantic recipes and preserved visual registry |
 | `src/workflow/static_renderer.py`, `visual_primitives.py` | Preserved inactive HTML visual library |
 | `src/dashboard/` | Evidence, progress and review read models |

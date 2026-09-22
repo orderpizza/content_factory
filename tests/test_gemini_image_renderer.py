@@ -1,6 +1,6 @@
 """Offline storyboard image generation, splitting, review, and recovery contracts."""
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from common.gemini import GeminiUsage
 from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model, configured_image_size
 from copy import deepcopy
@@ -81,7 +81,7 @@ class ImagePipelineTests(unittest.TestCase):
     def test_storyboard_prompt_has_exact_content_and_instructional_design_contract(self):
         value = recipe('expression_breakdown_v1', roles=EXPRESSION_ROLES)
         package = {'platform': 'instagram', 'visual_units': deepcopy(EXPRESSION_UNITS)}
-        prompt = build_storyboard_prompt(package, value)
+        prompt = build_storyboard_prompt(package, value, pipeline_id="english")
         # Characterization of the accepted full English design brief and fixture copy.
         self.assertEqual(sha256(prompt.encode()).hexdigest(),
                          'b093726a0c22236fd1cecae4fa994e2910b0f46bb8610c893f9f516999061e79')
@@ -107,7 +107,7 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertIn('Do not add O2English', prompt)
         self.assertNotIn('style anchor', prompt)
         with self.assertRaises(ValueError):
-            build_storyboard_prompt({**package, 'platform': 'x'}, value)
+            build_storyboard_prompt({**package, 'platform': 'x'}, value, pipeline_id='english')
 
     def test_storyboard_split_and_transparent_overlays(self):
         split = split_storyboard_with_metadata(storyboard_with_margins())
@@ -156,11 +156,55 @@ class ImagePipelineTests(unittest.TestCase):
     def test_footer_ctas_are_deterministic_and_stop_after_slide_five(self):
         self.assertEqual(footer_cta_phrases(42), footer_cta_phrases(42))
         phrases = footer_cta_phrases(42)
+        self.assertEqual(phrases, ["More examples", "See more", "Keep going", "Next", "Continue", None])
         self.assertEqual(len(set(phrases[:5])), 5)
         self.assertIsNone(phrases[5])
         self.assertEqual(FOOTER_BRAND, 'o2_english')
         self.assertNotIn('Small Steps. A Bigger You.',
                          Path('src/workflow/gemini_image_renderer.py').read_text())
+
+    def test_english_overlay_pixels_match_accepted_baseline(self):
+        # Captured from the pre-Pass-3 renderer with Pillow's bundled font, avoiding
+        # platform font differences while freezing labels, geometry, color and CTA.
+        expected = [
+            'bc52e6a6c73164c3fa27ba1fbefc89b4b17d34f5b4f3def96026ae88fa1e60b7',
+            '09c9d0ed9694ee28292dee95abb0826aa891905842907ecf4eb2e01a04544101',
+            '64ba83d655413c636eebae57530a91d033cf5759968186692b14722b9ec19564',
+            '62c18cb108eeb59b3884cd7ad2e8e857e8c4d68de587f197f21cb6d5e96ac4fa',
+            '1b8281bf1925793c75679e9031b9e15778558c6a4365ca1e2f462acfc1e1a2cc',
+            'd8c5927ea7d76f00592e270705f0e9720d58acd3fa1d87720ae9d223ddd9b1ac',
+        ]
+        slide = Image.new('RGB', (1080, 1350), '#e9eef1')
+        with patch('workflow.gemini_image_renderer._overlay_font', return_value=ImageFont.load_default(size=32)):
+            actual = [sha256(apply_overlays(slide, ordinal, 6,
+                cta_phrase=footer_cta_phrases(42)[ordinal - 1]).tobytes()).hexdigest()
+                for ordinal in range(1, 7)]
+        self.assertEqual(actual, expected)
+
+    def test_new_domain_overlays_have_labels_but_no_invented_brand(self):
+        from workflow.gemini_image_renderer import OVERLAY_PROFILES
+        slide = Image.new('RGB', (1080, 1350), '#e9eef1')
+        for domain, labels in (
+            ('ai_tech', ['AI / TECH', 'WHAT CHANGED', 'WHY IT MATTERS', 'USE CASE', 'LIMITS', 'TAKEAWAY']),
+            ('psychology', ['PSYCHOLOGY', 'THE CONCEPT', 'WHY IT MAY HAPPEN', 'EXAMPLE', 'WHAT HELPS', 'TAKEAWAY']),
+        ):
+            phrases = footer_cta_phrases(42, pipeline_id=domain)
+            self.assertEqual(phrases, footer_cta_phrases(42, pipeline_id=domain))
+            self.assertEqual(len(set(phrases[:5])), 5)
+            self.assertIsNone(phrases[-1])
+            self.assertNotEqual(phrases, footer_cta_phrases(42))
+            self.assertIsNone(OVERLAY_PROFILES[domain]['brand'])
+            self.assertEqual(list(OVERLAY_PROFILES[domain]['labels']), labels)
+            for ordinal in range(1, 7):
+                output = apply_overlays(slide, ordinal, 6,
+                    cta_phrase=phrases[ordinal - 1], pipeline_id=domain)
+                # Lower-left footer is untouched; label and page number remain.
+                box = (0, 1170, 500, 1350)
+                self.assertEqual(output.crop(box).tobytes(), slide.crop(box).tobytes())
+                self.assertNotEqual(output.crop((0, 0, 1080, 140)).tobytes(), slide.crop((0, 0, 1080, 140)).tobytes())
+                if ordinal == 6:
+                    box = (500, 1170, 1080, 1350)
+                    self.assertEqual(output.crop(box).tobytes(), slide.crop(box).tobytes())
 
     def test_vertex_transport_makes_one_5x4_2k_call_without_references_or_retries(self):
         client = VertexGeminiImageClient(project='test', model='test-image', max_output_tokens=8000)

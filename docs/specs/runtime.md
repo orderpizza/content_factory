@@ -51,9 +51,9 @@ are rejected; Ctrl+C stops cleanly. Idle polls only update heartbeats.
 Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
-Review rendering uses one Gemini storyboard call for the supported English format.
-AI/Tech and Psychology visual planning stops as blocked without a model call or HTML
-fallback. [Visual rendering](visual-rendering.md#gemini-designer-review-rendering)
+Review rendering uses one Gemini storyboard call for each supported domain format
+in English, AI/Tech and Psychology. Unsupported domain/archetype combinations
+block without a model call or HTML fallback. [Visual rendering](visual-rendering.md#gemini-designer-review-rendering)
 owns image processing and review assets.
 
 Real Gemini composition always requires a priced ModelBudgetPolicy.

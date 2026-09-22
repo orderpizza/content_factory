@@ -54,3 +54,11 @@ The common canonical envelope supplies examples, claims and takeaway separately.
 No slide count, caption, geometry or account belongs in a domain payload.
 [Content production](../specs/content-production.md) owns that envelope;
 [platform outputs](../specs/content-production.md#instagram-package-contract) owns adaptation.
+
+All three domains can reach six-slide Gemini Instagram review assets. English
+retains its expression teaching profile; AI/Tech uses technology editorial art
+direction with visible limitations; Psychology uses calm behavioral education
+with visible uncertainty and qualification. The [adaptation contract](../specs/content-production.md#instagram-package-contract)
+owns the six-unit grammars and the [visual rendering contract](../specs/visual-rendering.md)
+owns archetypes, prompts and overlays. No account brand has been defined for
+AI/Tech or Psychology, so their local overlays omit footer branding.
