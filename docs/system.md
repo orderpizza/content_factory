@@ -46,9 +46,8 @@ storage admission; monitoring remains advisory there.
 
 | Concern | Canonical reference |
 | --- | --- |
-| Commands, environment, project map and limitations | [Current state](current-state.md) |
-| Identity, transactions and record ownership | [Data model](specs/data-model.md) |
-| Executable schema and record inventory | [SQLite records](specs/data/records.md) |
+| Commands, project map and limitations | [Current state](current-state.md) |
+| Identity, transactions, schema initialization and record inventory | [Data model](specs/data-model.md) |
 | SQL/JSON contract ownership | [Contracts](contracts/README.md) |
 | Detection and semantic evidence | [Detection](specs/detection.md) |
 | Human conversation, briefs, three-domain decisions | [Intake and Determination](specs/idea-intake-and-determination.md) |
@@ -56,8 +55,7 @@ storage admission; monitoring remains advisory there.
 | Nonsecret releases and settings | [Configuration](specs/configuration.md) |
 | Dashboard visibility and commands | [Dashboard](specs/dashboard.md) |
 | Polling, claims, retries and process operation | [Runtime](specs/runtime.md) |
-| Canonical generation and adaptation | [Content production](specs/content-production.md) |
-| Instagram payloads | [Platform outputs](specs/platform-outputs.md) |
+| Canonical generation, Instagram adaptation and package contract | [Content production](specs/content-production.md) |
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
@@ -65,18 +63,18 @@ storage admission; monitoring remains advisory there.
 ### Required reading for a code change
 
 Read this guide and current state first. For every changed persisted boundary,
-also read the data model, SQLite records and executable contract.
+also read the data model and executable contract.
 
 | Change | Additional required reading |
 | --- | --- |
 | Detection | Detection, configuration, runtime; dashboard if visibility changes |
 | Human ideas or routing | Intake and Determination, domains, configuration, reliability, dashboard |
 | Dashboard | Dashboard and the owning stage contract |
-| Generation/adaptation | Content production, domains, platform outputs, reliability |
-| Rendering | Visual rendering, platform outputs, runtime, reliability |
-| Posting/review | Posting, dashboard, platform outputs, reliability, runtime, owning record contract |
+| Generation/adaptation | Content production, domains, reliability |
+| Rendering | Visual rendering, content production, runtime, reliability |
+| Posting/review | Posting, dashboard, content production, reliability, runtime, owning record contract |
 | Runtime/budgets/storage | Runtime, reliability, configuration and owning stage |
-| Schema/configuration | Data model, records, configuration and affected stage contracts |
+| Schema/configuration | Data model, configuration and affected stage contracts |
 
 
 ## Documentation maintenance

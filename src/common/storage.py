@@ -1,5 +1,4 @@
 """Read-only storage facts. Planning never uses these as admission policy."""
-from datetime import datetime, timezone
 from .timestamps import parse_timestamp, utc_datetime_now
 
 MAX_SAMPLE_AGE_SECONDS = 600

@@ -1,7 +1,7 @@
 """Versioned hybrid attention evaluation for frozen live/daily evidence."""
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from hashlib import sha256
 from math import log2
 from statistics import median
@@ -121,7 +121,7 @@ def activity(kind, rows):
         return float(sum(articles.values()))
     if kind == HN:
         return round(max((((101 - r["rank"]) / 100) * log2(r["activity"] + 1) for r in rows if r["rank"]), default=0), 6)
-    return float(max((51 - r["rank"] for r in rows if r["rank"]), default=0))
+    raise ValueError(f"unsupported source kind: {kind}")
 
 
 def evaluate(connection, run_id, release_id, manifest):

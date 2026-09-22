@@ -1,4 +1,4 @@
-"""Bounded, thread-first read model for the local editorial scaffold."""
+"""Exact review assets and persisted review-command forms."""
 
 from __future__ import annotations
 
@@ -6,10 +6,7 @@ from html import escape
 import json
 import sqlite3
 import uuid
-from common.timestamps import utc_now
 
-
-from .planning import render_threads as render_workflow_trace
 
 def _hidden(name: str, value: object) -> str:
     return f"<input type='hidden' name='{escape(name)}' value='{escape(str(value))}'>"
@@ -21,7 +18,6 @@ def _review_preview(
     *,
     interactive: bool,
     csrf_token: str,
-    production: bool,
 ) -> str:
     review = connection.execute(
         "SELECT v.status,v.row_version,p.package_json,r.render_run_id,vr.recipe_json,vr.selection_provenance_json "

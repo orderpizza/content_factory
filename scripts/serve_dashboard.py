@@ -21,7 +21,7 @@ from common.operation_log import configure_logging, emit, refusal_code
 from common.timestamps import utc_now
 from database.current import SchemaError, connect, validate_database
 from dashboard import render_detection_dashboard, render_workflow_trace
-from dashboard.detection import AUTO_REFRESH_CSP
+from dashboard.refresh import AUTO_REFRESH_CSP
 from dashboard.evidence import render_candidate, render_evaluation, render_queue_status
 from dashboard.flow import render_raw_item, render_job
 from workflow import WorkflowStore
@@ -162,7 +162,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not secrets.compare_digest(supplied_token, self.csrf_token):
                 raise ValueError("invalid or expired dashboard command token")
             command_kind = self._one(values, "command_kind")
-            self._command_kind = command_kind if command_kind in {'new_idea','continue_thread','review_changes','review_approved','review_rejected','post_now','cancel_delivery','request_reconciliation','resolve_reconciliation'} else 'unsupported'
+            self._command_kind = command_kind if command_kind in {'new_idea','continue_thread','review_changes','review_approved','review_rejected'} else 'unsupported'
             command_id = self._one(values, "command_id")
             redirect_thread = None
             with WorkflowStore(self.database_path, enforce_storage=True) as store:

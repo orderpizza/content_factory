@@ -1,4 +1,5 @@
 """Current-documentation guards; no compatibility payloads are required."""
+
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -7,6 +8,7 @@ import runpy
 import shutil
 import tempfile
 import unittest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,3 +76,15 @@ class DocumentationTests(unittest.TestCase):
         self.alter('.env.example', lambda text: text + '\nUNUSED_SETTING=\n')
         self.alter('docs/specs/configuration.md', lambda text: text + '\nUNUSED_SETTING\n')
         self.assertIn('Unused operator environment variable: UNUSED_SETTING', self.run_check())
+
+    def test_duplicate_source_roster_entry_is_rejected(self):
+        self.alter('docs/specs/detection.md', lambda text: text + '\n| `openai_news_rss_v1` | duplicate | ignored |\n')
+        self.assertIn('roster must match', self.run_check())
+
+    def test_undocumented_operator_script_is_rejected(self):
+        (self.root / 'scripts/unlisted.py').write_text('')
+        self.assertIn('Operator entrypoint is not documented', self.run_check())
+
+    def test_environment_subscript_lookup_is_checked(self):
+        self.alter('src/common/gemini.py', lambda text: text + '\nvalue = os.environ["UNLISTED_KEY"]\n')
+        self.assertIn('Environment lookup absent from .env.example: UNLISTED_KEY', self.run_check())

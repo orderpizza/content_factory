@@ -22,14 +22,13 @@ def main() -> None:
     parser.add_argument("--artifacts", default=os.getenv(
         "CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")
     ))
-    parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument(
         "--mode", choices=("planning", "preview"), default="planning",
         help="planning checks local planning; preview checks Gemini/rendering",
     )
     args = parser.parse_args()
     report = inspect_smoke_readiness(
-        args.database, args.artifacts, args.backups, mode=args.mode
+        args.database, args.artifacts, mode=args.mode
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     raise SystemExit(0 if report["status"] == "ready" else 2)

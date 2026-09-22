@@ -19,10 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from common.environment import load_environment_file
 from common.gemini import GeminiConfigurationError, configured_model
 from common.timestamps import utc_now
-from database.current import SchemaError, validate_database
+from database.current import SchemaError
 from workflow import (
-    WORKFLOW_PIPELINES,
-    AdaptationWorker,
     DeterminationWorker,
     GeminiAdaptationWorker,
     GeminiDeterminationWorker,
@@ -31,19 +29,14 @@ from workflow import (
     IdeaIntakeWorker,
     ModelBudgetConfigurationError,
     ModelBudgetPolicy,
-    PipelineRunner,
     VisualPlanner,
     WorkflowStore,
 )
 from workflow.maintenance import StorageMonitor
+from workflow.development import configure_development_catalog
 from workflow.gemini_image_renderer import DispatchVisualRenderer
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def register_gemini_placeholder_capabilities(store: WorkflowStore) -> None:
-    from workflow.development import configure_development_catalog
-    configure_development_catalog(store)
 
 
 _RUNTIME_TYPES = {
@@ -51,18 +44,10 @@ _RUNTIME_TYPES = {
     "GeminiIntakeWorker": ("idea_intake", "brief_revision"),
     "DeterminationWorker": ("determination", "determination_decision"),
     "GeminiDeterminationWorker": ("determination", "determination_decision"),
-    "PipelineRunner": ("pipeline_runner", "canonical_content"),
     "GeminiPipelineRunner": ("pipeline_runner", "canonical_content"),
-    "AdaptationWorker": ("adaptation", "content_package"),
     "GeminiAdaptationWorker": ("adaptation", "content_package"),
     "VisualPlanner": ("visual_planner", "visual_recipe"),
-    "VisualRenderer": ("visual_renderer", "review_request"),
-    "StaticVisualRenderer": ("visual_renderer", "review_request"),
     "DispatchVisualRenderer": ("visual_renderer", "review_request"),
-    "PostingAgent": ("posting_agent", "post_record"),
-    "CredentialedPostingAgent": ("posting_agent", "post_record"),
-    "R2CleanupWorker": ("cleanup", "delivery_cleanup_task"),
-    "PublicationReconciliationWorker": ("publication_reconciliation", "reconciliation_request"),
     "StorageMonitor": ("storage_monitor", "storage_sample"),
 }
 
@@ -152,7 +137,7 @@ def main() -> None:
     try:
         budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
         with WorkflowStore(args.database, model_budget_policy=budget_policy, enforce_storage=True) as store:
-            register_gemini_placeholder_capabilities(store)
+            configure_development_catalog(store)
             intake_worker = GeminiIntakeWorker(store) if args.gemini else IdeaIntakeWorker(store)
             determination_worker = (
                 GeminiDeterminationWorker(store) if args.gemini else DeterminationWorker(store)

@@ -1,4 +1,4 @@
-"""Render first-wave shared visual archetypes locally; no database or provider is used."""
+"""Render preserved visual archetypes locally; no database or provider is used."""
 from __future__ import annotations
 
 from argparse import ArgumentParser

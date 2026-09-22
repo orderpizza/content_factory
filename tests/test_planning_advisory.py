@@ -1,29 +1,31 @@
 """Planning storage policy and four-stage dashboard lineage, entirely offline."""
-from contextlib import redirect_stdout
-from datetime import datetime, timedelta, timezone
-from http.server import ThreadingHTTPServer
-from io import StringIO
-from pathlib import Path
-from threading import Thread
-from unittest.mock import patch
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-import runpy
-import tempfile
-import unittest
 
+from common.timestamps import serialize_timestamp
+from contextlib import redirect_stdout
 from dashboard.detection import render_detection_dashboard
-from dashboard.flow import render_raw_item, render_job
+from dashboard.flow import render_job, render_raw_item
+from datetime import datetime, timedelta, timezone
 from detection.collector import DetectionCollector
 from detection.models import CollectedItem, CollectionResult
 from detection.scout import DetectionScout
 from detection.store import DetectionStore
-from workflow import WorkflowStore, GeminiIntakeWorker, GeminiDeterminationWorker
-from workflow.development import prepare_development_database
-from workflow.maintenance import StorageMonitor
+from http.server import ThreadingHTTPServer
+from io import StringIO
+from pathlib import Path
 from test_gemini_workflow import FakeGeminiClient, brief
 from test_semantic_detection import FakeEncoder
+from threading import Thread
+from unittest.mock import patch
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from workflow import GeminiDeterminationWorker, GeminiIntakeWorker, WorkflowStore
+from workflow.development import prepare_development_database
+from workflow.maintenance import StorageMonitor
+import runpy
+import tempfile
 import test_gemini_workflow as fixtures
+import unittest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONDITIONS = ('missing', 'stale', 'future', 'invalid', 'warning', 'critical', 'emergency')
@@ -34,8 +36,8 @@ def condition(store, value):
         store.connection.execute('DELETE FROM storage_samples')
     else:
         at = datetime.now(timezone.utc)
-        timestamp = (at - timedelta(hours=4) if value == 'stale' else
-                     at + timedelta(days=1) if value == 'future' else at).isoformat()
+        timestamp = serialize_timestamp(at - timedelta(hours=4) if value == 'stale' else
+                     at + timedelta(days=1) if value == 'future' else at)
         if value == 'invalid':
             timestamp = 'not-a-timestamp'
         state = ('read_only_emergency' if value == 'emergency' else
@@ -145,7 +147,7 @@ class PlanningAdvisoryTests(unittest.TestCase):
     def test_detection_selection_handoff_and_job_ignore_all_storage_conditions(self):
         at = datetime(2026, 9, 15, 8, tzinfo=timezone.utc)
         evidence = CollectionResult((CollectedItem('launch', 'OpenAI launches Atlas browser', 100,
-                                    rank=1, provider_time=at.isoformat()),), (), True, 'a'*64, 1)
+                                    rank=1, provider_time=serialize_timestamp(at)),), (), True, 'a'*64, 1)
         for value, outcome in [(v, 'accepted') for v in CONDITIONS] + [('critical', 'not_recommended')]:
             path = self.database('detection-'+value+'-'+outcome)
             with self.subTest(condition=value, outcome=outcome), WorkflowStore(path, enforce_storage=True) as store:

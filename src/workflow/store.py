@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
 import re
@@ -201,11 +200,10 @@ class WorkflowStore:
                 "INSERT INTO intake_requests(thread_id,context_json,context_version,status,attempt_limit,created_at) VALUES (?,?,'intake_context_v2','pending',3,?)",
                 (thread_id, canonical(context), moment),
             )
-            if self._has_receipts():
-                self.connection.execute(
-                    "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'new_idea','local_owner',?,?,?)",
-                    (command_id, payload_hash, int(request.lastrowid), moment),
-                )
+            self.connection.execute(
+                "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'new_idea','local_owner',?,?,?)",
+                (command_id, payload_hash, int(request.lastrowid), moment),
+            )
             return int(request.lastrowid)
 
     @human_command('continue_thread')
@@ -266,21 +264,16 @@ class WorkflowStore:
                 "UPDATE content_threads SET updated_at=?,row_version=row_version+1 WHERE thread_id=?",
                 (moment, thread_id),
             )
-            if self._has_receipts():
-                self.connection.execute(
-                    "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'continue_thread','local_owner',?,?,?)",
-                    (command_id, payload_hash, int(request.lastrowid), moment),
-                )
+            self.connection.execute(
+                "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) VALUES (?, 'continue_thread','local_owner',?,?,?)",
+                (command_id, payload_hash, int(request.lastrowid), moment),
+            )
             return int(request.lastrowid)
 
-    def _has_receipts(self) -> bool:
-        return self.connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='human_command_receipts'").fetchone() is not None
 
     def _command_receipt(self, command_id: str) -> Any | None:
         if not isinstance(command_id, str) or not command_id.strip() or len(command_id) > 200:
             raise ValueError("command ID must contain 1-200 characters")
-        if not self._has_receipts():
-            return None
         return self.connection.execute(
             "SELECT result_record_id,payload_hash FROM human_command_receipts WHERE command_id=?", (command_id,)
         ).fetchone()
@@ -1268,12 +1261,11 @@ class WorkflowStore:
             )
             if result.rowcount != 1:
                 raise RuntimeError("stale review command cannot finalize")
-            if self._has_receipts():
-                self.connection.execute(
-                    "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
-                    "VALUES (?,?,'local_owner',?,?,?)",
-                    (command_id, f"review_{decision}", payload_hash, review_id, moment),
-                )
+            self.connection.execute(
+                "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
+                "VALUES (?,?,'local_owner',?,?,?)",
+                (command_id, f"review_{decision}", payload_hash, review_id, moment),
+            )
             return review_id
 
     def request_review_changes(
@@ -1369,12 +1361,11 @@ class WorkflowStore:
                 "UPDATE content_threads SET updated_at=?,row_version=row_version+1 WHERE thread_id=?",
                 (moment, context["thread_id"]),
             )
-            if self._has_receipts():
-                self.connection.execute(
-                    "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
-                    "VALUES (?,'review_changes','local_owner',?,?,?)",
-                    (command_id, payload_hash, request_id, moment),
-                )
+            self.connection.execute(
+                "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
+                "VALUES (?,'review_changes','local_owner',?,?,?)",
+                (command_id, payload_hash, request_id, moment),
+            )
             return request_id
 
     def approve_review(self, review_id: int, *, row_version: int, command_id: str) -> int:
@@ -1399,7 +1390,7 @@ class WorkflowStore:
         valid_for: timedelta = timedelta(hours=6),
     ) -> int:
         """Persist one bounded provider/config readiness observation."""
-        self._require_production_schema()
+        self._validate_schema()
         if status not in {"ready", "degraded", "blocked", "unknown"}:
             raise ValueError("invalid destination readiness status")
         if not isinstance(reasons, list) or any(not isinstance(item, str) or not item for item in reasons):
@@ -1436,7 +1427,7 @@ class WorkflowStore:
         command_id: str,
     ) -> int:
         """Approve one exact review and atomically create immediate delivery work."""
-        self._require_production_schema()
+        self._validate_schema()
         self._require_storage_action("post_now")
         if type(row_version) is not int or row_version < 1:
             raise ValueError("a positive displayed review row version is required")
@@ -1525,7 +1516,7 @@ class WorkflowStore:
 
     def prepare_post_attempt(self, record: Any) -> dict[str, Any]:
         """Revalidate a claimed delivery and create its durable attempt."""
-        self._require_production_schema()
+        self._validate_schema()
         moment = now()
         context = self._post_delivery_context(int(record["post_record_id"]), moment=moment)
         with self.transaction():
@@ -1601,7 +1592,7 @@ class WorkflowStore:
         status: str = "created",
         safe_metadata: dict[str, Any] | None = None,
     ) -> int:
-        self._require_production_schema()
+        self._validate_schema()
         if status not in {"created", "ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
             raise ValueError("invalid publication resource status")
         if not resource_type or not remote_id or len(remote_id) > 500:
@@ -1622,7 +1613,7 @@ class WorkflowStore:
 
     def update_publication_resource(self, resource_id: int, *, status: str) -> int:
         """Advance one provider-side resource without changing its identity."""
-        self._require_production_schema()
+        self._validate_schema()
         if status not in {"ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
             raise ValueError("invalid publication resource status")
         moment = now()
@@ -1843,7 +1834,7 @@ class WorkflowStore:
         command_id: str,
     ) -> int:
         """Cancel only before the final provider-request marker commits."""
-        self._require_production_schema()
+        self._validate_schema()
         if type(row_version) is not int or row_version < 1:
             raise ValueError("a positive displayed delivery row version is required")
         payload_hash = digest({"kind": "cancel_delivery", "post_record_id": post_record_id,
@@ -1900,7 +1891,7 @@ class WorkflowStore:
     def request_publication_reconciliation(
         self, post_record_id: int, *, command_id: str
     ) -> int:
-        self._require_production_schema()
+        self._validate_schema()
         payload_hash = digest({"kind": "request_reconciliation", "post_record_id": post_record_id})
         moment = now()
         with self.transaction():
@@ -1936,6 +1927,16 @@ class WorkflowStore:
             raise ValueError("invalid reconciliation outcome")
         moment = now()
         with self.transaction():
+            current = self.connection.execute(
+                "SELECT 1 FROM reconciliation_requests r JOIN post_records p USING(post_record_id) "
+                "WHERE r.reconciliation_request_id=? AND r.status='claimed' "
+                "AND r.claim_owner=? AND r.claim_version=? AND r.lease_expires_at>? "
+                "AND p.status='publication_unknown'",
+                (request["reconciliation_request_id"], request["claim_owner"],
+                 request["claim_version"], moment),
+            ).fetchone()
+            if current is None:
+                raise RuntimeError("reconciliation claim is stale or publication is no longer unknown")
             check_id = int(self.connection.execute(
                 "INSERT INTO reconciliation_checks(reconciliation_request_id,outcome,query_version,"
                 "evidence_json,evidence_hash,checked_at) VALUES (?,?,?,?,?,?)",
@@ -2088,7 +2089,7 @@ class WorkflowStore:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Checkpoint valid adaptation body independently from metadata."""
-        self._require_production_schema()
+        self._validate_schema()
         if body is None and metadata is None:
             raise ValueError("an adaptation checkpoint value is required")
         assignments: list[str] = []
@@ -2112,14 +2113,14 @@ class WorkflowStore:
     def record_artifact_quarantine(
         self, render_run_id: int, original: Path, quarantine: Path, reason: str
     ) -> None:
-        self._require_production_schema()
+        self._validate_schema()
         with self.transaction():
             self.connection.execute(
                 "INSERT INTO artifact_reconciliations(render_run_id,original_path,quarantine_path,reason,created_at) "
                 "VALUES (?,?,?,?,?)", (render_run_id, str(original), str(quarantine), reason, now()),
             )
 
-    def _require_production_schema(self) -> None:
+    def _validate_schema(self) -> None:
         validate_database(self.connection, check_foreign_keys=False)
 
     def _storage_action_allowed(self, action: str) -> bool:

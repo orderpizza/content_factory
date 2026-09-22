@@ -1,21 +1,22 @@
 """Deterministic normalized detection regressions; temporary SQLite, no providers."""
 
+from common.timestamps import serialize_timestamp
 from copy import deepcopy
+from database.current import connect, initialize_database
 from datetime import datetime, timedelta, timezone
+from detection.adapters import _PinnedHTTPSConnection, _validate_public_https
+from detection.collector import DetectionCollector
+from detection.configuration import load_manifest
+from detection.hybrid import HN, WIKI, activity, health
+from detection.models import CollectedItem, CollectionResult, ItemEvent, SourceCollectionError
+from detection.scout import DetectionScout
+from detection.store import DetectionStore
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import json
 import tempfile
 import unittest
 
-from database.current import initialize_database, connect, SchemaError
-from detection.adapters import _PinnedHTTPSConnection, _validate_public_https
-from detection.collector import DetectionCollector
-from detection.configuration import load_manifest
-from detection.hybrid import activity, health, WIKI, HN
-from detection.models import CollectedItem, CollectionResult, ItemEvent, SourceCollectionError
-from detection.scout import DetectionScout
-from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,7 +36,7 @@ class HybridDetectionTests(unittest.TestCase):
     def collect(self, store, source_id, *, at=None, empty=False):
         at = at or self.at
         def result(source):
-            provider_time = source["report_date"] + "T00:00:00+00:00" if source["source_kind"] == WIKI else at.isoformat()
+            provider_time = source["report_date"] + "T00:00:00" if source["source_kind"] == WIKI else serialize_timestamp(at)
             items = () if empty else (CollectedItem("subject", "Shared subject", 100, rank=1, provider_time=provider_time),)
             return CollectionResult(items=items, events=(), complete=True, response_hash="a" * 64, latency_ms=1)
         with patch("detection.collector.collect_source", side_effect=result):
@@ -86,9 +87,9 @@ class HybridDetectionTests(unittest.TestCase):
 
     def test_health_late_and_quota_rules(self):
         source = {"availability_seconds": 100}
-        complete = [{"collected_at": self.at.isoformat(), "source_collection_attempt_id": 1}]
+        complete = [{"collected_at": serialize_timestamp(self.at), "source_collection_attempt_id": 1}]
         self.assertEqual(health(source, complete, [], self.at + timedelta(seconds=200))[0], "degraded")
-        failures = [{"time": (self.at + timedelta(seconds=1)).isoformat(), "category": "quota_limited"}]
+        failures = [{"time": serialize_timestamp(self.at + timedelta(seconds=1)), "category": "quota_limited"}]
         self.assertEqual(health(source, complete, failures, self.at + timedelta(seconds=2))[0], "quota_limited")
 
     def test_repeated_wikimedia_rows_and_hn_rounding(self):
@@ -132,7 +133,7 @@ class HybridDetectionTests(unittest.TestCase):
                     scout.run(now=self.at)
             before = store.connection.execute("SELECT snapshot_json FROM scout_frozen_evidence").fetchone()[0]
             with store.connection:
-                store.connection.execute("UPDATE scout_evaluation_runs SET next_attempt_at=?", (self.at.isoformat(),))
+                store.connection.execute("UPDATE scout_evaluation_runs SET next_attempt_at=?", (serialize_timestamp(self.at),))
             self.collect(store, "openai_news_rss_v1", at=self.at + timedelta(minutes=61), empty=True)
             self.assertEqual(scout.run(now=self.at + timedelta(minutes=20))["status"], "completed")
             self.assertEqual(store.connection.execute("SELECT snapshot_json FROM scout_frozen_evidence").fetchone()[0], before)

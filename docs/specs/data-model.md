@@ -57,8 +57,8 @@ append-only history. `intake_requests` freeze their message boundary.
 original Detection evidence during human refinement.
 
 `pipeline_capabilities` and `output_bindings` define available routes.
-`social_destinations` and production configuration/readiness apply only to real
-delivery catalogs; fixture bindings have no deliverable destination.
+`social_destinations` and configuration/readiness records belong to the preserved
+inactive delivery catalog; fixture bindings have no deliverable destination.
 
 `determination_requests` freeze brief, evidence and catalog.
 `determination_decisions` records aggregate editorial value;
@@ -84,13 +84,36 @@ checks preserve uncertain outcomes without an automatic repost.
 usage, cost and uncertainty. Storage samples, worker heartbeats/runs, maintenance
 and artifact reconciliation provide operational evidence.
 
-### Column, foreign-key, and retention catalog
+## Schema and record inventory
 
-The only executable DDL is
-[application-schema.sql](../contracts/application-schema.sql).
-[SQLite records](data/records.md) maps table groups and initialization.
-Foreign keys restrict deletion of referenced evidence. This development setup
-does not migrate old schemas or auto-delete existing databases.
+[`application-schema.sql`](../contracts/application-schema.sql) is the
+authoritative schema, at version 9. All workers open and validate databases through
+`database.current`: foreign keys are enabled, and the schema version and ledger
+checksum must match the tracked contract. Initialization creates a fresh database
+in WAL mode or validates an already-current database; it never resets or migrates
+an incompatible database. Development setup requires a new filename.
+
+### Record groups
+
+| Group | Tables |
+| --- | --- |
+| Configuration | schema_migrations, configuration_releases, configuration_activations, detection_source_instances |
+| Collection | source_collection_attempts, source_request_executions, source_health, source_execution_evidence, source_item_events |
+| Source facts | trends, trend_observations |
+| Scout freeze | scout_evaluation_runs, scout_evaluation_inputs, scout_evaluation_attempts, scout_frozen_evidence, scout_prominence_populations, scout_event_resolutions |
+| Shortlist | topic_snapshots, trend_candidates, candidate_observation_memberships |
+| Conversation | content_threads, thread_messages, intake_requests, brief_revisions, human_command_receipts |
+| Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, content_jobs, generation_runs |
+| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, render_runs, render_assets, review_requests |
+| Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
+| Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
+| Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |
+| Cost and operations | model_invocations, gemini_budget_reservations, worker_heartbeats, worker_runs, storage_samples, maintenance_runs, artifact_reconciliations |
+
+Use the DDL for exact columns, enums, indexes and immutable-trigger definitions,
+not a second field catalog. JSON validity at SQL level is supplemented
+by worker/store semantic validation before finalization.
+
 
 ### Claimable-record transition matrix
 
@@ -115,4 +138,15 @@ Intake commits its brief and Determination request in one transaction.
 Determination commits all routes/jobs/runs in one transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
-Schema version 9 adds the expected blocked rendering state and Instagram-only platform constraints. Fresh setup never upgrades an existing database.
+Fresh setup never upgrades an existing database.
+
+## Storage measurement evidence
+
+`storage_samples.summary_json.growth` holds the first daily bounded table scan:
+row counts and UTF-8 byte sums per JSON column, completion flag and duration.
+The sample columns separately record physical database/WAL/artifact/backup bytes.
+Measurement reads a consistent snapshot, exports no field contents, and creates
+no parallel schema. Existing samples without growth metadata remain valid.
+
+No data-retention command removes these records as part of normal planning.
+Verified backups and restore checks use the current schema checksum.

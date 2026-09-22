@@ -8,20 +8,6 @@
 Run from the Mac Mini repository root against one current-schema database.
 The [operations guide](../current-state.md) owns copyable session commands.
 
-| Entrypoint | Behavior |
-| --- | --- |
-| `setup_development.py` | Explicit fresh schema/config/catalog and initial storage sample; no provider inference |
-| `run_detection.py` | Due collection then Scout; optional continuous polling |
-| `run_collector.py` | Detection entrypoint with Scout disabled; forwards CLI arguments |
-| `run_scout.py` | Detection entrypoint with collection disabled; forwards CLI arguments |
-| `run_workflow.py` | Persisted workers, one pass or polling |
-| `serve_dashboard.py` | Loopback visibility and human commands; no worker invocation |
-| `create_local_idea.py` | CLI equivalent of idea/reply handoff |
-| `enable_placeholder_route.py` | Explicit manual single-domain fixture registration |
-| `check_smoke_readiness.py` | Read-only planning/preview prerequisites |
-| `run_storage_monitor.py` | Local storage sampling and daily growth measurement; optional polling, no model/source calls |
-| `run_maintenance.py` | Verified backup, checkpoint, optional restore verification and storage sample |
-
 No process initializes or migrates the database implicitly. Incompatible schemas
 fail closed. Secret settings load once at startup; restart after changes.
 
@@ -99,8 +85,8 @@ not that it is healthy. Queue counts expose pending, failed and deferred work.
 Maintenance uses an exclusive local process lock, SQLite online backups,
 checksum/integrity verification and bounded checkpointing. Restore checks are
 local temporary operations. Backup pruning is explicit, not part of routine
-planning verification. Launchd templates are optional operator-installed
-scheduling examples; manual polling does not install background services.
+planning verification. Supported operation uses the foreground entrypoints in the
+operations guide.
 
 ## Diagnostic logging
 

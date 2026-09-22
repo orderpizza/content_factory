@@ -1,20 +1,72 @@
-import tempfile
-import unittest
-import json
-from pathlib import Path
+"""Workflow planning; offline tests use temporary databases and fake providers."""
 
+from dashboard import render_workflow_trace
 from database.current import initialize_database
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
-from dashboard import render_workflow_trace
-from workflow import AdaptationWorker, DeterminationWorker, IdeaIntakeWorker, PipelineRunner, PostingAgent, VisualPlanner, VisualRenderer, WorkflowStore
+from pathlib import Path
+from workflow import DeterminationWorker, IdeaIntakeWorker, VisualPlanner, WorkflowStore
+from workflow.workers import AdaptationWorker, PipelineRunner, VisualRenderer
+import json
+import tempfile
+import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class HumanCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "fixture.db"
+        self.manifest = load_manifest(ROOT / "config/releases/detection.json")
+        initialize_database(self.path)
+        with DetectionStore(self.path) as store:
+            store.apply_manifest(self.manifest)
+
+    def human(self, store):
+        request = store.create_human_idea("Explain a useful learning habit", command_id="idea")
+        row = store.connection.execute("SELECT * FROM intake_requests WHERE intake_request_id=?", (request,)).fetchone()
+        return row["thread_id"]
+
+    def version(self, store, thread):
+        return store.connection.execute("SELECT row_version FROM content_threads WHERE thread_id=?", (thread,)).fetchone()[0]
+
+    def test_command_versions_receipts_and_input_limits(self):
+        with WorkflowStore(self.path) as store:
+            thread = self.human(store)
+            old = self.version(store, thread)
+            IdeaIntakeWorker(store).run_once()
+            self.assertGreater(self.version(store, thread), old)
+            for version in (None, old):
+                with self.assertRaises(ValueError):
+                    store.continue_human_thread(thread, "Add a daily example", command_id="reply", expected_row_version=version)
+            version = self.version(store, thread)
+            reply = store.continue_human_thread(thread, "Add a daily example", command_id="reply", expected_row_version=version)
+            self.assertEqual(reply, store.continue_human_thread(thread, "Add a daily example", command_id="reply", expected_row_version=version))
+            with self.assertRaises(ValueError):
+                store.continue_human_thread(thread, "Different input", command_id="reply", expected_row_version=version)
+            with self.assertRaises(ValueError):
+                store.create_human_idea("An idea", command_id=" ")
+
+    def test_aggregate_conversation_limit_is_visible_failure_not_stranded_claim(self):
+        with WorkflowStore(self.path) as store:
+            thread = self.human(store)
+            with store.connection:
+                for sequence in range(2, 7):
+                    message = store.connection.execute("INSERT INTO thread_messages(thread_id,sequence_number,author_kind,body,created_at) VALUES (?,?,'human',?,'2026-09-09T00:00:00')", (thread, sequence, "a" * 8000))
+                store.connection.execute("UPDATE intake_requests SET context_json=?", (json.dumps({"kind": "human_conversation", "last_message_id": message.lastrowid}),))
+            self.assertIsNone(IdeaIntakeWorker(store).run_once())
+            row = store.connection.execute("SELECT status,failure_detail FROM intake_requests").fetchone()
+            self.assertEqual(tuple(row), ("failed", "input_too_large"))
+            self.assertIn("input_too_large", render_workflow_trace(store.connection))
+
+
 MANIFEST = ROOT / "config" / "releases" / "detection.json"
 
 
-class WorkflowV2Tests(unittest.TestCase):
+class DeterministicWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "development.db"
@@ -52,7 +104,6 @@ class WorkflowV2Tests(unittest.TestCase):
                 ).fetchone()[0],
                 "approved",
             )
-            self.assertIsNone(PostingAgent(store).run_once())
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
 
     def test_unconfigured_domains_are_visible_as_explicit_skips(self):
@@ -153,7 +204,3 @@ class WorkflowV2Tests(unittest.TestCase):
             self.assertEqual(intake["status"], "pending")
             self.assertEqual(json.loads(intake["context_json"])["revision_scope"], "output_request")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM post_requests").fetchone()[0], 0)
-
-
-if __name__ == "__main__":
-    unittest.main()

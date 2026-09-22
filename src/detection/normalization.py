@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import re
 import unicodedata
-from common.timestamps import serialize_timestamp
+from common.timestamps import parse_timestamp, serialize_timestamp
 
 
 TRACKING_PARAMETERS = {"gclid", "fbclid", "mc_cid", "mc_eid", "_ga"}
@@ -18,8 +18,7 @@ def canonical_title(value: str, version: str = "canonicalization_v2") -> str:
     if version != "canonicalization_v2":
         raise ValueError("unsupported canonicalization version")
     normalized = unicodedata.normalize("NFKC", value).casefold()
-    if version == "canonicalization_v2":
-        normalized = "".join("'" if c in APOSTROPHES else "-" if c in DASHES else c for c in normalized)
+    normalized = "".join("'" if c in APOSTROPHES else "-" if c in DASHES else c for c in normalized)
     characters: list[str] = []
     for character in normalized:
         if character in APOSTROPHES:
@@ -53,34 +52,21 @@ def canonical_link(value: str, version: str = "canonicalization_v2") -> str | No
     if ":" in host:
         host = f"[{host}]"
     netloc = host if port in (None, 443) else f"{host}:{port}"
-    path_parts: list[str] = []
-    for part in parsed.path.split("/"):
-        if part in ("", "."):
-            if not path_parts:
-                path_parts.append("")
-            continue
-        if part == "..":
-            if len(path_parts) > 1:
-                path_parts.pop()
-            continue
-        path_parts.append(part)
-    path = "/".join(path_parts) or "/"
-    if version == "canonicalization_v2":
-        # Dot segments are removed, but empty/trailing segments remain significant.
-        segments = []
-        source_segments = (parsed.path or "/").split("/")
-        for index, part in enumerate(source_segments):
-            if part == ".":
-                if index == len(source_segments) - 1:
-                    segments.append("")
-            elif part == "..":
-                if len(segments) > 1:
-                    segments.pop()
-                if index == len(source_segments) - 1:
-                    segments.append("")
-            else:
-                segments.append(part)
-        path = "/".join(segments) or "/"
+    # Dot segments are removed, but empty/trailing segments remain significant.
+    segments = []
+    source_segments = (parsed.path or "/").split("/")
+    for index, part in enumerate(source_segments):
+        if part == ".":
+            if index == len(source_segments) - 1:
+                segments.append("")
+        elif part == "..":
+            if len(segments) > 1:
+                segments.pop()
+            if index == len(source_segments) - 1:
+                segments.append("")
+        else:
+            segments.append(part)
+    path = "/".join(segments) or "/"
     query = [
         (name, value)
         for name, value in parse_qsl(parsed.query, keep_blank_values=True)
@@ -94,12 +80,9 @@ def parse_provider_time(value: str | None, collected_at: datetime) -> tuple[str,
     if not value:
         return serialize_timestamp(collected_at), "provider_time_fallback"
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = parse_timestamp(value)
     except ValueError:
         return serialize_timestamp(collected_at), "provider_time_fallback"
-    if parsed.tzinfo is None:
-        return serialize_timestamp(collected_at), "provider_time_fallback"
-    parsed = parsed.astimezone(timezone.utc)
     if parsed > collected_at + timedelta(minutes=5):
         return serialize_timestamp(collected_at), "provider_time_fallback"
     if parsed > collected_at:

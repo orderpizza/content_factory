@@ -1,51 +1,30 @@
 """Offline smoke-readiness and workflow-runtime visibility tests."""
 
 from __future__ import annotations
-
 from contextlib import redirect_stdout
-from datetime import timedelta
-from hashlib import sha256
+from database.current import initialize_database
+from detection.configuration import load_manifest
+from detection.store import DetectionStore
 from io import StringIO
 from pathlib import Path
-import json
+from workflow import GeminiAdaptationWorker, GeminiPipelineRunner, VisualPlanner, WorkflowStore, inspect_smoke_readiness
+from workflow.delivery import PublicationReconciliationWorker, R2CleanupWorker
+from workflow.static_renderer import StaticVisualRenderer
+from workflow.workers import AdaptationWorker, PipelineRunner, VisualRenderer
 import runpy
 import tempfile
 import unittest
 
-from database.current import (
-    initialize_database,
-    initialize_database,
-)
-from detection.configuration import load_manifest
-from detection.store import DetectionStore
-from workflow import (
-    AdaptationWorker,
-    GeminiAdaptationWorker,
-    GeminiPipelineRunner,
-    PipelineRunner,
-    PublicationReconciliationWorker,
-    R2CleanupWorker,
-    StaticVisualRenderer,
-    VisualPlanner,
-    VisualRenderer,
-    WORKFLOW_PIPELINES,
-    WorkflowStore,
-    inspect_smoke_readiness,
-)
-from workflow.maintenance import MaintenanceService, StorageMonitor
-from workflow.store import now
-
 
 ROOT = Path(__file__).resolve().parents[1]
-NORMALIZED_MANIFEST = ROOT / "config" / "releases" / "detection.json"
-FIXTURE_MANIFEST = ROOT / "config" / "releases" / "detection.json"
+MANIFEST = ROOT / "config" / "releases" / "detection.json"
 _run_pass = runpy.run_path(str(ROOT / "scripts" / "run_workflow.py"))["_run_pass"]
 
 
 def dependencies_ready():
     return {
         "google_genai": (True, "fixture SDK is importable"),
-        "playwright_chromium": (True, "fixture browser is installed"),
+        "pillow": (True, "fixture image processor is installed"),
     }
 
 
@@ -80,15 +59,10 @@ class SmokeReadinessTests(unittest.TestCase):
         self.artifacts = self.root / "artifacts"
         self.backups = self.root / "backups"
 
-    def migrate(self, *, production: bool) -> None:
+    def initialize(self) -> None:
         initialize_database(self.database)
         with DetectionStore(self.database) as store:
-            store.apply_manifest(load_manifest(
-                NORMALIZED_MANIFEST if production else FIXTURE_MANIFEST
-            ))
-        if production:
-            initialize_database(self.database)
-
+            store.apply_manifest(load_manifest(MANIFEST))
 
     @staticmethod
     def environment() -> dict[str, str]:
@@ -105,9 +79,9 @@ class SmokeReadinessTests(unittest.TestCase):
         }
 
     def test_preview_preflight_requires_only_local_gemini_and_renderer_inputs(self):
-        self.migrate(production=False)
+        self.initialize()
         report = inspect_smoke_readiness(
-            self.database, self.artifacts, None,
+            self.database, self.artifacts,
             mode="preview", environment=self.environment(),
             dependency_probe=dependencies_ready,
         )
@@ -119,7 +93,7 @@ class SmokeReadinessTests(unittest.TestCase):
 
 
     def test_workflow_pass_updates_heartbeat_without_idle_run_spam(self):
-        self.migrate(production=False)
+        self.initialize()
         with WorkflowStore(self.database) as store:
             worker = _RuntimeFixtureWorker(store, 42)
             with redirect_stdout(StringIO()):
@@ -155,7 +129,7 @@ class SmokeReadinessTests(unittest.TestCase):
             VisualRenderer(store, self.artifacts),
             StaticVisualRenderer(store, self.artifacts),
             R2CleanupWorker(store),
-            PublicationReconciliationWorker(store, transport=object()),
+            PublicationReconciliationWorker(store),
         )
         for worker in workers:
             worker.run_once()

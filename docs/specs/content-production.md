@@ -53,7 +53,7 @@ An adaptation reads one canonical object and one frozen destination. It selects
 and arranges supported content, creates platform copy/metadata and emits a
 closed semantic `visual_intent`. It does not fetch evidence or change the approved
 angle. Closed schemas, claim-ID mappings and local limits are defined in
-[platform outputs](platform-outputs.md); semantic fidelity still needs review.
+[Instagram package contract](#instagram-package-contract); semantic fidelity still needs review.
 
 The first model call returns body and metadata together:
 
@@ -73,13 +73,32 @@ Success atomically persists one ContentPackage per OutputRequest, completes the
 adaptation and creates its first pending VisualPlanRun. The shared deterministic
 planner selects a compatible curated visual archetype/preset, then resolves only
 its approved variants and commits a separate immutable VisualRecipe before
-creating its RenderRun. Rendering retries use the exact package and recipe.
+creating its RenderRun. RenderRuns reference the exact package and recipe.
 Synthetic packages remain non-deliverable. English expression-breakdown review packages
 use the Gemini rendering path; other domains stop as described in
 [visual rendering](visual-rendering.md#gemini-designer-review-rendering).
 Adaptation owns exact semantic copy and visual intent, never final image prompts;
 the renderer interprets `expression_breakdown_v1` as six semantic slide roles
 rather than its deterministic CSS/layout choices. The HTML library is preserved inactive.
+
+## Instagram package contract
+
+The only active platform is Instagram, using `instagram_static_carousel_v2`.
+Every current domain has one destination binding. Adaptation consumes immutable
+canonical content for that frozen destination, preserving angle, claims,
+qualifications and meaning. It never writes assets or posting authorization.
+
+`workflow.gemini_adaptation.adaptation_schema` owns exact fields. A package has
+5–8 ordered visual units beginning with hook and ending with takeaway, caption,
+optional CTA, private tags, hashtags, alt text, claim mappings and semantic
+visual intent. English `expression_breakdown_v1` requires six units with roles
+hook, explanation, explanation, example, example, takeaway.
+
+Local limits: title 120 characters, body 600, caption summary 1100, total caption
+1500; CTA at most 12 words/120 characters or null; 2–6 unique private tags, at most
+8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
+canonical claim must be mapped into copy or units.
+
 
 ## Spending and recovery
 

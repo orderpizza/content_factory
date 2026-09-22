@@ -24,7 +24,6 @@ data/mac-smoke-*/
 data/*.log
 data/logs/
 generated/*
-!generated/.gitkeep
 !data/.gitkeep
 
 .DS_Store

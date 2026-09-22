@@ -85,10 +85,7 @@
         "minimum_score",
         "minimum_reliability",
         "max_selected_6h",
-        "max_selected_24h",
-        "deferred_fresh_hours",
-        "cooldown_days",
-        "material_score_delta"
+        "max_selected_24h"
       ],
       "properties": {
         "policy_version": {
@@ -105,19 +102,6 @@
         },
         "max_selected_24h": {
           "const": 6
-        },
-        "deferred_fresh_hours": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 1
-        },
-        "cooldown_days": {
-          "const": 3
-        },
-        "material_score_delta": {
-          "const": 0.15
         }
       }
     },

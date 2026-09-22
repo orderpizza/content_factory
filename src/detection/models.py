@@ -1,4 +1,4 @@
-"""Typed source-adapter outputs; no provider object crosses this boundary."""
+"""Typed adapter outputs; provider_time is normalized UTC-naive seconds or None."""
 
 from __future__ import annotations
 

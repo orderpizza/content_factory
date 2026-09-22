@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from common.timestamps import parse_timestamp
 from pathlib import Path
 from typing import Any
 import json
 import re
 from urllib.parse import parse_qsl, urlparse
-
-from .normalization import canonical_title
 
 
 SOURCE_KINDS = {
@@ -36,9 +33,6 @@ SHORTLIST_VALUES = {
     "minimum_reliability": 0.7,
     "max_selected_6h": 2,
     "max_selected_24h": 6,
-    "deferred_fresh_hours": None,
-    "cooldown_days": 3,
-    "material_score_delta": 0.15,
 }
 
 class ConfigurationError(ValueError):

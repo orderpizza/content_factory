@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from common.environment import load_environment_file
+from common.timestamps import utc_now
 from database.current import SchemaError, validate_database
 from workflow import WorkflowStore
 from workflow.maintenance import MaintenanceService, StorageMonitor
@@ -44,7 +45,8 @@ def main() -> None:
                     with store.transaction():
                         store.connection.execute(
                             "INSERT INTO maintenance_runs(kind,status,summary_json,started_at,completed_at) "
-                            "VALUES ('sqlite_backup','skipped_overlap','{}',datetime('now'),datetime('now'))"
+                            "VALUES ('sqlite_backup','skipped_overlap','{}',?,?)",
+                            (utc_now(), utc_now()),
                         )
                     store.heartbeat(
                         "maintenance", "maintenance-v1", "idle",

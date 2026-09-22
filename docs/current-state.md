@@ -3,10 +3,9 @@
 ## System state
 
 The current schema is **9**, defined by
-[application-schema.sql](contracts/application-schema.sql). The schema adds the
-explicit blocked visual-planning/render states and restricts platform bindings to Instagram.
-Use a fresh development database with a new filename. Existing databases are
-refused by version/checksum validation; setup never resets or migrates them.
+[application-schema.sql](contracts/application-schema.sql).
+Use a fresh development database with a new filename. Incompatible databases are
+refused by version/checksum validation; setup refuses any existing path.
 All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
 Automatic Detection and human ideas both feed three-domain Determination:
@@ -25,7 +24,7 @@ Other English formats are also blocked explicitly. No HTML fallback is active.
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
 Determination routes, jobs, adaptation/render progress and exact review slides.
 Accept/reject/request-changes commands do not publish. Generic posting/delivery
-records and R2 staging are preserved outside this pass; provider delivery is not
+records and R2 staging are preserved inactive; provider delivery is not
 implemented in the current baseline. The deterministic visual library, local
 assets and HTML gallery renderer are preserved inactive.
 
@@ -60,27 +59,22 @@ Check local prerequisites without network calls:
 .venv/bin/python scripts/check_smoke_readiness.py --database data/baseline.db --mode planning
 ```
 
-Run each process in a separate terminal:
+For a review session, run each process in a separate terminal:
 
 ```sh
 .venv/bin/python scripts/run_detection.py --database data/baseline.db --poll
-.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --planning-only --poll
+.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --review-preview --poll
 .venv/bin/python scripts/serve_dashboard.py --database data/baseline.db
 ```
 
-Open http://127.0.0.1:8787. Submit ideas or answer clarification in the same thread.
-Inspect frozen evidence, all three routes and jobs. To generate review content,
-replace the planning workflow process with:
+Open http://127.0.0.1:8787. Submit ideas, answer clarification in the same thread,
+and inspect evidence, all three routes, jobs and exact review slides.
+The Gemini workflow makes paid calls under configured budgets and can consume
+pending jobs. [Visual rendering](specs/visual-rendering.md) owns storyboard
+processing and the no-automatic-paid-retry boundary.
 
-```sh
-.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --review-preview --poll
-```
-
-This makes paid Gemini calls under configured budgets. It can consume pending
-jobs. Review rendering uses one 5:4, 2K storyboard call for the supported English
-format, adaptive splitting and transparent overlays. Original PNG/JPEG bytes are
-retained for debugging; only the six processed PNGs are review assets. Failures
-do not trigger automatic paid retries. See [visual rendering](specs/visual-rendering.md).
+For planning without generation, use `--gemini --planning-only` instead of
+`--gemini --review-preview`. Run only one workflow mode against the session.
 
 Detection polls due work every 30 seconds; workflow polls every five seconds.
 `--poll-interval` changes the delay, and Ctrl+C stops cleanly. A healthy collection
@@ -111,6 +105,32 @@ The dashboard shows daily row/JSON growth and component sizes. Measurement never
 deletes data. [Reliability](specs/reliability.md#storage-backup-and-retention)
 owns backup/retention and [runtime](specs/runtime.md#diagnostic-logging) owns safe
 rotating diagnostics. The dashboard refreshes every ten seconds, preserving drafts.
+
+## Operator entrypoints
+
+| Script in `scripts/` | Responsibility |
+| --- | --- |
+| `setup_development.py` | Fresh database, Detection release, three-domain catalog and initial storage sample |
+| `run_detection.py` | Due collection and Scout; `--skip-collection` or `--skip-scout` narrows a pass |
+| `run_workflow.py` | Planning or Gemini review workers, with advisory storage monitoring |
+| `serve_dashboard.py` | Live loopback dashboard and persisted human commands |
+| `create_local_idea.py` | Submit an idea or reply/refine a thread |
+| `run_storage_monitor.py` | Independent model-free storage/growth observation |
+| `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
+| `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
+| `render_visual_gallery.py` | Local gallery for the preserved inactive HTML visual library |
+| `run_tests.py` | Offline suite, including local browser and packaging checks |
+| `check_docs.py` | Documentation links, schema, sources, domain and environment consistency |
+
+Explicit maintenance and inactive-gallery examples:
+
+```sh
+.venv/bin/python scripts/run_maintenance.py --database data/baseline.db --backups data/backups --restore-verify
+.venv/bin/python scripts/render_visual_gallery.py --archetype expression_breakdown_v1
+```
+
+Maintenance does not prune backups unless `--prune-backups` is supplied.
+The gallery writes ignored `data/artifacts/visual-gallery` and creates no workflow records.
 
 ## Project map
 

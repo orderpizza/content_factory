@@ -10,5 +10,5 @@ class BuildWithContracts(build_py):
         root = Path(__file__).resolve().parent
         target = Path(self.build_lib) / "content_factory_resources" / "contracts"
         self.mkpath(str(target))
-        for source in sorted((root / "docs" / "contracts").glob("application-schema.sql")):
-            self.copy_file(str(source), str(target / source.name))
+        source = root / "docs" / "contracts" / "application-schema.sql"
+        self.copy_file(str(source), str(target / source.name))

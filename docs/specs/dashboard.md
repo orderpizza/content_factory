@@ -9,7 +9,7 @@
 transaction supplies each page; GET performs no state changes and never invokes
 a worker, provider or model. POST commands validate CSRF, bounded form input,
 command identity and row version before committing SQLite. Storage samples never
-authorize or deny planning commands; downstream Post now admission is separate.
+authorize or deny planning commands. Delivery commands are not exposed.
 
 All displayed times are UTC. Navigation links Detection, ideas/threads, queues
 and operations.

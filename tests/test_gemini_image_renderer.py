@@ -1,28 +1,25 @@
 """Offline storyboard image generation, splitting, review, and recovery contracts."""
+
+from PIL import Image, ImageDraw
+from common.gemini import GeminiUsage
+from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model, configured_image_size
 from copy import deepcopy
 from dataclasses import replace
 from decimal import Decimal
-from io import BytesIO
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
+from test_gemini_workflow import FakeGeminiClient
+from test_visual_library import EXPRESSION_ROLES, EXPRESSION_UNITS, recipe
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
+from workflow.gemini_image_renderer import DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, FOOTER_BRAND, PROMPT_VERSION, apply_overlays, build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata
+from workflow.model_budget import ModelBudgetPolicy
 import json
+import test_gemini_workflow as workflow_fixtures
 import unittest
 
-from PIL import Image, ImageDraw
-
-from common.gemini import GeminiUsage
-from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model, configured_image_size
-from workflow.gemini_image_renderer import (
-    DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, FOOTER_BRAND, PROMPT_VERSION,
-    build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata, apply_overlays,
-)
-from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
-from workflow.model_budget import ModelBudgetPolicy
-import test_gemini_workflow as workflow_fixtures
-from test_gemini_workflow import FakeGeminiClient
-from test_visual_system import EXPRESSION_UNITS, EXPRESSION_ROLES, recipe
 
 COLORS = ['#d03030', '#30d030', '#3030d0', '#d0d030', '#d030d0', '#30d0d0']
 
@@ -249,7 +246,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(store.connection.execute(
                 "SELECT COUNT(*) FROM model_invocations WHERE phase='image_rendering'").fetchone()[0], 1)
             self.assertEqual(_review_preview(store.connection, review, interactive=False,
-                             csrf_token='', production=False).count('<img '), 6)
+                             csrf_token='').count('<img '), 6)
             self.assertEqual(before, store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
 
     def test_jpeg_storyboard_is_retained_with_its_provider_extension(self):
@@ -266,7 +263,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(raw.read_bytes(), storyboard_image('JPEG'))
             self.assertEqual(manifest['storyboard']['raw']['mime_type'], 'image/jpeg')
 
-    def test_image_defaults_use_the_new_model_and_2k_storyboard(self):
+    def test_image_defaults_use_configured_model_and_2k_storyboard(self):
         with patch.dict('os.environ', {}, clear=True):
             self.assertEqual(configured_image_model(), 'gemini-3.1-flash-image')
             self.assertEqual(configured_image_size(), '2K')
@@ -341,7 +338,6 @@ class ImageWorkflowTests(unittest.TestCase):
             client = FakeImageClient()
             self.assertIsNone(DispatchVisualRenderer(store, self.artifacts, image_client=client).run_once())
             self.assertEqual(client.calls, [])
-
 
 
     def test_unsupported_english_format_blocks_without_html_fallback(self):

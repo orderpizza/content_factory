@@ -2,7 +2,6 @@
 
 **Owner:** Cross-cutting failure boundaries, Gemini accounting and storage policy.
 Normal stage behavior belongs in the owning specs, routed by [system](../system.md).
-This document describes implemented safeguards, not future guarantees.
 
 ## Claims and immutable handoffs
 
@@ -68,7 +67,7 @@ worst-case uncertain reservation. The client captures usage before JSON parsing
 and counts returned thinking tokens as output. Parse, validation and transport
 failures retain their invocation outcome and usage when available. A lost/started
 call is not assumed free and cannot be blindly repeated. There is no operator
-accounting-recovery command yet.
+accounting-recovery command.
 
 The local input guard is 32,000 serialized request characters, not exact input
 tokenization. Output allowance is sent to the client. Configured input-token

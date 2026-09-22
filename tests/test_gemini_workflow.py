@@ -1,8 +1,11 @@
 """Offline boundary tests for opt-in Gemini Intake and Determination."""
 
 from __future__ import annotations
-
+from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
 from copy import deepcopy
+from database.current import initialize_database
+from detection.configuration import load_manifest
+from detection.store import DetectionStore
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -11,29 +14,16 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiIntakeWorker, GeminiPipelineRunner, VisualPlanner, WORKFLOW_PIPELINES, WorkflowStore
+from workflow.gemini_determination import DETERMINATION_SCHEMA
+from workflow.gemini_generation import DOMAIN_FIELDS, generation_schema
+from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
+from workflow.static_renderer import StaticVisualRenderer
 import json
 import runpy
 import sys
 import tempfile
 import unittest
-
-from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
-from database.current import initialize_database
-from detection.configuration import load_manifest
-from detection.store import DetectionStore
-from workflow import (
-    GeminiAdaptationWorker,
-    GeminiDeterminationWorker,
-    GeminiIntakeWorker,
-    GeminiPipelineRunner,
-    StaticVisualRenderer,
-    VisualPlanner,
-    WORKFLOW_PIPELINES,
-    WorkflowStore,
-)
-from workflow.gemini_determination import DETERMINATION_SCHEMA
-from workflow.gemini_generation import DOMAIN_FIELDS, generation_schema
-from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -253,9 +243,9 @@ class GeminiWorkflowTests(unittest.TestCase):
             ).fetchone()
             self.assertEqual(tuple(usage), ("succeeded", 120, 80, 200))
 
-    def test_gemini_runner_registration_is_complete_and_idempotent(self):
+    def test_development_catalog_registration_is_complete_and_idempotent(self):
         register = runpy.run_path(str(ROOT / "scripts" / "run_workflow.py"))[
-            "register_gemini_placeholder_capabilities"
+            "configure_development_catalog"
         ]
         with WorkflowStore(self.path) as store:
             register(store)

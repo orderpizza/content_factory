@@ -68,7 +68,7 @@ evaluations. Automatic cross-thread semantic coverage reuse is not implemented.
 Setup registers three domains before any handoff. The shared catalog reader
 provides each domain's remit, enabled/generation-ready state and eligible output
 bindings. Development bindings are synthetic Instagram fixtures, not verified
-social accounts. Production catalog readiness is checked from persisted facts.
+social accounts. The preserved inactive delivery catalog checks readiness from persisted facts.
 
 Each DeterminationRequest freezes its brief, evidence and catalog at creation.
 A deterministic model view takes the latest observation per lexical-cluster,

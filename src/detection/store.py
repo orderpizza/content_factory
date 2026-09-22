@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 import json
 import sqlite3
 from common.diagnostics import safe_diagnostic
@@ -200,7 +200,3 @@ class DetectionStore:
             (utc_now(), status, safe_diagnostic(summary) if summary else None, safe_diagnostic(error) if error else None, worker_run_id),
         )
         self.connection.commit()
-
-
-def row_json(row: sqlite3.Row, key: str) -> Any:
-    return json.loads(row[key])

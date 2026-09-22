@@ -16,7 +16,7 @@ from workflow.catalog import WORKFLOW_PIPELINES
 DOCUMENTS = [*sorted(ROOT.glob('*.md')), *sorted((ROOT / "docs").rglob("*.md"))]
 REQUIRED = ["docs/system.md", "docs/current-state.md", "docs/specs/detection.md",
             "docs/specs/idea-intake-and-determination.md", "docs/specs/dashboard.md",
-            "docs/specs/data-model.md", "docs/specs/data/records.md",
+            "docs/specs/data-model.md",
             "docs/specs/configuration.md", "docs/specs/runtime.md",
             "docs/contracts/application-schema.sql", "docs/contracts/README.md",
             ".env.example"]
@@ -60,7 +60,7 @@ def main():
         if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
             errors.append("SQL schema version disagrees with database.current")
         tables = [r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
-        records = (ROOT/"docs/specs/data/records.md").read_text()
+        records = (ROOT/"docs/specs/data-model.md").read_text()
         for table in tables:
             if table not in records:
                 errors.append(f"SQLite record inventory does not name {table}")
@@ -71,7 +71,12 @@ def main():
     try:
         manifest = load_manifest(ROOT/"config/releases/detection.json")
         detection = (ROOT/"docs/specs/detection.md").read_text()
-        for source in manifest["components"]["detection"]["sources"]:
+        sources = manifest["components"]["detection"]["sources"]
+        documented = re.findall(r"^\| `([a-z0-9_]+)` \|", detection, re.M)
+        registered = [source["stable_id"] for source in sources]
+        if sorted(documented) != sorted(registered):
+            errors.append("Detection source roster must match the manifest exactly once")
+        for source in sources:
             if source["stable_id"] not in detection:
                 errors.append(f"Undocumented Detection source: {source['stable_id']}")
         if manifest["components"]["detection"]["score_formula_version"] not in detection:
@@ -79,8 +84,12 @@ def main():
     except Exception as error:
         errors.append(f"Detection configuration is invalid: {type(error).__name__}")
     domains = re.findall(r"^\| `([a-z0-9_]+)` \|", (ROOT/"docs/pipelines/domains.md").read_text(), re.M)
-    if set(domains) != set(WORKFLOW_PIPELINES) or len(domains) != 3:
+    if set(domains) != set(WORKFLOW_PIPELINES) or set(domains) != {"english", "ai_tech", "psychology"} or len(domains) != 3:
         errors.append("Domain reference must contain exactly three registered domains")
+    operations = texts.get(ROOT / "docs/current-state.md", "")
+    for script in (ROOT / "scripts").glob("*.py"):
+        if f"`{script.name}`" not in operations:
+            errors.append(f"Operator entrypoint is not documented: {script.name}")
     settings = (ROOT/"docs/specs/configuration.md").read_text()
     for key in re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M):
         if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|GENERATION|ADAPTATION)_MAX_(INPUT|OUTPUT)_TOKENS", key):
@@ -96,6 +105,10 @@ def main():
         if source.name == "check_docs.py":
             continue
         for node in ast.walk(ast.parse(source.read_text())):
+            if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and ast.unparse(node.value) == "os.environ":
+                key = node.slice
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    used.add(key.value)
             if not isinstance(node, ast.Call) or not node.args:
                 continue
             name = ast.unparse(node.func)

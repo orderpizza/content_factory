@@ -1,7 +1,7 @@
 """Conservative local event resolution over lexical clusters, never observations."""
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from hashlib import sha256
 from math import isfinite, sqrt
 import json

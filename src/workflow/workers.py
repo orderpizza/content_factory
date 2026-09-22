@@ -224,15 +224,3 @@ class VisualRenderer:
         data=path.read_bytes(); asset={"role":"preview_html","path":str(path),"mime":"text/html","width":1,"height":1,"bytes":len(data),"sha256":sha256(data).hexdigest()}
         manifest={"renderer":"placeholder_static_v1","assets":[asset],"package_placeholder":True}
         return self.store.complete_render(run,manifest,asset)
-
-
-class PostingAgent:
-    """Safety placeholder: never issues an external request."""
-    def __init__(self, store: WorkflowStore, *, instance_id: str = "posting-disabled"):
-        self.store,self.instance_id=store,instance_id
-
-    def run_once(self) -> int | None:
-        run=self.store.claim("post_records","post_record_id",self.instance_id)
-        if run is None:return None
-        self.store.fail_claim("post_records","post_record_id",run,"delivery adapter is intentionally disabled pending provider verification")
-        return int(run["post_record_id"])

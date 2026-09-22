@@ -1,16 +1,15 @@
-"""Archetype, layout, and renderer contracts for the shared visual library."""
-from __future__ import annotations
+"""Visual library; offline tests use temporary databases and fake providers."""
 
-import unittest
+from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import json
-
 from workflow.static_renderer import _unit_html
-from workflow.visual_primitives import EXPRESSION_FORENSIC_CSS, EXPRESSION_RECOMPOSE_CSS, EXPRESSION_RECOMPOSE_FINAL_CSS
-from workflow.visual_planner import choose_recipe
-from workflow.visual_registry import ARCHETYPES, validate_intent, validate_recipe, validate_unit_layouts
 from workflow.visual_expression import headline_scale, resolve_dialogue_avatars, validate_expression_units
+from workflow.visual_planner import choose_recipe
+from workflow.visual_primitives import EXPRESSION_FORENSIC_CSS, EXPRESSION_RECOMPOSE_CSS
+from workflow.visual_registry import ARCHETYPES, validate_intent, validate_recipe, validate_unit_layouts
+import json
+import unittest
 
 
 def intent(**overrides):
@@ -23,6 +22,8 @@ def recipe(archetype: str, *, platform: str = "instagram", roles: list[str] | No
 
 
 EXPRESSION_ROLES = ["hook", "explanation", "explanation", "example", "example", "takeaway"]
+
+
 EXPRESSION_UNITS = [
     {"role": "hook", "title": "Break the ice", "body": "Start a conversation and make people feel more comfortable.", "claim_ids": []},
     {"role": "explanation", "title": "What it means", "body": "To start a conversation and make people feel more comfortable, especially in a new situation.\nSimilar to: make people feel at ease.", "claim_ids": []},
@@ -33,12 +34,12 @@ EXPRESSION_UNITS = [
 ]
 
 
-class VisualRegistryTests(unittest.TestCase):
+class VisualLibraryTests(unittest.TestCase):
     def test_closed_intent_rejects_raw_rendering_input(self):
         with self.assertRaises(ValueError):
             validate_intent({**intent(), "css": "body { color: red }"})
 
-    def test_first_wave_archetypes_have_distinct_composition_implementations(self):
+    def test_registered_archetypes_have_distinct_composition_implementations(self):
         identifiers = ["vocab_card_minimal_v1", "expression_breakdown_v1", "editorial_bold_cover_v1", "comparison_cover_bold_v1", "phrase_sheet_v1", "question_pattern_sheet_v1", "vocab_serif_elegant_v1", "dialogue_modern_v1", "scenario_explainer_v1", "process_steps_v1"]
         compositions = {ARCHETYPES[item]["default_composition_id"] for item in identifiers}
         self.assertEqual(len(compositions), len(identifiers))

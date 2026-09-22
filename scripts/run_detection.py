@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from pathlib import Path
-import json
 import os
 import sys
 import time

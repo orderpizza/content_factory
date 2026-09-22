@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from html import escape
 from typing import Any
-from urllib.parse import urlencode
 import json
 import sqlite3
-from .evidence import link, public_link
+from .evidence import link
 from .flow import render_progression, CLUSTER_STATES
 
 
-from .refresh import AUTO_REFRESH_SCRIPT, AUTO_REFRESH_CSP
+from .refresh import AUTO_REFRESH_SCRIPT
 from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 
 
@@ -280,6 +279,10 @@ def _render_detection_dashboard(
         f"{_cell(row['provider_name'])} · {_cell(row['stable_id'])}</option>"
         for row in sources
     )
+    status_options = "".join(
+        f'<option value="{value}"' + (' selected' if value == status else '') + f'>{value}</option>'
+        for value in CLUSTER_STATES
+    )
     filters = (
         "<form class='filters' method='get' action='/'>"
         f"<input type='hidden' name='stage' value='{_cell(stage)}'><input type='hidden' name='cluster_sort' value='{_cell(cluster_sort)}'>"
@@ -287,7 +290,7 @@ def _render_detection_dashboard(
         "placeholder='title, canonical key, or identity'></label>"
         f"<label>Source<select name='source'><option value=''>All sources</option>"
         f"{source_options}</select></label>"
-        f"<label>Cluster Selection state<select name='status'><option value=''>All Clusters</option>{''.join(f'<option value="{v}"' + (' selected' if v == status else '') + f'>{v}</option>' for v in CLUSTER_STATES)}</select></label>"
+        f"<label>Cluster Selection state<select name='status'><option value=''>All Clusters</option>{status_options}</select></label>"
         "<button type='submit'>Apply filters</button><a class='reset' href='/'>Reset</a>"
         "</form>"
     )

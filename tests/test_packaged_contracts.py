@@ -4,6 +4,7 @@ from hashlib import sha256
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -13,13 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagedContractTests(unittest.TestCase):
-    def test_built_wheel_initializes_without_checkout_resources(self):
+    def test_sdist_built_wheel_initializes_without_checkout_resources(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
+            source_build = subprocess.run(
+                [sys.executable, "setup.py", "egg_info", "--egg-base", str(target),
+                 "sdist", "--dist-dir", str(target / "source-dist")],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(source_build.returncode, 0, source_build.stdout + source_build.stderr)
+            source_archive, = (target / "source-dist").glob("*.tar.gz")
+            with tarfile.open(source_archive) as archive:
+                archive.extractall(target / "source", filter="data")
+            source_root, = (target / "source").iterdir()
+            self.assertEqual((source_root / "docs/contracts/application-schema.sql").read_bytes(),
+                             (ROOT / "docs/contracts/application-schema.sql").read_bytes())
             build = subprocess.run(
                 [sys.executable, "setup.py", "egg_info", "--egg-base", str(target), "build", "--build-base", str(target / "build"),
                  "bdist_wheel", "--dist-dir", str(target / "dist"), "--bdist-dir", str(target / "bdist")],
-                cwd=ROOT, capture_output=True, text=True,
+                cwd=source_root, capture_output=True, text=True,
             )
             self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
             wheel, = (target / "dist").glob("*.whl")

@@ -98,32 +98,15 @@ render retry command is provided.
 
 ## Preserved inactive visual library
 
-`static_renderer.py`, `visual_primitives.py`, `visual_expression.py`, the visual
-registry/archetypes, local icons/avatars and useful tests remain intact as a
-preserved inactive subsystem. HTML/Playwright is available to gallery/development
-tooling, not as an operator workflow switch or automatic fallback.
+The deterministic library remains available for local visual development and its
+established recipe/asset safety tests. Its implementation is `static_renderer.py`,
+`visual_primitives.py`, `visual_expression.py` and the registry; icons and avatars
+live in `assets/visual/`. Shared recipe plumbing also supports active English rendering.
 
-The registry separates primitives, families, archetypes and presets. Recipes
-freeze registered IDs, safe resolved variants, per-unit layouts, selection
-provenance and registry fingerprints. Deterministic selection scores semantic
-fit and domain affinity with bounded recent-use penalties. Library lifecycle
-labels govern gallery/HTML eligibility independently of acceptance of the Gemini
-English storyboard. The English archetype retains its fixed six-role grammar,
-copy capacities and local avatar handling. No expansion or redesign is part of
-this baseline.
+HTML/Playwright is used only by gallery/development tooling, with no workflow
+selector or automatic fallback. [Operations](../current-state.md#operator-entrypoints)
+owns the gallery command and output location. Avatar provenance is in
+`assets/visual/avatars/manifest.json`.
 
-The inactive HTML renderer keeps 1080×1350 Instagram profiles, overflow checks,
-local fonts/assets, hashing, atomic promotion, quarantine and fallback-recipe
-tests. The gallery creates no review or delivery records:
-
-```sh
-.venv/bin/python scripts/render_visual_gallery.py --archetype expression_breakdown_v1
-```
-
-Default gallery output is ignored `data/artifacts/visual-gallery`. Local avatar
-instructions are in `assets/visual/avatars/manifest.json`.
-
-The dashboard serves assets only after path, length and hash validation. Human
-review refers to those exact bytes. R2 remains downstream staging, never a
-renderer input or canonical asset store. [Platform outputs](platform-outputs.md)
-owns adaptation; [reliability](reliability.md) owns shared budget/storage rules.
+The dashboard serves review assets only after path, length and hash validation.
+R2 is downstream staging, never a renderer input or canonical asset store.

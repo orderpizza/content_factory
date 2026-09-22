@@ -70,8 +70,6 @@ uncertain usage and the limits of input-token estimates.
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server; defaults 127.0.0.1:8787 |
 | `CONTENT_FACTORY_FONT_PATH` | Optional font for transparent image overlays |
 | `CONTENT_FACTORY_LOG_ROOT`, `CONTENT_FACTORY_LOG_MAX_BYTES`, `CONTENT_FACTORY_LOG_BACKUPS` | Safe rotating diagnostic logs |
-| `CONTENT_FACTORY_DASHBOARD_PATH` | Static read-only snapshot output path |
-| `CONTENT_FACTORY_REPORT_LIMIT` | Trend-report row limit, bounded to 1–100 |
 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Preserved inactive R2 relay credentials; never needed for review |
 
 R2 bucket/account/public-origin inputs remain explicit relay configuration, with

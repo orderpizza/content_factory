@@ -11,7 +11,6 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
     thread_page = max(1, min(int(thread_page), 10000))
     revision_page = max(1, min(int(revision_page), 10000))
     message_page = max(1, min(int(message_page), 10000))
-    production = False
     parts = ["<section class='workflow card' id='threads'><h2>Ideas &amp; threads</h2>",
              '<p>Detection goes directly to Determination with frozen source evidence. Human ideas go through Intake first. Each selected domain produces one ContentJob.</p>']
     parts.append(render_storage_status(connection))
@@ -103,7 +102,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                         parts.append(render_job_progress(connection, jid))
                         reviews = connection.execute('SELECT v.review_request_id FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE c.content_job_id=? ORDER BY v.review_request_id DESC LIMIT 20',(jid,)).fetchall()
                         for review in reviews:
-                            parts.append(_review_preview(connection,review[0],interactive=interactive,csrf_token=csrf_token,production=production))
+                            parts.append(_review_preview(connection,review[0],interactive=interactive,csrf_token=csrf_token))
                     else:
                         parts.append('<p>No ContentJob for this route.</p>')
                     parts.append('</section>')

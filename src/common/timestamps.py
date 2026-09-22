@@ -12,7 +12,7 @@ def parse_timestamp(value: str | datetime) -> datetime:
     """Read a Content Factory timestamp as an aware UTC datetime.
 
     Persisted values are deliberately timezone-naive.  Naive input therefore
-    means UTC; legacy offset-bearing values remain readable during migration.
+    means UTC; external aware values are converted to UTC before serialization.
     """
     if isinstance(value, datetime):
         parsed = value

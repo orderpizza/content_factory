@@ -1,26 +1,28 @@
 """Offline acceptance for the two dashboard-visible planning paths."""
-from datetime import datetime, timezone
-from pathlib import Path
+
+from common.timestamps import serialize_timestamp
 from contextlib import redirect_stdout
+from dashboard.evidence import render_candidate, render_evaluation
+from dashboard.planning import render_threads
+from datetime import datetime, timezone
+from detection.collector import DetectionCollector
+from detection.models import CollectedItem, CollectionResult
+from detection.scout import DetectionScout
+from detection.store import DetectionStore
 from io import StringIO
+from pathlib import Path
+from test_gemini_workflow import FakeGeminiClient, brief
+from test_semantic_detection import FakeEncoder
+from unittest.mock import patch
+from workflow import GeminiDeterminationWorker, GeminiIntakeWorker, WorkflowStore
+from workflow.development import prepare_development_database
 import json
 import runpy
 import sqlite3
 import tempfile
-import unittest
-from unittest.mock import patch
-
-from workflow.development import prepare_development_database
-from workflow import WorkflowStore, GeminiIntakeWorker, GeminiDeterminationWorker
-from detection.store import DetectionStore
-from detection.collector import DetectionCollector
-from detection.scout import DetectionScout
-from detection.models import CollectedItem, CollectionResult
-from dashboard.planning import render_threads
-from dashboard.evidence import render_candidate, render_evaluation
-from test_gemini_workflow import FakeGeminiClient, brief
 import test_gemini_workflow as gemini_fixtures
-from test_semantic_detection import FakeEncoder
+import unittest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,7 +68,7 @@ class PlanningFlowTests(unittest.TestCase):
 
     def test_detection_handoff_freezes_catalog_and_survives_human_refinement(self):
         at = datetime(2026,9,15,8,tzinfo=timezone.utc)
-        evidence = CollectionResult((CollectedItem('launch','OpenAI launches Atlas browser',100,rank=1,provider_time=at.isoformat()),),(),True,'a'*64,1)
+        evidence = CollectionResult((CollectedItem('launch','OpenAI launches Atlas browser',100,rank=1,provider_time=serialize_timestamp(at)),),(),True,'a'*64,1)
         with DetectionStore(self.path) as detection:
             with patch('detection.collector.collect_source', return_value=evidence):
                 DetectionCollector(detection).run_due(now=at,source_ids={'hacker_news_top_stories_v1','openai_news_rss_v1'})

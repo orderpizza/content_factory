@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 import json
@@ -11,7 +10,7 @@ import os
 from database.current import SchemaError
 
 from .model_budget import ModelBudgetConfigurationError, ModelBudgetPolicy
-from .store import WORKFLOW_PIPELINES, WorkflowStore
+from .store import WorkflowStore
 
 
 def _dependency_probe() -> dict[str, tuple[bool, str]]:
@@ -41,12 +40,10 @@ def _path_writable(path: Path) -> bool:
 def inspect_smoke_readiness(
     database: str | Path,
     artifact_root: str | Path,
-    backup_root: str | Path | None,
     *,
     mode: str,
     environment: Mapping[str, str] | None = None,
     dependency_probe: Callable[[], dict[str, tuple[bool, str]]] = _dependency_probe,
-    at: datetime | None = None,
 ) -> dict[str, Any]:
     """Return safe preflight facts without calling Gemini or any delivery provider."""
     if mode == "planning":

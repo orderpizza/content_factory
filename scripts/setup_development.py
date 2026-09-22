@@ -2,15 +2,18 @@
 from argparse import ArgumentParser
 from pathlib import Path
 import sys
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from workflow.development import prepare_development_database
+from common.environment import load_environment_file
 
 
 def main():
+    load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=str(ROOT / "data/development.db"))
+    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data/development.db")))
     parser.add_argument("--download-model", action="store_true", help="Provision the pinned public MiniLM model; no input data is sent")
     args = parser.parse_args()
     if Path(args.database).exists():

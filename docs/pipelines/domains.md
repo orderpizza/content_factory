@@ -53,4 +53,4 @@ separate teaching-reference schema.
 The common canonical envelope supplies examples, claims and takeaway separately.
 No slide count, caption, geometry or account belongs in a domain payload.
 [Content production](../specs/content-production.md) owns that envelope;
-[platform outputs](../specs/platform-outputs.md) owns adaptation.
+[platform outputs](../specs/content-production.md#instagram-package-contract) owns adaptation.

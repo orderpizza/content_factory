@@ -1,2 +1,2 @@
 include build_support.py
-recursive-include docs/contracts *-schema-v*.sql
+include docs/contracts/application-schema.sql

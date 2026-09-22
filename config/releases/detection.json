@@ -13,10 +13,7 @@
         "minimum_score": 0.6,
         "minimum_reliability": 0.7,
         "max_selected_6h": 2,
-        "max_selected_24h": 6,
-        "deferred_fresh_hours": null,
-        "cooldown_days": 3,
-        "material_score_delta": 0.15
+        "max_selected_24h": 6
       },
       "sources": [
         {

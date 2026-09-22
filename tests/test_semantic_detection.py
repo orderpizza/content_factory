@@ -1,7 +1,17 @@
 """Offline event-resolution boundaries; no model downloads or API calls."""
 
+from common.timestamps import serialize_timestamp
 from copy import deepcopy
+from database.current import SchemaError, initialize_database
 from datetime import datetime, timedelta, timezone
+from detection.collector import DetectionCollector
+from detection.configuration import ConfigurationError, load_manifest, validate_manifest
+from detection.hybrid import evaluate
+from detection.models import CollectedItem, CollectionResult
+from detection.normalization import canonical_title
+from detection.scout import DetectionScout
+from detection.semantic import load_resolution, resolve
+from detection.store import DetectionStore
 from pathlib import Path
 from unittest.mock import patch
 import json
@@ -9,15 +19,6 @@ import sqlite3
 import tempfile
 import unittest
 
-from database.current import SchemaError, initialize_database
-from detection.collector import DetectionCollector
-from detection.configuration import ConfigurationError, load_manifest, validate_manifest
-from detection.hybrid import evaluate
-from detection.models import CollectedItem, CollectionResult
-from detection.normalization import canonical_title
-from detection.scout import DetectionScout
-from detection.semantic import resolve, load_resolution
-from detection.store import DetectionStore
 
 ROOT = Path(__file__).resolve().parents[1]
 AT = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
@@ -36,8 +37,8 @@ class FakeEncoder:
 def observation(title, index, *, hours=0, source="publisher", group=None):
     return {"canonical_key": canonical_title(title, "canonicalization_v2"), "title": title,
             "trend_id": index, "trend_observation_id": index, "canonical_url": None,
-            "effective_observed_at": (AT - timedelta(hours=hours)).isoformat(),
-            "window_end": AT.isoformat(), "source_kind": "publisher_feed_collector_v1",
+            "effective_observed_at": serialize_timestamp(AT - timedelta(hours=hours)),
+            "window_end": serialize_timestamp(AT), "source_kind": "publisher_feed_collector_v1",
             "independence_group": group or source, "stable_id": source}
 
 
@@ -128,7 +129,7 @@ class SemanticScoutTests(unittest.TestCase):
     def collect(self, store, titles, *, at=AT):
         def response(source):
             title = titles[source["stable_id"]]
-            return CollectionResult(items=(CollectedItem(title, title, 100, rank=1, provider_time=at.isoformat()),),
+            return CollectionResult(items=(CollectedItem(title, title, 100, rank=1, provider_time=serialize_timestamp(at)),),
                                     events=(), complete=True, response_hash="a" * 64, latency_ms=1)
         with patch("detection.collector.collect_source", side_effect=response):
             DetectionCollector(store).run_due(now=at, source_ids=set(titles))
@@ -168,7 +169,7 @@ class SemanticScoutTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "frozen configuration"):
                 evaluate(store.connection, 1, release_id, newer)
             with store.connection:
-                store.connection.execute("UPDATE scout_evaluation_runs SET next_attempt_at=?", (AT.isoformat(),))
+                store.connection.execute("UPDATE scout_evaluation_runs SET next_attempt_at=?", (serialize_timestamp(AT),))
             store.apply_manifest(self.manifest)
             with patch.object(encoder, "encode", side_effect=AssertionError("replay must not infer")):
                 scout.run(now=AT + timedelta(hours=2))
