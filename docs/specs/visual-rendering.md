@@ -135,68 +135,65 @@ template, font, Playwright/browser and Pillow identities in the manifest.
 ## Gemini designer review rendering
 
 `run_workflow.py --gemini --review-preview` defaults to `--renderer auto`.
-`DispatchVisualRenderer` selects `gemini_designer_v3` for supported Instagram
+`DispatchVisualRenderer` selects `gemini_storyboard_designer_v1` for supported Instagram
 review packages, initially `expression_breakdown_v1`; other recipes and production
 continue through HTML/Playwright. `--renderer html` explicitly selects the existing
 deterministic path. Production lifecycle gates remain intact: the expression
 archetype is still tested, not curated. This image path creates review assets only.
 
-`GeminiImageRenderer` generates six individual slides sequentially. Slide 1
-establishes the visual language. Slides 2–6 each receive slide 1's raw generated
-image as their only internal style anchor before overlays; a previous-slide image
-is never passed. There is no external reference-image input, composite sheet or
-splitting step.
+`GeminiImageRenderer` generates one 5:4 storyboard image containing six clearly
+separated portrait panels in a three-column by two-row order. It sends no reference
+images. The renderer deterministically crops the six equal cells left-to-right,
+top-to-bottom, center-fits each to 1080×1350, then adds overlays. The cells are
+the only fixed layout rule; Gemini retains creative control within each panel.
 
 Renderer-owned prompts interpret `expression_breakdown_v1` as hook,
-meaning/definition, use cases, examples, short dialogue and takeaway. Each prompt
-contains only that slide's exact title/body, semantic role, role-sensitive design
-direction and continuity instructions. Its v3 global designer brief owns the quality
-bar only: premium visual impact, bold hierarchy, editorial typography, rich color,
-playful asymmetry, layered color blocks, marker swashes and chunky iconography;
-it rejects pale gradients, frosted blobs, thin line-art scenes and generic
-presentation-template output. The separate `expression_breakdown_v1` brief owns
-the six-slide semantic sequence and role-specific directions. Later slides retain
-slide 1's palette, typography, illustration language and polish, but use distinct
-role-appropriate compositions. The anchor's layout and text must not be copied. Recipe composition, theme,
-typography tokens and component coordinates never enter these prompts. Existing
-package/recipe validity gates still apply; adaptation does not author image prompts.
+meaning/definition, use cases, examples, short dialogue and takeaway. The one
+storyboard prompt includes every exact title/body, semantic role and role-sensitive
+direction. It prioritizes instructional clarity over visual delight: each panel has
+one obvious reading order, clear title/explanation/visual separation, readable body
+text and supporting visuals that do not compete with teaching. It rejects poster
+collages, decorative text overlap, excessive accents, cramped layouts and visual
+noise. Recipe composition, theme, typography tokens and component coordinates never
+enter the prompt. Existing package/recipe validity gates still apply; adaptation
+does not author image prompts.
 
-The isolated Vertex adapter makes one 4:5, 2K image request per slide by default,
-with SDK retries disabled. Its model and image size remain environment-configurable,
-and the requested size must be supported by the selected model. It sends the one
-internal style-anchor image through the SDK's inline image parts;
+The isolated Vertex adapter makes one 5:4, 1K image request per supported carousel
+by default, with SDK retries disabled. Its model and image size remain
+environment-configurable, and the requested size must be supported by the selected
+model. It sends only the storyboard prompt, with no image parts;
 [the SDK documentation](https://googleapis.github.io/python-genai/) describes that
 transport. Prompts forbid branding, counters and footer CTAs and reserve the top
-10%, bottom 14% and generous side margins. Each output must be a single PNG/JPEG,
-at least 480×600, at most 40 million pixels/40 MB and within 0.04 of the 4:5 aspect
-ratio. A centered crop and Lanczos resize normalize it to exactly 1080×1350.
-These checks reject invalid image data/geometry, not inaccurate words or poor
-visual design. Exact model-rendered text and design quality require human review.
+10%, bottom 14% and generous side margins in every panel. Each storyboard output
+must be a single PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and
+within 0.04 of the 5:4 aspect ratio. Equal cells are then center-cropped and
+Lanczos-resized to exactly 1080×1350. These checks reject invalid image
+data/geometry, not inaccurate words or poor visual design. Exact model-rendered
+text and design quality require human review.
 
 After normalization, Pillow applies deterministic header/category, page counter,
 brand, tagline and first/final CTA chrome. Wording is shared with the expression
 HTML footer; review overlays use Pillow's bundled font and local arrow geometry.
 Six final JPEGs use the existing `delivery_jpeg` asset role so the dashboard
 shows the exact overlaid bytes. That role does not make a review-only package
-deliverable. Raw slide images are intermediate files, excluded from review assets.
+deliverable. The raw storyboard image is an intermediate file, excluded from
+review assets.
 
-The manifest records engine/model, prompt and overlay versions, and per-slide
-prompt hash, invocation ID, reference slide ordinals/hashes, raw filename/bytes/hash
-and final filename/hash. Package/recipe lineage and Pillow identity remain intact.
-Invocation request hashes include reference hashes; ledger prompt versions add a
-`/slide-N` suffix for individual call identity. No raw prompts enter diagnostic
-logs or model ledgers. All six final assets commit with one ReviewRequest only
-after complete success. Failed temporary output is removed; paid-call evidence
-remains in the invocation ledger.
+The manifest records engine/model, prompt and overlay versions, storyboard grid,
+prompt hash, one invocation ID, raw storyboard filename/bytes/hash, every source
+cell and final filename/hash. Package/recipe lineage and Pillow identity remain
+intact. The one invocation request hash contains the prompt only. No raw prompts
+enter diagnostic logs or model ledgers. All six final assets commit with one
+ReviewRequest only after complete success. Failed temporary output is removed;
+paid-call evidence remains in the invocation ledger.
 
-Every slide has separate admission and accounting against the shared daily/job
-limits, using image prices. A current live claim is checked and renewed for ten
-minutes before each bounded call; an expired claim cannot be revived. The next
-slide requires all earlier calls to have succeeded under the same claim attempt.
-An interrupted carousel is never resumed automatically. Generation, normalization,
-overlay or mid-carousel budget failures fail the whole render without further
-calls, partial review, per-slide repair or automatic HTML fallback. Only a daily
-budget refusal before slide 1 may defer without a provider call. Manual
+The one storyboard call has one admission and accounting record against the shared
+daily/job limits, using image prices. A current live claim is required for the
+bounded call; an expired claim cannot be revived. An interrupted carousel is never
+resumed automatically. Generation, splitting, normalization or overlay failures
+fail the whole render without a partial review, per-cell repair or automatic HTML
+fallback. Only a daily budget refusal before the storyboard call may defer without
+a provider call. Manual
 refinement/review-feedback creates fresh work for a complete rerun; no in-place
 render retry command is provided.
 

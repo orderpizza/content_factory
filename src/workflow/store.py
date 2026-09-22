@@ -855,7 +855,6 @@ class WorkflowStore:
         request_value: Any,
         model_id: str,
         budget_policy: Any | None = None,
-        image_slide_ordinal: int | None = None,
     ) -> int:
         """Audit a claimed model operation before making its provider call."""
         policy = budget_policy or self.model_budget_policy
@@ -874,11 +873,6 @@ class WorkflowStore:
             raise ValueError("model invocation versions and model ID are required")
         if len(canonical(request_value)) > 32_000:
             raise ValueError("input_too_large: frozen model input exceeds 32,000 characters")
-        base_prompt_version = prompt_version
-        if image_slide_ordinal is not None:
-            if table != "render_runs" or type(image_slide_ordinal) is not int or not 1 <= image_slide_ordinal <= 6:
-                raise ValueError("invalid image slide invocation")
-            prompt_version = f"{base_prompt_version}/slide-{image_slide_ordinal}"
         moment = now()
         entity_type = key.removesuffix("_id")
         entity_id = int(row[key])
@@ -902,22 +896,8 @@ class WorkflowStore:
                     "SELECT * FROM model_invocations WHERE entity_type='render_run' "
                     "AND entity_id=? AND outcome!='blocked' ORDER BY model_invocation_id", (entity_id,),
                 ).fetchall()
-                if image_slide_ordinal is None:
-                    if history:
-                        raise RuntimeError("image render has external history; create fresh manual work")
-                elif len(history) != image_slide_ordinal - 1 or any(
-                    item["outcome"] != "succeeded" or item["attempt_ordinal"] != ordinal
-                    or item["prompt_version"] != f"{base_prompt_version}/slide-{index}"
-                    for index, item in enumerate(history, 1)
-                ):
-                    raise RuntimeError("image slides must run once in order under the same claim")
-                if image_slide_ordinal is not None:
-                    # Each bounded provider call gets a fresh lease only while this
-                    # owner/version is still live; a lost claim cannot be resurrected.
-                    self.connection.execute(
-                        "UPDATE render_runs SET lease_expires_at=? WHERE render_run_id=?",
-                        (serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=600)), entity_id),
-                    )
+                if history:
+                    raise RuntimeError("image render has external history; create fresh manual work")
             existing = self.connection.execute(
                 "SELECT model_invocation_id FROM model_invocations "
                 "WHERE phase=? AND entity_type=? AND entity_id=? AND attempt_ordinal=? "

@@ -47,8 +47,8 @@ conversations.
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server, default 127.0.0.1:8787 |
 | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex project/location |
 | `GEMINI_MODEL` | Model ID; `VERTEX_AI_MODEL` is also accepted by the client |
-| `GEMINI_IMAGE_MODEL` | Sequential review image model, default gemini-3.1-flash-image |
-| `GEMINI_IMAGE_SIZE` | Sequential review image output size, default `2K`; choose a size supported by the configured model |
+| `GEMINI_IMAGE_MODEL` | Storyboard review image model, default gemini-3.1-flash-image |
+| `GEMINI_IMAGE_SIZE` | Storyboard review image output size, default `1K`; choose a size supported by the configured model |
 | `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Separate image-model token prices, required before image calls |
 | `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Explicit configured-model prices |
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD` | Shared model spending warning/hard cap |
@@ -88,16 +88,16 @@ existing UTC-day and ContentJob limits. Configure image input/output rates for
 the chosen image model; use a conservative output rate covering image and text
 output tokens. These settings are required lazily before a supported image
 render, not for planning or HTML-only work. The default Gemini 3.1 Flash Image
-request sets a 4:5 aspect ratio and 2K image size; change `GEMINI_IMAGE_SIZE`
-only to another size supported by the selected model. The image output limit
+request sets a 5:4 storyboard aspect ratio and 1K image size; change
+`GEMINI_IMAGE_SIZE` only to another size supported by the selected model. The image output limit
 includes image tokens and any thinking. `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS` and
 `GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` override the image phase allowances.
 Vertex project/location still use the shared settings; choose a location that
 supports the configured image model. The image transport explicitly disables
 SDK retries. [Vertex's image configuration](https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1beta1/GenerationConfig)
-defines the 4:5 request aspect ratio. Each carousel makes six sequential calls;
-phase token allowances and reservations apply per slide, including internal
-reference-image input tokens. Budget limits cover the sum of those calls.
+defines the requested aspect ratio. Each supported carousel makes one storyboard
+call; phase token allowances and one reservation apply to that call. The local
+split does not add model input or output tokens.
 
 Adaptation's output allowance includes thinking and JSON. Gemini 3 adaptation
 uses LOW thinking and temperature 1.0; local schema/metadata validation still

@@ -1,9 +1,7 @@
-"""Single-attempt Vertex image transport; bounded internal style context, no JSON generation."""
+"""Single-attempt Vertex storyboard-image transport; no JSON generation."""
 from __future__ import annotations
 
 import os
-from io import BytesIO
-from PIL import Image
 from common.gemini import GeminiUsage, VertexGeminiClient
 
 
@@ -13,7 +11,7 @@ def configured_image_model() -> str:
 
 def configured_image_size() -> str:
     """Return the requested Gemini image resolution for review assets."""
-    return os.getenv("GEMINI_IMAGE_SIZE") or "2K"
+    return os.getenv("GEMINI_IMAGE_SIZE") or "1K"
 
 
 class VertexGeminiImageClient(VertexGeminiClient):
@@ -21,23 +19,12 @@ class VertexGeminiImageClient(VertexGeminiClient):
         kwargs.setdefault("model", configured_image_model())
         super().__init__(**kwargs)
 
-    def generate_image(self, prompt: str, *, references: list[bytes] | None = None) -> bytes:
+    def generate_image(self, prompt: str) -> bytes:
         from google import genai
         from google.genai import types
 
         self.last_usage = None
-        references = references or []
-        if len(references) > 1:
-            raise ValueError("at most one internal style-anchor reference is supported")
         parts = [types.Part.from_text(text=prompt)]
-        for data in references:
-            if not isinstance(data, bytes) or len(data) > 40_000_000:
-                raise ValueError("invalid internal slide reference")
-            with Image.open(BytesIO(data)) as source:
-                mime = {"PNG": "image/png", "JPEG": "image/jpeg"}.get(source.format)
-            if mime is None:
-                raise ValueError("reference must be PNG or JPEG")
-            parts.append(types.Part.from_bytes(data=data, mime_type=mime))
         client = genai.Client(
             vertexai=True, project=self.project, location=self.location,
             http_options=types.HttpOptions(
@@ -50,7 +37,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT", "IMAGE"], candidate_count=1,
                     image_config=types.ImageConfig(
-                        aspect_ratio="4:5", image_size=configured_image_size(),
+                        aspect_ratio="5:4", image_size=configured_image_size(),
                     ),
                     max_output_tokens=self.max_output_tokens,
                 ),
