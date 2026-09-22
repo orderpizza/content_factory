@@ -4,17 +4,24 @@ from __future__ import annotations
 from hashlib import sha256
 from io import BytesIO
 import json
+import os
+from random import Random
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from common.gemini_image import VertexGeminiImageClient, configured_image_model
 from .model_budget import ModelBudgetPolicy
 from .static_renderer import StaticVisualRenderer, _asset
-from .visual_primitives import EXPRESSION_LABELS, EXPRESSION_TAGLINE, expression_action
+from .visual_primitives import EXPRESSION_LABELS
 
 PROMPT_VERSION = "gemini_carousel_storyboard_v1"
+OVERLAY_VERSION = "expression_transparent_chrome_v2"
 STORYBOARD_COLUMNS = 3
 STORYBOARD_ROWS = 2
+FOOTER_BRAND = "o2_english"
+FOOTER_CTA_PHRASES = (
+    "Swipe", "Keep going", "Learn more", "Next tip", "More examples", "Continue", "Next", "See more",
+)
 SEMANTIC_GRAMMARS = {
     "expression_breakdown_v1": (
         ("hook", "hook"),
@@ -114,24 +121,6 @@ def build_storyboard_prompt(package, recipe):
             + json.dumps({"total": len(units), "slides": slides}, ensure_ascii=False))
 
 
-def normalize_slide(data: bytes) -> Image.Image:
-    if len(data) > 40_000_000:
-        raise ValueError("slide exceeds image byte limit")
-    with Image.open(BytesIO(data)) as source:
-        if source.format not in {"PNG", "JPEG"} or getattr(source, "n_frames", 1) != 1:
-            raise ValueError("slide must be a single PNG or JPEG")
-        width, height = source.size
-        if width < 480 or height < 600 or width * height > 40_000_000:
-            raise ValueError("slide dimensions are unsafe or too small")
-        if abs(width / height - 0.8) > 0.04:
-            raise ValueError("slide does not match 4:5 portrait")
-        source = ImageOps.exif_transpose(source).convert("RGB")
-        if source.size != (width, height):
-            raise ValueError("slide orientation is inconsistent")
-        return ImageOps.fit(source, (1080, 1350), method=Image.Resampling.LANCZOS,
-                            centering=(0.5, 0.5))
-
-
 def split_storyboard(data: bytes) -> list[Image.Image]:
     """Validate one 5:4 storyboard and center-fit its equal 3×2 cells to slides."""
     if len(data) > 40_000_000:
@@ -157,27 +146,65 @@ def split_storyboard(data: bytes) -> list[Image.Image]:
         return cells
 
 
-def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, brand_name: str) -> Image.Image:
-    """Apply shared expression chrome after all image geometry operations."""
+def _overlay_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Use a modern local bold face, with Pillow's font only as a last resort."""
+    candidates = (
+        os.getenv("CONTENT_FACTORY_FONT_PATH"),
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf",
+        "DejaVuSans-Bold.ttf",
+    )
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return ImageFont.truetype(candidate, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
+
+
+def _draw_contrast_text(draw: ImageDraw.ImageDraw, position, text: str, *, font, anchor=None) -> None:
+    """Draw legible text without adding an opaque chrome panel."""
+    shadow = (position[0] + 2, position[1] + 2)
+    draw.text(shadow, text, font=font, fill="#111820", anchor=anchor, stroke_width=3,
+              stroke_fill="#111820")
+    draw.text(position, text, font=font, fill="#fffdf8", anchor=anchor, stroke_width=1,
+              stroke_fill="#26343e")
+
+
+def _draw_arrow(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    for offset, color, width in ((2, "#111820", 7), (0, "#fffdf8", 3)):
+        draw.line((x - 28 + offset, y + offset, x + offset, y + offset), fill=color, width=width)
+        draw.line((x - 9 + offset, y - 11 + offset, x + offset, y + offset, x - 9 + offset, y + 11 + offset),
+                  fill=color, width=width)
+
+
+def footer_cta_phrases(render_id: int, total: int = 6) -> list[str | None]:
+    """Choose non-repeating, reproducible swipe cues for one render."""
+    if type(render_id) is not int or total != 6:
+        raise ValueError("expression carousel CTA rotation requires six slides")
+    phrases = Random(f"expression-footer-cta-v1:{render_id}").sample(FOOTER_CTA_PHRASES, total - 1)
+    return [*phrases, None]
+
+
+def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None) -> Image.Image:
+    """Apply transparent, contrast-safe expression chrome after slide normalization."""
     if slide.size != (1080, 1350) or not 1 <= ordinal <= total == 6:
         raise ValueError("overlay requires six final-size slides")
+    if (ordinal < total) != (cta_phrase is not None):
+        raise ValueError("only slides one through five may have a swipe CTA")
     result = slide.copy()
     draw = ImageDraw.Draw(result)
-    label_font = ImageFont.load_default(size=25)
-    brand_font = ImageFont.load_default(size=32)
-    small_font = ImageFont.load_default(size=23)
-    draw.rectangle((0, 0, 1079, 126), fill="#faf8f2")
-    draw.rectangle((0, 1161, 1079, 1349), fill="#faf8f2")
-    color = "#29383d"
-    draw.text((56, 52), EXPRESSION_LABELS[ordinal - 1], font=label_font, fill=color)
-    draw.text((1024, 52), f"{ordinal} / {total}", font=label_font, fill=color, anchor="ra")
-    draw.text((56, 1205), brand_name, font=brand_font, fill=color)
-    draw.text((56, 1256), EXPRESSION_TAGLINE, font=small_font, fill=color)
-    action = expression_action(ordinal, total)
-    if action:
-        draw.text((975, 1230), action.removesuffix(" →"), font=label_font, fill=color, anchor="ra")
-        draw.line((992, 1244, 1024, 1244), fill=color, width=3)
-        draw.line((1015, 1236, 1024, 1244, 1015, 1252), fill=color, width=3)
+    header_font = _overlay_font(38)
+    footer_font = _overlay_font(42)
+    cta_font = _overlay_font(32)
+    _draw_contrast_text(draw, (56, 62), EXPRESSION_LABELS[ordinal - 1], font=header_font)
+    _draw_contrast_text(draw, (1024, 62), f"{ordinal} / {total}", font=header_font, anchor="ra")
+    _draw_contrast_text(draw, (56, 1268), FOOTER_BRAND, font=footer_font)
+    if cta_phrase:
+        _draw_contrast_text(draw, (958, 1268), cta_phrase, font=cta_font, anchor="ra")
+        _draw_arrow(draw, 1024, 1255)
     return result
 
 
@@ -220,9 +247,10 @@ class GeminiImageRenderer(StaticVisualRenderer):
             raw = temporary / "raw-storyboard.image"
             raw.write_bytes(data)
             assets, provenance = [], []
+            cta_phrases = footer_cta_phrases(int(run["render_run_id"]), len(slides))
             for ordinal, slide in enumerate(slides, 1):
                 path = temporary / f"unit-{ordinal:02d}.jpg"
-                apply_overlays(slide, ordinal, len(slides), brand_name=kwargs["brand_name"]).save(
+                apply_overlays(slide, ordinal, len(slides), cta_phrase=cta_phrases[ordinal - 1]).save(
                     path, format="JPEG", quality=92, optimize=False, progressive=False,
                 )
                 asset = _asset(path, "delivery_jpeg", ordinal, 1080, 1350)
@@ -231,6 +259,7 @@ class GeminiImageRenderer(StaticVisualRenderer):
                     "ordinal": ordinal, "model_invocation_id": invocation,
                     "source_cell": {"row": (ordinal - 1) // STORYBOARD_COLUMNS + 1,
                                     "column": (ordinal - 1) % STORYBOARD_COLUMNS + 1},
+                    "footer_cta": cta_phrases[ordinal - 1],
                     "final": {"filename": path.name, "sha256": asset["sha256"]},
                 })
         except Exception:
@@ -245,7 +274,9 @@ class GeminiImageRenderer(StaticVisualRenderer):
         )
         return assets, {
             "model_id": self.client.model, "prompt_version": PROMPT_VERSION,
-            "overlay_version": "expression_image_chrome_v1",
+            "overlay_version": OVERLAY_VERSION,
+            "overlay": {"background": "transparent", "brand_text": FOOTER_BRAND,
+                        "footer_cta_phrases": cta_phrases},
             "template_version": "gemini_carousel_storyboard_v1",
             "storyboard": {"columns": STORYBOARD_COLUMNS, "rows": STORYBOARD_ROWS,
                            "prompt_sha256": sha256(prompt.encode()).hexdigest(),

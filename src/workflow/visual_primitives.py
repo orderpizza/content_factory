@@ -38,12 +38,11 @@ def footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
     return f'<footer class="visual-footer"><span>{_text(brand_name)}</span><span>{ordinal:02d} / {total:02d}</span></footer>'
 
 
-EXPRESSION_TAGLINE = "Small Steps. A Bigger You."
 EXPRESSION_LABELS = ("ENGLISH EXPRESSIONS", "MEANING", "WHEN TO USE IT", "EXAMPLE", "IN A CONVERSATION", "KEY TAKEAWAY")
 
 
 def expression_action(ordinal: int, total: int) -> str:
-    return "Swipe →" if ordinal == 1 else "Keep learning! →" if ordinal == total else ""
+    return "Swipe →" if ordinal < total else ""
 
 
 def expression_footer(ordinal: int, total: int, *, brand_name: str = "O2English") -> str:
@@ -51,7 +50,7 @@ def expression_footer(ordinal: int, total: int, *, brand_name: str = "O2English"
     action = expression_action(ordinal, total)
     return (
         '<footer class="expression-footer">'
-        f'<div class="expression-brand"><strong>{_text(brand_name)}</strong><span>{EXPRESSION_TAGLINE}</span></div>'
+        f'<div class="expression-brand"><strong>{_text(brand_name)}</strong></div>'
         f'<span class="expression-action">{_text(action)}</span>'
         '</footer>'
     )

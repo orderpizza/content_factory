@@ -14,8 +14,8 @@ from PIL import Image, ImageDraw
 from common.gemini import GeminiUsage
 from common.gemini_image import VertexGeminiImageClient, configured_image_model, configured_image_size
 from workflow.gemini_image_renderer import (
-    DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, PROMPT_VERSION, build_storyboard_prompt,
-    normalize_slide, split_storyboard, apply_overlays,
+    DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, FOOTER_BRAND, PROMPT_VERSION,
+    build_storyboard_prompt, footer_cta_phrases, split_storyboard, apply_overlays,
 )
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
 from workflow.model_budget import ModelBudgetPolicy
@@ -90,22 +90,32 @@ class ImagePipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_storyboard_prompt({**package, 'platform': 'x'}, value)
 
-    def test_storyboard_split_normalization_and_overlays(self):
+    def test_storyboard_split_and_transparent_overlays(self):
         slides = split_storyboard(storyboard_image())
         self.assertEqual(len(slides), 6)
         for ordinal, (slide, color) in enumerate(zip(slides, COLORS), 1):
             self.assertEqual(slide.size, (1080, 1350))
             expected = Image.new('RGB', (1, 1), color).getpixel((0, 0))
             self.assertEqual(slide.getpixel((540, 675)), expected)
-            output = apply_overlays(slide, ordinal, 6, brand_name='O2English')
+            output = apply_overlays(slide, ordinal, 6,
+                                    cta_phrase='Swipe' if ordinal < 6 else None)
             self.assertEqual(output.size, (1080, 1350))
-            self.assertNotEqual(output.crop((0, 0, 1080, 126)).tobytes(),
-                                slide.crop((0, 0, 1080, 126)).tobytes())
-        self.assertEqual(normalize_slide(slide_image()).size, (1080, 1350))
+            self.assertNotEqual(output.tobytes(), slide.tobytes())
+            for point in ((0, 0), (1079, 0), (0, 1349), (1079, 1349), (540, 130), (540, 1160)):
+                self.assertEqual(output.getpixel(point), slide.getpixel(point))
         with self.assertRaises(ValueError):
             split_storyboard(slide_image())
         with self.assertRaises(Exception):
             split_storyboard(b'not an image')
+
+    def test_footer_ctas_are_deterministic_and_stop_after_slide_five(self):
+        self.assertEqual(footer_cta_phrases(42), footer_cta_phrases(42))
+        phrases = footer_cta_phrases(42)
+        self.assertEqual(len(set(phrases[:5])), 5)
+        self.assertIsNone(phrases[5])
+        self.assertEqual(FOOTER_BRAND, 'o2_english')
+        self.assertNotIn('Small Steps. A Bigger You.',
+                         Path('src/workflow/gemini_image_renderer.py').read_text())
 
     def test_vertex_transport_makes_one_5x4_1k_call_without_references_or_retries(self):
         client = VertexGeminiImageClient(project='test', model='test-image', max_output_tokens=8000)
@@ -167,10 +177,16 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_VERSION)
             self.assertEqual(manifest['template_version'], 'gemini_carousel_storyboard_v1')
+            self.assertEqual(manifest['overlay']['background'], 'transparent')
+            self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
+            self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))
+            self.assertTrue(all(slide['footer_cta'] for slide in manifest['slides'][:5]))
+            self.assertIsNone(manifest['slides'][5]['footer_cta'])
             self.assertEqual(manifest['storyboard']['columns'], 3)
             self.assertEqual(manifest['storyboard']['rows'], 2)
             raw = self.artifacts / 'render-1' / manifest['storyboard']['raw']['filename']
             self.assertEqual(raw.read_bytes(), storyboard_image())
+            self.assertNotIn(str(raw), [asset['local_path'] for asset in assets])
             self.assertEqual([slide['source_cell'] for slide in manifest['slides']], [
                 {'row': 1, 'column': 1}, {'row': 1, 'column': 2}, {'row': 1, 'column': 3},
                 {'row': 2, 'column': 1}, {'row': 2, 'column': 2}, {'row': 2, 'column': 3},

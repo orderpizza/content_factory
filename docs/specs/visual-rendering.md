@@ -171,21 +171,26 @@ Lanczos-resized to exactly 1080×1350. These checks reject invalid image
 data/geometry, not inaccurate words or poor visual design. Exact model-rendered
 text and design quality require human review.
 
-After normalization, Pillow applies deterministic header/category, page counter,
-brand, tagline and first/final CTA chrome. Wording is shared with the expression
-HTML footer; review overlays use Pillow's bundled font and local arrow geometry.
-Six final JPEGs use the existing `delivery_jpeg` asset role so the dashboard
-shows the exact overlaid bytes. That role does not make a review-only package
-deliverable. The raw storyboard image is an intermediate file, excluded from
-review assets.
+After splitting, Pillow applies deterministic, transparent header/category and
+page-counter text plus a lower-left `o2_english` brand. It draws no header/footer
+bars or panels. Locally available bold fonts, contrast-safe strokes and shadows,
+and local arrow geometry keep the text legible without obscuring the artwork. The
+previous tagline is absent. Slides 1–5 receive a short swipe cue and arrow; a
+deterministic render-seeded selection rotates five non-repeating phrases from the
+curated CTA set, while slide 6 receives no next-slide cue. Six final JPEGs use the
+existing `delivery_jpeg` asset role so the dashboard shows the exact processed
+bytes. That role does not make a review-only package deliverable. The raw
+storyboard image is retained as a traceability/debug artifact only, not a review
+asset or a dashboard contact sheet.
 
 The manifest records engine/model, prompt and overlay versions, storyboard grid,
 prompt hash, one invocation ID, raw storyboard filename/bytes/hash, every source
-cell and final filename/hash. Package/recipe lineage and Pillow identity remain
-intact. The one invocation request hash contains the prompt only. No raw prompts
-enter diagnostic logs or model ledgers. All six final assets commit with one
-ReviewRequest only after complete success. Failed temporary output is removed;
-paid-call evidence remains in the invocation ledger.
+cell, final filename/hash, transparent-overlay version and deterministic footer
+CTA choices. Package/recipe lineage and Pillow identity remain intact. The one
+invocation request hash contains the prompt only. No raw prompts enter diagnostic
+logs or model ledgers. All six final assets commit with one ReviewRequest only
+after complete success. Failed temporary output is removed; paid-call evidence
+remains in the invocation ledger.
 
 The one storyboard call has one admission and accounting record against the shared
 daily/job limits, using image prices. A current live claim is required for the
