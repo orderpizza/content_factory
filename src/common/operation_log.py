@@ -17,7 +17,7 @@ LOGGER.addHandler(logging.NullHandler())
 FIELDS = set('worker instance_id operation_id record_id request_id thread_id decision_id '
              'claim_version attempt_count status duration_ms source_id scheduled_slot attempt_id '
              'complete item_count event_count evaluation_id cluster_count candidate_count selected_count '
-             'skipped_count blocked_count selected_domains job_ids model_id input_tokens output_tokens '
+             'skipped_count blocked_count selected_domains planning_run_ids job_ids model_id input_tokens output_tokens '
              'total_tokens cost_micro_usd outcome error_type error_code method path http_status '
              'command_kind row_version storage_reason sample_id table_count byte_count'.split())
 FIELDS.update({'lease_expires_at', 'next_attempt_at'})

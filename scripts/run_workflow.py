@@ -22,6 +22,7 @@ from common.timestamps import utc_now
 from database.current import SchemaError
 from workflow import (
     DeterminationWorker,
+    EditorialPlanningWorker, GeminiEditorialPlanningWorker,
     GeminiAdaptationWorker,
     GeminiDeterminationWorker,
     GeminiIntakeWorker,
@@ -42,6 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 _RUNTIME_TYPES = {
     "IdeaIntakeWorker": ("idea_intake", "brief_revision"),
     "GeminiIntakeWorker": ("idea_intake", "brief_revision"),
+    "EditorialPlanningWorker": ("editorial_planning", "editorial_plan"),
+    "GeminiEditorialPlanningWorker": ("editorial_planning", "editorial_plan"),
     "DeterminationWorker": ("determination", "determination_decision"),
     "GeminiDeterminationWorker": ("determination", "determination_decision"),
     "GeminiPipelineRunner": ("pipeline_runner", "canonical_content"),
@@ -142,7 +145,8 @@ def main() -> None:
             determination_worker = (
                 GeminiDeterminationWorker(store) if args.gemini else DeterminationWorker(store)
             )
-            workers = (intake_worker, determination_worker)
+            workers = (intake_worker, determination_worker,
+                       GeminiEditorialPlanningWorker(store) if args.gemini else EditorialPlanningWorker(store))
             if args.review_preview:
                 workers += (
                     GeminiPipelineRunner(store), VisualPlanner(store),

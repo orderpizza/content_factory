@@ -32,14 +32,14 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 
 | Flags | Workers |
 | --- | --- |
-| Default / `--planning-only` | Deterministic fixture Intake and Determination only |
-| `--gemini` / `--gemini --planning-only` | Gemini Intake and Determination; pending GenerationRuns remain untouched |
+| Default / `--planning-only` | Deterministic fixture Intake, Determination and Editorial Planning only |
+| `--gemini` / `--gemini --planning-only` | Gemini Intake, Determination and Editorial Planning; pending GenerationRuns remain untouched |
 | `--gemini --review-preview` | Also Gemini generation, deterministic visual planning, archetype-aware adaptation and Gemini review rendering |
 
 StorageMonitor runs before workers in every mode and refreshes its sample at
 most every five minutes. Monitoring is advisory through ContentJob creation:
 missing, old, clock-invalid or low-space samples cannot block dashboard/CLI ideas,
-refinements, Intake, Detection or Determination. A monitor measurement error is
+refinements, Intake, Detection, Determination or Editorial Planning. A monitor measurement error is
 logged with a failed heartbeat, but the pass continues to planning workers.
 Actual database write failures may still fail. Downstream generation, rendering
 and delivery retain the separate [storage policy](reliability.md#storage-action-matrix).

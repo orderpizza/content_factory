@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **11**, defined by
+The current schema is **12**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -12,7 +12,8 @@ its visual-approval semantics. No existing database is upgraded automatically.
 All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
 Automatic Detection and human ideas both feed three-domain Determination:
-`english`, `ai_tech`, `psychology`. Each selected domain creates a ContentJob and
+`english`, `ai_tech`, `psychology`. Each selected domain creates an EditorialPlanRun; a validated immutable
+EditorialPlan creates a ContentJob and
 one Instagram output. Detection uses configured public sources, local MiniLM
 and deterministic scoring. Human Intake can clarify before freezing a brief.
 
@@ -30,7 +31,7 @@ Unsupported domain/archetype combinations block explicitly; invalid package
 shapes fail before the image call. No HTML fallback is active.
 
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
-Determination routes, jobs, adaptation/render progress and exact review slides.
+Determination routes, editorial plans and failures, jobs, adaptation/render progress and exact review slides.
 Accept/reject/request-changes commands do not publish. Generic posting/delivery
 records and R2 staging are preserved inactive; provider delivery is not
 implemented in the current baseline. The former deterministic visual library is
@@ -206,7 +207,8 @@ Maintenance does not prune backups unless `--prune-backups` is supplied.
 | `src/detection/` | Public collection, normalization, semantic resolution, scoring and Scout |
 | `src/workflow/store.py` | Transactions, claims, immutable handoffs and commands |
 | `src/workflow/catalog.py` | Three editorial remits and catalog read model |
-| `src/workflow/gemini_intake.py`, `gemini_determination.py` | Planning workers |
+| `src/workflow/gemini_intake.py`, `gemini_determination.py` | Intake and domain eligibility |
+| `src/workflow/editorial_planning.py` | Closed editorial strategy, immutable plans and bounded history |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
 | `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Curated account identities/archetypes and deterministic planning evidence |
 | `src/workflow/gemini_prompt_compiler.py` | Deterministic storyboard prompt compilation |

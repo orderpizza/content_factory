@@ -5,7 +5,8 @@
 `src/workflow/gemini_generation.py` owns the executable domain schemas.
 
 A pipeline is a domain, not a social account. Determination assesses all three
-and selects at most one angle/job per domain per brief. Each selected route has
+and decides whether each domain should cover the brief. Editorial Planning
+selects one treatment and lane per selected route; the plan creates one job. Each selected route has
 one Instagram output binding. Both Detection and human ideas can route into
 any appropriate domain. Development destinations are synthetic.
 
@@ -20,6 +21,13 @@ any appropriate domain. Development destinations are synthetic.
 Every selected angle should offer distinct reader value, fit its audience and
 have sufficient evidence. Popularity establishes attention, not factual truth.
 Skipping a weak domain is preferable to forcing an analogy.
+
+Editorial Planning compares 2–4 domain-appropriate treatments using frozen
+evidence and recent plans. Its closed strategy and qualification vocabulary is
+owned by `src/workflow/editorial_planning.py`; it generates no domain facts.
+English emphasizes meaning, usage and pragmatic nuance; AI/Tech emphasizes
+changes, mechanisms, practical use and limitations; Psychology emphasizes
+observations, possible mechanisms and alternative explanations.
 
 Generation receives frozen evidence and has no browsing/tool-use ability.
 Sources must not be invented. Hypothetical examples and qualified inferences

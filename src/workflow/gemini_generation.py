@@ -13,7 +13,7 @@ from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
 
 
-GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v1"
+GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v2"
 GENERATION_SCHEMA_VERSION = "canonical_content_v1"
 CLAIM_KINDS = ("source_bound_fact", "qualified_inference", "generated_example")
 
@@ -153,7 +153,7 @@ class GeminiPipelineRunner:
         pipeline_id = recipe.get("pipeline_id")
         if pipeline_id not in WORKFLOW_PIPELINES:
             raise ValueError("ContentJob has an unsupported pipeline")
-        for field in ("brief", "angle", "source_context"):
+        for field in ("brief", "angle", "source_context", "editorial_plan"):
             if not isinstance(recipe.get(field), Mapping):
                 raise ValueError(f"ContentJob recipe is missing frozen {field}")
 
@@ -162,6 +162,7 @@ class GeminiPipelineRunner:
             "pipeline_id": pipeline_id,
             "brief": recipe["brief"],
             "angle": recipe["angle"],
+            "editorial_plan": recipe["editorial_plan"],
             "source_context": recipe["source_context"],
             "allowed_source_reference_ids": reference_ids,
         }
@@ -171,7 +172,7 @@ class GeminiPipelineRunner:
             table="generation_runs",
             key="generation_run_id",
             row=run,
-            request_version="content_job_recipe_v2",
+            request_version="content_job_recipe_v3",
             prompt_version=GENERATION_PROMPT_VERSION,
             schema_version=GENERATION_SCHEMA_VERSION,
             request_value=request_value,
@@ -315,6 +316,10 @@ def _source_reference_ids(source_context: Mapping[str, Any]) -> list[str]:
 
 def _generation_prompt(request_value: dict[str, Any]) -> str:
     return """You are the domain generation worker for a local content factory.
+The immutable editorial_plan fixes the strategic angle. Find its selected candidate
+and preserve its angle, reader promise, must_cover_points, evidence_requirements and
+qualification_requirements. Do not choose a new strategy. Make only writing decisions
+within this plan. Apply each qualification code as a content requirement.
 Create one platform-neutral canonical editorial object for the frozen domain,
 brief, and angle. Do not change the angle, select a platform/account/format,
 write hashtags, describe slide layout, or fetch any external source. Use only

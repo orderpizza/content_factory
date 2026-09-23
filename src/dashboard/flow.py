@@ -41,11 +41,11 @@ def render_progression(connection, observations, clusters, *, raw_count, cluster
        JOIN content_threads t ON t.thread_id=b.thread_id
        JOIN determination_routes r ON r.determination_route_id=j.determination_route_id
        LEFT JOIN generation_runs g ON g.generation_run_id=(SELECT generation_run_id FROM generation_runs WHERE content_job_id=j.content_job_id ORDER BY run_number DESC LIMIT 1)
-       WHERE (?='' OR lower(j.pipeline_id || ' ' || b.brief_json || ' ' || r.angle_json) LIKE ? ESCAPE '\\')
+       WHERE (?='' OR lower(j.pipeline_id || ' ' || b.brief_json || ' ' || json_extract(j.recipe_json,"$.angle")) LIKE ? ESCAPE '\\')
        AND (?='' OR EXISTS (SELECT 1 FROM candidate_observation_memberships m JOIN trend_observations o ON o.trend_observation_id=m.trend_observation_id JOIN detection_source_instances s ON s.detection_source_instance_id=o.source_instance_id WHERE m.trend_candidate_id=t.seed_candidate_id AND s.stable_id=?)) """
     job_count=connection.execute('SELECT COUNT(*)'+job_from,args).fetchone()[0]
     job_page=max(1,min(int(job_page),max(1,(job_count+19)//20)))
-    jobs=connection.execute('SELECT j.content_job_id,j.pipeline_id,j.brief_revision_id,r.angle_json,t.thread_id,t.origin,t.seed_candidate_id,g.status generation_status'+job_from+' ORDER BY j.content_job_id DESC LIMIT 20 OFFSET ?',(*args,(job_page-1)*20)).fetchall()
+    jobs=connection.execute('SELECT j.content_job_id,j.pipeline_id,j.brief_revision_id,json_extract(j.recipe_json,"$.angle") angle_json,t.thread_id,t.origin,t.seed_candidate_id,g.status generation_status'+job_from+' ORDER BY j.content_job_id DESC LIMIT 20 OFFSET ?',(*args,(job_page-1)*20)).fetchall()
     filters={k:v for k,v in dict(view='detection',stage=stage,q=query,source=source,status=status,
                                 raw_page=raw_page,cluster_page=cluster_page,opportunity_page=opportunity_page,
                                 job_page=job_page,cluster_sort=cluster_sort).items() if v}
@@ -107,13 +107,14 @@ def render_raw_item(connection, item_id):
 
 
 def render_job(connection, job_id):
+    from .planning import render_editorial_plan
     row=connection.execute('SELECT j.*,b.thread_id,t.origin,t.seed_candidate_id FROM content_jobs j JOIN brief_revisions b ON b.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=b.thread_id WHERE j.content_job_id=?',(job_id,)).fetchone()
     if row is None:
         return '<section class="card"><h2>ContentJob not found</h2></section>'
     run=connection.execute('SELECT * FROM generation_runs WHERE content_job_id=? ORDER BY run_number DESC LIMIT 1',(job_id,)).fetchone()
     origin=f"Opportunity #{row['seed_candidate_id']}" if row['origin']=='trend' else f"Human thread #{row['thread_id']}"
     return (f"<section class='card' id='job-detail'><h2>ContentJob #{job_id}</h2><p>{text(row['pipeline_id'])} · latest generation: {text(run['status'] if run else 'missing')}</p><p>From {link(origin,thread_id=row['thread_id'])} · immutable brief #{row['brief_revision_id']}</p>"+
-            json_detail('Immutable job recipe',row['recipe_json'])+json_detail('Output plan',row['output_plan_json'])+render_job_progress(connection,job_id)+'</section>')
+            render_editorial_plan(connection,row['determination_route_id'])+json_detail('Immutable job recipe',row['recipe_json'])+json_detail('Output plan',row['output_plan_json'])+render_job_progress(connection,job_id)+'</section>')
 
 
 def render_job_progress(connection, job_id):

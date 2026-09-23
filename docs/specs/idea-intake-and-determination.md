@@ -1,7 +1,7 @@
 # Idea Intake and Determination Specification
 
 **Document role:** Tier 2 current planning contract.
-**Owner:** Human conversation, immutable briefs, three-domain decisions and job creation.
+**Owner:** Human conversation, immutable briefs, three-domain decisions and editorial planning.
 
 ## Two entry paths
 
@@ -91,11 +91,13 @@ Response schema and semantic validation are owned by
 `src/workflow/gemini_determination.py`. Required aggregate fields are
 `outcome`, `opportunity_value`, `rationale`, `warnings` and exactly three routes.
 Each route has a registered `pipeline_id`, `disposition` (`selected`,
-`skipped`, `blocked`), `fit`, nonempty `reason`, optional angle and outputs.
+`skipped`, `blocked`), `fit`, nonempty `reason`, and outputs.
 
-A selected angle requires `angle_kind`, `canonical_target`, `audience`,
-`thesis` and `reader_value`. Outputs must match ready entries from the frozen
-catalog, exactly one Instagram binding for each selected route.
+Determination decides domain eligibility, not a strategic angle. Outputs must
+match ready entries from the frozen catalog, exactly one Instagram binding for
+each selected route. Its structured result is
+`workflow_gemini_determination_result_v2`, with `determination_policy_v2` and
+`workflow_gemini_determination_prompt_v3`.
 
 - `accepted`: at least one selected route.
 - `blocked`: no selection and at least one operationally blocked route.
@@ -103,13 +105,71 @@ catalog, exactly one Instagram binding for each selected route.
 
 Validation failure fails the claim and writes the model-attempt outcome; it
 does not persist a partial decision. Finalization atomically writes the decision,
-three route assessments, and one ContentJob + pending GenerationRun per selected
-route. The job freezes its domain/angle recipe and output plan. No output
-binding means no selected job.
+three route assessments, and one pending EditorialPlanRun per selected route.
+No output binding means no selected route.
+
+## Editorial Planning
+
+`src/workflow/editorial_planning.py` owns the closed `editorial_plan_v1`
+contract, `editorial_input_v1` input and `editorial_planner_v1` model prompt.
+Determination asks whether to cover a brief; Editorial Planning chooses the
+story treatment; canonical generation writes it. Visual planning remains downstream.
+
+Lanes are closed: `trend` is substantially driven by dated attention/events (this pass requires
+frozen evidence provenance and at least one selected-candidate reference);
+`evergreen` has lasting usefulness; `series` is an intentional recurring format;
+`experiment` tests a materially different editorial strategy. Unusual content or
+another visual archetype does not imply an experiment. Optional `series_key` is
+allowed only for series; optional `experiment_key` and required experiment intention
+are allowed only for experiments. No scheduling or feedback machinery is composed.
+
+Each plan has 2–4 unique candidate IDs/angles and one selected candidate ID.
+Candidates contain domain strategy, reader promise, relevance, 1–8 must-cover points,
+evidence references/requirements and qualification requirements. Plan-level fields
+include domain, lane, audience intent, why-now, selection rationale and structured
+reasoning for domain fit, usefulness, evidence strength, timeliness, novelty and
+explanatory potential. The selected candidate owns the selected angle/promise/points;
+these are not duplicated as independently editable fields.
+
+The caller stamps brief/route IDs, planner/schema version, input hash and frozen
+history into the immutable artifact. The latest 12 committed same-domain plans,
+ordered by plan ID descending, are frozen at Determination handoff, with IDs,
+input fingerprints, lanes, angles, strategies and promises. This includes planned
+content even before generation. One destination per domain makes this history
+appropriate to the active system. Simultaneous pending plans cannot see each other's
+future choices. No vectors or unbounded queries are used.
+
+Inputs retain frozen brief constraints and source conversation, source fingerprint,
+as-of UTC timestamp, Detection evidence and representative-selection counts.
+Models receive only repository evidence; IDs and dates are never model-generated.
+Human editorial intention is a strong constraint, subject to remit and evidence.
+No platform/renderer fields occur in the plan. Output bindings remain input/handoff
+provenance, not editorial model decisions.
+
+Recursive closed validation enforces enums, bounds, unique selection, reference
+membership, domain strategies, lane metadata and required qualification codes.
+English requires usage context and no invented etymology/cultural claims; AI/Tech
+requires source backing, dated context, scope, limitations and provider-claim
+separation; Psychology requires observation/inference separation, alternatives,
+uncertainty and non-diagnostic framing. These structural checks do not prove
+semantic compliance or factual entailment; human review remains necessary.
+
+One bounded Gemini call uses the existing invocation/budget ledger and transport,
+without research or hidden repair. Insufficient evidence must lead to a supported
+alternative; an invalid/unsupported result fails the run visibly. There is no
+fallback plan on paid failure. Deterministic mode has an explicit offline fixture
+planner. Input over the shared 32,000-character guard fails before invocation.
+Planning consumes the daily budget before a job exists and ignores storage admission.
+
+A live fenced claim atomically commits plan, ContentJob and pending GenerationRun.
+Failure, cancellation or stale finalization creates no partial downstream work.
+SQL uniqueness prevents duplicate jobs, and external invocation history prevents
+blind replay after expiry. Fresh schema-12 databases are required; no migration
+or reset is performed. [Data model](data-model.md) owns SQL lineage.
 
 ## Runtime and review
 
-`run_workflow.py --gemini --planning-only --poll` runs Intake and Determination
+`run_workflow.py --gemini --planning-only --poll` runs Intake, Determination and Editorial Planning
 plus storage monitoring. No generation/rendering/posting worker is composed.
 The default non-Gemini policies are deterministic fixtures.
 

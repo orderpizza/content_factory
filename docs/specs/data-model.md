@@ -67,8 +67,11 @@ inactive delivery catalog; fixture bindings have no deliverable destination.
 `determination_requests` freeze brief, evidence and catalog.
 `determination_decisions` records aggregate editorial value;
 `determination_routes` records exactly three selected/skipped/blocked assessments.
-`content_jobs` and `generation_runs` are created only for selected routes.
-The decision, routes and jobs commit atomically.
+Selected routes atomically create `editorial_plan_runs`, freezing brief lineage,
+source evidence and the latest 12 same-domain plans. `editorial_plans` freezes a
+validated strategy. Plan, `content_jobs` and `generation_runs` commit atomically.
+A unique non-null ContentJob editorial_plan_id and SQL lineage guards prevent
+bypass or duplicate handoffs. Planning inputs and completed plans are immutable.
 
 ### Production and operations
 
@@ -95,7 +98,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 11. All workers open and validate databases through
+authoritative schema, at version 12. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates
@@ -111,7 +114,7 @@ an incompatible database. Development setup requires a new filename.
 | Scout freeze | scout_evaluation_runs, scout_evaluation_inputs, scout_evaluation_attempts, scout_frozen_evidence, scout_prominence_populations, scout_event_resolutions |
 | Shortlist | topic_snapshots, trend_candidates, candidate_observation_memberships |
 | Conversation | content_threads, thread_messages, intake_requests, brief_revisions, human_command_receipts |
-| Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, content_jobs, generation_runs |
+| Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, editorial_plan_runs, editorial_plans, content_jobs, generation_runs |
 | Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, render_runs, render_assets, review_requests |
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
 | Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
@@ -130,6 +133,7 @@ by worker/store semantic validation before finalization.
 | Collection/Scout | pending → claimed → completed; bounded retry/failure |
 | Intake | pending → claimed → completed / needs_clarification / failed / cancelled |
 | Determination | pending → claimed → completed / retry_wait / failed / cancelled |
+| Editorial planning | pending → claimed → succeeded / retry_wait / failed / cancelled |
 | Generation/adaptation | pending → claimed → succeeded / retry_wait / failed / cancelled |
 | Visual planning/render | pending → claimed → succeeded / blocked / retry_wait / failed / cancelled |
 | Review | awaiting_review → approved / changes_requested / rejected / invalidated |
@@ -143,7 +147,8 @@ downstream finalizers. Model invocation history prevents blind paid retries.
 ## Immutable finalization
 
 Intake commits its brief and Determination request in one transaction.
-Determination commits all routes/jobs/runs in one transaction. A SQL trigger
+Determination commits all routes/planning runs in one transaction. Editorial
+Planning commits its plan/job/generation run in a separate fenced transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
 Fresh setup never upgrades an existing database.

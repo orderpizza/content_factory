@@ -9,7 +9,7 @@ non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the
 ## Persisted flow
 
 ```text
-ContentJob + GenerationRun
+Determination → EditorialPlanRun → immutable EditorialPlan + ContentJob + GenerationRun
   → CanonicalContent + frozen OutputRequests + VisualPlanRuns
   → deterministic VisualPlanner → immutable VisualRecipe + AdaptationRun
   → one ContentPackage + RenderRun per successful output
@@ -23,9 +23,13 @@ immutable. The [data model](data-model.md) owns identities and constraints;
 
 ## Canonical generation
 
-A job freezes the brief, selected domain/angle, source context and at most one
+A job references its immutable EditorialPlan and freezes the brief, selected
+domain/angle, source context and at most one
 Instagram binding. Generation makes one Gemini drafting call for
-the claimed run. Its closed `canonical_content_v1` schema contains:
+the claimed run. The plan is a writing constraint: preserve its selected angle,
+reader promise, must-cover points and qualifications; do not select a new strategy.
+The request recipe is `content_job_recipe_v3`; the generation prompt is
+`workflow_gemini_generation_prompt_v2`. Its closed `canonical_content_v1` schema contains:
 
 - hook, context, 2–8 key points, 0–8 examples, takeaway and optional CTA;
 - up to 30 claims, each with a unique ID, text, kind, evidence reference IDs

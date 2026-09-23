@@ -84,7 +84,7 @@ def render_evaluation(connection, evaluation_id):
 
 def render_queue_status(connection):
     parts = ["<section class='card' id='queues'><h2>Planning queues</h2><p>Pending GenerationRuns are expected in planning-only mode. All times are UTC.</p><div class='route-grid'>"]
-    for table, label in [('intake_requests', 'Idea Intake'), ('determination_requests', 'Determination'), ('generation_runs', 'Generation'), ('visual_plan_runs', 'Visual planning'), ('render_runs', 'Rendering')]:
+    for table, label in [('intake_requests', 'Idea Intake'), ('determination_requests', 'Determination'), ('editorial_plan_runs', 'Editorial planning'), ('generation_runs', 'Generation'), ('visual_plan_runs', 'Visual planning'), ('render_runs', 'Rendering')]:
         rows = connection.execute(f'SELECT status,COUNT(*) n FROM {table} GROUP BY status').fetchall()
         summary = ' · '.join(f"{r['status']}: {r['n']}" for r in rows) or 'no work yet'
         parts.append(f"<div><h3>{label}</h3><p>{text(summary)}</p></div>")

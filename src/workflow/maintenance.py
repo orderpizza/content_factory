@@ -176,7 +176,7 @@ class MaintenanceService:
             active = sum(int(self.store.connection.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE status IN ('claimed','running','publishing')"
             ).fetchone()[0]) for table in (
-                "intake_requests", "determination_requests", "generation_runs", "adaptation_runs", "visual_plan_runs",
+                "intake_requests", "determination_requests", "editorial_plan_runs", "generation_runs", "adaptation_runs", "visual_plan_runs",
                 "render_runs", "post_records", "delivery_cleanup_tasks", "reconciliation_requests",
             ))
             truncated = False

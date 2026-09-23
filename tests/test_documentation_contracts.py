@@ -57,7 +57,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('exactly three',self.run_check())
 
     def test_schema_version_disagreement_is_rejected(self):
-        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 11','user_version = 99'))
+        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 12','user_version = 99'))
         self.assertIn('schema version disagrees',self.run_check())
 
     def test_undocumented_table_is_rejected(self):

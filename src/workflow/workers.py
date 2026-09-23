@@ -63,7 +63,8 @@ def local_operation(table: str, key: str):
                     if table == 'determination_requests' and result is not None:
                         routes = self.store.connection.execute('SELECT pipeline_id,disposition FROM determination_routes WHERE determination_decision_id=?', (result,)).fetchall()
                         jobs = self.store.connection.execute('SELECT content_job_id FROM content_jobs WHERE determination_route_id IN (SELECT determination_route_id FROM determination_routes WHERE determination_decision_id=?)', (result,)).fetchall()
-                        fields.update(decision_id=result, selected_domains=[r['pipeline_id'] for r in routes if r['disposition']=='selected'],
+                        plans = self.store.connection.execute('SELECT editorial_plan_run_id FROM editorial_plan_runs WHERE determination_route_id IN (SELECT determination_route_id FROM determination_routes WHERE determination_decision_id=?)', (result,)).fetchall()
+                        fields.update(planning_run_ids=[r[0] for r in plans], decision_id=result, selected_domains=[r['pipeline_id'] for r in routes if r['disposition']=='selected'],
                                       selected_count=sum(r['disposition']=='selected' for r in routes),
                                       skipped_count=sum(r['disposition']=='skipped' for r in routes),
                                       blocked_count=sum(r['disposition']=='blocked' for r in routes), job_ids=[r[0] for r in jobs])
@@ -146,15 +147,14 @@ class DeterminationWorker:
             capability = next((item for item in catalog if item["pipeline_id"] == pipeline), None)
             outputs = [] if capability is None else [item for item in capability["outputs"] if item["ready"]]
             if capability is None or not capability["enabled"]:
-                routes.append({"pipeline_id": pipeline, "disposition": "skipped", "fit": "not_evaluated", "reason": "Domain is disabled or not registered in the frozen catalog.", "angle": None, "outputs": []}); continue
+                routes.append({"pipeline_id": pipeline, "disposition": "skipped", "fit": "not_evaluated", "reason": "Domain is disabled or not registered in the frozen catalog.", "outputs": []}); continue
             if not capability["generation_ready"] or not outputs:
-                routes.append({"pipeline_id": pipeline, "disposition": "blocked", "fit": "credible_placeholder", "reason": "The configured placeholder has no ready generation/output binding.", "angle": {"angle_kind":"placeholder","canonical_target":snapshot["brief"]["canonical_target"],"audience":snapshot["brief"]["audience"],"thesis":snapshot["brief"]["editorial_goal"],"reader_value":snapshot["brief"]["desired_outcome"],"evidence_reference_ids":[]}, "outputs": []}); continue
+                routes.append({"pipeline_id": pipeline, "disposition": "blocked", "fit": "credible_placeholder", "reason": "The configured placeholder has no ready generation/output binding.", "outputs": []}); continue
             # Placeholder policy selects exactly one ready domain; real Gemini routing
             # replaces this after priced model configuration and fixture approval.
             if selected:
-                routes.append({"pipeline_id": pipeline, "disposition": "skipped", "fit": "not_selected", "reason": "Placeholder policy limits this fixture run to one domain.", "angle": None, "outputs": []}); continue
-            angle={"angle_kind":"explain","canonical_target":snapshot["brief"]["canonical_target"],"audience":snapshot["brief"]["audience"],"thesis":snapshot["brief"]["editorial_goal"],"reader_value":snapshot["brief"]["desired_outcome"],"evidence_reference_ids":[]}
-            routes.append({"pipeline_id": pipeline, "disposition": "selected", "fit": "placeholder_ready", "reason": "Ready operator fixture selected by deterministic placeholder routing.", "angle": angle, "outputs": outputs}); selected=True
+                routes.append({"pipeline_id": pipeline, "disposition": "skipped", "fit": "not_selected", "reason": "Placeholder policy limits this fixture run to one domain.", "outputs": []}); continue
+            routes.append({"pipeline_id": pipeline, "disposition": "selected", "fit": "placeholder_ready", "reason": "Ready operator fixture selected by deterministic placeholder routing.", "outputs": outputs}); selected=True
         outcome = "accepted" if selected else ("blocked" if any(route["disposition"] == "blocked" for route in routes) else "not_recommended")
         return self.store.record_decision(request, {"outcome": outcome, "opportunity_value": "placeholder assessment", "rationale": "No Gemini call was made; this is an explicit local placeholder decision.", "warnings": ["Gemini routing is disabled until model pricing and reviewed fixtures are activated."], "catalog": catalog, "routes": routes})
 

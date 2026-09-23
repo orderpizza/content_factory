@@ -1,4 +1,6 @@
 """Workflow planning; offline tests use temporary databases and fake providers."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from dashboard import render_workflow_trace
 from database.current import initialize_database
@@ -83,6 +85,7 @@ class DeterministicWorkflowTests(unittest.TestCase):
             self.assertEqual(request_id, store.create_human_idea("Explain why a practical AI tool matters to ordinary users.", command_id="idea-1"))
             self.assertIsNotNone(IdeaIntakeWorker(store).run_once())
             decision_id = DeterminationWorker(store).run_once()
+            EditorialPlanningWorker(store).run_once()
             self.assertIsNotNone(decision_id)
             routes = store.connection.execute("SELECT disposition FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
             self.assertEqual(len(routes), 3)
@@ -111,6 +114,7 @@ class DeterministicWorkflowTests(unittest.TestCase):
             store.create_human_idea("A sufficiently specific but unconfigured idea", command_id="idea-2")
             IdeaIntakeWorker(store).run_once()
             decision_id = DeterminationWorker(store).run_once()
+            EditorialPlanningWorker(store).run_once()
             outcome = store.connection.execute("SELECT outcome FROM determination_decisions WHERE determination_decision_id=?", (decision_id,)).fetchone()[0]
             routes = store.connection.execute("SELECT disposition,fit FROM determination_routes WHERE determination_decision_id=?", (decision_id,)).fetchall()
             self.assertEqual(outcome, "not_recommended")
@@ -166,6 +170,7 @@ class DeterministicWorkflowTests(unittest.TestCase):
             store.create_human_idea("Teach a practical meeting phrase.", command_id="review-idea")
             IdeaIntakeWorker(store).run_once()
             DeterminationWorker(store).run_once()
+            EditorialPlanningWorker(store).run_once()
             PipelineRunner(store).run_once()
             VisualPlanner(store).run_once()
             AdaptationWorker(store).run_once()

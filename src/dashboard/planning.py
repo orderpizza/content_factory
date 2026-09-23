@@ -12,7 +12,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
     revision_page = max(1, min(int(revision_page), 10000))
     message_page = max(1, min(int(message_page), 10000))
     parts = ["<section class='workflow card' id='threads'><h2>Ideas &amp; threads</h2>",
-             '<p>Detection goes directly to Determination with frozen source evidence. Human ideas go through Intake first. Each selected domain produces one ContentJob.</p>']
+             '<p>Detection goes directly to Determination with frozen source evidence. Human ideas go through Intake first. Selected domains proceed through Editorial Planning before ContentJob creation.</p>']
     parts.append(render_storage_status(connection))
 
     if interactive:
@@ -87,10 +87,8 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                 parts.append('<h4>Three domain routes</h4><div class="route-grid">')
                 for route in routes:
                     parts.append(f"<section class='route {text(route['disposition'])}'><h3>{text(route['pipeline_id'])} · {text(route['disposition'])}</h3><p><b>Fit:</b> {text(route['fit'])}</p><p>{text(route['reason'])}</p>")
-                    if route['angle_json']:
-                        angle = json.loads(route['angle_json'])
-                        parts.append('<dl>' + ''.join(f'<dt>{text(k.replace("_"," "))}</dt><dd>{text(v)}</dd>' for k,v in angle.items()) + '</dl>')
                     parts.append(json_detail('Output bindings and reasons', route['output_assessments_json']))
+                    parts.append(render_editorial_plan(connection, route['determination_route_id']))
                     job = connection.execute('SELECT * FROM content_jobs WHERE determination_route_id=?', (route['determination_route_id'],)).fetchone()
                     if job:
                         jid=job['content_job_id']
@@ -107,7 +105,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                         parts.append('<p>No ContentJob for this route.</p>')
                     parts.append('</section>')
                 parts.append('</div>')
-        invocations = connection.execute("SELECT * FROM model_invocations WHERE (entity_type='intake_request' AND entity_id IN (SELECT intake_request_id FROM intake_requests WHERE thread_id=?)) OR (entity_type='determination_request' AND entity_id IN (SELECT determination_request_id FROM determination_requests WHERE revision_id IN (SELECT revision_id FROM brief_revisions WHERE thread_id=?))) ORDER BY model_invocation_id DESC LIMIT 30", (tid,tid)).fetchall()
+        invocations = connection.execute("SELECT * FROM model_invocations WHERE (entity_type='intake_request' AND entity_id IN (SELECT intake_request_id FROM intake_requests WHERE thread_id=?)) OR (entity_type='determination_request' AND entity_id IN (SELECT determination_request_id FROM determination_requests WHERE revision_id IN (SELECT revision_id FROM brief_revisions WHERE thread_id=?))) OR (entity_type='editorial_plan_run' AND entity_id IN (SELECT editorial_plan_run_id FROM editorial_plan_runs WHERE revision_id IN (SELECT revision_id FROM brief_revisions WHERE thread_id=?))) ORDER BY model_invocation_id DESC LIMIT 30", (tid,tid,tid)).fetchall()
         if invocations:
             parts.append('<h4>Gemini activity (latest 30)</h4><ul>')
             for inv in invocations:
@@ -119,3 +117,18 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
             parts.append(link('← Newer brief revision', thread_id=tid, revision_page=revision_page-1))
         parts.append('</article>')
     return ''.join(parts) + '</section>'
+
+
+def render_editorial_plan(connection, route_id):
+    run = connection.execute('SELECT * FROM editorial_plan_runs WHERE determination_route_id=?', (route_id,)).fetchone()
+    if run is None:
+        return ''
+    result = f"<p><b>Editorial planning: {text(run['status'])}</b> {text(run['failure_reason'] or '')}</p>"
+    plan = connection.execute('SELECT plan_json FROM editorial_plans WHERE editorial_plan_run_id=?', (run['editorial_plan_run_id'],)).fetchone()
+    if plan:
+        value = json.loads(plan[0])
+        selected = next(c for c in value['candidates'] if c['candidate_id'] == value['selected_candidate_id'])
+        result += f"<p>{text(value['lane'])} · {text(selected['angle'])}</p>"
+        result += json_detail('Editorial plan: promise, candidates and selection', value)
+    result += json_detail('Editorial planning input / claim', dict(run), diagnostic=True)
+    return result

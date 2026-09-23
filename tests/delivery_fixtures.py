@@ -106,14 +106,22 @@ class DeliveryFixture:
         ).lastrowid
         route_id = store.connection.execute(
             "INSERT INTO determination_routes(determination_decision_id,pipeline_id,disposition,fit,"
-            "reason,angle_json,evidence_json,output_assessments_json,created_at) "
-            "VALUES (?,'english','selected','fixture','fixture','{}','[]','[]',?)",
+            "reason,evidence_json,output_assessments_json,created_at) "
+            "VALUES (?,'english','selected','fixture','fixture','[]','[]',?)",
             (decision_id, moment),
         ).lastrowid
+        editorial_run = store.connection.execute(
+            "INSERT INTO editorial_plan_runs(determination_route_id,revision_id,pipeline_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,'english','{}',?,'claimed',1,?)",
+            (route_id, revision_id, '4'*64, moment),
+        ).lastrowid
+        editorial_id = store.connection.execute(
+            "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,'english','evergreen','editorial_plan_v1','fixture',?,'{}',?)",
+            (editorial_run,route_id,revision_id,'4'*64,moment),
+        ).lastrowid
         job_id = store.connection.execute(
-            "INSERT INTO content_jobs(determination_route_id,brief_revision_id,pipeline_id,content_identity,"
-            "recipe_json,output_plan_json,priority,created_at) VALUES (?,?,'english',?,'{}','[]',50,?)",
-            (route_id, revision_id, digest({"job": platform, "sequence": sequence}), moment),
+            "INSERT INTO content_jobs(editorial_plan_id,determination_route_id,brief_revision_id,pipeline_id,content_identity,"
+            "recipe_json,output_plan_json,priority,created_at) VALUES (?,?,?,'english',?,'{}','[]',50,?)",
+            (editorial_id, route_id, revision_id, digest({"job": platform, "sequence": sequence}), moment),
         ).lastrowid
         generation_id = store.connection.execute(
             "INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at,completed_at) "

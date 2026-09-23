@@ -1,4 +1,6 @@
 """All domain review boundaries; temporary databases and fake providers only."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from common.timestamps import serialize_timestamp
 from copy import deepcopy
@@ -105,6 +107,7 @@ def prepare_domain(store, fixture, domain, origin='human', canonical_content=Non
     catalog = json.loads(snapshot[0])['catalog']
     fixture.assertIsNotNone(GeminiDeterminationWorker(store,
         FakeGeminiClient(fixture.decision(catalog, selected_pipeline=domain))).run_once())
+    EditorialPlanningWorker(store).run_once()
     fixture.assertIsNotNone(GeminiPipelineRunner(store,
         FakeGeminiClient(canonical_content or fixture.canonical_response(domain))).run_once())
     fixture.assertIsNotNone(VisualPlanner(store).run_once())

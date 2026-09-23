@@ -82,10 +82,11 @@ Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 | --- | --- | --- |
 | INTAKE | 8000 | 2000 |
 | DETERMINATION | 12000 | 4000 |
+| EDITORIAL_PLANNING | 12000 | 4000 |
 | GENERATION | 12000 | 4000 |
 | ADAPTATION | 12000 | 8000 |
 
-For Gemini 3 text models, Intake, Determination, Generation and Adaptation set
+For Gemini 3 text models, Intake, Determination, Editorial Planning, Generation and Adaptation set
 the provider thinking level to `LOW`; other text models receive no thinking-level
 setting. Thinking and JSON share the output allowance. Adaptation retains its 8000-token
 ceiling: the six-slide v2 response removed generic visual intent but no measured

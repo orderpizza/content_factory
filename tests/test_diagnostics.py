@@ -1,4 +1,6 @@
 """Diagnostics; offline tests use temporary databases and fake providers."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from common.operation_log import LOGGER, configure_logging, emit
 from io import StringIO
@@ -34,6 +36,7 @@ class DiagnosticLoggingTests(unittest.TestCase):
             store.create_human_idea('PRIVATE_HUMAN_SENTINEL',command_id='logged')
             GeminiIntakeWorker(store,FakeGeminiClient(brief())).run_once()
             GeminiDeterminationWorker(store,FakeGeminiClient(fixtures.GeminiWorkflowTests.decision(store.catalog()))).run_once()
+            EditorialPlanningWorker(store).run_once()
         emit('test','safe', status='failed', model_id='access_token=SECRET', prompt='PROMPT_SENTINEL', body='BODY_SENTINEL')
         lines = [json.loads(line) for line in output.getvalue().splitlines()]
         for forbidden in ('PRIVATE_HUMAN_SENTINEL','PROMPT_SENTINEL','BODY_SENTINEL','SECRET','break the ice'):
@@ -41,7 +44,8 @@ class DiagnosticLoggingTests(unittest.TestCase):
         decision = next(r for r in lines if r.get('decision_id'))
         self.assertEqual(decision['selected_count'],1)
         self.assertEqual(decision['skipped_count'],2)
-        self.assertTrue(decision['job_ids'])
+        self.assertTrue(decision['planning_run_ids'])
+        self.assertEqual(decision['job_ids'], [])
         self.assertTrue(any(r['event']=='model_result' and r.get('model_id') for r in lines))
 
     def test_rotating_logs_are_bounded_and_do_not_touch_other_files(self):

@@ -1,6 +1,7 @@
 """Offline boundary tests for opt-in Gemini Intake and Determination."""
 
 from __future__ import annotations
+from workflow.editorial_planning import EditorialPlanningWorker
 from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
 from copy import deepcopy
 from database.current import initialize_database
@@ -106,13 +107,6 @@ class GeminiWorkflowTests(unittest.TestCase):
                     "The idea directly teaches an English expression."
                     if selected else "This domain would not add distinct reader value."
                 ),
-                "angle": ({
-                    "angle_kind": "expression_in_context",
-                    "canonical_target": "break the ice: business meetings",
-                    "audience": "intermediate English learners",
-                    "thesis": "Use the expression to describe easing initial social tension.",
-                    "reader_value": "Apply the idiom naturally in a first meeting.",
-                } if selected else None),
                 "outputs": (
                     next(item for item in catalog if item["pipeline_id"] == pipeline)["outputs"]
                     if selected else []
@@ -202,6 +196,7 @@ class GeminiWorkflowTests(unittest.TestCase):
         GeminiDeterminationWorker(
             store, FakeGeminiClient(self.decision(catalog, selected_pipeline="english"))
         ).run_once()
+        EditorialPlanningWorker(store).run_once()
         canonical_id = GeminiPipelineRunner(
             store, FakeGeminiClient(self.canonical_response("english"))
         ).run_once()
@@ -280,9 +275,10 @@ class GeminiWorkflowTests(unittest.TestCase):
             ).fetchone()[0])["catalog"]
             client = FakeGeminiClient(self.decision(catalog))
             decision_id = GeminiDeterminationWorker(store, client).run_once()
+            EditorialPlanningWorker(store).run_once()
             self.assertIsNotNone(decision_id)
             routes = store.connection.execute(
-                "SELECT pipeline_id,disposition,reason,angle_json FROM determination_routes "
+                "SELECT pipeline_id,disposition,reason FROM determination_routes "
                 "WHERE determination_decision_id=? ORDER BY pipeline_id",
                 (decision_id,),
             ).fetchall()
@@ -290,7 +286,6 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(sum(route["disposition"] == "selected" for route in routes), 1)
             self.assertTrue(all(route["reason"] for route in routes))
             selected = next(route for route in routes if route["disposition"] == "selected")
-            self.assertIsNotNone(selected["angle_json"])
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_jobs").fetchone()[0], 1)
             self.assertIs(client.calls[0]["schema"], DETERMINATION_SCHEMA)
             self.assertIn("all three domain", client.calls[0]["prompt"])
@@ -306,6 +301,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             response["opportunity_value"] = "Too vague to justify content production."
             response["rationale"] = "None of the domains can add sufficient reader value."
             decision_id = GeminiDeterminationWorker(store, FakeGeminiClient(response)).run_once()
+            EditorialPlanningWorker(store).run_once()
             self.assertIsNotNone(decision_id)
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_jobs").fetchone()[0], 0)
             routes = store.connection.execute(
@@ -319,7 +315,7 @@ class GeminiWorkflowTests(unittest.TestCase):
         mutations = {
             "missing_route": lambda response: response["routes"].pop(),
             "wrong_route_count": lambda response: response["routes"].append(deepcopy(response["routes"][0])),
-            "selected_without_angle": lambda response: response["routes"][0].update({"angle": None}),
+            "selected_without_reason": lambda response: response["routes"][0].update({"reason": ""}),
         }
         with WorkflowStore(self.path) as store:
             self.register_catalog(store)
@@ -335,11 +331,11 @@ class GeminiWorkflowTests(unittest.TestCase):
                     ).fetchone()
                     catalog = json.loads(request["input_snapshot_json"])["catalog"]
                     response = self.decision(catalog)
-                    response["routes"][0]["angle"]["canonical_target"] = target
                     mutate(response)
                     self.assertIsNone(
                         GeminiDeterminationWorker(store, FakeGeminiClient(response)).run_once()
                     )
+                    EditorialPlanningWorker(store).run_once()
                     failed = store.connection.execute(
                         "SELECT status FROM determination_requests WHERE determination_request_id=?",
                         (request["determination_request_id"],),
@@ -366,6 +362,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                         store,
                         FakeGeminiClient(self.decision(catalog, selected_pipeline=pipeline)),
                     ).run_once()
+                    EditorialPlanningWorker(store).run_once()
                     client = FakeGeminiClient(self.canonical_response(pipeline))
                     canonical_id = GeminiPipelineRunner(store, client).run_once()
                     self.assertIsNotNone(canonical_id)
@@ -408,6 +405,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             GeminiDeterminationWorker(
                 store, FakeGeminiClient(self.decision(catalog, selected_pipeline="english"))
             ).run_once()
+            EditorialPlanningWorker(store).run_once()
             response = self.canonical_response("english")
             del response["domain_payload"]["plain_meaning"]
             self.assertIsNone(GeminiPipelineRunner(store, FakeGeminiClient(response)).run_once())

@@ -71,7 +71,7 @@ it is not recomputed by the dashboard.
 Operations show active source configuration, latest collection/health/failure,
 recent Scout evaluations, worker heartbeats with freshness, and recent
 substantive worker runs. Idle polls do not append run history. Queue summaries
-show Intake, Determination and Generation counts by persisted status.
+show Intake, Determination, Editorial Planning and Generation counts by persisted status.
 
 ## Human ideation and routing visibility
 
@@ -84,8 +84,11 @@ thread. It shows origin, status, updated time, row version and Detection backlin
 - Current full brief; thread detail can page through every prior revision.
 - Frozen source/conversation context and creation-time capability catalog.
 - Determination status, outcome, opportunity value, rationale and warnings.
-- All three route cards, including fit, stopping reasons, selected angle fields,
+- All three route cards, including fit, stopping reasons, editorial planning status/failure,
   output bindings and resulting immutable ContentJob recipe/output plan.
+- Expandable EditorialPlan: lane, selected angle, reader promise, why-now,
+  alternatives, selection dimensions/rationale, must-cover points and provenance.
+  Job details expose the same plan alongside generation evidence.
 - Generation, visual planning, adaptation and rendering progress for each job,
   including blocked rendering reasons and exact six-slide review assets for English, AI/Tech and Psychology.
 - Recent Gemini invocation outcome, model, token usage, estimated cost and safe
@@ -114,7 +117,7 @@ same-origin snapshot requests.
 Advisory storage observation displays missing/stale/clock-invalid samples separately from
 measured disk pressure, with last sample time, free bytes and a model-free recovery
 command. None of these conditions prevents ideas, refinements, Intake, Detection,
-Determination or ContentJob creation. Actual SQLite/OS write errors still fail.
+Determination, Editorial Planning or ContentJob creation. Actual SQLite/OS write errors still fail.
 Operations shows up to 31 daily growth measurements, component sizes,
 row deltas and JSON-byte totals by table. Measurements can be partial under their
 time limit; absence of samples never implies zero growth.

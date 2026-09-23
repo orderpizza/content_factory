@@ -6,8 +6,9 @@ three domains: `english`, `ai_tech`, `psychology`. Each domain has one Instagram
 destination.
 
 ```text
-Sources / Human ideas → Detection / Intake → Determination → ContentJob
-→ Canonical generation → Instagram adaptation → Gemini rendering → Review
+Sources / Human ideas → Detection / Intake → Determination
+→ Editorial Planning → immutable EditorialPlan → ContentJob
+→ Canonical generation → Visual planning → Instagram adaptation → Gemini rendering → Review
 ```
 
 All three domains produce six 1080×1350 Instagram review PNGs using one Gemini

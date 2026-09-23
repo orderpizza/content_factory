@@ -504,14 +504,52 @@ CREATE TABLE determination_routes (
     pipeline_id TEXT NOT NULL,
     disposition TEXT NOT NULL CHECK (disposition IN ('selected','skipped','blocked')),
     fit TEXT NOT NULL, reason TEXT NOT NULL,
-    angle_json TEXT CHECK (angle_json IS NULL OR json_valid(angle_json)),
     evidence_json TEXT NOT NULL CHECK (json_valid(evidence_json)),
     output_assessments_json TEXT NOT NULL CHECK (json_valid(output_assessments_json)),
     created_at TEXT NOT NULL,
     UNIQUE(determination_decision_id,pipeline_id)
 );
 
+CREATE TABLE editorial_plan_runs (
+    editorial_plan_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    determination_route_id INTEGER NOT NULL UNIQUE REFERENCES determination_routes(determination_route_id),
+    revision_id INTEGER NOT NULL REFERENCES brief_revisions(revision_id),
+    pipeline_id TEXT NOT NULL CHECK(pipeline_id IN ('english','ai_tech','psychology')),
+    input_snapshot_json TEXT NOT NULL CHECK(json_valid(input_snapshot_json)),
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64),
+    status TEXT NOT NULL CHECK(status IN ('pending','claimed','retry_wait','succeeded','failed','cancelled')),
+    claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT,
+    claim_version INTEGER NOT NULL DEFAULT 0, attempt_count INTEGER NOT NULL DEFAULT 0,
+    attempt_limit INTEGER NOT NULL CHECK(attempt_limit>0), next_attempt_at TEXT,
+    failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT
+);
+CREATE INDEX ix_editorial_pickup ON editorial_plan_runs(status,next_attempt_at,created_at);
+CREATE TABLE editorial_plans (
+    editorial_plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    editorial_plan_run_id INTEGER NOT NULL UNIQUE REFERENCES editorial_plan_runs(editorial_plan_run_id),
+    determination_route_id INTEGER NOT NULL UNIQUE REFERENCES determination_routes(determination_route_id),
+    brief_revision_id INTEGER NOT NULL REFERENCES brief_revisions(revision_id),
+    pipeline_id TEXT NOT NULL CHECK(pipeline_id IN ('english','ai_tech','psychology')),
+    lane TEXT NOT NULL CHECK(lane IN ('trend','evergreen','series','experiment')),
+    schema_version TEXT NOT NULL CHECK(schema_version='editorial_plan_v1'),
+    planner_version TEXT NOT NULL,
+    input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64),
+    plan_json TEXT NOT NULL CHECK(json_valid(plan_json)),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX ix_editorial_history ON editorial_plans(pipeline_id,editorial_plan_id DESC);
+CREATE TRIGGER editorial_input_immutable BEFORE UPDATE OF determination_route_id,revision_id,pipeline_id,input_snapshot_json,input_fingerprint ON editorial_plan_runs
+BEGIN SELECT RAISE(ABORT,'editorial input is immutable'); END;
+CREATE TRIGGER editorial_plan_immutable BEFORE UPDATE ON editorial_plans
+BEGIN SELECT RAISE(ABORT,'editorial plan is immutable'); END;
+CREATE TRIGGER editorial_plan_no_delete BEFORE DELETE ON editorial_plans
+BEGIN SELECT RAISE(ABORT,'editorial plan is immutable'); END;
+CREATE TRIGGER editorial_plan_lineage BEFORE INSERT ON editorial_plans
+WHEN NOT EXISTS (SELECT 1 FROM editorial_plan_runs r WHERE r.editorial_plan_run_id=NEW.editorial_plan_run_id AND r.determination_route_id=NEW.determination_route_id AND r.revision_id=NEW.brief_revision_id AND r.pipeline_id=NEW.pipeline_id AND r.input_fingerprint=NEW.input_fingerprint AND r.status='claimed')
+BEGIN SELECT RAISE(ABORT,'editorial plan lineage mismatch'); END;
+
 CREATE TABLE content_jobs (
+    editorial_plan_id INTEGER NOT NULL UNIQUE REFERENCES editorial_plans(editorial_plan_id),
     content_job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     determination_route_id INTEGER NOT NULL UNIQUE REFERENCES determination_routes(determination_route_id) ON DELETE RESTRICT,
     brief_revision_id INTEGER NOT NULL REFERENCES brief_revisions(revision_id) ON DELETE RESTRICT,
@@ -1036,7 +1074,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 11;
+PRAGMA user_version = 12;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)
@@ -1059,3 +1097,20 @@ CREATE TRIGGER package_visual_lineage_immutable BEFORE UPDATE OF output_request_
 BEGIN SELECT RAISE(ABORT, 'content package is immutable'); END;
 CREATE TRIGGER render_visual_lineage_immutable BEFORE UPDATE OF content_package_id,visual_recipe_id ON render_runs
 BEGIN SELECT RAISE(ABORT, 'render lineage is immutable'); END;
+
+CREATE TRIGGER content_job_editorial_lineage BEFORE INSERT ON content_jobs
+WHEN NOT EXISTS (SELECT 1 FROM editorial_plans p WHERE p.editorial_plan_id=NEW.editorial_plan_id AND p.determination_route_id=NEW.determination_route_id AND p.brief_revision_id=NEW.brief_revision_id AND p.pipeline_id=NEW.pipeline_id)
+BEGIN SELECT RAISE(ABORT,'ContentJob requires matching editorial plan'); END;
+CREATE TRIGGER content_job_immutable BEFORE UPDATE ON content_jobs
+BEGIN SELECT RAISE(ABORT,'ContentJob is immutable'); END;
+
+CREATE TRIGGER editorial_run_lineage BEFORE INSERT ON editorial_plan_runs
+WHEN NOT EXISTS (
+    SELECT 1 FROM determination_routes r
+    JOIN determination_decisions d USING(determination_decision_id)
+    JOIN determination_requests q USING(determination_request_id)
+    WHERE r.determination_route_id=NEW.determination_route_id
+      AND r.pipeline_id=NEW.pipeline_id AND r.disposition='selected'
+      AND q.revision_id=NEW.revision_id
+)
+BEGIN SELECT RAISE(ABORT,'editorial run requires selected route lineage'); END;

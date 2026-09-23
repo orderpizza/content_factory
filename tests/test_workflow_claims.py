@@ -1,4 +1,6 @@
 """Workflow claims; offline tests use temporary databases and fake providers."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from database.current import initialize_database
 from detection.configuration import load_manifest
@@ -86,6 +88,7 @@ class WorkflowClaimTests(unittest.TestCase):
     def test_cancellation_fences_every_downstream_finalizer(self):
         stages = [
             ("determination_requests", "determination_request_id", DeterminationWorker, "determination_decisions"),
+            ("editorial_plan_runs", "editorial_plan_run_id", EditorialPlanningWorker, "editorial_plans"),
             ("generation_runs", "generation_run_id", PipelineRunner, "canonical_contents"),
             ("visual_plan_runs", "visual_plan_run_id", VisualPlanner, "visual_recipes"),
             ("adaptation_runs", "adaptation_run_id", AdaptationWorker, "content_packages"),

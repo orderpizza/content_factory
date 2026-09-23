@@ -1,4 +1,6 @@
 """Nine curated templates, immutable pre-adaptation selection and exact prompt coverage."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 from copy import deepcopy
 from dataclasses import asdict
 from hashlib import sha256
@@ -279,6 +281,7 @@ class CuratedWorkflowTests(unittest.TestCase):
                 snapshot = store.connection.execute("SELECT input_snapshot_json FROM determination_requests WHERE status='pending'").fetchone()
                 decision = f.decision(json.loads(snapshot[0])['catalog'], selected_pipeline=domain)
                 self.assertIsNotNone(GeminiDeterminationWorker(store, FakeGeminiClient(decision)).run_once())
+                EditorialPlanningWorker(store).run_once()
                 self.assertIsNotNone(GeminiPipelineRunner(store, FakeGeminiClient(f.canonical_response(domain))).run_once())
                 self.assertIsNotNone(VisualPlanner(store).run_once())
             plan_next('english', 'a second expression')

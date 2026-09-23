@@ -1,4 +1,6 @@
 """Offline acceptance for the two dashboard-visible planning paths."""
+from workflow.editorial_planning import EditorialPlanningWorker, GeminiEditorialPlanningWorker, fixture_plan
+
 
 from common.timestamps import serialize_timestamp
 from contextlib import redirect_stdout
@@ -36,7 +38,7 @@ class PlanningFlowTests(unittest.TestCase):
 
     def test_fresh_setup_has_current_schema_catalog_and_no_external_work(self):
         with WorkflowStore(self.path) as store:
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 11)
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 12)
             self.assertEqual(len(store.catalog()), 3)
             self.assertTrue(all(len(c['outputs'])==1 and c['remit']['description'] for c in store.catalog()))
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_threads').fetchone()[0], 0)
@@ -57,6 +59,7 @@ class PlanningFlowTests(unittest.TestCase):
             GeminiIntakeWorker(store, FakeGeminiClient(brief())).run_once()
             decision = gemini_fixtures.GeminiWorkflowTests.decision(store.catalog())
             GeminiDeterminationWorker(store, FakeGeminiClient(decision)).run_once()
+            EditorialPlanningWorker(store).run_once()
             html = render_threads(store.connection, thread_id=row[0], interactive=True)
             for fragment in ['break the ice', 'business meetings', 'ContentJob #1', 'Three domain routes', 'english', 'psychology', 'fake-gemini', 'Frozen Determination input']:
                 self.assertIn(fragment, html)
@@ -92,6 +95,14 @@ class PlanningFlowTests(unittest.TestCase):
             self.assertEqual(len(frozen['catalog']),3)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM intake_requests').fetchone()[0],0)
             GeminiDeterminationWorker(store,FakeGeminiClient(gemini_fixtures.GeminiWorkflowTests.decision(frozen['catalog'],selected_pipeline='ai_tech'))).run_once()
+            planning_run = store.connection.execute('SELECT * FROM editorial_plan_runs').fetchone()
+            planning_input = json.loads(planning_run['input_snapshot_json'])
+            plan = fixture_plan(planning_input)
+            plan['lane'] = 'trend'
+            plan['why_now'] = 'Frozen sources record this product announcement at the Detection handoff.'
+            plan['candidates'][0]['evidence_reference_ids'] = planning_input['allowed_evidence_reference_ids'][:1]
+            self.assertIsNotNone(GeminiEditorialPlanningWorker(store, FakeGeminiClient(plan)).run_once())
+            self.assertEqual(store.connection.execute('SELECT lane FROM editorial_plans').fetchone()[0], 'trend')
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0],1)
             row = store.connection.execute('SELECT * FROM content_threads').fetchone()
             store.continue_human_thread(row['thread_id'],'Explain practical use cases',command_id='refine',expected_row_version=row['row_version'])

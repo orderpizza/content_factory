@@ -13,10 +13,10 @@
   Do not introduce direct worker calls, distributed queues or cloud workers.
 - Detection is LLM-free: deterministic lexical canonicalization, local MiniLM
   resolution and frozen deterministic scoring. Gemini is limited to Intake,
-  Determination, canonical generation, Instagram adaptation and image rendering.
+  Determination, Editorial Planning, canonical generation, Instagram adaptation and image rendering.
 - Use Source / Feed, Raw Feed Item, Cluster, Opportunity, Determination Decision
   and ContentJob. An Opportunity requires a committed Detection handoff.
-- A selected domain/angle creates a job. Generate platform-neutral canonical
+- A selected domain creates Editorial Planning work; its immutable plan creates a job. Generate platform-neutral canonical
   content once per job, then adapt for its Instagram destination.
   The only domains are `english`, `ai_tech`, `psychology`.
   Domain IDs are not account IDs.

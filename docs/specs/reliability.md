@@ -12,7 +12,7 @@ work is not silently polled again. Existing model-call history prevents blind
 paid replay. [Runtime](runtime.md#claims-and-recovery) owns process behavior.
 
 Each successful boundary commits output and downstream requests atomically.
-Uniqueness guards one decision per request, job per selected route, canonical
+Uniqueness guards one decision per request, editorial plan per selected route, job per plan, canonical
 result per job, package per output and recipe per visual-plan run. Closed/cancelled threads fence downstream
 finalization. A human refinement does not cancel older jobs.
 
@@ -52,7 +52,7 @@ ceil(max_input_tokens × input_USD_per_million
 
 Settled cost plus outstanding reserved/uncertain cost counts toward the UTC-day
 limit. Generation, image rendering and all adaptation/metadata attempts also share their original
-job cap. Intake and Determination have no job yet and consume only the daily cap.
+job cap. Intake, Determination and Editorial Planning have no job yet and consume only the daily cap.
 Daily exhaustion defers without a provider call; job exhaustion fails visibly.
 Changing process configuration does not erase existing spend.
 
@@ -89,7 +89,7 @@ measurement. The dashboard exposes up to 31 daily measurements.
 
 Planning never consults storage admission. Missing, stale, clock-invalid or
 low-space samples do not block human ideas/refinements, Collection, Scout,
-Intake, Determination or ContentJob creation. Actual SQLite/OS writes can still
+Intake, Determination, Editorial Planning or ContentJob creation. Actual SQLite/OS writes can still
 fail. Monitor measurement failure is observable but does not stop planning.
 
 ### Storage action matrix

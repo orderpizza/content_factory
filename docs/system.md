@@ -17,7 +17,8 @@ Source / Feed → Collector → Raw Feed Item → lexical clustering
 Human idea / reply → ContentThread + IntakeRequest
 → clarification or BriefRevision + DeterminationRequest
 
-Determination → three domain assessments → selected ContentJob + GenerationRun
+Determination → three domain assessments → EditorialPlanRun
+→ immutable EditorialPlan + ContentJob + GenerationRun
 → canonical content → deterministic visual planning → Instagram adaptation
 → deterministic prompt compilation → Gemini rendering
 → ReviewRequest + exact slides → dashboard
@@ -27,7 +28,8 @@ SQLite is the only persisted cross-worker interface. Workers claim records; they
 never call the next worker. Detection is LLM-free: lexical `canonicalization_v2`,
 pinned local MiniLM resolution and frozen `attention_v3` scoring. It selects
 attention evidence, never editorial domains. Determination evaluates all three
-remits against immutable evidence and catalogs.
+remits against immutable evidence and catalogs. Editorial Planning selects the
+angle and content lane from bounded alternatives before creating a job.
 
 Each active account/domain has exactly three curated archetypes. The current
 visual registry uses the one-account-per-domain limitation; account-first
@@ -56,7 +58,7 @@ storage admission; monitoring remains advisory there.
 | Identity, transactions, schema initialization and record inventory | [Data model](specs/data-model.md) |
 | SQL/JSON contract ownership | [Contracts](contracts/README.md) |
 | Detection and semantic evidence | [Detection](specs/detection.md) |
-| Human conversation, briefs, three-domain decisions | [Intake and Determination](specs/idea-intake-and-determination.md) |
+| Human conversation, briefs, three-domain decisions and editorial planning | [Intake and Determination](specs/idea-intake-and-determination.md) |
 | Domain editorial policy | [Domains](pipelines/domains.md) |
 | Nonsecret releases and settings | [Configuration](specs/configuration.md) |
 | Dashboard visibility and commands | [Dashboard](specs/dashboard.md) |

@@ -15,8 +15,11 @@ from .preflight import inspect_smoke_readiness
 from .workers import DeterminationWorker, IdeaIntakeWorker
 
 __all__ = [
+    "EditorialPlanningWorker", "GeminiEditorialPlanningWorker",
     "WORKFLOW_PIPELINES", "WorkflowStore", "IdeaIntakeWorker", "DeterminationWorker",
     "GeminiIntakeWorker", "GeminiDeterminationWorker", "GeminiPipelineRunner",
     "GeminiAdaptationWorker", "VisualPlanner", "ModelBudgetPolicy",
     "ModelBudgetConfigurationError", "ModelBudgetExceeded", "inspect_smoke_readiness",
 ]
+
+from .editorial_planning import EditorialPlanningWorker, GeminiEditorialPlanningWorker

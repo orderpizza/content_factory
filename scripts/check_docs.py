@@ -92,7 +92,7 @@ def main():
             errors.append(f"Operator entrypoint is not documented: {script.name}")
     settings = (ROOT/"docs/specs/configuration.md").read_text()
     for key in re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M):
-        if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|GENERATION|ADAPTATION)_MAX_(INPUT|OUTPUT)_TOKENS", key):
+        if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|EDITORIAL_PLANNING|GENERATION|ADAPTATION)_MAX_(INPUT|OUTPUT)_TOKENS", key):
             errors.append(f"Undocumented environment variable: {key}")
     inventory = set(re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M))
     # Literal environment reads plus the existing bounded model-budget expansion.

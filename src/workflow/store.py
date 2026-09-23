@@ -21,6 +21,7 @@ from .catalog import DOMAIN_REMITS, WORKFLOW_PIPELINES
 from database.current import SchemaError, connect, validate_database
 
 CLAIM_KEYS = {
+    "editorial_plan_runs": "editorial_plan_run_id",
     "intake_requests": "intake_request_id", "determination_requests": "determination_request_id",
     "generation_runs": "generation_run_id", "adaptation_runs": "adaptation_run_id",
     "visual_plan_runs": "visual_plan_run_id",
@@ -362,6 +363,7 @@ class WorkflowStore:
         action = {
             "intake_requests": "planning",
             "determination_requests": "planning",
+            "editorial_plan_runs": "planning",
             "generation_runs": "creative",
             "adaptation_runs": "creative",
             "visual_plan_runs": "creative",
@@ -663,6 +665,7 @@ class WorkflowStore:
     def _cancel_if_closed(self, table: str, row: Any, moment: str) -> bool:
         """Called under the finalization write lock before any child insert."""
         joins = {
+            "editorial_plan_runs": "JOIN brief_revisions r ON r.revision_id=q.revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "intake_requests": "JOIN content_threads t ON t.thread_id=q.thread_id",
             "determination_requests": "JOIN brief_revisions r ON r.revision_id=q.revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "generation_runs": "JOIN content_jobs j ON j.content_job_id=q.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
@@ -734,7 +737,7 @@ class WorkflowStore:
                     "domain_pipeline_catalog_production_v1"
                     if self.catalog_kind == "production" else "domain_pipeline_catalog_v1"
                 ),
-                "routing_policy_version":"determination_policy_v1",
+                "routing_policy_version":"determination_policy_v2",
             }
             self.connection.execute("INSERT INTO determination_requests(revision_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,?,'pending',3,?)", (revision_id,canonical(snapshot_value),digest(snapshot_value),moment))
             self._finish_claim("intake_requests", "intake_request_id", request, "completed", moment, None)
@@ -815,6 +818,7 @@ class WorkflowStore:
         model_claims = {
             "intake_requests": "intake",
             "determination_requests": "determination",
+            "editorial_plan_runs": "editorial_planning",
             "generation_runs": "generation",
             "adaptation_runs": "adaptation",
             "render_runs": "image_rendering",
@@ -845,6 +849,14 @@ class WorkflowStore:
                 or current["lease_expires_at"] <= moment
             ):
                 raise RuntimeError("stale claim cannot start a model invocation")
+            if table == "editorial_plan_runs":
+                thread = self.connection.execute(
+                    "SELECT t.status FROM editorial_plan_runs e JOIN brief_revisions b ON b.revision_id=e.revision_id "
+                    "JOIN content_threads t USING(thread_id) WHERE e.editorial_plan_run_id=?",
+                    (entity_id,),
+                ).fetchone()
+                if thread is None or thread["status"] != "open":
+                    raise RuntimeError("closed thread cannot start editorial invocation")
             if table == "render_runs":
                 history = self.connection.execute(
                     "SELECT * FROM model_invocations WHERE entity_type='render_run' "
@@ -1022,8 +1034,6 @@ class WorkflowStore:
                 raise ValueError("every determination route requires a reason")
             if route["disposition"] not in {"selected", "skipped", "blocked"}:
                 raise ValueError("unsupported route disposition")
-            if route["disposition"] == "selected" and not route.get("angle"):
-                raise ValueError("selected routes require an angle")
             cap = next((c for c in frozen_catalog if c["pipeline_id"] == route["pipeline_id"]), None)
             outputs = route.get("outputs", [])
             if not isinstance(outputs, list):
@@ -1046,23 +1056,56 @@ class WorkflowStore:
                 return int(existing[0])
             request_snapshot = json.loads(request["input_snapshot_json"])
             revision = self.connection.execute("SELECT r.*,t.coverage_identity FROM brief_revisions r JOIN content_threads t ON t.thread_id=r.thread_id WHERE r.revision_id=?", (request["revision_id"],)).fetchone()
-            cur = self.connection.execute("INSERT INTO determination_decisions(determination_request_id,outcome,opportunity_value,rationale,warnings_json,coverage_identity,catalog_fingerprint,readiness_fingerprint,routing_policy_version,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (request["determination_request_id"],decision["outcome"],decision["opportunity_value"],decision["rationale"],canonical(decision.get("warnings",[])),revision["coverage_identity"],digest(decision["catalog"]),digest(decision["catalog"]),"determination_policy_v1",moment))
+            cur = self.connection.execute("INSERT INTO determination_decisions(determination_request_id,outcome,opportunity_value,rationale,warnings_json,coverage_identity,catalog_fingerprint,readiness_fingerprint,routing_policy_version,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (request["determination_request_id"],decision["outcome"],decision["opportunity_value"],decision["rationale"],canonical(decision.get("warnings",[])),revision["coverage_identity"],digest(decision["catalog"]),digest(decision["catalog"]),"determination_policy_v2",moment))
             decision_id=int(cur.lastrowid)
             for route in routes:
-                route_cur=self.connection.execute("INSERT INTO determination_routes(determination_decision_id,pipeline_id,disposition,fit,reason,angle_json,evidence_json,output_assessments_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (decision_id,route["pipeline_id"],route["disposition"],route["fit"],route["reason"],None if route.get("angle") is None else canonical(route["angle"]),canonical(route.get("evidence",[])),canonical(route.get("outputs",[])),moment))
+                route_cur=self.connection.execute("INSERT INTO determination_routes(determination_decision_id,pipeline_id,disposition,fit,reason,evidence_json,output_assessments_json,created_at) VALUES (?,?,?,?,?,?,?,?)", (decision_id,route["pipeline_id"],route["disposition"],route["fit"],route["reason"],canonical(route.get("evidence",[])),canonical(route.get("outputs",[])),moment))
                 if route["disposition"] == "selected":
-                    recipe={
-                        "brief": json.loads(revision["brief_json"]),
-                        "angle": route["angle"],
-                        "pipeline_id": route["pipeline_id"],
-                        "outputs": route["outputs"],
-                        "source_context": request_snapshot["source_context"],
-                    }
-                    self.connection.execute("INSERT INTO content_jobs(determination_route_id,brief_revision_id,pipeline_id,content_identity,recipe_json,output_plan_json,priority,created_at) VALUES (?,?,?,?,?,?,50,?)", (int(route_cur.lastrowid),revision["revision_id"],route["pipeline_id"],digest(recipe),canonical(recipe),canonical(route["outputs"]),moment))
-                    job_id=int(self.connection.execute("SELECT last_insert_rowid()").fetchone()[0])
-                    self.connection.execute("INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(job_id,moment))
+                    from .editorial_planning import freeze_input
+                    snapshot = freeze_input(self.connection, revision, request_snapshot, route, int(route_cur.lastrowid), moment)
+                    self.connection.execute(
+                        "INSERT INTO editorial_plan_runs(determination_route_id,revision_id,pipeline_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,?,?,?,'pending',3,?)",
+                        (route_cur.lastrowid, revision["revision_id"], route["pipeline_id"], canonical(snapshot), digest(snapshot), moment),
+                    )
             self._finish_claim("determination_requests","determination_request_id",request,"completed",moment,None)
             return decision_id
+
+    def complete_editorial_plan(self, run: Any, value: dict[str, Any], *, planner_version: str) -> int | None:
+        from .editorial_planning import validate_plan
+        persisted = self.connection.execute("SELECT * FROM editorial_plan_runs WHERE editorial_plan_run_id=?", (run["editorial_plan_run_id"],)).fetchone()
+        for field in ("determination_route_id", "revision_id", "pipeline_id", "input_snapshot_json", "input_fingerprint"):
+            if persisted is None or persisted[field] != run[field]:
+                raise ValueError("editorial input lineage mismatch")
+        snapshot = json.loads(run["input_snapshot_json"])
+        if digest(snapshot) != run["input_fingerprint"] or snapshot["brief_revision_id"] != run["revision_id"] or snapshot["determination_route_id"] != run["determination_route_id"] or snapshot["domain"] != run["pipeline_id"]:
+            raise ValueError("editorial input fingerprint/lineage mismatch")
+        if not isinstance(planner_version, str) or not planner_version.strip():
+            raise ValueError("planner version is required")
+        validate_plan(value, snapshot)
+        moment = now()
+        with self.transaction():
+            if self._cancel_if_closed("editorial_plan_runs", run, moment):
+                return None
+            plan = {**value, "schema_version": "editorial_plan_v1", "planner_version": planner_version,
+                    "brief_revision_id": run["revision_id"], "determination_route_id": run["determination_route_id"],
+                    "input_fingerprint": run["input_fingerprint"], "history": snapshot["history"]}
+            plan_id = int(self.connection.execute(
+                "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,?,?,'editorial_plan_v1',?,?,?,?)",
+                (run["editorial_plan_run_id"],run["determination_route_id"],run["revision_id"],run["pipeline_id"],value["lane"],planner_version,run["input_fingerprint"],canonical(plan),moment),
+            ).lastrowid)
+            selected = next(c for c in value["candidates"] if c["candidate_id"] == value["selected_candidate_id"])
+            recipe = {"brief": snapshot["brief"], "pipeline_id": run["pipeline_id"],
+                      "source_context": snapshot["source_context"], "outputs": snapshot["outputs"],
+                      "editorial_plan": plan, "editorial_plan_id": plan_id,
+                      "angle": {"angle_kind": selected["angle_type"], "canonical_target": snapshot["brief"]["canonical_target"],
+                                "thesis": selected["angle"], "audience": value["audience_intent"], "reader_value": selected["reader_promise"]}}
+            job = int(self.connection.execute(
+                "INSERT INTO content_jobs(editorial_plan_id,determination_route_id,brief_revision_id,pipeline_id,content_identity,recipe_json,output_plan_json,priority,created_at) VALUES (?,?,?,?,?,?,?,50,?)",
+                (plan_id,run["determination_route_id"],run["revision_id"],run["pipeline_id"],digest(recipe),canonical(recipe),canonical(snapshot["outputs"]),moment),
+            ).lastrowid)
+            self.connection.execute("INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)", (job,moment))
+            self._finish_claim("editorial_plan_runs","editorial_plan_run_id",run,"succeeded",moment,None)
+            return plan_id
 
     def create_canonical(self, run: Any, value: dict[str, Any]) -> int:
         moment=now()

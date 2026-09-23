@@ -13,22 +13,13 @@ from .workers import local_operation
 from .planning_context import model_context
 
 
-DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v2"
-DETERMINATION_SCHEMA_VERSION = "workflow_gemini_determination_result_v1"
-ANGLE_FIELDS = (
-    "angle_kind", "canonical_target", "audience", "thesis", "reader_value",
-)
+DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v3"
+DETERMINATION_SCHEMA_VERSION = "workflow_gemini_determination_result_v2"
 OUTPUT_FIELDS = (
     "output_binding_id", "platform", "account", "content_format",
     "output_contract_version", "ready", "safe_reason",
 )
 
-_ANGLE_SCHEMA = {
-    "type": "object",
-    "required": list(ANGLE_FIELDS),
-    "additionalProperties": False,
-    "properties": {field: {"type": "string"} for field in ANGLE_FIELDS},
-}
 _OUTPUT_SCHEMA = {
     "type": "object",
     "required": list(OUTPUT_FIELDS),
@@ -71,7 +62,6 @@ DETERMINATION_SCHEMA: dict[str, Any] = {
                     },
                     "fit": {"type": "string"},
                     "reason": {"type": "string"},
-                    "angle": {"anyOf": [_ANGLE_SCHEMA, {"type": "null"}]},
                     "outputs": {"type": "array", "items": _OUTPUT_SCHEMA},
                 },
             },
@@ -119,7 +109,7 @@ class GeminiDeterminationWorker:
             table="determination_requests",
             key="determination_request_id",
             row=request,
-            request_version=str(snapshot.get("routing_policy_version", "determination_policy_v1")),
+            request_version=str(snapshot.get("routing_policy_version", "determination_policy_v2")),
             prompt_version=DETERMINATION_PROMPT_VERSION,
             schema_version=DETERMINATION_SCHEMA_VERSION,
             request_value=model_input,
@@ -191,6 +181,8 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
     for route in routes:
         if not isinstance(route, Mapping):
             raise ValueError("each determination route must be an object")
+        if set(route) != {"pipeline_id", "disposition", "fit", "reason", "outputs"}:
+            raise ValueError("invalid closed domain assessment")
         pipeline_id = route["pipeline_id"]
         disposition = route.get("disposition")
         if disposition not in {"selected", "skipped", "blocked"}:
@@ -198,12 +190,8 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
         for field in ("fit", "reason"):
             if not isinstance(route.get(field), str) or not route[field].strip():
                 raise ValueError(f"{pipeline_id} route requires a non-empty {field}")
-        angle = route.get("angle")
         if disposition == "selected":
             selected_count += 1
-            _validate_angle(pipeline_id, angle)
-        elif angle is not None:
-            _validate_angle(pipeline_id, angle)
         if disposition == "blocked":
             blocked_count += 1
 
@@ -244,7 +232,6 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
             "disposition": disposition,
             "fit": route["fit"].strip(),
             "reason": route["reason"].strip(),
-            "angle": None if angle is None else {field: angle[field].strip() for field in ANGLE_FIELDS},
             "outputs": normalized_outputs,
         })
 
@@ -265,16 +252,10 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
     }
 
 
-def _validate_angle(pipeline_id: str, angle: Any) -> None:
-    if not isinstance(angle, Mapping):
-        raise ValueError(f"selected route {pipeline_id} requires a complete angle")
-    for field in ANGLE_FIELDS:
-        if not isinstance(angle.get(field), str) or not angle[field].strip():
-            raise ValueError(f"selected route {pipeline_id} angle requires {field}")
-
-
 def _determination_prompt(snapshot: dict[str, Any]) -> str:
     return """You are the Determination worker for a local content factory.
+Decide only whether this domain should cover the brief. Do not select an editorial
+angle or treatment; a separate Editorial Planning worker owns that decision.
 Evaluate the frozen brief and evidence independently against all three domain
 pipelines: english, ai_tech, and psychology. Return exactly one route assessment per domain. Be honest
 about weak fits: skipping is a successful decision. Select a domain only when

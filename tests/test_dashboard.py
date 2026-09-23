@@ -1,4 +1,6 @@
 """Dashboard; offline tests use temporary databases and fake providers."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from common.timestamps import serialize_timestamp
 from dashboard import render_detection_dashboard, render_workflow_trace
@@ -90,6 +92,7 @@ class DashboardRefreshTests(unittest.TestCase):
                 page.evaluate('window.draft=document.activeElement; window.scrollTo(0,250); window.scrollBefore=scrollY')
                 with WorkflowStore(self.path) as store:
                     GeminiDeterminationWorker(store,FakeGeminiClient(fixtures.GeminiWorkflowTests.decision(store.catalog()))).run_once()
+                    EditorialPlanningWorker(store).run_once()
                 with page.expect_response('**/snapshot?thread_id=1'):
                     page.clock.run_for(10050)
                 page.wait_for_function("() => document.getElementById('refresh-status').textContent.startsWith('Updated at')")
@@ -368,6 +371,7 @@ class DetectionDashboardTests(unittest.TestCase):
                 }],
             )
             decision_id = DeterminationWorker(workflow).run_once()
+            EditorialPlanningWorker(workflow).run_once()
             self.assertIsNotNone(decision_id)
             self.assertEqual(
                 workflow.connection.execute(

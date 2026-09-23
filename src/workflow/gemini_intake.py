@@ -177,7 +177,8 @@ def _validate_intake_response(value: Any) -> tuple[dict[str, Any], str | None]:
 def _intake_prompt(snapshot: dict[str, Any]) -> str:
     return """You are the Idea Intake worker for a local content factory.
 Interpret the delimited source context into one structured, route-neutral
-editorial brief. Do not select or recommend a domain pipeline, platform,
+editorial brief. Preserve explicit human treatment/angle intentions verbatim in
+constraints; do not replace them with a different strategic goal. Do not select or recommend a domain pipeline, platform,
 account, output format, or visual profile. Do not generate content. Preserve an
 existing brief's coverage_kind and canonical_target unless the human is clearly
 starting a materially different subject. If material context is insufficient,

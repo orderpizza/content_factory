@@ -1,4 +1,6 @@
 """Planning storage policy and four-stage dashboard lineage, entirely offline."""
+from workflow.editorial_planning import EditorialPlanningWorker
+
 
 from common.timestamps import serialize_timestamp
 from contextlib import redirect_stdout
@@ -58,8 +60,10 @@ class PlanningAdvisoryTests(unittest.TestCase):
         return path
 
     def decide(self, store, outcome='accepted'):
-        return GeminiDeterminationWorker(store, FakeGeminiClient(
+        result = GeminiDeterminationWorker(store, FakeGeminiClient(
             fixtures.GeminiWorkflowTests.decision(store.catalog(), outcome=outcome))).run_once()
+        EditorialPlanningWorker(store).run_once()
+        return result
 
     def test_every_advisory_condition_allows_clarification_refinement_and_contentjob(self):
         for value in CONDITIONS:
@@ -138,7 +142,7 @@ class PlanningAdvisoryTests(unittest.TestCase):
             store.create_human_idea('Teach break the ice', command_id='idea')
             monitor = StorageMonitor(store, self.temp.name, self.temp.name)
             workers = (monitor, GeminiIntakeWorker(store, FakeGeminiClient(brief())),
-                       GeminiDeterminationWorker(store, FakeGeminiClient(fixtures.GeminiWorkflowTests.decision(store.catalog()))))
+                       GeminiDeterminationWorker(store, FakeGeminiClient(fixtures.GeminiWorkflowTests.decision(store.catalog()))), EditorialPlanningWorker(store))
             with patch.object(monitor, 'run_once', side_effect=OSError('measurement unavailable')), redirect_stdout(StringIO()):
                 run_pass(workers)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0], 1)
