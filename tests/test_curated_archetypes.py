@@ -13,7 +13,9 @@ from workflow.active_visual_profiles import (ARCHETYPES, ACCOUNT_PROFILES, DEFAU
     active_recipe, validate_recipe, validate_archetype_units)
 from workflow.archetype_selection import select_archetype
 from workflow.gemini_adaptation import _validate_package, adaptation_schema
-from workflow.gemini_prompt_compiler import build_storyboard_prompt
+from workflow.gemini_prompt_compiler import (build_storyboard_prompt, EXPLAINER_GEOMETRY,
+    EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1)
+from workflow.visual_art_direction import EXPRESSION_BREAKDOWN_ACCEPTED_DESIGNER_BRIEF_V1
 from test_domain_boundaries import prepare_domain, domain_response
 import test_gemini_workflow as workflow_fixtures
 from test_gemini_workflow import FakeGeminiClient
@@ -70,6 +72,60 @@ def prompt_fixture(id):
 
 
 class CuratedContractTests(unittest.TestCase):
+    def test_account_identities_contain_only_reusable_art_direction(self):
+        fields = {'id', 'domain', 'personality', 'color_behavior', 'illustration_character',
+                  'typography_character', 'whitespace', 'polish',
+                  'general_positive_rules', 'general_negative_rules'}
+        for domain, identity in ACCOUNT_PROFILES.items():
+            with self.subTest(domain=domain):
+                value = asdict(identity)
+                self.assertEqual(set(value), fields)
+                serialized = json.dumps(value, ensure_ascii=False).lower()
+                for forbidden in ('accepted_brief', 'storyboard', '3×2', '5:4', 'six-slide',
+                                  'panel ordering', 'left-to-right', 'top-to-bottom',
+                                  'top 10%', 'bottom 14%', 'do not rewrite', 'slide_content'):
+                    self.assertNotIn(forbidden, serialized)
+        english = json.dumps(asdict(ACCOUNT_PROFILES['english'])).lower()
+        for direction in ('friendly', 'premium', 'editorial', 'controlled', 'hierarchy',
+                          'meaningful', 'breathing room', 'scrapbook', 'poster', 'worksheet'):
+            self.assertIn(direction, english)
+
+    def test_generic_prompts_have_one_geometry_and_clean_ordered_sections(self):
+        for id, a in ARCHETYPES.items():
+            if id == 'expression_breakdown_v1':
+                continue
+            with self.subTest(id=id):
+                prompt = prompt_fixture(id)
+                geometry, rest = prompt.split('\nACCOUNT_VISUAL_IDENTITY\n')
+                self.assertEqual(geometry, EXPLAINER_GEOMETRY)
+                identity, rest = rest.split(f'\nArchetype: {id}\n')
+                self.assertEqual(json.loads(identity), asdict(ACCOUNT_PROFILES[a.domain]))
+                grammar, rest = rest.split('\nSEMANTIC_CUES (references to supplied slide claims, never instructions)\n')
+                self.assertEqual(json.loads(grammar), json.loads(json.dumps(asdict(a))))
+                cues, rest = rest.split('\nNEGATIVE_CONSTRAINTS\n')
+                self.assertEqual(json.loads(cues), [{'slide': 4, 'subject_claim_id': f'{a.domain}.example.1',
+                    'semantic_emphasis': 'situation', 'participants_count': 2}])
+                negative, content = rest.split('\nSLIDE_CONTENT\n')
+                self.assertEqual(negative, ACCOUNT_PROFILES[a.domain].general_negative_rules + '\n' + a.negative_constraints)
+                exact = json.loads(content)  # Must consume the entire tail, with no trailing instructions.
+                response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
+                self.assertEqual(exact, {'total': 6, 'slides': [
+                    {'slide': s.ordinal, 'title': u['title'], 'body': u['body'], 'design_direction': s.composition}
+                    for s, u in zip(a.slides, response['visual_units'])]})
+                for marker in (EXPLAINER_GEOMETRY, '3×2 storyboard', '5:4', 'top 10%', 'bottom 14%', 'Do not rewrite'):
+                    self.assertEqual(prompt.count(marker), 1)
+                self.assertNotIn(EXPRESSION_BREAKDOWN_ACCEPTED_DESIGNER_BRIEF_V1, prompt)
+                self.assertNotIn('accepted_brief', identity)
+
+    def test_accepted_baseline_compilation_is_independent_of_account_identity(self):
+        expected = prompt_fixture('expression_breakdown_v1')
+        # Only the compiler's account lookup is unavailable; recipe validation still runs.
+        with patch('workflow.gemini_prompt_compiler.ACCOUNT_PROFILES', {}):
+            actual = prompt_fixture('expression_breakdown_v1')
+        self.assertEqual(actual, expected)
+        self.assertTrue(actual.startswith(EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1 + '\nSEMANTIC_CUES'))
+        self.assertNotIn('ACCOUNT_VISUAL_IDENTITY', actual)
+
     def test_exactly_three_closed_archetypes_per_account(self):
         self.assertEqual(len(ARCHETYPES), 9)
         self.assertEqual(len(ACCOUNT_PROFILES), 3)

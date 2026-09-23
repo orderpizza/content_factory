@@ -23,7 +23,10 @@ Each active Instagram account/domain has exactly three curated archetypes:
 
 `active_visual_profiles.py` owns closed frozen account and archetype definitions.
 Account identity specifies personality, color behavior, illustration, typography,
-whitespace, polish and positive/negative art direction. Identities are
+whitespace, polish and positive/negative art direction. `AccountVisualIdentity`
+contains only reusable brand/account art direction plus its ID and domain. It
+never contains renderer geometry, slide sequencing, compiler instructions or
+full prompt fragments. Identities are
 `o2english_visual_identity_v1`, `ai_tech_visual_identity_v1` and
 `psychology_visual_identity_v1`. The planner checks the actual frozen account and
 platform against its configured domain binding; profile IDs are design identities,
@@ -104,12 +107,22 @@ It loads account identity and the selected archetype's directions from
 `active_visual_profiles.py` / `visual_art_direction.py`, validates copy capacity
 and claim-referenced cues, and serializes geometry, account identity, archetype
 and grammar, semantic cues, negative constraints and exact slide text in a stable
-order. Exact text is last. The accepted English baseline deliberately retains its
-original serialization and wording when cues are empty; its geometry and account
-art direction are already in the accepted brief. Its frozen full-prompt hash and
-six overlay pixel hashes remain unchanged. Every archetype also has an exact
-prompt hash fixture including a semantic cue. AI/Tech and Psychology retain their
-accepted account art direction and baseline slide directions.
+order. Exact text is last. Specialized English, AI/Tech and Psychology archetypes
+use this generic path, with geometry supplied once and only the clean identity
+serialized in the account section.
+
+`expression_breakdown_v1` alone uses the compiler's dedicated
+`_build_accepted_expression_breakdown_prompt` compatibility path and
+`EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1`. Its frozen designer brief lives
+in `visual_art_direction.py`, outside account identity. This deliberately retains
+the accepted baseline's original serialization and wording when cues are empty;
+nonempty cues retain their existing insertion before exact slide text. It is a
+baseline-preservation exception, not another visual-template layer. Reusable
+English art direction is represented independently in the account fields used by
+the generic path. The baseline's frozen full-prompt hash and six overlay pixel
+hashes remain unchanged. Every archetype also has an exact
+prompt hash fixture including a semantic cue. AI/Tech and Psychology use their
+reusable identity fields and unchanged baseline slide directions.
 
 The renderer contains no creative policy. It executes the compiled prompt with
 one Gemini call, then processes the result. The compiler never calls a model.

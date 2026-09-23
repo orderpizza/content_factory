@@ -1,4 +1,4 @@
-"""Curated account and baseline archetype art direction, consumed only by the compiler."""
+"""Archetype directions and the isolated accepted English prompt compatibility brief."""
 EXPRESSION_BREAKDOWN_BRIEF = """Archetype: expression_breakdown_v1
 
 Semantic sequence:
@@ -19,7 +19,8 @@ EXPRESSION_ROLE_DIRECTIONS = (
     "Make this a clean, memorable closing summary with an obvious recap hierarchy.",
 )
 
-STORYBOARD_DESIGNER_BRIEF = """Act as a senior educational editorial designer and social-media art director.
+# Frozen prompt wording for expression_breakdown_v1 only, never account identity.
+EXPRESSION_BREAKDOWN_ACCEPTED_DESIGNER_BRIEF_V1 = """Act as a senior educational editorial designer and social-media art director.
 
 Design one complete six-slide Instagram educational carousel as a single 3×2 storyboard
 image. The six clearly separated panels represent individual 4:5 portrait Instagram slides,
@@ -50,21 +51,6 @@ style, and polish, but each must use the composition that best teaches its conte
 panel visually self-contained and clearly separated from neighboring panels.
 """
 
-AI_TECH_DESIGNER_BRIEF = """Act as a senior technology editorial designer and software/product art director.
-Create modern, clean, credible, technical but accessible technology education
-with high-information clarity and contemporary software/product design.
-Use interface-inspired cards, clean annotated diagrams, process flows,
-before/after comparisons, abstract technology illustrations, concise callouts,
-meaningful icons and restrained gradients where they explain the supplied text.
-Build visual hierarchy around the practical implication.
-Avoid glowing robot heads, ubiquitous humanoid robots, neon cyberpunk backgrounds,
-random circuit-board patterns, floating binary digits, generic blue holograms,
-excessive futuristic chrome and meaningless network-node graphics.
-Aim for high-quality modern technology editorial content, not generic AI stock art.
-No provider logo or source-specific branding belongs in the base design. Do not
-adopt OpenAI, Google, Anthropic or Microsoft branding; only depict a product/logo
-if the supplied content specifically requires it and it can be represented accurately.
-"""
 AI_TECH_ROLE_DIRECTIONS = (
     "Use a strong headline and one clear visual idea; make the central change or topic immediately identifiable.",
     "Explain the actual feature, development or concept with structured cards or a simple annotated conceptual visual.",
@@ -74,22 +60,6 @@ AI_TECH_ROLE_DIRECTIONS = (
     "Use clean summary hierarchy, one memorable conclusion and minimal visual clutter.",
 )
 
-PSYCHOLOGY_DESIGNER_BRIEF = """Act as a senior behavioral-education editorial designer and human-centered art director.
-Create warm, thoughtful, evidence-aware, calm, approachable editorial education.
-Use simple people/character illustrations, social situations, conversational
-moments, conceptual metaphors, paired scenarios, behavior cues, subtle diagrams,
-grouped observations and practical-response cards when they clarify the content.
-Preserve distinctions between observation, inference, alternative explanations,
-practical implication and qualification in visual hierarchy. Never make a qualified
-explanation look like an absolute psychological claim or scientifically proven fact.
-Avoid dramatic dark psychology aesthetics, sinister silhouettes, manipulation
-imagery, puppet strings, glowing brains, exaggerated emotional faces,
-pseudo-clinical diagnostic presentation and therapy-office clichés. Medical brain
-scans are inappropriate unless the supplied content actually requires them.
-Aim for credible behavioral education, not viral pop-psychology manipulation content.
-Do not imitate journal or healthcare brands. No diagnosis or medical advice may
-be added through either text or visual implication.
-"""
 PSYCHOLOGY_ROLE_DIRECTIONS = (
     "Show a recognizable human situation or observed pattern without implying diagnosis.",
     "Explain the concept or interpretation clearly; distinguish an interpretation from the observation.",
@@ -98,4 +68,3 @@ PSYCHOLOGY_ROLE_DIRECTIONS = (
     "Use practical-response cards for usable, non-clinical guidance; do not turn education into medical advice.",
     "Summarize the practical lesson while preserving qualification or alternative explanations; never erase earlier nuance.",
 )
-

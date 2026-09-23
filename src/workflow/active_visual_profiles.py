@@ -5,9 +5,7 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
 from .visual_art_direction import (
-    STORYBOARD_DESIGNER_BRIEF, EXPRESSION_ROLE_DIRECTIONS,
-    AI_TECH_DESIGNER_BRIEF, AI_TECH_ROLE_DIRECTIONS,
-    PSYCHOLOGY_DESIGNER_BRIEF, PSYCHOLOGY_ROLE_DIRECTIONS,
+    EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
 PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v2"
@@ -75,6 +73,7 @@ def validate_expression_units(units: list[Mapping[str, Any]]) -> None:
 
 @dataclass(frozen=True)
 class AccountVisualIdentity:
+    """Reusable account art direction only; no geometry, slide grammar or prompt fragments."""
     id: str
     domain: str
     personality: str
@@ -85,7 +84,6 @@ class AccountVisualIdentity:
     polish: str
     general_positive_rules: str
     general_negative_rules: str
-    accepted_brief: str
 
 
 ACCOUNT_PROFILES = {
@@ -93,20 +91,23 @@ ACCOUNT_PROFILES = {
         'Friendly premium educational editorial', 'Bold but controlled coherent color',
         'Supporting expressive characters and meaningful icons', 'Strong expression-first hierarchy',
         'Intentional breathing room', 'Human-designed editorial finish',
-        'One obvious reading order; teaching comes first',
-        'No poster collage, cramped copy, washed-out blobs or thin-line-only scenes', STORYBOARD_DESIGNER_BRIEF),
+        'One obvious reading order; teaching comes first; clear visual grouping; '
+        'meaningful illustrations support the lesson; restrained highlights and accents',
+        'No poster collage, scrapbook, worksheet, art print, dense infographic, PowerPoint '
+        'or corporate dashboard aesthetics; no cramped copy, washed-out blobs, thin-line-only scenes, '
+        'decorations overlapping text, oversized illustrations, excessive stickers or visual noise'),
     'ai_tech': AccountVisualIdentity('ai_tech_visual_identity_v1', 'ai_tech',
         'Credible accessible technology editorial', 'Restrained contemporary color',
         'Conceptual software and mechanism illustrations', 'Clear technical hierarchy',
         'Generous separation', 'Modern product editorial finish',
         'Make practical implications and limitations equally readable',
-        'No cyberpunk, robot stock art, invented screenshots or unrequested provider brands', AI_TECH_DESIGNER_BRIEF),
+        'No cyberpunk, robot stock art, invented screenshots or unrequested provider brands'),
     'psychology': AccountVisualIdentity('psychology_visual_identity_v1', 'psychology',
         'Warm thoughtful evidence-aware education', 'Calm warm controlled color',
         'Relatable people and qualified conceptual metaphors', 'Approachable readable hierarchy',
         'Calm space around observations and qualifications', 'Careful editorial finish',
         'Distinguish observation, inference and alternative explanations',
-        'No diagnosis, manipulation imagery, pseudo-clinical evidence or asserted motives', PSYCHOLOGY_DESIGNER_BRIEF),
+        'No diagnosis, manipulation imagery, pseudo-clinical evidence or asserted motives'),
 }
 
 OVERLAY_PROFILES = {
