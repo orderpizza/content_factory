@@ -89,8 +89,9 @@ thread. It shows origin, status, updated time, row version and Detection backlin
 - Expandable EditorialPlan: lane, selected angle, reader promise, why-now,
   alternatives, selection dimensions/rationale, must-cover points and provenance.
   Job details expose the same plan alongside generation evidence.
-- Generation, visual planning, adaptation and rendering progress for each job,
-  including blocked rendering reasons and exact six-slide review assets for English, AI/Tech and Psychology.
+- Generation, visual planning, adaptation, storyboard planning and rendering progress for each job,
+  including blocked rendering reasons and exact ordered review assets (six for English, 4–14 for AI/Tech and Psychology).
+  Expandable storyboard evidence shows total slides, board count, layouts and ranges.
 - Recent Gemini invocation outcome, model, token usage, estimated cost and safe
   diagnostics.
 

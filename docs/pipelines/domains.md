@@ -63,10 +63,11 @@ No slide count, caption, geometry or account belongs in a domain payload.
 [Content production](../specs/content-production.md) owns that envelope;
 [platform outputs](../specs/content-production.md#instagram-package-contract) owns adaptation.
 
-All three domains can reach six-slide Gemini Instagram review assets. English
+All three domains reach Gemini Instagram review assets: English keeps six slides;
+AI/Tech and Psychology support 4–14. English
 retains its expression teaching profile; AI/Tech uses technology editorial art
 direction with visible limitations; Psychology uses calm behavioral education
 with visible uncertainty and qualification. The [adaptation contract](../specs/content-production.md#instagram-package-contract)
-owns the six-unit grammars and the [visual rendering contract](../specs/visual-rendering.md)
+owns the domain unit grammars and the [visual rendering contract](../specs/visual-rendering.md)
 owns archetypes, prompts and overlays. No account brand has been defined for
 AI/Tech or Psychology, so their local overlays omit footer branding.

@@ -8,8 +8,8 @@ from .visual_art_direction import (
     EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
-PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v2"
-RENDERER_CONTRACT_ID = "image_storyboard_3x2_v1"
+PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v3"
+RENDERER_CONTRACT_ID = "image_storyboard_paginated_v1"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
 DEFAULT_ARCHETYPE_BY_DOMAIN = {
     "english": "expression_breakdown_v1",
@@ -114,9 +114,9 @@ OVERLAY_PROFILES = {
     'english': {'labels': EXPRESSION_LABELS, 'brand': 'o2_english',
         'cta_namespace': 'expression-footer-cta-v1', 'overlay_version': 'expression_transparent_chrome_v2'},
     'ai_tech': {'labels': ('AI / TECH', 'WHAT CHANGED', 'WHY IT MATTERS', 'USE CASE', 'LIMITS', 'TAKEAWAY'),
-        'brand': None, 'cta_namespace': 'ai-tech-footer-cta-v1', 'overlay_version': 'ai_tech_transparent_chrome_v1'},
+        'brand': None, 'cta_namespace': 'ai-tech-footer-cta-v1', 'overlay_version': 'ai_tech_transparent_chrome_v2'},
     'psychology': {'labels': ('PSYCHOLOGY', 'THE CONCEPT', 'WHY IT MAY HAPPEN', 'EXAMPLE', 'WHAT HELPS', 'TAKEAWAY'),
-        'brand': None, 'cta_namespace': 'psychology-footer-cta-v1', 'overlay_version': 'psychology_transparent_chrome_v1'},
+        'brand': None, 'cta_namespace': 'psychology-footer-cta-v1', 'overlay_version': 'psychology_transparent_chrome_v2'},
 }
 
 
@@ -182,7 +182,7 @@ def _archetype(id, domain, traits, direction, compositions, modes, *, compact=Fa
                                       120, 600, low, high, line))
         else:
             slides.append(SlideGrammar(i, role, purpose, composition, mode, 10 if compact else 12,
-                                      42 if compact else 60))
+                                      42 if compact else 45, body_characters=280, line_words=18))
     return Archetype(id, 1, domain, ACCOUNT_PROFILES[domain].id, tuple(traits), direction,
                      negative, tuple(slides))
 
@@ -236,6 +236,15 @@ ARCHETYPES = {a.archetype_id: a for a in (
 )}
 
 
+def grammar_for_unit(archetype, unit, index):
+    if archetype.domain == 'english':
+        return archetype.slides[index]
+    if index < len(archetype.slides) and archetype.slides[index].role == unit['role']:
+        return archetype.slides[index]
+    candidates = [s for s in archetype.slides if s.role == unit['role']]
+    return candidates[index % len(candidates)]
+
+
 def archetype_contract(archetype_id):
     try:
         return asdict(ARCHETYPES[archetype_id])
@@ -252,12 +261,13 @@ def profile_fingerprint():
 def validate_archetype_units(units, archetype_id):
     from .visual_explainers import validate_domain_units
     a = ARCHETYPES[archetype_id]
-    if not isinstance(units, list) or len(units) != 6 or any(not isinstance(u, Mapping) for u in units):
-        raise ValueError('archetype requires six bounded units')
+    if not isinstance(units, list)  or any(not isinstance(u, Mapping) for u in units):
+        raise ValueError('archetype requires bounded visual units')
     validate_domain_units(units, a.domain, strict_english=True)
-    if [u.get('role') for u in units] != [s.role for s in a.slides]:
+    if a.domain == 'english' and [u.get('role') for u in units] != [s.role for s in a.slides]:
         raise ValueError('archetype requires its six-slide role sequence')
-    for unit, slide in zip(units, a.slides):
+    for index, unit in enumerate(units):
+        slide = grammar_for_unit(a, unit, index)
         for field, words, chars in (('title', slide.title_words, slide.title_characters),
                                     ('body', slide.body_words, slide.body_characters)):
             if len(unit[field].split()) > words or len(unit[field]) > chars:
@@ -308,5 +318,10 @@ def validate_recipe(value, *, production=False):
 
 
 def validate_recipe_roles(recipe, roles):
-    if roles != [s.role for s in ARCHETYPES[recipe['archetype_id']].slides]:
+    a = ARCHETYPES[recipe['archetype_id']]
+    if a.domain != 'english':
+        from .visual_explainers import validate_dynamic_roles
+        validate_dynamic_roles(roles)
+        return
+    if roles != [s.role for s in a.slides]:
         raise ValueError('visual recipe package roles do not match archetype')

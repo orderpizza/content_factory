@@ -121,21 +121,29 @@ def render_job_progress(connection, job_id):
     """Show persisted production progress, including expected capability stops."""
     rows = connection.execute(
         "SELECT o.output_request_id,o.platform,a.status adaptation_status,a.failure_reason adaptation_reason,"
+        "s.status storyboard_status,s.failure_reason storyboard_reason,sp.total_slides,sp.boards_json,"
         "v.status planning_status,v.failure_reason planning_reason,r.status render_status,r.failure_reason render_reason "
         "FROM canonical_contents c JOIN output_requests o ON o.canonical_content_id=c.canonical_content_id "
         "LEFT JOIN adaptation_runs a ON a.output_request_id=o.output_request_id "
         "LEFT JOIN content_packages p ON p.adaptation_run_id=a.adaptation_run_id "
         "LEFT JOIN visual_plan_runs v ON v.output_request_id=o.output_request_id "
         "LEFT JOIN visual_recipes vr ON vr.visual_plan_run_id=v.visual_plan_run_id "
+        "LEFT JOIN storyboard_plan_runs s ON s.content_package_id=p.content_package_id "
+        "LEFT JOIN storyboard_plans sp ON sp.storyboard_plan_run_id=s.storyboard_plan_run_id "
         "LEFT JOIN render_runs r ON r.visual_recipe_id=vr.visual_recipe_id "
         "WHERE c.content_job_id=? ORDER BY o.output_request_id,a.adaptation_run_id,v.visual_plan_run_id,r.render_run_id LIMIT 30",
         (job_id,),
     ).fetchall()
     parts = []
     for row in rows:
-        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Visual planning: {text(row['planning_status'] or 'pending')} · Adaptation: {text(row['adaptation_status'] or 'waiting for visual plan')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
-        for key in ('adaptation_reason', 'planning_reason', 'render_reason'):
+        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Visual planning: {text(row['planning_status'] or 'pending')} · Adaptation: {text(row['adaptation_status'] or 'waiting for visual plan')} · Storyboard: {text(row['storyboard_status'] or 'pending')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
+        for key in ('adaptation_reason', 'planning_reason', 'storyboard_reason', 'render_reason'):
             if row[key]:
                 parts.append(f"<p>{text(row[key])}</p>")
+        if row['boards_json']:
+            import json
+            boards = json.loads(row['boards_json'])
+            layouts = ' · '.join(f"{b['cols']}×{b['rows']}: slides {b['slide_start']}–{b['slide_end']}" for b in boards)
+            parts.append(f"<details><summary>Storyboard: {row['total_slides']} slides · {len(boards)} boards</summary><p>{text(layouts)}</p></details>")
         parts.append('</div>')
     return ''.join(parts)

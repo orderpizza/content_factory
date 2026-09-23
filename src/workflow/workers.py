@@ -207,7 +207,7 @@ class AdaptationWorker:
             roles = ["hook", "explanation", "explanation", "example", "explanation", "takeaway"]
             units = [{"role": role, "title": "A useful lesson", "body": "A concise, qualified placeholder explanation for review.", "claim_ids": []} for role in roles]
         public = content["hook"]
-        package={"schema_version":"output_adaptation_v2","platform":output["platform"],"account":output["account"],"format":output["content_format"],"public_text":public,"caption":public,"hashtags":[],"private_tags":["fixture","placeholder"],"alt_text":content["context"],"claim_mappings":[],"visual_units":units,"visual_cues":[],"delivery_ready":False,"placeholder":True}
+        package={"schema_version":"output_adaptation_v3","platform":output["platform"],"account":output["account"],"format":output["content_format"],"public_text":public,"caption":public,"hashtags":[],"private_tags":["fixture","placeholder"],"alt_text":content["context"],"claim_mappings":[],"visual_units":units,"visual_cues":[],"delivery_ready":False,"placeholder":True}
         package["archetype_id"] = json.loads(self.store.connection.execute("SELECT recipe_json FROM visual_recipes WHERE visual_recipe_id=?", (run["visual_recipe_id"],)).fetchone()[0])["archetype_id"]
         package["cta"] = None
         return self.store.create_package(run,package)

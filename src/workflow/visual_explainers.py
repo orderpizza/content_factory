@@ -1,72 +1,67 @@
-"""Shared six-slide copy contracts for AI/Tech and Psychology archetypes.
+"""Bounded dynamic copy contracts for AI/Tech and Psychology archetypes.
 
 These checks protect shape and readable capacity, not factual or editorial truth.
 """
 from collections.abc import Mapping
 
-from .active_visual_profiles import (EXPLAINER_ROLES,
-                                     validate_expression_units)
+from .active_visual_profiles import validate_expression_units
 
 
-AI_TECH_ADAPTATION_GUIDANCE = """AI/Tech Instagram grammar overrides the generic 5-8 unit range:
-Return exactly six visual units, with these positions and generic roles:
-1. hook: Hook, identifying the topic or change.
-2. explanation: What changed / what it is.
-3. explanation: Why it matters / how it works.
-4. example: Practical use / example.
-5. explanation: Limitations / caveats. Include meaningful limitation, availability,
-uncertainty or tradeoff content from canonical limitations, availability_scope and
-as_of_context; never a placeholder or another benefit in this position.
-6. takeaway: One practical takeaway.
-Use product_or_feature, change_summary, capabilities and use_cases without
-inventing current product claims, benchmarks, prices or availability.
+DYNAMIC_GUIDANCE = """Return 4–14 concise visual units, normally 4–8. Expand with more units
+when necessary, never denser copy. Exactly one hook first and one takeaway last;
+interior roles are explanation or example, with at least one of each. Preserve
+all canonical claims and qualifications. If 14 readable units cannot contain the
+content, fail rather than dropping meaning; narrower planning is required.
+Archetype slide entries are role-specific composition examples, not fixed positions.
 """
-PSYCHOLOGY_ADAPTATION_GUIDANCE = """Psychology Instagram grammar overrides the generic 5-8 unit range:
-Return exactly six visual units, with these positions and generic roles:
-1. hook: Hook / observed pattern, using observed_behavior and context.
-2. explanation: What the pattern means, using concept.
-3. explanation: Possible mechanism / why it may happen, using possible_mechanism.
-4. example: Everyday example / scenario; identify hypothetical examples as such.
-5. explanation: Practical implication / response, using practical_implications.
-6. takeaway: Takeaway + qualification; preserve qualification and relevant
-alternative_explanations rather than erasing nuance in the summary.
-Keep observation, inference, alternative explanations, practical implication and
-qualification distinct. Preserve uncertainty, avoid diagnostic language, asserted
-private motives and medical advice. Do not turn an interpretation into proof.
+AI_TECH_ADAPTATION_GUIDANCE = DYNAMIC_GUIDANCE + """Cover what changed, how it works,
+practical uses and limitations. Preserve availability_scope, as_of_context and
+limitations visibly in explanation copy. Never invent product claims or benchmarks.
 """
-EXPLAINER_CAPACITY_GUIDANCE = """For this six-slide grammar, keep each title concise: at most 80 characters
-and 12 words. Each body must fit a readable 4:5 Instagram slide: at most 360
-characters, 60 words and 5 nonempty lines. Aim below 240 characters. The AI/Tech
-slide 5 caveat and Psychology slide 6 qualification each need at least 20
-characters of substantive body copy. Preserve all canonical claim mappings and
-qualifications within these bounds; do not drop claims to shorten the copy.
+PSYCHOLOGY_ADAPTATION_GUIDANCE = DYNAMIC_GUIDANCE + """Keep observation, concept,
+possible mechanism, example, alternative explanations and practical implications
+distinct. Preserve uncertainty and qualification in the takeaway and relevant units.
+Avoid diagnosis, asserted private motives and medical advice.
 """
+EXPLAINER_CAPACITY_GUIDANCE = """Titles: at most 80 characters, 12 words, 2 lines.
+Bodies: at most 280 characters, 45 words, 5 lines, 18 words per line.
+Keep takeaway qualification and caveats substantive. Do not drop claim mappings.
+"""
+
+
+def validate_dynamic_roles(roles):
+    if (not 4 <= len(roles) <= 14 or roles[0] != 'hook' or roles[-1] != 'takeaway'
+        or any(r not in {'explanation', 'example'} for r in roles[1:-1])
+        or not {'explanation', 'example'}.issubset(roles[1:-1])):
+        raise ValueError('dynamic carousel requires hook, explanation/example interiors, takeaway; 4–14 units')
 
 
 def _validate_units(units, domain):
     if (not isinstance(units, list) or any(not isinstance(unit, Mapping) for unit in units)
-            or [unit.get("role") for unit in units] != list(EXPLAINER_ROLES)):
-        raise ValueError(f"{domain} requires its ordered six-slide role sequence")
+            or not 4 <= len(units) <= 14):
+        raise ValueError(f"{domain} requires its bounded dynamic role sequence")
+    validate_dynamic_roles([u.get("role") for u in units])
     for ordinal, unit in enumerate(units, 1):
-        for field, characters, words in (("title", 80, 12), ("body", 360, 60)):
+        for field, characters, words in (("title", 80, 12), ("body", 280, 45)):
             value = unit.get(field)
             if (not isinstance(value, str) or not value.strip() or len(value) > characters
                     or len(value.split()) > words
-                    or len([line for line in value.splitlines() if line.strip()]) > 5):
+                    or len([line for line in value.splitlines() if line.strip()]) > (2 if field == "title" else 5)
+                    or (field == "body" and any(len(line.split()) > 18 for line in value.splitlines()))):
                 raise ValueError(f"{domain} slide {ordinal} {field} exceeds readable capacity")
 
 
 def validate_ai_tech_units(units):
     _validate_units(units, "ai_tech")
     # A nontrivial body is required; humans assess whether it is a meaningful caveat.
-    if len(units[4]["body"].strip()) < 20:
-        raise ValueError("ai_tech slide 5 requires substantive caveat copy")
+    if not any(len(u["body"].strip()) >= 20 for u in units if u["role"] == "explanation"):
+        raise ValueError("ai_tech requires substantive explanation/caveat copy")
 
 
 def validate_psychology_units(units):
     _validate_units(units, "psychology")
-    if len(units[5]["body"].strip()) < 20:
-        raise ValueError("psychology slide 6 requires takeaway and qualification copy")
+    if len(units[-1]["body"].strip()) < 20:
+        raise ValueError("psychology final slide requires takeaway and qualification copy")
 
 
 def validate_domain_units(units, pipeline_id, *, strict_english: bool = False):

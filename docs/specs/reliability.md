@@ -163,3 +163,9 @@ multiuser authentication system.
 Offline tests cover fencing, atomic handoffs, checkpoints, manifests, storage
 edge cases and publication uncertainty. They do not prove editorial truth,
 live authorization or provider exactly-once behavior.
+
+Storyboard boards share one RenderRun but each has its own invocation and budget
+reservation. Successful earlier boards never authorize automatic replay after a
+later failure, budget refusal or expired lease. The entire review commits only
+after all boards succeed. [Visual rendering](visual-rendering.md) owns the exact
+plan, split and English compatibility contracts.

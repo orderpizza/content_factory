@@ -440,7 +440,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertIn("synthetic_destination_review_only", instagram_client.calls[0]["prompt"])
             self.assertEqual(
                 store.connection.execute(
-                    "SELECT COUNT(*) FROM render_runs WHERE status='pending'"
+                    "SELECT COUNT(*) FROM storyboard_plan_runs WHERE status='pending'"
                 ).fetchone()[0],
                 1,
             )

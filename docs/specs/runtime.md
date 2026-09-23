@@ -34,7 +34,7 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 | --- | --- |
 | Default / `--planning-only` | Deterministic fixture Intake, Determination and Editorial Planning only |
 | `--gemini` / `--gemini --planning-only` | Gemini Intake, Determination and Editorial Planning; pending GenerationRuns remain untouched |
-| `--gemini --review-preview` | Also Gemini generation, deterministic visual planning, archetype-aware adaptation and Gemini review rendering |
+| `--gemini --review-preview` | Also Gemini generation, deterministic visual planning, archetype-aware adaptation, deterministic StoryboardPlanner and Gemini review rendering |
 
 StorageMonitor runs before workers in every mode and refreshes its sample at
 most every five minutes. Monitoring is advisory through ContentJob creation:
@@ -52,8 +52,8 @@ are rejected; Ctrl+C stops cleanly. Idle polls only update heartbeats.
 Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
-Review rendering uses one Gemini storyboard call for each supported domain format
-in English, AI/Tech and Psychology. Unsupported domain/archetype combinations
+Review rendering uses one Gemini call per persisted storyboard board; all boards
+share one RenderRun and commit one complete review. Unsupported domain/archetype combinations
 block without a model call or HTML fallback. [Visual rendering](visual-rendering.md#gemini-designer-review-rendering)
 owns image processing and review assets.
 
@@ -63,8 +63,8 @@ No real providers are invoked by deterministic fixture mode.
 ## Claims and recovery
 
 Claims use SQLite write transactions, owner, version and lease expiry. Only a
-current owner with a live lease can finalize. Long generation/adaptation/render
-operations use their ten-minute initial lease; planning uses bounded shorter
+current owner with a live lease can finalize. Generation/adaptation use ten-minute leases; multi-board render
+operations use a thirty-minute initial lease; planning uses bounded shorter
 claims. The storyboard call requires a still-live render claim. Fenced finalization prevents a stale
 worker from creating children.
 

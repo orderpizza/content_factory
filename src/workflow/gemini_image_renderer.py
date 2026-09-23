@@ -292,6 +292,34 @@ def split_storyboard_with_metadata(data: bytes) -> StoryboardSplit:
     return StoryboardSplit(slides, metadata)
 
 
+def split_equal_grid(data, board):
+    """Strict persisted-grid crop; no margin inference or content-dependent cropping."""
+    from .storyboard_planner import LAYOUTS
+    cols, rows = board['cols'], board['rows']
+    if (cols, rows) != LAYOUTS.get(board['capacity']):
+        raise ValueError('unsupported storyboard grid')
+    if len(data) > 40_000_000:
+        raise ValueError('storyboard exceeds image byte limit')
+    with Image.open(BytesIO(data)) as raw:
+        if raw.format not in {'PNG', 'JPEG'} or getattr(raw, 'n_frames', 1) != 1:
+            raise ValueError('storyboard must be one PNG/JPEG')
+        width, height = raw.size
+        if width * height > 40_000_000 or width < cols * 200 or height < rows * 250:
+            raise ValueError('storyboard dimensions unsafe or too small')
+        if width % cols or height % rows:
+            raise ValueError('storyboard dimensions are not divisible by the planned grid')
+        if width * 5 * rows != height * 4 * cols:
+            raise ValueError('storyboard aspect ratio does not match the planned grid')
+        source = ImageOps.exif_transpose(raw).convert('RGB')
+        if source.size != (width, height):
+            raise ValueError('storyboard orientation inconsistent')
+        cw, ch = width // cols, height // rows
+        rectangles = [(c*cw, r*ch, (c+1)*cw, (r+1)*ch) for r in range(rows) for c in range(cols)]
+        slides = [source.crop(box).resize((1080, 1350), Image.Resampling.LANCZOS) for box in rectangles]
+    return StoryboardSplit(slides, dict(method='equal_grid_v1', fallback_used=False,
+        raw_dimensions=dict(width=width, height=height), source_rectangles=[list(b) for b in rectangles]))
+
+
 def split_storyboard(data: bytes) -> list[Image.Image]:
     """Return six normalized slides; metadata-aware callers use the companion function."""
     return split_storyboard_with_metadata(data).slides
@@ -322,15 +350,18 @@ def _draw_arrow(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
 
 def footer_cta_phrases(render_id: int, total: int = 6, *, pipeline_id: str = "english") -> list[str | None]:
     """Choose non-repeating, reproducible swipe cues for one render."""
-    if type(render_id) is not int or total != 6:
+    if type(render_id) is not int or not 4 <= total <= 14 or (pipeline_id == 'english' and total != 6):
         raise ValueError("expression carousel CTA rotation requires six slides")
-    phrases = Random(f"{OVERLAY_PROFILES[pipeline_id]['cta_namespace']}:{render_id}").sample(FOOTER_CTA_PHRASES, total - 1)
+    rng = Random(f"{OVERLAY_PROFILES[pipeline_id]['cta_namespace']}:{render_id}")
+    phrases = rng.sample(FOOTER_CTA_PHRASES, min(total - 1, len(FOOTER_CTA_PHRASES)))
+    while len(phrases) < total - 1:
+        phrases.append(rng.choice([p for p in FOOTER_CTA_PHRASES if p != phrases[-1]]))
     return [*phrases, None]
 
 
-def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None, pipeline_id: str = "english") -> Image.Image:
+def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None, pipeline_id: str = "english", role: str | None = None) -> Image.Image:
     """Apply a single subdued RGBA type treatment after slide normalization."""
-    if slide.size != (1080, 1350) or not 1 <= ordinal <= total == 6:
+    if slide.size != (1080, 1350) or not 1 <= ordinal <= total or not 4 <= total <= 14 or (pipeline_id == 'english' and total != 6):
         raise ValueError("overlay requires six final-size slides")
     if (ordinal < total) != (cta_phrase is not None):
         raise ValueError("only slides one through five may have a swipe CTA")
@@ -338,7 +369,11 @@ def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: 
     layer = Image.new("RGBA", slide.size)
     draw = ImageDraw.Draw(layer)
     font = _overlay_font()
-    draw.text((56, 68), profile["labels"][ordinal - 1], font=font, fill=OVERLAY_COLOR)
+    label = profile['labels'][ordinal - 1] if pipeline_id == 'english' or role is None and total == 6 else {
+        'hook': 'AI / TECH' if pipeline_id == 'ai_tech' else 'PSYCHOLOGY',
+        'explanation': 'EXPLAINED', 'example': 'EXAMPLE', 'takeaway': 'TAKEAWAY',
+    }[role]
+    draw.text((56, 68), label, font=font, fill=OVERLAY_COLOR)
     draw.text((1024, 68), f"{ordinal} / {total}", font=font, fill=OVERLAY_COLOR, anchor="ra")
     if profile["brand"]:
         draw.text((56, 1265), profile["brand"], font=font, fill=OVERLAY_COLOR, anchor="ls")
@@ -366,6 +401,8 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
             "WHERE p.content_package_id=?", (run["content_package_id"],),
         ).fetchone()["pipeline_id"]
+        if pipeline_id != 'english':
+            return self._render_boards(run, package, spec, recipe, temporary, pipeline_id)
         prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id)
         profile = OVERLAY_PROFILES[pipeline_id]
         if self.client is None:
@@ -409,7 +446,7 @@ class GeminiImageRenderer(ActiveReviewRenderer):
                 asset = _asset(path, "preview_png", ordinal, 1080, 1350)
                 assets.append(asset)
                 provenance.append({
-                    "ordinal": ordinal, "model_invocation_id": invocation,
+                    "ordinal": ordinal, "board_index": 1, "model_invocation_id": invocation,
                     "source_cell": {"row": (ordinal - 1) // STORYBOARD_COLUMNS + 1,
                                     "column": (ordinal - 1) % STORYBOARD_COLUMNS + 1},
                     "source_rectangle": split.metadata["source_rectangles"][ordinal - 1],
@@ -447,6 +484,61 @@ class GeminiImageRenderer(ActiveReviewRenderer):
                            "split": split.metadata},
             "slides": provenance,
         }
+
+    def _render_boards(self, run, package, spec, recipe, temporary, pipeline_id):
+        plan = spec['storyboard_plan']
+        if self.client is None:
+            self.budget_policy = self.budget_policy or ModelBudgetPolicy.from_environment(configured_image_model(), image=True)
+            self.client = VertexGeminiImageClient(max_output_tokens=self.budget_policy.phase_limits['image_rendering'][1])
+        if self.budget_policy is not None and self.budget_policy.model_id != self.client.model:
+            raise ValueError('image budget policy does not match configured model')
+        assets, provenance, boards = [], [], []
+        ctas = footer_cta_phrases(int(run['render_run_id']), plan['total_slides'], pipeline_id=pipeline_id)
+        for board in plan['boards']:
+            prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board)
+            invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
+                key='render_run_id', row=run, request_version='image_storyboard_request_v2',
+                prompt_version=PROMPT_COMPILER_VERSION, schema_version='image_storyboard_paginated_v1',
+                request_value={'prompt': prompt, 'board': board}, model_id=self.client.model,
+                budget_policy=self.budget_policy, board_index=board['board_index'])
+            try:
+                generated = self.client.generate_image(prompt, aspect_ratio=board['aspect_ratio'])
+            except Exception:
+                self.store.finish_model_invocation(invocation, outcome='transport_failed', usage=self.client.last_usage,
+                    error='storyboard generation failed', budget_policy=self.budget_policy)
+                raise
+            try:
+                if not isinstance(generated, GeneratedImage):
+                    raise ValueError('image client did not preserve media metadata')
+                split = split_equal_grid(generated.data, board)
+                raw = temporary / f"raw-storyboard-{board['board_index']:02d}{generated.extension}"
+                raw.write_bytes(generated.data)
+                for cell, (ordinal, slide) in enumerate(zip(board['slide_indices'], split.slides)):
+                    path = temporary / f'unit-{ordinal:02d}.png'
+                    apply_overlays(slide, ordinal, plan['total_slides'], cta_phrase=ctas[ordinal-1],
+                        pipeline_id=pipeline_id, role=package['visual_units'][ordinal-1]['role']).save(path, format='PNG')
+                    asset = _asset(path, 'preview_png', ordinal, 1080, 1350)
+                    assets.append(asset)
+                    provenance.append(dict(ordinal=ordinal, board_index=board['board_index'], model_invocation_id=invocation,
+                        source_cell=dict(row=cell // board['cols'] + 1, column=cell % board['cols'] + 1),
+                        source_rectangle=split.metadata['source_rectangles'][cell], footer_cta=ctas[ordinal-1],
+                        final=dict(filename=path.name, sha256=asset['sha256'])))
+                boards.append(dict(**board, model_invocation_id=invocation, prompt_sha256=sha256(prompt.encode()).hexdigest(),
+                    raw=dict(filename=raw.name, mime_type=generated.mime_type, extension=generated.extension,
+                             bytes=len(generated.data), sha256=sha256(generated.data).hexdigest()), split=split.metadata))
+            except Exception:
+                self.store.finish_model_invocation(invocation, outcome='invalid_output', usage=self.client.last_usage,
+                    error='storyboard processing failed', budget_policy=self.budget_policy)
+                raise
+            self.store.finish_model_invocation(invocation, outcome='succeeded', usage=self.client.last_usage,
+                response_value={'sha256': sha256(generated.data).hexdigest()}, budget_policy=self.budget_policy)
+        return assets, dict(model_id=self.client.model, prompt_version=PROMPT_COMPILER_VERSION,
+            pipeline_id=pipeline_id, archetype_id=recipe['archetype_id'], archetype_version=recipe['archetype_version'],
+            account_visual_profile_id=recipe['account_visual_profile_id'], prompt_compiler_version=recipe['prompt_compiler_version'],
+            renderer_contract_id=recipe['renderer_contract_id'], overlay_profile_id=recipe['overlay_profile_id'],
+            selection=recipe['selection'], boards=boards, slides=provenance,
+            overlay_version=OVERLAY_PROFILES[pipeline_id]['overlay_version'],
+            overlay=dict(background='transparent', brand_text=None, footer_cta_phrases=ctas))
 
 
 class DispatchVisualRenderer(ActiveReviewRenderer):

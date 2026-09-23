@@ -12,7 +12,8 @@ non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the
 Determination → EditorialPlanRun → immutable EditorialPlan + ContentJob + GenerationRun
   → CanonicalContent + frozen OutputRequests + VisualPlanRuns
   → deterministic VisualPlanner → immutable VisualRecipe + AdaptationRun
-  → one ContentPackage + RenderRun per successful output
+  → one ContentPackage + StoryboardPlanRun per successful output
+  → deterministic pagination → immutable StoryboardPlan + RenderRun
   → deterministic PromptCompiler → renderer → assets + ReviewRequest
 ```
 
@@ -52,7 +53,7 @@ OutputRequests and their initial pending VisualPlanRuns together. Failure does
 not create partial fan-out. There is no capacity-slot allocator or
 cross-revision canonical reuse.
 
-## Output adaptation — `output_adaptation_v2`
+## Output adaptation — `output_adaptation_v3`
 
 An adaptation reads one canonical object, frozen destination and committed visual
 recipe. It receives the selected archetype's complete slide grammar, composition
@@ -77,7 +78,7 @@ content commits before adaptation begins. Failure on one output does not rerun
 generation.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
-adaptation and creates RenderRun referencing the already selected recipe. SQL
+adaptation and creates StoryboardPlanRun referencing the immutable package. SQL
 lineage constraints prevent borrowing another output's recipe. Synthetic packages
 remain non-deliverable. All supported domain formats use
 [Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
@@ -90,7 +91,7 @@ canonical content for that frozen destination, preserving angle, claims,
 qualifications and meaning. It never writes assets or posting authorization.
 
 `workflow.gemini_adaptation.adaptation_schema` owns exact fields. A package has
-exactly six ordered visual units beginning with hook and ending with takeaway, caption,
+ordered visual units beginning with hook and ending with takeaway, caption,
 optional CTA, private tags, hashtags, alt text, claim mappings and bounded semantic
 visual cues. Every English archetype requires six units with roles
 hook, explanation, explanation, example, example, takeaway.
@@ -103,40 +104,29 @@ workflow additionally applies the English expression archetype's position-specif
 title, word-count and line-count limits during adaptation, plus the selected
 archetype capacities. Scene/product/process archetypes use tighter copy limits.
 
-`output_adaptation_v2` is closed and requires six units. Domain-aware validation
-(including body checkpoints) requires AI/Tech and Psychology roles `hook,
-explanation, explanation, example, explanation, takeaway`. Adaptation prompt
-`workflow_gemini_adaptation_prompt_v6` assigns these semantic positions; the
-selected archetype further controls composition and capacity:
+`output_adaptation_v3` is closed and uses domain-specific cardinality. English
+remains exactly six units. AI/Tech and Psychology allow 4–14 units, normally 4–8:
+exactly one hook first, one takeaway last, interior roles only explanation/example,
+and at least one of each interior role. Their six archetypes retain role-specific
+composition guidance without prescribing fixed positions. Adaptation prompt
+`workflow_gemini_adaptation_prompt_v7` instructs expansion instead of dense text;
+over-capacity responses fail and require narrower adaptation/planning, never truncation.
 
-| Slide | AI/Tech | Psychology |
-| --- | --- | --- |
-| 1 | Hook | Hook / observed pattern |
-| 2 | What changed / what it is | Concept / meaning |
-| 3 | Why it matters / how it works | Possible mechanism |
-| 4 | Practical use / example | Everyday example / scenario |
-| 5 | Limitations / caveats | Practical implication / response |
-| 6 | Takeaway | Takeaway + qualification |
-
-`visual_explainers.py` owns these narrow validators. Titles are at most 80
-characters/12 words; bodies at most 360 characters/60 words; each field has at
-most five nonempty lines. AI/Tech slide 5 and Psychology slide 6 require at least
-20 body characters to reject empty placeholders. These are capacity checks, not
-semantic verification. Human review determines whether a caveat is meaningful,
-qualification is retained and claims are correct. Every canonical claim still
-requires a valid mapping; none may be dropped to satisfy capacity limits.
-
-AI/Tech adaptation uses the canonical feature/change, scope, capabilities, use
-cases and limitations. Psychology uses observed behavior, concept, possible
-mechanism, alternative explanations, scenario, practical implications and
-qualification. Prompts distinguish observation from inference, retain uncertainty
-and prohibit diagnostic language; no new canonical schema or research call exists.
+`visual_explainers.py` validates dynamic-domain titles at 80 characters/12 words/
+2 lines and bodies at 280 characters/45 words/5 lines/18 words per line. Selected
+compact archetypes retain their stricter word limits. AI/Tech requires substantive
+explanation copy and Psychology a substantive final takeaway (at least 20 body
+characters). These are deterministic capacity checks, not proof that a caveat is
+meaningful. Every canonical claim must still be mapped; body checkpoints apply
+the same rules. Prompts require visible AI/Tech limitations, availability scope and
+as-of context; Psychology preserves observation versus inference, alternative
+explanations and takeaway qualification. Human review assesses semantic fidelity.
 
 
 ## Post-specific visual cues
 
 `visual_cues` replaces generic presentation intent. It is a closed list of zero
-to six entries, at most one per slide. Each entry contains `slide` (1–6),
+to fourteen entries, at most one per slide; English still permits at most six. Each entry contains `slide` (1 through actual unit count),
 `subject_claim_id` (an existing canonical claim mapped to that slide),
 `semantic_emphasis` (situation, contrast, sequence, qualification or takeaway),
 and `participants_count` (0–4). There are no free-text subject/prompt/style fields.

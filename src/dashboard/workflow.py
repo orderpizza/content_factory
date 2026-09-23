@@ -36,12 +36,12 @@ def _review_preview(
         "SELECT render_asset_id,ordinal FROM render_assets WHERE render_run_id=? "
         "AND asset_role=CASE WHEN EXISTS (SELECT 1 FROM render_assets d "
         "WHERE d.render_run_id=render_assets.render_run_id AND d.asset_role='delivery_jpeg') "
-        "THEN 'delivery_jpeg' ELSE 'preview_png' END ORDER BY ordinal LIMIT 8",
+        "THEN 'delivery_jpeg' ELSE 'preview_png' END ORDER BY ordinal LIMIT 14",
         (review["render_run_id"],),
     ).fetchall()
     images = "".join(
         f"<img src='/asset?render_asset_id={asset['render_asset_id']}' "
-        f"alt='{escape(str(package.get('alt_text', 'Review image')))}' "
+        f"alt='Slide {asset['ordinal']}: {escape(str(package.get('alt_text', 'Review image')))}' "
         "style='max-width:220px;height:auto;margin:.35rem'>"
         for asset in assets
     )

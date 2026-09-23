@@ -41,7 +41,7 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
         initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 12)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 13)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -87,7 +87,7 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
                     if name == "run_workflow.py":
                         factories = {key: MagicMock() for key in (
                             "IdeaIntakeWorker", "DeterminationWorker", "EditorialPlanningWorker", "GeminiPipelineRunner",
-                            "GeminiAdaptationWorker", "VisualPlanner", "DispatchVisualRenderer", "StorageMonitor",
+                            "GeminiAdaptationWorker", "VisualPlanner", "StoryboardPlanner", "DispatchVisualRenderer", "StorageMonitor",
                         )}
                         with patch.dict(module["main"].__globals__, factories):
                             module["main"]()
@@ -233,7 +233,7 @@ class ActiveRuntimeTests(unittest.TestCase):
         self.assertEqual(set(runtime["_RUNTIME_TYPES"]), {
             "IdeaIntakeWorker", "GeminiIntakeWorker", "DeterminationWorker",
             "GeminiDeterminationWorker", "EditorialPlanningWorker", "GeminiEditorialPlanningWorker", "GeminiPipelineRunner", "GeminiAdaptationWorker",
-            "VisualPlanner", "DispatchVisualRenderer", "StorageMonitor",
+            "VisualPlanner", "StoryboardPlanner", "DispatchVisualRenderer", "StorageMonitor",
         })
         for name in ("StaticVisualRenderer", "CredentialedPostingAgent", "R2TransientRelay", "PublicationReconciliationWorker", "VisualRenderer", "PostingAgent"):
             self.assertNotIn(name, workflow.__all__)
@@ -305,7 +305,7 @@ class SchemaAndEnvironmentTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=12", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=13", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):

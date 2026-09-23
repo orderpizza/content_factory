@@ -1,11 +1,11 @@
 """Semantic, claim-referenced cues; no model-authored prompt fragments."""
 CUE_EMPHASIS = ('situation', 'contrast', 'sequence', 'qualification', 'takeaway')
 VISUAL_CUES_SCHEMA = {
-    'type': 'array', 'maxItems': 6, 'items': {
+    'type': 'array', 'maxItems': 14, 'items': {
         'type': 'object', 'additionalProperties': False,
         'required': ['slide', 'subject_claim_id', 'semantic_emphasis', 'participants_count'],
         'properties': {
-            'slide': {'type': 'integer', 'minimum': 1, 'maximum': 6},
+            'slide': {'type': 'integer', 'minimum': 1, 'maximum': 14},
             'subject_claim_id': {'type': 'string', 'minLength': 1, 'maxLength': 120},
             'semantic_emphasis': {'type': 'string', 'enum': list(CUE_EMPHASIS)},
             'participants_count': {'type': 'integer', 'minimum': 0, 'maximum': 4},
@@ -15,13 +15,13 @@ VISUAL_CUES_SCHEMA = {
 
 
 def validate_cues(value, allowed_claims, units):
-    if not isinstance(value, list) or len(value) > 6:
+    if not isinstance(value, list) or len(value) > len(units):
         raise ValueError('visual cues must be a bounded list')
     seen = set()
     for c in value:
         if not isinstance(c, dict) or set(c) != set(VISUAL_CUES_SCHEMA['items']['required']):
             raise ValueError('visual cue has an invalid closed shape')
-        if type(c['slide']) is not int or not 1 <= c['slide'] <= 6 or c['slide'] in seen:
+        if type(c['slide']) is not int or not 1 <= c['slide'] <= len(units) or c['slide'] in seen:
             raise ValueError('visual cue slide must be unique and in range')
         seen.add(c['slide'])
         if (not isinstance(c['subject_claim_id'], str) or c['subject_claim_id'] not in allowed_claims

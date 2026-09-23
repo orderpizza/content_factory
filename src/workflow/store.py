@@ -25,6 +25,7 @@ CLAIM_KEYS = {
     "intake_requests": "intake_request_id", "determination_requests": "determination_request_id",
     "generation_runs": "generation_run_id", "adaptation_runs": "adaptation_run_id",
     "visual_plan_runs": "visual_plan_run_id",
+    "storyboard_plan_runs": "storyboard_plan_run_id",
     "render_runs": "render_run_id", "post_records": "post_record_id",
     "delivery_cleanup_tasks": "delivery_cleanup_task_id",
     "reconciliation_requests": "reconciliation_request_id",
@@ -367,6 +368,7 @@ class WorkflowStore:
             "generation_runs": "creative",
             "adaptation_runs": "creative",
             "visual_plan_runs": "creative",
+            "storyboard_plan_runs": "creative",
             "render_runs": "creative",
             "post_records": "delivery",
             "delivery_cleanup_tasks": "safe_cleanup",
@@ -672,6 +674,7 @@ class WorkflowStore:
             "adaptation_runs": "JOIN output_requests o ON o.output_request_id=q.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "visual_plan_runs": "JOIN output_requests o ON o.output_request_id=q.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "render_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
+            "storyboard_plan_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
         }
         key = CLAIM_KEYS[table]
         thread = self.connection.execute(
@@ -779,6 +782,11 @@ class WorkflowStore:
             raise ValueError("unsupported claim table/key")
         moment = now()
         daily = "daily Gemini hard limit" in reason
+        if table == 'render_runs' and self.connection.execute(
+            "SELECT 1 FROM model_invocations WHERE entity_type='render_run' AND entity_id=? AND outcome!='blocked'",
+            (row[key],)).fetchone():
+            daily = False
+            reason = 'partial storyboard rendering requires fresh manual work; ' + reason
         status = "retry_wait" if daily else "failed"
         retry_at = None
         if daily:
@@ -812,6 +820,7 @@ class WorkflowStore:
         request_value: Any,
         model_id: str,
         budget_policy: Any | None = None,
+        board_index: int | None = None,
     ) -> int:
         """Audit a claimed model operation before making its provider call."""
         policy = budget_policy or self.model_budget_policy
@@ -862,12 +871,23 @@ class WorkflowStore:
                     "SELECT * FROM model_invocations WHERE entity_type='render_run' "
                     "AND entity_id=? AND outcome!='blocked' ORDER BY model_invocation_id", (entity_id,),
                 ).fetchall()
-                if history:
+                if board_index is not None:
+                    plan_row = self.connection.execute('SELECT boards_json FROM storyboard_plans WHERE storyboard_plan_id=?',
+                        (row['storyboard_plan_id'],)).fetchone()
+                    boards = json.loads(plan_row[0])
+                    if (type(board_index) is not int or not 1 <= board_index <= len(boards)
+                        or request_value.get('board') != boards[board_index - 1]
+                        or len(history) != board_index - 1
+                        or any(h['outcome'] != 'succeeded' or h['attempt_ordinal'] != i
+                               or h['claim_version'] != row['claim_version'] for i, h in enumerate(history, 1))):
+                        raise RuntimeError('board invocation must follow the committed plan in one claim')
+                    ordinal = board_index
+                elif history:
                     raise RuntimeError("image render has external history; create fresh manual work")
             existing = self.connection.execute(
                 "SELECT model_invocation_id FROM model_invocations "
                 "WHERE phase=? AND entity_type=? AND entity_id=? AND attempt_ordinal=? "
-                "AND prompt_version=?",
+                "AND prompt_version=?" + (" AND outcome!='blocked'" if table == "render_runs" else ""),
                 (phase, entity_type, entity_id, ordinal, prompt_version),
             ).fetchone()
             if existing is not None:
@@ -899,12 +919,12 @@ class WorkflowStore:
             invocation = self.connection.execute(
                 "INSERT INTO model_invocations("
                 "phase,entity_type,entity_id,attempt_ordinal,request_version,prompt_version,"
-                "schema_version,request_hash,model_id,outcome,started_at"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "schema_version,request_hash,model_id,outcome,started_at,claim_version"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     phase, entity_type, entity_id, ordinal, request_version,
                     prompt_version, schema_version, digest(request_value), model_id,
-                    "blocked" if blocked_reason else "started", moment,
+                    "blocked" if blocked_reason else "started", moment, row["claim_version"],
                 ),
             )
             invocation_id = int(invocation.lastrowid)
@@ -1150,10 +1170,35 @@ class WorkflowStore:
             package_id = int(self.connection.execute(
                 "INSERT INTO content_packages(output_request_id,adaptation_run_id,visual_recipe_id,package_json,content_hash,visual_cues_json,created_at) VALUES (?,?,?,?,?,?,?)",
                 (output["output_request_id"], run["adaptation_run_id"], run["visual_recipe_id"], canonical(package), digest(package), canonical(cues), moment)).lastrowid)
-            self.connection.execute("INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,1,'pending',2,?)",
-                (package_id, run["visual_recipe_id"], moment))
+            self.connection.execute("INSERT INTO storyboard_plan_runs(content_package_id,status,attempt_limit,created_at) VALUES (?,'pending',2,?)",
+                (package_id, moment))
             self._finish_claim("adaptation_runs", "adaptation_run_id", run, "succeeded", moment, None)
             return package_id
+
+    def create_storyboard_plan(self, run):
+        from .storyboard_planner import make_plan
+        from .active_visual_profiles import validate_archetype_units
+        moment = now()
+        with self.transaction():
+            if self._cancel_if_closed('storyboard_plan_runs', run, moment):
+                return None
+            row = self.connection.execute(
+                'SELECT p.*,j.pipeline_id FROM content_packages p JOIN output_requests o USING(output_request_id) '
+                'JOIN canonical_contents c USING(canonical_content_id) JOIN content_jobs j USING(content_job_id) '
+                'WHERE p.content_package_id=?', (run['content_package_id'],)).fetchone()
+            package = json.loads(row['package_json'])
+            validate_archetype_units(package['visual_units'], package['archetype_id'])
+            plan = make_plan(len(package['visual_units']), row['pipeline_id'])
+            plan_id = self.connection.execute(
+                'INSERT INTO storyboard_plans(storyboard_plan_run_id,content_package_id,output_request_id,'
+                'visual_recipe_id,schema_version,planner_version,total_slides,boards_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+                (run['storyboard_plan_run_id'], row['content_package_id'], row['output_request_id'], row['visual_recipe_id'],
+                 plan['schema_version'], plan['planner_version'], plan['total_slides'], canonical(plan['boards']), moment)).lastrowid
+            self.connection.execute(
+                "INSERT INTO render_runs(storyboard_plan_id,content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,1,'pending',2,?)",
+                (plan_id, row['content_package_id'], row['visual_recipe_id'], moment))
+            self._finish_claim('storyboard_plan_runs', 'storyboard_plan_run_id', run, 'succeeded', moment, None)
+            return plan_id
 
     def create_visual_recipe(self, run: Any) -> int:
         """Select under the write lock, freeze history and recipe, then hand off adaptation."""
@@ -1209,6 +1254,13 @@ class WorkflowStore:
             if prior:
                 self._finish_claim("render_runs","render_run_id",run,"succeeded",moment,None); return int(prior[0])
             asset_list = [assets] if isinstance(assets, dict) else assets
+            if manifest.get('review_only') is True:
+                plan = self.connection.execute('SELECT total_slides FROM storyboard_plans WHERE storyboard_plan_id=?',
+                    (run['storyboard_plan_id'],)).fetchone()
+                if (manifest.get('storyboard_plan_id') != run['storyboard_plan_id']
+                    or [a.get('ordinal') for a in asset_list] != list(range(1, plan[0] + 1))
+                    or any((a.get('width'), a.get('height'), a.get('role')) != (1080, 1350, 'preview_png') for a in asset_list)):
+                    raise ValueError('review assets must match the complete ordered storyboard plan')
             if not asset_list:
                 raise ValueError("a successful render requires at least one asset")
             for position, asset in enumerate(asset_list, start=1):

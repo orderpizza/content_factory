@@ -1,5 +1,6 @@
 """All domain review boundaries; temporary databases and fake providers only."""
 from workflow.editorial_planning import EditorialPlanningWorker
+from workflow.storyboard_planner import StoryboardPlanner, paginate
 
 
 from common.timestamps import serialize_timestamp
@@ -135,8 +136,8 @@ class DomainBoundaryTests(unittest.TestCase):
                             self.assertIn('short dialogue', json_client.calls[0]['prompt'])
                             self.assertIn('never return a two-turn dialogue', json_client.calls[0]['prompt'])
                         else:
-                            self.assertIn('exactly six visual units', json_client.calls[0]['prompt'])
-                            self.assertIn('qualification' if domain == 'psychology' else 'Limitations / caveats', json_client.calls[0]['prompt'])
+                            self.assertIn('4–14 concise visual units', json_client.calls[0]['prompt'])
+                            self.assertIn('qualification' if domain == 'psychology' else 'limitations', json_client.calls[0]['prompt'])
                         self._render_and_check(store, fixture, domain, origin)
 
     def _render_and_check(self, store, fixture, domain, origin):
@@ -144,6 +145,7 @@ class DomainBoundaryTests(unittest.TestCase):
         client = (FakeImageClient() if origin == "human" else
                   FakeImageClient(image_fixtures.storyboard_image("JPEG"), mime_type="image/jpeg"))
         artifact_root = Path(fixture.temporary.name) / 'review-assets'
+        StoryboardPlanner(store).run_once()
         renderer = DispatchVisualRenderer(store, artifact_root, image_client=client)
         renderer.image_renderer.budget_policy = image_fixtures.ImageWorkflowTests.image_policy(self)
         review = renderer.run_once()
@@ -172,16 +174,16 @@ class DomainBoundaryTests(unittest.TestCase):
         manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
         self.assertEqual(manifest['pipeline_id'], domain)
         self.assertEqual(manifest['archetype_id'], selected['archetype_id'])
-        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v2')
+        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v3')
         self.assertEqual(manifest['overlay']['brand_text'], 'o2_english' if domain == 'english' else None)
-        self.assertEqual(manifest['storyboard']['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
-        self.assertEqual(len(list(artifact_root.rglob('raw-storyboard.*'))), 1)
-        raw_path = next(artifact_root.rglob('raw-storyboard.*'))
+        self.assertEqual((manifest['storyboard'] if domain == 'english' else manifest['boards'][0])['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
+        self.assertEqual(len(list(artifact_root.rglob('raw-storyboard*.*'))), 1)
+        raw_path = next(artifact_root.rglob('raw-storyboard*.*'))
         raw = raw_path.read_bytes()
         self.assertEqual(raw_path.suffix, '.png' if origin == 'human' else '.jpg')
-        self.assertEqual(manifest['storyboard']['raw']['mime_type'], client.mime_type)
-        self.assertEqual(manifest['storyboard']['raw']['sha256'], sha256(raw).hexdigest())
-        self.assertEqual(manifest['storyboard']['raw']['bytes'], len(raw))
+        self.assertEqual((manifest['storyboard'] if domain == 'english' else manifest['boards'][0])['raw']['mime_type'], client.mime_type)
+        self.assertEqual((manifest['storyboard'] if domain == 'english' else manifest['boards'][0])['raw']['sha256'], sha256(raw).hexdigest())
+        self.assertEqual((manifest['storyboard'] if domain == 'english' else manifest['boards'][0])['raw']['bytes'], len(raw))
         assets = store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal').fetchall()
         self.assertEqual(len(assets), 6)
         for ordinal, asset in enumerate(assets, 1):
@@ -214,7 +216,7 @@ class DomainBoundaryTests(unittest.TestCase):
 
     def test_invalid_adaptation_shapes_fail_before_package_or_image_call(self):
         for domain in ('ai_tech', 'psychology'):
-            for violation in ('five', 'seven', 'ordering', 'missing_position', 'empty_position',
+            for violation in ('below_min', 'above_max', 'ordering', 'missing_position', 'empty_position',
                               'long_title', 'long_body', 'unmapped_claim'):
                 with self.subTest(domain=domain, violation=violation):
                     fixture = self.fixture()
@@ -222,16 +224,16 @@ class DomainBoundaryTests(unittest.TestCase):
                         prepare_domain(store, fixture, domain)
                         response = domain_response(fixture, domain)
                         units = response['visual_units']
-                        if violation == 'five':
-                            del units[2]
-                        elif violation == 'seven':
-                            units.insert(2, deepcopy(units[2]))
+                        if violation == 'below_min':
+                            del units[1:4]
+                        elif violation == 'above_max':
+                            units[2:2] = [deepcopy(units[2]) for _ in range(9)]
                         elif violation == 'ordering':
-                            units[2], units[3] = units[3], units[2]
+                            units[2]['role'] = 'hook'
                         elif violation == 'missing_position':
-                            units[4 if domain == 'ai_tech' else 5]['role'] = 'example'
+                            units[-1]['role'] = 'example'
                         elif violation == 'empty_position':
-                            units[4 if domain == 'ai_tech' else 5]['body'] = '...'
+                            units[-1]['body'] = ''
                         elif violation == 'long_title':
                             units[0]['title'] = 'a' * 81
                         elif violation == 'long_body':
@@ -248,6 +250,7 @@ class DomainBoundaryTests(unittest.TestCase):
                         self.assertEqual(store.connection.execute('SELECT status FROM adaptation_runs').fetchone()[0], 'failed')
                         self.assertIsNone(VisualPlanner(store).run_once())
                         image_client = FakeImageClient()
+                        StoryboardPlanner(store).run_once()
                         self.assertIsNone(DispatchVisualRenderer(store, Path(fixture.temporary.name)/'assets', image_client=image_client).run_once())
                         self.assertEqual(image_client.calls, [])
                         for table in ('content_packages', 'render_runs', 'review_requests'):
@@ -289,6 +292,7 @@ class DomainBoundaryTests(unittest.TestCase):
                     self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
                     client = FakeImageClient()
                     root = Path(fixture.temporary.name)/'assets'
+                    StoryboardPlanner(store).run_once()
                     renderer = DispatchVisualRenderer(store, root, image_client=client)
                     with patch('workflow.gemini_image_renderer.supports_image_rendering', return_value=False):
                         self.assertIsNone(renderer.run_once())
@@ -308,6 +312,7 @@ class DomainBoundaryTests(unittest.TestCase):
                         self.assertIsNone(VisualPlanner(store).run_once())
                         client = FakeImageClient(error=RuntimeError('provider failure')) if failure == 'provider' else FakeImageClient(data=b'bad') if failure == 'processing' else FakeImageClient()
                         root = Path(fixture.temporary.name)/'assets'
+                        StoryboardPlanner(store).run_once()
                         renderer = DispatchVisualRenderer(store, root, image_client=client)
                         if failure == 'commit':
                             store.connection.execute("CREATE TEMP TRIGGER fail_third_asset BEFORE INSERT ON render_assets WHEN NEW.ordinal=3 BEGIN SELECT RAISE(ABORT, 'fixture commit failure'); END")
@@ -333,12 +338,14 @@ class DomainBoundaryTests(unittest.TestCase):
                 prepare_domain(store, fixture, domain)
                 self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(domain_response(fixture, domain))).run_once())
                 self.assertIsNone(VisualPlanner(store).run_once())
+                StoryboardPlanner(store).run_once()
                 run = store.claim('render_runs', 'render_run_id', 'interrupted')
                 store.begin_model_invocation(phase='image_rendering', table='render_runs', key='render_run_id', row=run,
                     request_version='test', prompt_version='test', schema_version='test', request_value={}, model_id='fake')
                 store.connection.execute("UPDATE render_runs SET lease_expires_at='2000-01-01T00:00:00'")
                 store.connection.commit()
                 client = FakeImageClient()
+                StoryboardPlanner(store).run_once()
                 renderer = DispatchVisualRenderer(store, Path(fixture.temporary.name)/'assets', image_client=client)
                 self.assertIsNone(renderer.run_once())
                 self.assertEqual(client.calls, [])

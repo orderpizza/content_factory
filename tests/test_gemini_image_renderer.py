@@ -1,5 +1,6 @@
 """Offline storyboard image generation, splitting, review, and recovery contracts."""
 
+from workflow.storyboard_planner import StoryboardPlanner, paginate
 from PIL import Image, ImageDraw, ImageFont
 from common.gemini import GeminiUsage
 from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model, configured_image_size
@@ -88,11 +89,18 @@ class FakeImageClient:
         self.mime_type = mime_type
         self.calls = []
 
-    def generate_image(self, prompt):
+    def generate_image(self, prompt, *, aspect_ratio=None):
         self.calls.append(prompt)
         if self.error:
             raise self.error
-        return GeneratedImage(storyboard_image() if self.data is None else self.data, self.mime_type)
+        data = storyboard_image() if self.data is None else self.data
+        if aspect_ratio and data in (storyboard_image(), storyboard_image('JPEG')):
+            a, b = map(int, aspect_ratio.split(':'))
+            with Image.open(BytesIO(data)) as source:
+                stream = BytesIO()
+                source.resize((a*200,b*200)).save(stream,format='JPEG' if self.mime_type=='image/jpeg' else 'PNG')
+                data = stream.getvalue()
+        return GeneratedImage(data, self.mime_type)
 
 
 class ImagePipelineTests(unittest.TestCase):
@@ -260,6 +268,7 @@ class ImageWorkflowTests(unittest.TestCase):
         response['visual_units'] = deepcopy(EXPRESSION_UNITS)
         self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
         self.assertIsNone(VisualPlanner(store).run_once())
+        StoryboardPlanner(store).run_once()
         value = json.loads(store.connection.execute('SELECT recipe_json FROM visual_recipes').fetchone()[0])
         self.assertEqual(value['archetype_id'], 'expression_story_scene_v1')
 
@@ -286,7 +295,7 @@ class ImageWorkflowTests(unittest.TestCase):
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
-            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v2')
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v3')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))

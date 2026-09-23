@@ -1,5 +1,6 @@
 """Workflow planning; offline tests use temporary databases and fake providers."""
 from workflow.editorial_planning import EditorialPlanningWorker
+from workflow.storyboard_planner import StoryboardPlanner, paginate
 
 
 from dashboard import render_workflow_trace
@@ -94,6 +95,7 @@ class DeterministicWorkflowTests(unittest.TestCase):
             self.assertIsNotNone(PipelineRunner(store).run_once())
             self.assertIsNotNone(VisualPlanner(store).run_once())
             self.assertIsNotNone(AdaptationWorker(store).run_once())
+            StoryboardPlanner(store).run_once()
             review_id = VisualRenderer(store, Path(self.tmp.name) / "artifacts").run_once()
             self.assertIsNotNone(review_id)
             review = store.connection.execute("SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)).fetchone()
@@ -174,6 +176,7 @@ class DeterministicWorkflowTests(unittest.TestCase):
             PipelineRunner(store).run_once()
             VisualPlanner(store).run_once()
             AdaptationWorker(store).run_once()
+            StoryboardPlanner(store).run_once()
             review_id = VisualRenderer(store, Path(self.tmp.name) / "review-artifacts").run_once()
             review = store.connection.execute(
                 "SELECT row_version FROM review_requests WHERE review_request_id=?", (review_id,)

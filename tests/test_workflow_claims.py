@@ -1,5 +1,6 @@
 """Workflow claims; offline tests use temporary databases and fake providers."""
 from workflow.editorial_planning import EditorialPlanningWorker
+from workflow.storyboard_planner import StoryboardPlanner
 
 
 from database.current import initialize_database
@@ -92,6 +93,7 @@ class WorkflowClaimTests(unittest.TestCase):
             ("generation_runs", "generation_run_id", PipelineRunner, "canonical_contents"),
             ("visual_plan_runs", "visual_plan_run_id", VisualPlanner, "visual_recipes"),
             ("adaptation_runs", "adaptation_run_id", AdaptationWorker, "content_packages"),
+            ("storyboard_plan_runs", "storyboard_plan_run_id", StoryboardPlanner, "storyboard_plans"),
             ("render_runs", "render_run_id", lambda s: VisualRenderer(s, Path(self.tmp.name) / "assets"), "review_requests"),
         ]
         with WorkflowStore(self.path) as store:

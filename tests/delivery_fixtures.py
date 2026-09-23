@@ -167,7 +167,7 @@ class DeliveryFixture:
         units = [{"role": role, "title": "Title", "body": "Body", "claim_ids": []}
                  for role in EXPRESSION_ROLES]
         cues = []
-        package = {"schema_version": "output_adaptation_v2", "platform": platform,
+        package = {"schema_version": "output_adaptation_v3", "platform": platform,
                    "account": binding["account"], "format": binding["content_format"],
                    "public_text": "Approved immutable copy", "private_tags": ["one", "two"],
                    "hashtags": [], "alt_text": "Accessible description", "claim_mappings": [],
@@ -180,9 +180,13 @@ class DeliveryFixture:
             "visual_cues_json,created_at) VALUES (?,?,?,?,?,?,?)",
             (output_id, adaptation_id, recipe_id, canonical(package), digest(package), canonical(cues), moment),
         ).lastrowid
+        from workflow.storyboard_planner import make_plan
+        plan = make_plan(6, 'english')
+        storyboard_run = store.connection.execute("INSERT INTO storyboard_plan_runs(content_package_id,status,attempt_limit,created_at) VALUES (?,'succeeded',1,?)", (package_id, moment)).lastrowid
+        storyboard_id = store.connection.execute("INSERT INTO storyboard_plans(storyboard_plan_run_id,content_package_id,output_request_id,visual_recipe_id,schema_version,planner_version,total_slides,boards_json,created_at) VALUES (?,?,?,?,?,?,6,?,?)", (storyboard_run, package_id, output_id, recipe_id, plan['schema_version'], plan['planner_version'], canonical(plan['boards']), moment)).lastrowid
         render_id = store.connection.execute(
-            "INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) "
-            "VALUES (?,?,1,'claimed',1,?)", (package_id, recipe_id, moment),
+            "INSERT INTO render_runs(storyboard_plan_id,content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) "
+            "VALUES (?,?,?,1,'claimed',1,?)", (storyboard_id, package_id, recipe_id, moment),
         ).lastrowid
         store.connection.execute(
             "UPDATE render_runs SET claim_owner='test-render',claimed_at=?,lease_expires_at=?,"

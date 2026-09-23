@@ -632,7 +632,30 @@ CREATE TABLE visual_recipes (
     UNIQUE(output_request_id)
 );
 
+CREATE TABLE storyboard_plan_runs (
+    storyboard_plan_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_package_id INTEGER NOT NULL UNIQUE REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled','blocked')),
+    claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
+    failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT
+);
+
+CREATE TABLE storyboard_plans (
+    storyboard_plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    storyboard_plan_run_id INTEGER NOT NULL UNIQUE REFERENCES storyboard_plan_runs(storyboard_plan_run_id) ON DELETE RESTRICT,
+    content_package_id INTEGER NOT NULL UNIQUE REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    output_request_id INTEGER NOT NULL UNIQUE REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
+    visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
+    schema_version TEXT NOT NULL CHECK(schema_version='storyboard_plan_v1'),
+    planner_version TEXT NOT NULL CHECK(planner_version='balanced_eight_largest_first_v1'),
+    total_slides INTEGER NOT NULL CHECK(total_slides BETWEEN 4 AND 14),
+    boards_json TEXT NOT NULL CHECK(json_valid(boards_json) AND json_type(boards_json)='array'),
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE render_runs (
+    storyboard_plan_id INTEGER NOT NULL UNIQUE REFERENCES storyboard_plans(storyboard_plan_id) ON DELETE RESTRICT,
     render_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
     content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
@@ -684,6 +707,7 @@ CREATE TABLE post_records (
     CHECK(policy_snapshot_json IS NULL OR json_valid(policy_snapshot_json)), external_post_id TEXT, published_at TEXT, publication_unknown_at TEXT);
 
 CREATE TABLE model_invocations (
+    claim_version INTEGER NOT NULL DEFAULT 0,
     model_invocation_id INTEGER PRIMARY KEY AUTOINCREMENT, phase TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
     attempt_ordinal INTEGER NOT NULL, request_version TEXT NOT NULL, prompt_version TEXT NOT NULL, schema_version TEXT NOT NULL,
     request_hash TEXT NOT NULL CHECK(length(request_hash)=64), model_id TEXT, provider_request_id TEXT, response_hash TEXT,
@@ -1074,7 +1098,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 12;
+PRAGMA user_version = 13;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)
@@ -1114,3 +1138,21 @@ WHEN NOT EXISTS (
       AND q.revision_id=NEW.revision_id
 )
 BEGIN SELECT RAISE(ABORT,'editorial run requires selected route lineage'); END;
+
+CREATE TRIGGER storyboard_run_input_immutable BEFORE UPDATE OF content_package_id ON storyboard_plan_runs
+BEGIN SELECT RAISE(ABORT,'immutable storyboard input'); END;
+CREATE TRIGGER storyboard_plan_immutable_update BEFORE UPDATE ON storyboard_plans
+BEGIN SELECT RAISE(ABORT,'immutable storyboard plan'); END;
+CREATE TRIGGER storyboard_plan_immutable_delete BEFORE DELETE ON storyboard_plans
+BEGIN SELECT RAISE(ABORT,'immutable storyboard plan'); END;
+CREATE TRIGGER storyboard_plan_lineage BEFORE INSERT ON storyboard_plans
+WHEN NOT EXISTS (SELECT 1 FROM content_packages p JOIN storyboard_plan_runs r USING(content_package_id)
+ WHERE p.content_package_id=NEW.content_package_id AND p.visual_recipe_id=NEW.visual_recipe_id
+ AND p.output_request_id=NEW.output_request_id AND r.storyboard_plan_run_id=NEW.storyboard_plan_run_id)
+BEGIN SELECT RAISE(ABORT,'storyboard lineage mismatch'); END;
+CREATE TRIGGER render_storyboard_lineage BEFORE INSERT ON render_runs
+WHEN NOT EXISTS (SELECT 1 FROM storyboard_plans s WHERE s.storyboard_plan_id=NEW.storyboard_plan_id
+ AND s.content_package_id=NEW.content_package_id AND s.visual_recipe_id=NEW.visual_recipe_id)
+BEGIN SELECT RAISE(ABORT,'render storyboard lineage mismatch'); END;
+CREATE TRIGGER render_storyboard_immutable BEFORE UPDATE OF storyboard_plan_id ON render_runs
+BEGIN SELECT RAISE(ABORT,'immutable render storyboard'); END;

@@ -8,8 +8,9 @@ prompt compilation, and shared Gemini review rendering.
 ```text
 CanonicalContent + OutputRequest
 → VisualPlanRun → immutable VisualRecipe v5 + AdaptationRun
-→ ContentPackage + RenderRun
-→ deterministic PromptCompiler → Gemini storyboard → split + overlays → ReviewRequest
+→ ContentPackage + StoryboardPlanRun
+→ deterministic StoryboardPlanner → immutable StoryboardPlan + RenderRun
+→ deterministic PromptCompiler → Gemini boards → split + overlays → ReviewRequest
 ```
 
 Archetype is the only layer referred to as a curated visual template.
@@ -32,7 +33,8 @@ full prompt fragments. Identities are
 platform against its configured domain binding; profile IDs are design identities,
 not substitute account names. Only English has the accepted `o2_english` footer.
 Archetypes specify eligibility, semantic selection traits, art direction, negative
-constraints and six ordered slide compositions, visual modes and copy capacities.
+constraints, role-specific compositions, visual modes and copy capacities. English keeps
+six ordered positions; dynamic domains use these compositions by role.
 There is no theme/font/component combination registry.
 
 The current registry `ACCOUNT_PROFILES` is keyed by domain because the active
@@ -46,10 +48,10 @@ until multiple-account visual operation is needed. No account key is invented
 from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
 not the complete three-archetype set.
 
-Infrastructure is independently versioned: `gemini_storyboard_prompt_v2` identifies
-the deterministic compiler, `image_storyboard_3x2_v1` identifies technical output
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v3` identifies
+the deterministic compiler, `image_storyboard_paginated_v1` identifies technical output
 geometry, and overlay IDs identify local chrome. Neither
-`gemini_storyboard_prompt_v2` nor `image_storyboard_3x2_v1` is a visual template.
+`gemini_storyboard_prompt_v3` nor `image_storyboard_paginated_v1` is a visual template.
 The former is compiler infrastructure; the latter is the technical renderer
 contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
@@ -93,107 +95,81 @@ paid image generation. No automatic visual fallback exists.
 
 ## Gemini designer review rendering
 
-`GeminiImageRenderer` generates one 5:4 storyboard image containing six clearly
-separated portrait panels in a three-column by two-row order. It sends no reference
-images. The renderer adaptively finds the border-connected background family,
-trims its outer frame, and identifies two vertical and one horizontal
-low-information gutter seams. It then crops the six panels left-to-right,
-top-to-bottom and center-fits each once to 1080×1350. If confidence checks cannot
-distinguish margins or gutters, it records an equal-grid fallback rather than
-failing a valid storyboard. Gemini retains creative control within each panel.
+`storyboard_plan_v1` is an immutable persisted boundary after adaptation. A
+StoryboardPlanRun claims a ContentPackage; its fenced transaction commits the plan
+and one RenderRun. The plan freezes package/output/recipe lineage, total slide count,
+planner version and ordered boards. No provider chooses pagination. Each board
+contains index, rows, columns, capacity, inclusive slide range, explicit slide
+indices, aspect ratio and split strategy.
 
-The deterministic `gemini_prompt_compiler.py` is the only final prompt builder.
-It loads account identity and the selected archetype's directions from
-`active_visual_profiles.py` / `visual_art_direction.py`, validates copy capacity
-and claim-referenced cues, and serializes geometry, account identity, archetype
-and grammar, semantic cues, negative constraints and exact slide text in a stable
-order. Exact text is last. Specialized English, AI/Tech and Psychology archetypes
-use this generic path, with geometry supplied once and only the clean identity
-serialized in the account section.
+All three English archetypes remain exactly six slides on one 3×2 board. All
+six AI/Tech and Psychology archetypes allow 4–14 slides (normally 4–8); adaptation
+capacity and role grammar are owned by [content production](content-production.md).
+The finite board family is 3×2, 2×2, 2×1, 1×1 (columns × rows), capacities
+6, 4, 2, 1. `balanced_eight_largest_first_v1` minimizes board count, then uses
+larger capacities first, except total eight uses the explicit balanced 4+4 rule.
+Examples: 4→4, 6→6, 8→4+4, 10→6+4, 12→6+6, 14→6+6+2. Slide order never changes.
 
-`expression_breakdown_v1` alone uses the compiler's dedicated
-`_build_accepted_expression_breakdown_prompt` compatibility path and
-`EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1`. Its frozen designer brief lives
-in `visual_art_direction.py`, outside account identity. This deliberately retains
-the accepted baseline's original serialization and wording when cues are empty;
-nonempty cues retain their existing insertion before exact slide text. It is a
-baseline-preservation exception, not another visual-template layer. Reusable
-English art direction is represented independently in the account fields used by
-the generic path. The baseline's frozen full-prompt hash and six overlay pixel
-hashes remain unchanged. Every archetype also has an exact
-prompt hash fixture including a semantic cue. AI/Tech and Psychology use their
-reusable identity fields and unchanged baseline slide directions.
+For AI/Tech and Psychology, board aspect ratio is reduced `(4*cols):(5*rows)`:
+3×2→6:5, 2×2→4:5, 2×1→8:5, 1×1→4:5. The compiler requires an exact board spec,
+validates it against the deterministic plan, and enumerates only that board's exact
+text, global slide ordinals and local panel order. It supplies account/archetype art
+direction and bounded semantic cues. It requires equal panels, edge-to-edge contact,
+no margins, gutters, extra borders, overlap, extra labels or paraphrased text.
+Exact text is serialized last. Archetypes supply style and role compositions;
+the plan owns geometry.
 
-The renderer contains no creative policy. It executes the compiled prompt with
-one Gemini call, then processes the result. The compiler never calls a model.
-No archetype-specific renderer implementation or HTML fallback exists.
+The image adapter requests the planned aspect ratio and configured image size
+(default 2K), one call per board with SDK retries disabled and no references.
+The dynamic path accepts a single PNG/JPEG per board, at most 40 MB / 40 million
+pixels and at least 200×250 pixels per cell. Dimensions must be exactly divisible
+by columns/rows and match the planned ratio exactly. Invalid geometry fails visibly;
+there is no margin detection, approximate crop or HTML fallback. Row-major equal
+rectangles are resized once to **1080×1350**, without content-dependent cropping.
+Provider support for these exact aspect ratios and compliant dimensions is required;
+unsupported provider requests fail without substituting a different layout.
 
-The isolated Vertex adapter makes one 5:4, 2K image request per supported carousel
-by default, with SDK retries disabled. Its model and image size remain
-environment-configurable, and the requested size must be supported by the selected
-model. It sends only the storyboard prompt, with no image parts;
-[the SDK documentation](https://googleapis.github.io/python-genai/) describes that
-transport. Prompts forbid branding, counters, headers, footers and category or
-semantic-role labels; the supplied title and body are the only model-rendered
-text. Local processing owns all chrome and reserves the top 10%, bottom 14% and
-generous side margins in every panel. Each storyboard output
-must be a single PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and
-within 0.04 of the 5:4 aspect ratio. Border-background and projection analysis
-finds panel bounds without assuming an exact canvas color; an auditable equal-grid
-fallback is used only when that analysis lacks confidence. Each crop is
-Lanczos-resized exactly once to 1080×1350. These checks reject invalid image
-data/geometry, not inaccurate words or poor visual design. Exact model-rendered
-text and design quality require human review.
+English is an explicit preservation exception: all three English archetypes retain
+their existing 5:4 raw-board request and adaptive margin/gutter processing, with the
+recorded equal-grid fallback. Their persisted plan still records the logical 3×2
+panel grid and 6:5 panel-grid ratio, but `english_accepted_v1` selects the accepted
+5:4 transport and splitting. In particular `expression_breakdown_v1` uses
+`_build_accepted_expression_breakdown_prompt` and
+`EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1`; its full prompt and overlay pixel
+hashes remain unchanged. This exception preserves the accepted English baseline.
 
-After splitting, Pillow applies deterministic transparent header/category and
-page-counter text on a single subdued RGBA layer. English retains its
-lower-left `o2_english` brand and existing expression labels; AI/Tech and Psychology
-omit footer brand text and never display synthetic account IDs. Header and footer
-use the same local font, size, color and opacity; there
-are no bars, panels, strokes, outlines, shadows or glows. Slides 1–5 place their
-CTA and matching arrow on the same footer baseline; a deterministic render-seeded
-selection rotates five non-repeating phrases from the curated CTA set, while slide
-6 receives no next-slide cue. English retains seed namespace
-`expression-footer-cta-v1` and overlay version `expression_transparent_chrome_v2`.
-The new domains use separate `ai-tech-footer-cta-v1` / `psychology-footer-cta-v1`
-namespaces and `ai_tech_transparent_chrome_v1` / `psychology_transparent_chrome_v1`
-overlay versions with the same font, geometry, color, opacity, CTA pool and arrow.
+Pillow adds transparent local chrome after splitting. English retains labels,
+`o2_english` branding and seeded five-phrase CTA rotation. Dynamic domains use the
+actual unit role for header labels (domain hook, EXPLAINED, EXAMPLE, TAKEAWAY),
+no footer brand, and global slide counters. The curated eight-phrase CTA pool is
+sampled without replacement initially; longer carousels may reuse phrases without
+adjacent repetition. The final slide has no next-slide cue. Font, geometry and
+opacity remain shared. Dynamic overlay versions are
+`ai_tech_transparent_chrome_v2` and `psychology_transparent_chrome_v2`.
 
-AI/Tech overlay labels are AI / TECH, WHAT CHANGED, WHY IT MATTERS, USE CASE,
-LIMITS, TAKEAWAY. Psychology labels are PSYCHOLOGY, THE CONCEPT, WHY IT MAY HAPPEN,
-EXAMPLE, WHAT HELPS, TAKEAWAY. These complement the exact supplied slide copy.
+One RenderRun renders every board sequentially under a thirty-minute lease. Every
+board has separate admission/accounting against the same daily/job limits, a unique
+invocation ordinal and persisted claim version. A board starts only after all prior
+boards succeeded under that same live claim. Transport uncertainty, lease loss,
+invalid geometry, overlay failure or later-board budget refusal stops the whole
+render with no partial ReviewRequest or automatic paid replay. Daily budget refusal
+before any paid board can defer. There is no per-board resume or repair command.
 
-The six processed `preview_png` assets are the
-exact dashboard review bytes. The raw storyboard is retained unchanged in its
-provider PNG/JPEG format as a traceability/debug artifact only, not a review asset
-or dashboard contact sheet. The image renderer creates review assets only.
+The renderer reads the committed plan before calling the compiler. Raw PNG/JPEG
+boards retain their provider bytes and file types. Manifest provenance links every
+final ordinal to its board, cell, source rectangle, invocation, filename and hash;
+board records include prompt hash, raw hash/size/media and split metadata. The
+manifest also freezes StoryboardPlan ID/content, recipe/profile identity, compiler,
+renderer, selection and overlay provenance. All assets and one ReviewRequest commit
+only after the full ordered set succeeds. Temporary failed output is removed;
+model accounting remains. Prompts are hashed, never written to diagnostic logs.
 
-The manifest records account profile, archetype ID/version, selector evidence, compiler version,
-renderer contract, overlay profile, engine/model, storyboard grid,
-prompt hash, one invocation ID, raw storyboard filename/MIME/extension/bytes/hash,
-raw dimensions, detected outer crop, gutter seams, source rectangles, fallback
-status, final filename/hash, transparent-overlay version and deterministic footer
-CTA choices. Package/recipe lineage and Pillow identity remain intact. The one
-invocation request hash contains the prompt only. No raw prompts enter diagnostic
-logs or model ledgers. All six final assets commit with one ReviewRequest only
-after complete success. Failed temporary output is removed; paid-call evidence
-remains in the invocation ledger.
-
-The manifest's `profile_id` (`gemini_instagram_review_v1`) identifies the
-review-output validation profile, not a curated template. Account and overlay
-profiles retain their distinct meanings. Local overlay font selection and the
-preserved production approval gate are described in
+The dashboard exposes plan/failure progress, expandable slide count, board count,
+layouts and ranges, and all ordered final review slides. It reads persisted evidence
+only. Model-rendered spelling, meaning, caveat quality and aesthetics still require
+human review; capacity and reference checks do not prove semantic fidelity.
+Local font selection and the preserved delivery approval contract belong to
 [configuration](configuration.md#preserved-production-configuration).
-
-The one storyboard call has one admission and accounting record against the shared
-daily/job limits, using image prices. A current live claim is required for the
-bounded call; an expired claim cannot be revived. An interrupted carousel is never
-resumed automatically. Generation, normalization or overlay failures fail the
-whole render without a partial review, per-cell repair or automatic HTML fallback.
-A low-confidence split alone uses the recorded equal-grid fallback. Only a daily
-budget refusal before the storyboard call may defer without a provider call. Manual
-refinement/review-feedback creates fresh work for a complete rerun; no in-place
-render retry command is provided.
 
 
 ## Archived deterministic visual library

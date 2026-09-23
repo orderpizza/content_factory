@@ -18,8 +18,10 @@ __all__ = [
     "EditorialPlanningWorker", "GeminiEditorialPlanningWorker",
     "WORKFLOW_PIPELINES", "WorkflowStore", "IdeaIntakeWorker", "DeterminationWorker",
     "GeminiIntakeWorker", "GeminiDeterminationWorker", "GeminiPipelineRunner",
-    "GeminiAdaptationWorker", "VisualPlanner", "ModelBudgetPolicy",
+    "GeminiAdaptationWorker", "VisualPlanner", "StoryboardPlanner", "ModelBudgetPolicy",
     "ModelBudgetConfigurationError", "ModelBudgetExceeded", "inspect_smoke_readiness",
 ]
 
 from .editorial_planning import EditorialPlanningWorker, GeminiEditorialPlanningWorker
+
+from .storyboard_planner import StoryboardPlanner

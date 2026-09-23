@@ -30,7 +30,7 @@ from workflow import (
     IdeaIntakeWorker,
     ModelBudgetConfigurationError,
     ModelBudgetPolicy,
-    VisualPlanner,
+    VisualPlanner, StoryboardPlanner,
     WorkflowStore,
 )
 from workflow.maintenance import StorageMonitor
@@ -49,6 +49,7 @@ _RUNTIME_TYPES = {
     "GeminiDeterminationWorker": ("determination", "determination_decision"),
     "GeminiPipelineRunner": ("pipeline_runner", "canonical_content"),
     "GeminiAdaptationWorker": ("adaptation", "content_package"),
+    "StoryboardPlanner": ("storyboard_planner", "storyboard_plan"),
     "VisualPlanner": ("visual_planner", "visual_recipe"),
     "DispatchVisualRenderer": ("visual_renderer", "review_request"),
     "StorageMonitor": ("storage_monitor", "storage_sample"),
@@ -151,7 +152,7 @@ def main() -> None:
                 workers += (
                     GeminiPipelineRunner(store), VisualPlanner(store),
                     GeminiAdaptationWorker(store, strict_english_capacity=True),
-                    DispatchVisualRenderer(store, args.artifacts),
+                    StoryboardPlanner(store), DispatchVisualRenderer(store, args.artifacts),
                 )
             workers = (StorageMonitor(store, args.artifacts, args.backups or ROOT / "data/backups"),) + workers
             if not args.poll:

@@ -20,7 +20,7 @@ Human idea / reply → ContentThread + IntakeRequest
 Determination → three domain assessments → EditorialPlanRun
 → immutable EditorialPlan + ContentJob + GenerationRun
 → canonical content → deterministic visual planning → Instagram adaptation
-→ deterministic prompt compilation → Gemini rendering
+→ deterministic storyboard planning → deterministic prompt compilation → Gemini rendering
 → ReviewRequest + exact slides → dashboard
 ```
 
@@ -37,8 +37,8 @@ multi-account ownership is not implemented. Deterministic planning
 selects an immutable recipe from canonical semantics and recent account history
 before Instagram adaptation. Account identity, archetype, compiler, technical
 renderer contract and overlays are separate contracts; only an archetype is a
-visual template. One Gemini storyboard call and shared local splitting produce
-six review PNGs. The accepted English baseline prompt and overlays are preserved.
+visual template. A persisted StoryboardPlan determines boards and splitting. English keeps six
+review PNGs; AI/Tech and Psychology produce 4–14 ordered review PNGs. The accepted English baseline prompt and overlays are preserved.
 Unsupported combinations stop explicitly with no HTML fallback. The former
 deterministic visual library remains archived and inactive. See
 [visual rendering](specs/visual-rendering.md) for the nine archetypes and provenance.

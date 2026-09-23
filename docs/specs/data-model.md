@@ -60,7 +60,7 @@ original Detection evidence during human refinement.
 carry destination/format readiness and the preserved production
 `visual_configuration_approved` gate; the
 [configuration contract](configuration.md#preserved-production-configuration)
-owns its approval semantics. Renderer geometry belongs to VisualRecipe only.
+owns its approval semantics. Renderer identity belongs to VisualRecipe; exact board geometry belongs to StoryboardPlan.
 `social_destinations` and configuration/readiness records belong to the preserved
 inactive delivery catalog; fixture bindings have no deliverable destination.
 
@@ -81,10 +81,16 @@ output before any adaptation, and `visual_recipes` freezes its account identity,
 curated archetype and complete deterministic selection provenance.
 `adaptation_runs` references that recipe and owns bounded copy/metadata checkpoints.
 `content_packages` preserves the same recipe ID, exact copy, units and semantic
-claim-referenced visual cues. RenderRun is created only after package finalization.
-SQL guards enforce matching output → recipe → adaptation → package → render
+claim-referenced visual cues. Package finalization creates StoryboardPlanRun. Its fenced finalization creates an
+immutable StoryboardPlan and RenderRun atomically.
+SQL guards enforce matching output → recipe → adaptation → package → storyboard plan → render
 lineage and prevent changes to frozen visual inputs. The
 [visual rendering contract](visual-rendering.md) owns recipe fields and selection.
+`storyboard_plan_runs` uniquely references the package. `storyboard_plans` is
+immutable and uniquely binds run/package/output, recipe, versions, total and board
+JSON. `render_runs.storyboard_plan_id` is required and unique; SQL guards prevent
+lineage substitution. `model_invocations.claim_version` fences sequential boards
+within one render claim.
 `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
@@ -98,7 +104,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 12. All workers open and validate databases through
+authoritative schema, at version 13. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates
@@ -115,7 +121,7 @@ an incompatible database. Development setup requires a new filename.
 | Shortlist | topic_snapshots, trend_candidates, candidate_observation_memberships |
 | Conversation | content_threads, thread_messages, intake_requests, brief_revisions, human_command_receipts |
 | Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, editorial_plan_runs, editorial_plans, content_jobs, generation_runs |
-| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, render_runs, render_assets, review_requests |
+| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, storyboard_plan_runs, storyboard_plans, render_runs, render_assets, review_requests |
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
 | Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
 | Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |
@@ -135,7 +141,7 @@ by worker/store semantic validation before finalization.
 | Determination | pending → claimed → completed / retry_wait / failed / cancelled |
 | Editorial planning | pending → claimed → succeeded / retry_wait / failed / cancelled |
 | Generation/adaptation | pending → claimed → succeeded / retry_wait / failed / cancelled |
-| Visual planning/render | pending → claimed → succeeded / blocked / retry_wait / failed / cancelled |
+| Visual/storyboard planning/render | pending → claimed → succeeded / blocked / retry_wait / failed / cancelled |
 | Review | awaiting_review → approved / changes_requested / rejected / invalidated |
 | Delivery | pending → claimed → publishing → published / failed / publication_unknown |
 | Reconciliation | pending → claimed → needs_human → resolved |

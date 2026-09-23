@@ -58,7 +58,7 @@ with DetectionStore(path) as store:
 assert not initialize_database(path)
 connection = connect(path)
 validate_database(connection)
-assert connection.execute('PRAGMA user_version').fetchone()[0] == 12
+assert connection.execute('PRAGMA user_version').fetchone()[0] == 13
 connection.close()
 """
             result = subprocess.run([sys.executable, "-I", "-c", code, str(installed), str(target / "fixture.db")],

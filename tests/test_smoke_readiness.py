@@ -1,6 +1,7 @@
 """Offline smoke-readiness and workflow-runtime visibility tests."""
 
 from __future__ import annotations
+from workflow.storyboard_planner import StoryboardPlanner
 from contextlib import redirect_stdout
 from database.current import initialize_database
 from detection.configuration import load_manifest
@@ -125,6 +126,7 @@ class SmokeReadinessTests(unittest.TestCase):
             AdaptationWorker(store),
             GeminiAdaptationWorker(store, client=object()),
             VisualPlanner(store),
+            StoryboardPlanner(store),
             VisualRenderer(store, self.artifacts),
             R2CleanupWorker(store),
             PublicationReconciliationWorker(store),
@@ -132,7 +134,7 @@ class SmokeReadinessTests(unittest.TestCase):
         for worker in workers:
             worker.run_once()
         self.assertEqual(len(store.calls), len(workers))
-        self.assertTrue(all(call[1].get("lease_seconds") == 600 for call in store.calls))
+        self.assertTrue(all(call[1].get("lease_seconds", 300) == (300 if call[0][0] == "storyboard_plan_runs" else 600) for call in store.calls))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **12**, defined by
+The current schema is **13**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -20,9 +20,9 @@ and deterministic scoring. Human Intake can clarify before freezing a brief.
 `--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
 the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, deterministic visual planning,
-archetype-aware Instagram adaptation and Gemini review rendering. All three active domains produce
-six-slide Instagram review carousels through one Gemini 3×2 storyboard call and
-shared local processing into six 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
+archetype-aware Instagram adaptation and Gemini review rendering. English retains six-slide review carousels. AI/Tech and Psychology produce 4–14
+slides through persisted deterministic storyboard pagination, sequential Gemini
+board calls and equal-grid splitting into 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
 and Psychology explainers remain safe baselines. Canonical semantics and bounded
 recent-use penalties choose the immutable recipe before adaptation. One deterministic
 prompt compiler guides the shared image renderer. See the
@@ -31,7 +31,7 @@ Unsupported domain/archetype combinations block explicitly; invalid package
 shapes fail before the image call. No HTML fallback is active.
 
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
-Determination routes, editorial plans and failures, jobs, adaptation/render progress and exact review slides.
+Determination routes, editorial plans and failures, jobs, adaptation/storyboard/render progress and exact review slides.
 Accept/reject/request-changes commands do not publish. Generic posting/delivery
 records and R2 staging are preserved inactive; provider delivery is not
 implemented in the current baseline. The former deterministic visual library is
@@ -122,7 +122,7 @@ In another terminal:
 
 Open http://127.0.0.1:8787, answer any Intake clarification and inspect the
 Determination selections. Manually compare the English baseline, AI/Tech clarity
-and visible caveats, and Psychology qualification across each six-slide review.
+and visible caveats, and Psychology qualification across each ordered review.
 These are human-review acceptance cases, not assertions of live model quality.
 Stop the workflow with Ctrl+C when finished. This flow does not publish.
 
@@ -211,6 +211,7 @@ Maintenance does not prune backups unless `--prune-backups` is supplied.
 | `src/workflow/editorial_planning.py` | Closed editorial strategy, immutable plans and bounded history |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
 | `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Curated account identities/archetypes and deterministic planning evidence |
+| `src/workflow/storyboard_planner.py` | Immutable deterministic board pagination and worker handoff |
 | `src/workflow/gemini_prompt_compiler.py` | Deterministic storyboard prompt compilation |
 | `src/workflow/active_review_renderer.py`, `gemini_image_renderer.py` | Atomic review assets, Gemini storyboards and shared local processing |
 | `archive/deterministic_visual_library/` | Reference-only former generic visual library; never imported or run |

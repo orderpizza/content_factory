@@ -32,7 +32,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
         kwargs.setdefault("model", configured_image_model())
         super().__init__(**kwargs)
 
-    def generate_image(self, prompt: str) -> GeneratedImage:
+    def generate_image(self, prompt: str, *, aspect_ratio: str = "5:4") -> GeneratedImage:
         from google import genai
         from google.genai import types
 
@@ -50,7 +50,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT", "IMAGE"], candidate_count=1,
                     image_config=types.ImageConfig(
-                        aspect_ratio="5:4", image_size=configured_image_size(),
+                        aspect_ratio=aspect_ratio, image_size=configured_image_size(),
                     ),
                     max_output_tokens=self.max_output_tokens,
                 ),

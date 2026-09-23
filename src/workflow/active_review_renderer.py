@@ -21,8 +21,8 @@ def _render_spec(package: Any) -> dict[str, Any]:
     if not isinstance(package, dict) or package.get("platform") != "instagram" or package.get("delivery_ready") is not False:
         raise ValueError("package/platform renderer safety mode does not match")
     units = package.get("visual_units")
-    if not isinstance(units, list) or len(units) != 6:
-        raise ValueError("active Gemini review requires exactly six visual units")
+    if not isinstance(units, list) or not 4 <= len(units) <= 14:
+        raise ValueError("active Gemini review requires 4–14 bounded visual units")
     for unit in units:
         if not isinstance(unit, dict) or set(unit) != {"role", "title", "body", "claim_ids"}:
             raise ValueError("visual unit has an invalid shape")
@@ -46,7 +46,7 @@ class ActiveReviewRenderer:
         self.production = False
 
     def run_once(self) -> int | None:
-        run = self.store.claim("render_runs", "render_run_id", self.instance_id, lease_seconds=600)
+        run = self.store.claim("render_runs", "render_run_id", self.instance_id, lease_seconds=1800)
         return None if run is None else self._process(run)
 
     @local_operation("render_runs", "render_run_id")
@@ -61,6 +61,16 @@ class ActiveReviewRenderer:
         package = json.loads(package_row["package_json"])
         spec = _render_spec(package)
         recipe = validate_recipe(json.loads(package_row["recipe_json"]), production=False)
+        from .active_visual_profiles import ARCHETYPES, validate_archetype_units
+        from .storyboard_planner import validate_plan
+        validate_archetype_units(package['visual_units'], recipe['archetype_id'])
+        plan_row = self.store.connection.execute('SELECT * FROM storyboard_plans WHERE storyboard_plan_id=? AND content_package_id=?',
+            (run['storyboard_plan_id'], run['content_package_id'])).fetchone()
+        if plan_row is None:
+            raise ValueError('render requires committed storyboard plan')
+        spec['storyboard_plan'] = validate_plan(dict(schema_version=plan_row['schema_version'],
+            planner_version=plan_row['planner_version'], total_slides=plan_row['total_slides'],
+            boards=json.loads(plan_row['boards_json'])), len(package['visual_units']), ARCHETYPES[recipe['archetype_id']].domain)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         final_directory = self.artifact_root / f"render-{run['render_run_id']}"
         if final_directory.exists():
@@ -89,6 +99,8 @@ class ActiveReviewRenderer:
                 "visual_profile_fingerprint": recipe["profile_fingerprint"],
                 "content_hash": package_row["content_hash"],
                 "pillow_version": PIL.__version__, "review_only": True,
+                "storyboard_plan_id": run["storyboard_plan_id"],
+                "storyboard_plan": spec["storyboard_plan"],
                 "assets": assets, **engine_metadata,
             }
             return self.store.complete_render(run, manifest, assets)

@@ -1,5 +1,6 @@
 """Nine curated templates, immutable pre-adaptation selection and exact prompt coverage."""
 from workflow.editorial_planning import EditorialPlanningWorker
+from workflow.storyboard_planner import StoryboardPlanner, paginate
 
 from copy import deepcopy
 from dataclasses import asdict
@@ -70,7 +71,7 @@ def prompt_fixture(id):
                               'semantic_emphasis': 'situation', 'participants_count': 2}]
     package = _validate_package(response, canonical_fixture(id), platform='instagram', account='fixture',
         content_format='instagram_static_carousel_v2', pipeline_id=a.domain, archetype_id=id)
-    return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain)
+    return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain, board=paginate(6,a.domain)[0])
 
 
 class CuratedContractTests(unittest.TestCase):
@@ -98,6 +99,13 @@ class CuratedContractTests(unittest.TestCase):
                 continue
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
+                if a.domain != 'english':
+                    self.assertIn('3 columns and 2 rows', prompt)
+                    self.assertIn('No outer margins. No gutters.', prompt)
+                    exact = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
+                    self.assertEqual([u['slide'] for u in exact['slides']], list(range(1,7)))
+                    self.assertEqual([u['body'] for u in exact['slides']], [u['body'] for u in domain_response(workflow_fixtures.GeminiWorkflowTests(),a.domain)['visual_units']])
+                    continue
                 geometry, rest = prompt.split('\nACCOUNT_VISUAL_IDENTITY\n')
                 self.assertEqual(geometry, EXPLAINER_GEOMETRY)
                 identity, rest = rest.split(f'\nArchetype: {id}\n')
@@ -218,8 +226,7 @@ class CuratedContractTests(unittest.TestCase):
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
                 self.assertEqual(sha256(prompt.encode()).hexdigest(), hashes[id])
-                for text in ('3×2 storyboard', '5:4', 'top 10%', 'bottom 14%', id,
-                             'subject_claim_id', 'participants_count', 'Do not rewrite'):
+                for text in (('3×2 storyboard', '5:4', 'Do not rewrite') if a.domain == 'english' else ('3 columns and 2 rows', '6:5', 'Do not omit, summarize, expand')) + ('top 10%', 'bottom 14%', id, 'subject_claim_id', 'participants_count'):
                     self.assertIn(text, prompt)
                 content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                 response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
@@ -258,12 +265,13 @@ class CuratedWorkflowTests(unittest.TestCase):
                     self.assertEqual(request['selected_archetype'], json.loads(json.dumps(asdict(a))))
                     self.assertEqual(request['visual_recipe_hash'], recipe_row['recipe_hash'])
                     image = FakeImageClient()
+                    StoryboardPlanner(store).run_once()
                     renderer = DispatchVisualRenderer(store, Path(f.temporary.name)/'assets', image_client=image)
                     renderer.image_renderer.budget_policy = image_fixtures.ImageWorkflowTests.image_policy(self)
                     self.assertIsNotNone(renderer.run_once())
                     self.assertEqual(len(image.calls), 1)
                     package = json.loads(store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
-                    self.assertEqual(image.calls[0], build_storyboard_prompt(package, recipe, pipeline_id=a.domain))
+                    self.assertEqual(image.calls[0], build_storyboard_prompt(package, recipe, pipeline_id=a.domain, board=paginate(6,a.domain)[0]))
                     manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
                     for key in ('archetype_id', 'archetype_version', 'account_visual_profile_id', 'prompt_compiler_version', 'renderer_contract_id', 'overlay_profile_id', 'selection'):
                         self.assertEqual(manifest[key], recipe[key])
