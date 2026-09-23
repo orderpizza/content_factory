@@ -1,42 +1,78 @@
 # Visual rendering
 
-**Owner:** Active Gemini review rendering, fixed domain profiles and local
-post-image processing.
+**Owner:** Account visual identity, curated archetypes, deterministic planning and
+prompt compilation, and shared Gemini review rendering.
 
 ## Active boundary
 
-Adaptation freezes copy, claim mappings, ordered semantic units and bounded
-`visual_intent`. VisualPlanRun selects an immutable VisualRecipe and atomically
-creates RenderRun. The active `DispatchVisualRenderer` inspects persisted job
-domain and recipe before any image call. Supported pairs are exclusively:
+```text
+CanonicalContent + OutputRequest
+→ VisualPlanRun → immutable VisualRecipe v5 + AdaptationRun
+→ ContentPackage + RenderRun
+→ deterministic PromptCompiler → Gemini storyboard → split + overlays → ReviewRequest
+```
 
-| Domain | Archetype | Prompt version |
+Archetype is the only layer referred to as a curated visual template.
+Each active Instagram account/domain has exactly three curated archetypes:
+
+| Domain | Baseline | Specialized archetypes |
 | --- | --- | --- |
-| `english` | `expression_breakdown_v1` | `gemini_carousel_storyboard_v1` |
-| `ai_tech` | `ai_tech_explainer_v1` | `gemini_ai_tech_storyboard_v1` |
-| `psychology` | `psychology_explainer_v1` | `gemini_psychology_storyboard_v1` |
+| `english` | `expression_breakdown_v1` | `expression_story_scene_v1`, `expression_cards_v1` |
+| `ai_tech` | `ai_tech_explainer_v1` | `ai_tech_product_ui_v1`, `ai_tech_system_diagram_v1` |
+| `psychology` | `psychology_explainer_v1` | `psychology_human_scenario_v1`, `psychology_concept_cards_v1` |
 
-All three domains use explicit deterministic domain/archetype compatibility,
-recorded as `explicit_domain_archetype_v1` selection provenance. The active
-profile contract exposes exactly one profile per domain; it has no selector,
-generic registry archetypes or fallback rules. The narrow AI/Tech and Psychology
-six-unit validators run during adaptation, planning and image prompt construction;
-English retains its accepted six-slide expression validator. The [package contract](content-production.md#instagram-package-contract)
-owns the role sequences, semantic purposes and copy bounds. The persisted recipe
-envelope remains immutable for lineage, but records the fixed active profile rather
-than a reusable visual-library recipe. No recipe or canonical schema changes.
+`active_visual_profiles.py` owns closed frozen account and archetype definitions.
+Account identity specifies personality, color behavior, illustration, typography,
+whitespace, polish and positive/negative art direction. Identities are
+`o2english_visual_identity_v1`, `ai_tech_visual_identity_v1` and
+`psychology_visual_identity_v1`. The planner checks the actual frozen account and
+platform against its configured domain binding; profile IDs are design identities,
+not substitute account names. Only English has the accepted `o2_english` footer.
+Archetypes specify eligibility, semantic selection traits, art direction, negative
+constraints and six ordered slide compositions, visual modes and copy capacities.
+There is no theme/font/component combination registry.
 
-Unsupported domain/archetype combinations end RenderRun in `blocked` with a
-format-specific reason. Invalid supported-domain package shapes fail before an
-image call. No HTML fallback, model invocation, asset or ReviewRequest is created
-for an unsupported combination. Blocked runs are not polled again. Thread
-cancellation and live claim fencing still apply. The dashboard shows status and
-reason beside generation and adaptation progress.
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v2` identifies
+the deterministic compiler, `image_storyboard_3x2_v1` identifies technical output
+geometry, and overlay IDs identify local chrome. Archetype version is an integer.
+The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
+profile fingerprint, compiler version, renderer contract, overlay profile and
+selection. The fingerprint covers all account/art-direction/archetype/overlay
+configuration. Unsupported versions, mismatched identities or extra keys fail
+validation. SQL freezes each recipe and binds adaptation, package and rendering
+to that exact selection. Old recipes are never interpreted as v5.
 
-`run_workflow.py --gemini --review-preview` composes only Gemini rendering.
-The active strategy is Gemini images followed by small deterministic local
-processing. Shared recipe validation and atomic asset lifecycle are retained to
-protect all three paths without changing the accepted English mechanics.
+## Deterministic selection
+
+`archetype_selection.py` owns `deterministic_archetype_selector_v1`. It reads only
+canonical domain fields, examples and key points; adaptation has not run yet.
+Field-aware lexical signals and bounded list counts score three registered
+candidates. Each signal counts once (weights 4/3/3); baseline fit is 5 and a
+specialized candidate is eligible only at fit 6 or above. No recognized specialized
+fit means baseline fallback. The explicit rules cover human/dialogue/context vs
+usage distinctions/abstraction; product capabilities/use cases vs mechanisms and
+component flows; social reactions/scenarios vs cognition and alternative explanations.
+These are deterministic heuristics, not a model's semantic judgement; unfamiliar
+wording may fall back to the baseline.
+
+The planner reads the latest eight committed selections for the same Instagram
+account, newest recipe ID first. Each prior use costs 0.25, capped at 1.0 per
+candidate. Selection maximizes fit minus penalty; ties prefer the safe baseline,
+then lexical archetype ID. Thus close fits can alternate, while a fit advantage
+greater than one always wins. History counts committed plans, including plans whose
+adaptation or rendering later fails; it does not claim publication occurred.
+History read, selection, immutable recipe insertion and adaptation handoff share
+one SQLite write transaction, so concurrent planners observe committed predecessors.
+
+Provenance preserves the canonical hash, output/binding/account/domain, selector
+version, every candidate's eligibility, fit, penalty, adjusted score and reason
+codes, plus exact history recipe IDs/archetypes. Selection never invokes an LLM.
+Claim expiry and thread cancellation fence the whole handoff; failure creates no
+partial adaptation. Retry uses the committed selection rather than selecting again.
+
+Unsupported domain/account/format planning fails before adaptation. Unsupported
+render pairs are blocked before an image call. Invalid copy or cues fail before
+paid image generation. No automatic visual fallback exists.
 
 ## Gemini designer review rendering
 
@@ -49,30 +85,21 @@ top-to-bottom and center-fits each once to 1080×1350. If confidence checks cann
 distinguish margins or gutters, it records an equal-grid fallback rather than
 failing a valid storyboard. Gemini retains creative control within each panel.
 
-Renderer-owned prompts interpret `expression_breakdown_v1` as hook,
-meaning/definition, use cases, examples, short dialogue and takeaway. The one
-storyboard prompt includes every exact title/body, semantic role and role-sensitive
-direction. It prioritizes instructional clarity over visual delight: each panel has
-one obvious reading order, clear title/explanation/visual separation, readable body
-text and supporting visuals that do not compete with teaching. It rejects poster
-collages, decorative text overlap, excessive accents, cramped layouts and visual
-noise. Recipe composition, theme, typography tokens and component coordinates never
-enter the prompt. Existing package/recipe validity gates still apply; adaptation
-does not author image prompts.
+The deterministic `gemini_prompt_compiler.py` is the only final prompt builder.
+It loads account identity and the selected archetype's directions from
+`active_visual_profiles.py` / `visual_art_direction.py`, validates copy capacity
+and claim-referenced cues, and serializes geometry, account identity, archetype
+and grammar, semantic cues, negative constraints and exact slide text in a stable
+order. Exact text is last. The accepted English baseline deliberately retains its
+original serialization and wording when cues are empty; its geometry and account
+art direction are already in the accepted brief. Its frozen full-prompt hash and
+six overlay pixel hashes remain unchanged. Every archetype also has an exact
+prompt hash fixture including a semantic cue. AI/Tech and Psychology retain their
+accepted account art direction and baseline slide directions.
 
-AI/Tech has a dedicated clean, credible technology editorial brief: interface
-cards, annotated diagrams, processes, practical examples and prominent limitations.
-It avoids robot/hologram/cyberpunk clichés and automatic provider branding.
-Psychology has a warm, calm, human-centered brief: relatable scenarios, possible
-mechanisms and practical responses. It preserves observation/inference/alternative
-explanation distinctions and final qualification, avoiding diagnostic or dark
-psychology imagery. Neither profile asks the image model to research, verify or
-improve claims. Supplied titles and bodies must be rendered exactly, with no
-rewriting, omission, summary or invented text.
-
-The accepted English prompt constants remain unchanged. A frozen SHA-256 test
-protects the complete prompt for the known expression fixture. Separate overlay
-pixel hashes with a fixed bundled font protect all six English slide overlays.
+The renderer contains no creative policy. It executes the compiled prompt with
+one Gemini call, then processes the result. The compiler never calls a model.
+No archetype-specific renderer implementation or HTML fallback exists.
 
 The isolated Vertex adapter makes one 5:4, 2K image request per supported carousel
 by default, with SDK retries disabled. Its model and image size remain
@@ -114,7 +141,8 @@ exact dashboard review bytes. The raw storyboard is retained unchanged in its
 provider PNG/JPEG format as a traceability/debug artifact only, not a review asset
 or dashboard contact sheet. The image renderer creates review assets only.
 
-The manifest records domain/archetype IDs, engine/model, prompt and overlay versions, storyboard grid,
+The manifest records account profile, archetype ID/version, selector evidence, compiler version,
+renderer contract, overlay profile, engine/model, storyboard grid,
 prompt hash, one invocation ID, raw storyboard filename/MIME/extension/bytes/hash,
 raw dimensions, detected outer crop, gutter seams, source rectangles, fallback
 status, final filename/hash, transparent-overlay version and deterministic footer

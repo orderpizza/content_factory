@@ -25,7 +25,7 @@ class WorkflowClaimTests(unittest.TestCase):
 
     def route(self, store):
         return store.register_capability("english", enabled=True, generation_ready=True, outputs=[{
-            "platform": "instagram", "account": "fixture", "content_format": "placeholder", "ready": True,
+            "platform": "instagram", "account": "fixture", "content_format": "instagram_static_carousel_v2", "ready": True,
         }])
 
     def human(self, store):
@@ -87,8 +87,8 @@ class WorkflowClaimTests(unittest.TestCase):
         stages = [
             ("determination_requests", "determination_request_id", DeterminationWorker, "determination_decisions"),
             ("generation_runs", "generation_run_id", PipelineRunner, "canonical_contents"),
-            ("adaptation_runs", "adaptation_run_id", AdaptationWorker, "content_packages"),
             ("visual_plan_runs", "visual_plan_run_id", VisualPlanner, "visual_recipes"),
+            ("adaptation_runs", "adaptation_run_id", AdaptationWorker, "content_packages"),
             ("render_runs", "render_run_id", lambda s: VisualRenderer(s, Path(self.tmp.name) / "assets"), "review_requests"),
         ]
         with WorkflowStore(self.path) as store:

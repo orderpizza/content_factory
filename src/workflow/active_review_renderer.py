@@ -53,7 +53,7 @@ class ActiveReviewRenderer:
     def _process(self, run: Any) -> int | None:
         package_row = self.store.connection.execute(
             "SELECT cp.package_json,cp.content_hash,vr.recipe_json FROM content_packages cp "
-            "JOIN visual_recipes vr ON vr.visual_recipe_id=? WHERE cp.content_package_id=?",
+            "JOIN visual_recipes vr ON vr.visual_recipe_id=cp.visual_recipe_id AND vr.visual_recipe_id=? WHERE cp.content_package_id=?",
             (run["visual_recipe_id"], run["content_package_id"]),
         ).fetchone()
         if package_row is None:
@@ -86,11 +86,10 @@ class ActiveReviewRenderer:
                 "schema_version": "render_manifest_v1", "renderer": self.engine,
                 "profile_id": spec["profile_id"],
                 "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
-                "visual_registry_release": recipe["registry_release"],
-                "visual_registry_fingerprint": recipe["registry_fingerprint"],
+                "visual_profile_fingerprint": recipe["profile_fingerprint"],
                 "content_hash": package_row["content_hash"], "browser_version": None,
                 "pillow_version": PIL.__version__, "review_only": True,
-                "profile_version": None, "template_version": None, "font_sha256": None,
+                "font_sha256": None,
                 "visual_assets": [], "assets": assets, **engine_metadata,
             }
             return self.store.complete_render(run, manifest, assets)

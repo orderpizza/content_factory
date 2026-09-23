@@ -8,6 +8,7 @@ from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from visual_fixtures import EXPRESSION_UNITS
 from threading import Thread
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
@@ -180,20 +181,14 @@ class GeminiWorkflowTests(unittest.TestCase):
             "hashtags": ["#english", "#learning"] if platform == "instagram" else [],
             "alt_text": "A clean educational card explaining an idea.",
             "public_text_claim_ids": [claim_id],
-            "visual_intent": {"schema_version": "visual_intent_v1", "primary_structure": "dialogue" if platform == "instagram" else "editorial", "tone": "friendly", "density": "medium", "emphasis_targets": ["target_expression"], "image_need": "none"},
+            "visual_cues": [],
         }
         if platform == "instagram":
             return {
                 **common,
                 "caption_summary": "Learn the meaning, nuance, and use of this expression.",
                 "cta": "Save this for your next meeting.",
-                "visual_units": [
-                    {"role": "hook", "title": "Break the ice", "body": "A natural way to ease a first meeting.", "claim_ids": []},
-                    {"role": "explanation", "title": "What it means", "body": "Make an unfamiliar social situation feel easier.", "claim_ids": []},
-                    {"role": "example", "title": "At work", "body": "The host opened with a friendly, low-stakes question.", "claim_ids": [claim_id]},
-                    {"role": "example", "title": "Notice the nuance", "body": "The focus is the first awkward moment, not the whole relationship.", "claim_ids": []},
-                    {"role": "takeaway", "title": "Try it deliberately", "body": "Use the idiom when someone helps a new group relax.", "claim_ids": []},
-                ],
+                "visual_units": deepcopy(EXPRESSION_UNITS),
             }
         raise ValueError("unsupported platform")
 
@@ -211,6 +206,7 @@ class GeminiWorkflowTests(unittest.TestCase):
             store, FakeGeminiClient(self.canonical_response("english"))
         ).run_once()
         self.assertIsNotNone(canonical_id)
+        self.assertIsNotNone(VisualPlanner(store).run_once())
         return canonical_id
 
     def prepare_packages(self, store: WorkflowStore, *, command_id: str = "packages") -> list[int]:
@@ -440,13 +436,13 @@ class GeminiWorkflowTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual(len(packages), 1)
             instagram = json.loads(packages[0][0])
-            self.assertEqual(len(instagram["visual_units"]), 5)
-            self.assertEqual(instagram["visual_intent"]["primary_structure"], "dialogue")
+            self.assertEqual(len(instagram["visual_units"]), 6)
+            self.assertEqual(instagram["visual_cues"], [])
             self.assertFalse(instagram["delivery_ready"])
             self.assertIn("synthetic_destination_review_only", instagram_client.calls[0]["prompt"])
             self.assertEqual(
                 store.connection.execute(
-                    "SELECT COUNT(*) FROM visual_plan_runs WHERE status='pending'"
+                    "SELECT COUNT(*) FROM render_runs WHERE status='pending'"
                 ).fetchone()[0],
                 1,
             )

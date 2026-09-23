@@ -46,7 +46,7 @@ class HybridDetectionTests(unittest.TestCase):
         self.assertFalse(initialize_database(self.path))
         self.assertFalse(initialize_database(self.path))
         with DetectionStore(self.path) as store:
-            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 10)
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
 
     def test_midday_daily_report_and_live_feed_both_contribute(self):

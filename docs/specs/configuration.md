@@ -59,7 +59,10 @@ Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 
 For Gemini 3 text models, Intake, Determination, Generation and Adaptation set
 the provider thinking level to `LOW`; other text models receive no thinking-level
-setting. Thinking and JSON share the output allowance. The tracked template
+setting. Thinking and JSON share the output allowance. Adaptation retains its 8000-token
+ceiling: the six-slide v2 response removed generic visual intent but no measured
+provider usage distribution justifies lowering combined thinking/JSON headroom.
+A lower ceiling should follow measured usage and truncation checks. The tracked template
 spells out every override. [Reliability](reliability.md#gemini-accounting) owns admission,
 uncertain usage and the limits of input-token estimates.
 

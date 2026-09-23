@@ -679,7 +679,7 @@ class WorkflowStore:
             "determination_requests": "JOIN brief_revisions r ON r.revision_id=q.revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "generation_runs": "JOIN content_jobs j ON j.content_job_id=q.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "adaptation_runs": "JOIN output_requests o ON o.output_request_id=q.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
-            "visual_plan_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
+            "visual_plan_runs": "JOIN output_requests o ON o.output_request_id=q.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
             "render_runs": "JOIN content_packages p ON p.content_package_id=q.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id JOIN content_jobs j ON j.content_job_id=c.content_job_id JOIN brief_revisions r ON r.revision_id=j.brief_revision_id JOIN content_threads t ON t.thread_id=r.thread_id",
         }
         key = CLAIM_KEYS[table]
@@ -1090,7 +1090,7 @@ class WorkflowStore:
             for output in json.loads(job["output_plan_json"]):
                 input_value={"canonical_content_id":canonical_id,"output":output}
                 out=int(self.connection.execute("INSERT INTO output_requests(canonical_content_id,output_binding_id,platform,account,content_format,output_identity,output_contract_version,input_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)",(canonical_id,output.get("output_binding_id"),output["platform"],output["account"],output["content_format"],digest(input_value),output.get("output_contract_version","placeholder_v1"),canonical(input_value),moment)).lastrowid)
-                self.connection.execute("INSERT INTO adaptation_runs(output_request_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(out,moment))
+                self.connection.execute("INSERT INTO visual_plan_runs(output_request_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(out,moment))
             self._finish_claim("generation_runs","generation_run_id",run,"succeeded",moment,None)
             return canonical_id
 
@@ -1103,34 +1103,64 @@ class WorkflowStore:
             prior=self.connection.execute("SELECT content_package_id FROM content_packages WHERE output_request_id=?",(output["output_request_id"],)).fetchone()
             if prior:
                 self._finish_claim("adaptation_runs","adaptation_run_id",run,"succeeded",moment,None); return int(prior[0])
-            intent = package.get("visual_intent")
-            if intent is None:
-                raise ValueError("adaptation package must provide bounded visual intent")
-            from .active_visual_profiles import validate_intent
-            validate_intent(intent)
-            package_id=int(self.connection.execute("INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,visual_intent_json,created_at) VALUES (?,?,?,?,?,?)",(output["output_request_id"],run["adaptation_run_id"],canonical(package),digest(package),canonical(intent),moment)).lastrowid)
-            self.connection.execute("INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(package_id,moment))
-            self._finish_claim("adaptation_runs","adaptation_run_id",run,"succeeded",moment,None)
+            from .active_visual_profiles import validate_recipe, validate_archetype_units
+            from .visual_cues import validate_cues
+            selected = self.connection.execute("SELECT recipe_json FROM visual_recipes WHERE visual_recipe_id=? AND output_request_id=?",
+                (run["visual_recipe_id"], output["output_request_id"])).fetchone()
+            if selected is None:
+                raise ValueError("adaptation requires its preselected recipe")
+            recipe = validate_recipe(json.loads(selected[0]))
+            if package.get("archetype_id") != recipe["archetype_id"] or package.get("account") != recipe["account"]:
+                raise ValueError("adaptation cannot change the selected archetype/account")
+            validate_archetype_units(package["visual_units"], recipe["archetype_id"])
+            canonical_content = json.loads(self.connection.execute("SELECT canonical_json FROM canonical_contents WHERE canonical_content_id=?",
+                (output["canonical_content_id"],)).fetchone()[0])
+            cues = validate_cues(package.get("visual_cues"), {c['claim_id'] for c in canonical_content.get('claims', [])}, package["visual_units"])
+            package_id = int(self.connection.execute(
+                "INSERT INTO content_packages(output_request_id,adaptation_run_id,visual_recipe_id,package_json,content_hash,visual_cues_json,created_at) VALUES (?,?,?,?,?,?,?)",
+                (output["output_request_id"], run["adaptation_run_id"], run["visual_recipe_id"], canonical(package), digest(package), canonical(cues), moment)).lastrowid)
+            self.connection.execute("INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,1,'pending',2,?)",
+                (package_id, run["visual_recipe_id"], moment))
+            self._finish_claim("adaptation_runs", "adaptation_run_id", run, "succeeded", moment, None)
             return package_id
 
-    def create_visual_recipe(self, run: Any, recipe: dict[str, Any], provenance: dict[str, Any]) -> int:
-        """Persist one immutable selected recipe and atomically hand off rendering."""
-        from .active_visual_profiles import validate_recipe
+    def create_visual_recipe(self, run: Any) -> int:
+        """Select under the write lock, freeze history and recipe, then hand off adaptation."""
+        from .active_visual_profiles import active_recipe, validate_recipe
+        from .archetype_selection import HISTORY_LIMIT, select_archetype
         moment = now()
-        validated = validate_recipe(recipe, production=self.catalog_kind == "production")
         with self.transaction():
             if self._cancel_if_closed("visual_plan_runs", run, moment):
                 return None
-            prior = self.connection.execute("SELECT visual_recipe_id FROM visual_recipes WHERE visual_plan_run_id=?", (run["visual_plan_run_id"],)).fetchone()
+            prior = self.connection.execute("SELECT visual_recipe_id FROM visual_recipes WHERE output_request_id=?", (run["output_request_id"],)).fetchone()
             if prior:
                 self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
                 return int(prior[0])
+            output = self.connection.execute(
+                "SELECT o.*,c.canonical_json,c.canonical_hash,j.pipeline_id,b.account binding_account,b.platform binding_platform,pc.pipeline_id binding_domain "
+                "FROM output_requests o JOIN canonical_contents c USING(canonical_content_id) "
+                "JOIN content_jobs j USING(content_job_id) JOIN output_bindings b USING(output_binding_id) "
+                "JOIN pipeline_capabilities pc USING(pipeline_capability_id) WHERE o.output_request_id=?",
+                (run["output_request_id"],)).fetchone()
+            if (output is None or output['platform'] != 'instagram'
+                or output['content_format'] != 'instagram_static_carousel_v2'
+                or output['binding_domain'] != output['pipeline_id']
+                or output['binding_account'] != output['account'] or output['binding_platform'] != output['platform']):
+                raise ValueError("visual planner requires an eligible frozen account/domain binding")
+            rows = self.connection.execute(
+                "SELECT v.visual_recipe_id,v.recipe_json FROM visual_recipes v JOIN output_requests o USING(output_request_id) "
+                "WHERE o.platform=? AND o.account=? ORDER BY v.visual_recipe_id DESC LIMIT ?",
+                (output['platform'], output['account'], HISTORY_LIMIT)).fetchall()
+            history = [{'visual_recipe_id': r['visual_recipe_id'], 'archetype_id': json.loads(r['recipe_json'])['archetype_id']} for r in rows]
+            archetype_id, selection = select_archetype(json.loads(output['canonical_json']), output['pipeline_id'], history)
+            recipe = validate_recipe(active_recipe(output['pipeline_id'], account=output['account'], archetype_id=archetype_id, selection=selection))
+            provenance = {'canonical_hash': output['canonical_hash'], 'output_request_id': output['output_request_id'],
+                          'output_binding_id': output['output_binding_id'], 'pipeline_id': output['pipeline_id'],
+                          'account': output['account'], **selection}
             recipe_id = int(self.connection.execute(
-                "INSERT INTO visual_recipes(content_package_id,visual_plan_run_id,recipe_json,recipe_hash,registry_release,registry_fingerprint,selection_provenance_json,fallback_from_visual_recipe_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (run["content_package_id"], run["visual_plan_run_id"], canonical(validated), digest(validated), validated["registry_release"], validated["registry_fingerprint"], canonical(provenance), run["fallback_from_visual_recipe_id"], moment),
-            ).lastrowid)
-            render_number = int(self.connection.execute("SELECT COALESCE(MAX(run_number),0)+1 FROM render_runs WHERE content_package_id=?", (run["content_package_id"],)).fetchone()[0])
-            self.connection.execute("INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,'pending',2,?)", (run["content_package_id"], recipe_id, render_number, moment))
+                "INSERT INTO visual_recipes(output_request_id,visual_plan_run_id,recipe_json,recipe_hash,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?)",
+                (run["output_request_id"], run["visual_plan_run_id"], canonical(recipe), digest(recipe), canonical(provenance), moment)).lastrowid)
+            self.connection.execute("INSERT INTO adaptation_runs(output_request_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,1,'pending',2,?)", (run["output_request_id"], recipe_id, moment))
             self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
             return recipe_id
 

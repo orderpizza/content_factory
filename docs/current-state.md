@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **9**, defined by
+The current schema is **10**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -15,13 +15,14 @@ and deterministic scoring. Human Intake can clarify before freezing a brief.
 
 `--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
 the workflow runs planning only; default workers are deterministic fixtures.
-`--gemini --review-preview` enables canonical generation, Instagram adaptation,
-visual planning and Gemini review rendering. All three active domains produce
+`--gemini --review-preview` enables canonical generation, deterministic visual planning,
+archetype-aware Instagram adaptation and Gemini review rendering. All three active domains produce
 six-slide Instagram review carousels through one Gemini 3×2 storyboard call and
-shared local processing into six 1080×1350 PNGs. English uses
-`expression_breakdown_v1` with its accepted educational profile; AI/Tech uses
-`ai_tech_explainer_v1` with clean technology editorial art direction; Psychology
-uses `psychology_explainer_v1` with warm, qualified behavioral education.
+shared local processing into six 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
+and Psychology explainers remain safe baselines. Canonical semantics and bounded
+recent-use penalties choose the immutable recipe before adaptation. One deterministic
+prompt compiler guides the shared image renderer. See the
+[archetype catalog and contracts](specs/visual-rendering.md).
 Unsupported domain/archetype combinations block explicitly; invalid package
 shapes fail before the image call. No HTML fallback is active.
 
@@ -204,7 +205,8 @@ Maintenance does not prune backups unless `--prune-backups` is supplied.
 | `src/workflow/catalog.py` | Three editorial remits and catalog read model |
 | `src/workflow/gemini_intake.py`, `gemini_determination.py` | Planning workers |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
-| `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Fixed active Gemini domain profiles and immutable planning evidence |
+| `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Curated account identities/archetypes and deterministic planning evidence |
+| `src/workflow/gemini_prompt_compiler.py` | Deterministic storyboard prompt compilation |
 | `src/workflow/active_review_renderer.py`, `gemini_image_renderer.py` | Atomic review assets, Gemini storyboards and shared local processing |
 | `archive/deterministic_visual_library/` | Reference-only former generic visual library; never imported or run |
 | `src/dashboard/` | Evidence, progress and review read models |

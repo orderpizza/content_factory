@@ -10,9 +10,10 @@ non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the
 
 ```text
 ContentJob + GenerationRun
-  → CanonicalContent + frozen OutputRequests + AdaptationRuns
-  → one ContentPackage + VisualPlanRun per successful output
-  → immutable VisualRecipe + RenderRun → renderer → assets + ReviewRequest
+  → CanonicalContent + frozen OutputRequests + VisualPlanRuns
+  → deterministic VisualPlanner → immutable VisualRecipe + AdaptationRun
+  → one ContentPackage + RenderRun per successful output
+  → deterministic PromptCompiler → renderer → assets + ReviewRequest
 ```
 
 Each handoff is an atomic, fenced SQLite transaction. Workers never invoke the
@@ -43,17 +44,19 @@ reference catalog, autonomous research or second semantic-validation model call.
 [Domain policy](../pipelines/domains.md) guides prompts and human review.
 
 Successful generation commits one canonical result per job, all frozen
-OutputRequests and their initial pending AdaptationRuns together. Failure does
+OutputRequests and their initial pending VisualPlanRuns together. Failure does
 not create partial fan-out. There is no capacity-slot allocator or
 cross-revision canonical reuse.
 
-## Output adaptation — `output_adaptation_v1`
+## Output adaptation — `output_adaptation_v2`
 
-An adaptation reads one canonical object and one frozen destination. It selects
-and arranges supported content, creates platform copy/metadata and emits a
-closed semantic `visual_intent`. It does not fetch evidence or change the approved
-angle. Closed schemas, claim-ID mappings and local limits are defined in
-[Instagram package contract](#instagram-package-contract); semantic fidelity still needs review.
+An adaptation reads one canonical object, frozen destination and committed visual
+recipe. It receives the selected archetype's complete slide grammar, composition
+and capacities. The selection is immutable; adaptation writes exact copy and
+metadata for that grammar, preserving every claim and qualification. It cannot
+select an archetype, theme, font or color, fetch evidence, change the angle or emit
+image-generation instructions. The caller stamps the selected archetype into the
+package; it is not a model-generated field.
 
 The first model call returns body and metadata together:
 
@@ -70,16 +73,10 @@ content commits before adaptation begins. Failure on one output does not rerun
 generation.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
-adaptation and creates its first pending VisualPlanRun. The active planner selects
-the single fixed Gemini profile for the package domain and commits a separate
-immutable VisualRecipe before creating its RenderRun. RenderRuns reference the
-exact package and recipe.
-Synthetic packages remain non-deliverable. All three supported domain formats
-use [Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
-Adaptation owns exact semantic copy and visual intent, never final image prompts.
-The renderer interprets each domain archetype as six semantic slide roles;
-deterministic CSS/layout tokens do not guide Gemini. The former HTML library is
-reference-only in the archive and is never a fallback.
+adaptation and creates RenderRun referencing the already selected recipe. SQL
+lineage constraints prevent borrowing another output's recipe. Synthetic packages
+remain non-deliverable. All supported domain formats use
+[Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
 
 ## Instagram package contract
 
@@ -89,9 +86,9 @@ canonical content for that frozen destination, preserving angle, claims,
 qualifications and meaning. It never writes assets or posting authorization.
 
 `workflow.gemini_adaptation.adaptation_schema` owns exact fields. A package has
-5–8 ordered visual units beginning with hook and ending with takeaway, caption,
-optional CTA, private tags, hashtags, alt text, claim mappings and semantic
-visual intent. English `expression_breakdown_v1` requires six units with roles
+exactly six ordered visual units beginning with hook and ending with takeaway, caption,
+optional CTA, private tags, hashtags, alt text, claim mappings and bounded semantic
+visual cues. Every English archetype requires six units with roles
 hook, explanation, explanation, example, example, takeaway.
 
 Local limits: title 120 characters, body 600, caption summary 1100, total caption
@@ -99,14 +96,14 @@ Local limits: title 120 characters, body 600, caption summary 1100, total captio
 8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
 canonical claim must be mapped into copy or units. The active Gemini review
 workflow additionally applies the English expression archetype's position-specific
-title, word-count and line-count limits during adaptation; it never defers those
-capacity errors to visual planning.
+title, word-count and line-count limits during adaptation, plus the selected
+archetype capacities. Scene/product/process archetypes use tighter copy limits.
 
-The broad `output_adaptation_v1` schema stays at 5–8 units. Domain-aware local
-validation (including body checkpoints) requires exactly six units for AI/Tech
-and Psychology, with roles `hook, explanation, explanation, example, explanation,
-takeaway`. Adaptation prompt `workflow_gemini_adaptation_prompt_v3` intentionally
-assigns each position:
+`output_adaptation_v2` is closed and requires six units. Domain-aware validation
+(including body checkpoints) requires AI/Tech and Psychology roles `hook,
+explanation, explanation, example, explanation, takeaway`. Adaptation prompt
+`workflow_gemini_adaptation_prompt_v6` assigns these semantic positions; the
+selected archetype further controls composition and capacity:
 
 | Slide | AI/Tech | Psychology |
 | --- | --- | --- |
@@ -131,6 +128,17 @@ mechanism, alternative explanations, scenario, practical implications and
 qualification. Prompts distinguish observation from inference, retain uncertainty
 and prohibit diagnostic language; no new canonical schema or research call exists.
 
+
+## Post-specific visual cues
+
+`visual_cues` replaces generic presentation intent. It is a closed list of zero
+to six entries, at most one per slide. Each entry contains `slide` (1–6),
+`subject_claim_id` (an existing canonical claim mapped to that slide),
+`semantic_emphasis` (situation, contrast, sequence, qualification or takeaway),
+and `participants_count` (0–4). There are no free-text subject/prompt/style fields.
+Use an empty list when a cue adds no value. The compiler uses these bounded
+references alongside exact slide copy; account/archetype configuration owns all
+art direction. Package and body checkpoint validation preserve all claim mappings.
 
 ## Spending and recovery
 

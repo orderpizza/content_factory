@@ -4,18 +4,9 @@ These checks protect shape and readable capacity, not factual or editorial truth
 """
 from collections.abc import Mapping
 
-from .active_visual_profiles import (DOMAIN_ARCHETYPES, EXPLAINER_ROLES,
+from .active_visual_profiles import (EXPLAINER_ROLES,
                                      validate_expression_units)
 
-
-AI_TECH_SEMANTICS = (
-    "hook", "what changed / what it is", "why it matters / how it works",
-    "practical use / example", "limitations / caveats", "takeaway",
-)
-PSYCHOLOGY_SEMANTICS = (
-    "observed pattern / hook", "concept / meaning", "possible mechanism",
-    "everyday example", "practical implication", "takeaway / qualification",
-)
 
 AI_TECH_ADAPTATION_GUIDANCE = """AI/Tech Instagram grammar overrides the generic 5-8 unit range:
 Return exactly six visual units, with these positions and generic roles:

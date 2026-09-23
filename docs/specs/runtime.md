@@ -34,7 +34,7 @@ correct the underlying condition before restarting. Ctrl+C exits cleanly.
 | --- | --- |
 | Default / `--planning-only` | Deterministic fixture Intake and Determination only |
 | `--gemini` / `--gemini --planning-only` | Gemini Intake and Determination; pending GenerationRuns remain untouched |
-| `--gemini --review-preview` | Also Gemini generation/adaptation, visual planning and Gemini review rendering |
+| `--gemini --review-preview` | Also Gemini generation, deterministic visual planning, archetype-aware adaptation and Gemini review rendering |
 
 StorageMonitor runs before workers in every mode and refreshes its sample at
 most every five minutes. Monitoring is advisory through ContentJob creation:

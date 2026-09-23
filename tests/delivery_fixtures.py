@@ -137,10 +137,20 @@ class DeliveryFixture:
              binding["content_format"], digest({"output": platform, "sequence": sequence}),
              binding["output_contract_version"], moment),
         ).lastrowid
+        plan_id = store.connection.execute(
+            "INSERT INTO visual_plan_runs(output_request_id,run_number,status,attempt_limit,created_at,completed_at) VALUES (?,1,'succeeded',1,?,?)",
+            (output_id, moment, moment),
+        ).lastrowid
+        recipe = active_recipe("english", list(EXPRESSION_ROLES), account=binding["account"])
+        provenance = {"strategy": "fixture_active_profile"}
+        recipe_id = store.connection.execute(
+            "INSERT INTO visual_recipes(output_request_id,visual_plan_run_id,recipe_json,recipe_hash,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?)",
+            (output_id, plan_id, canonical(recipe), digest(recipe), canonical(provenance), moment),
+        ).lastrowid
         adaptation_id = store.connection.execute(
-            "INSERT INTO adaptation_runs(output_request_id,run_number,status,attempt_limit,created_at,"
-            "completed_at) VALUES (?,1,?,1,?,?)",
-            (output_id, "pending" if stop_at_adaptation else "succeeded", moment,
+            "INSERT INTO adaptation_runs(output_request_id,visual_recipe_id,run_number,status,attempt_limit,created_at,"
+            "completed_at) VALUES (?,?,1,?,1,?,?)",
+            (output_id, recipe_id, "pending" if stop_at_adaptation else "succeeded", moment,
              None if stop_at_adaptation else moment),
         ).lastrowid
         if stop_at_adaptation:
@@ -151,31 +161,19 @@ class DeliveryFixture:
         width, height = (1080, 1350)
         units = [{"role": role, "title": "Title", "body": "Body", "claim_ids": []}
                  for role in EXPRESSION_ROLES]
-        intent = {"schema_version": "visual_intent_v1", "primary_structure": "cards",
-                  "tone": "professional", "density": "medium",
-                  "emphasis_targets": ["takeaway"], "image_need": "none"}
-        package = {"schema_version": "output_adaptation_v1", "platform": platform,
+        cues = []
+        package = {"schema_version": "output_adaptation_v2", "platform": platform,
                    "account": binding["account"], "format": binding["content_format"],
                    "public_text": "Approved immutable copy", "private_tags": ["one", "two"],
                    "hashtags": [], "alt_text": "Accessible description", "claim_mappings": [],
-                   "visual_units": units, "visual_intent": intent, "delivery_ready": True}
+                   "visual_units": units, "visual_cues": cues, "archetype_id": recipe["archetype_id"], "delivery_ready": True}
         package["caption"] = "Approved immutable copy"
         if platform == "instagram":
             package["cta"] = None
         package_id = store.connection.execute(
-            "INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,"
-            "visual_intent_json,created_at) VALUES (?,?,?,?,?,?)",
-            (output_id, adaptation_id, canonical(package), digest(package), canonical(intent), moment),
-        ).lastrowid
-        plan_id = store.connection.execute(
-            "INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at,completed_at) VALUES (?,1,'succeeded',1,?,?)",
-            (package_id, moment, moment),
-        ).lastrowid
-        recipe = active_recipe("english", list(EXPRESSION_ROLES))
-        provenance = {"strategy": "fixture_active_profile"}
-        recipe_id = store.connection.execute(
-            "INSERT INTO visual_recipes(content_package_id,visual_plan_run_id,recipe_json,recipe_hash,registry_release,registry_fingerprint,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (package_id, plan_id, canonical(recipe), digest(recipe), recipe["registry_release"], recipe["registry_fingerprint"], canonical(provenance), moment),
+            "INSERT INTO content_packages(output_request_id,adaptation_run_id,visual_recipe_id,package_json,content_hash,"
+            "visual_cues_json,created_at) VALUES (?,?,?,?,?,?,?)",
+            (output_id, adaptation_id, recipe_id, canonical(package), digest(package), canonical(cues), moment),
         ).lastrowid
         render_id = store.connection.execute(
             "INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) "

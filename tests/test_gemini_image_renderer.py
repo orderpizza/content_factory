@@ -10,11 +10,12 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from test_gemini_workflow import FakeGeminiClient
-from workflow.active_visual_profiles import EXPRESSION_ROLES, active_recipe
+from workflow.active_visual_profiles import EXPRESSION_ROLES, active_recipe, PROMPT_COMPILER_VERSION
+from workflow.visual_art_direction import EXPRESSION_BREAKDOWN_BRIEF
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
-from workflow.gemini_image_renderer import DispatchVisualRenderer, EXPRESSION_BREAKDOWN_BRIEF, FOOTER_BRAND, PROMPT_VERSION, apply_overlays, build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata
+from workflow.gemini_image_renderer import DispatchVisualRenderer, OVERLAY_PROFILES, apply_overlays, build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata
 from workflow.model_budget import ModelBudgetPolicy
 import json
 import test_gemini_workflow as workflow_fixtures
@@ -112,7 +113,7 @@ class ImagePipelineTests(unittest.TestCase):
                          ['hook', 'meaning / definition', 'when to use it / use cases',
                           'examples', 'short conversation / dialogue', 'takeaway / reminder'])
         for field in ('theme_id', 'composition_id', 'typography_id'):
-            self.assertNotIn(value[field], prompt)
+            self.assertNotIn(field, value)
         normalized = prompt.replace('\n', ' ')
         for phrase in ('single 3×2 storyboard', '5:4 aspect ratio', 'instructional clarity',
                        'one obvious reading order', 'visual elements that reinforce the lesson',
@@ -176,7 +177,7 @@ class ImagePipelineTests(unittest.TestCase):
         self.assertEqual(phrases, ["More examples", "See more", "Keep going", "Next", "Continue", None])
         self.assertEqual(len(set(phrases[:5])), 5)
         self.assertIsNone(phrases[5])
-        self.assertEqual(FOOTER_BRAND, 'o2_english')
+        self.assertEqual(OVERLAY_PROFILES['english']['brand'], 'o2_english')
         self.assertNotIn('Small Steps. A Bigger You.',
                          Path('src/workflow/gemini_image_renderer.py').read_text())
 
@@ -257,11 +258,10 @@ class ImageWorkflowTests(unittest.TestCase):
         self.fixture.prepare_english_canonical(store)
         response = self.fixture.adaptation_response('instagram')
         response['visual_units'] = deepcopy(EXPRESSION_UNITS)
-        response['visual_intent']['primary_structure'] = 'cards'
         self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
-        self.assertIsNotNone(VisualPlanner(store).run_once())
+        self.assertIsNone(VisualPlanner(store).run_once())
         value = json.loads(store.connection.execute('SELECT recipe_json FROM visual_recipes').fetchone()[0])
-        self.assertEqual(value['archetype_id'], 'expression_breakdown_v1')
+        self.assertEqual(value['archetype_id'], 'expression_story_scene_v1')
 
     def test_one_storyboard_call_splits_final_review_assets_and_preserves_inputs(self):
         from dashboard.workflow import _review_preview
@@ -285,8 +285,8 @@ class ImageWorkflowTests(unittest.TestCase):
                     self.assertEqual(image.getpixel((540, 675)), Image.new('RGB', (1, 1), COLORS[ordinal - 1]).getpixel((0, 0)))
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
-            self.assertEqual(manifest['prompt_version'], PROMPT_VERSION)
-            self.assertEqual(manifest['template_version'], 'gemini_carousel_storyboard_v1')
+            self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v2')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))

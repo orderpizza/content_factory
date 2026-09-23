@@ -23,7 +23,7 @@ membership and lexical credit, not pooled semantic corroboration.
 
 ## Artifacts and publication
 
-[Visual rendering](visual-rendering.md) owns fixed-profile selection, temporary
+[Visual rendering](visual-rendering.md) owns deterministic archetype selection, temporary
 output, atomic promotion, manifest/hash validation and quarantine of uncommitted
 final artifacts.
 File existence alone is never proof of a completed render or reviewed asset.

@@ -124,7 +124,7 @@ def render_job_progress(connection, job_id):
         "FROM canonical_contents c JOIN output_requests o ON o.canonical_content_id=c.canonical_content_id "
         "LEFT JOIN adaptation_runs a ON a.output_request_id=o.output_request_id "
         "LEFT JOIN content_packages p ON p.adaptation_run_id=a.adaptation_run_id "
-        "LEFT JOIN visual_plan_runs v ON v.content_package_id=p.content_package_id "
+        "LEFT JOIN visual_plan_runs v ON v.output_request_id=o.output_request_id "
         "LEFT JOIN visual_recipes vr ON vr.visual_plan_run_id=v.visual_plan_run_id "
         "LEFT JOIN render_runs r ON r.visual_recipe_id=vr.visual_recipe_id "
         "WHERE c.content_job_id=? ORDER BY o.output_request_id,a.adaptation_run_id,v.visual_plan_run_id,r.render_run_id LIMIT 30",
@@ -132,7 +132,7 @@ def render_job_progress(connection, job_id):
     ).fetchall()
     parts = []
     for row in rows:
-        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Adaptation: {text(row['adaptation_status'] or 'pending')} · Visual planning: {text(row['planning_status'] or 'pending')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
+        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Visual planning: {text(row['planning_status'] or 'pending')} · Adaptation: {text(row['adaptation_status'] or 'waiting for visual plan')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
         for key in ('adaptation_reason', 'planning_reason', 'render_reason'):
             if row[key]:
                 parts.append(f"<p>{text(row[key])}</p>")

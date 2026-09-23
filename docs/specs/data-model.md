@@ -69,11 +69,15 @@ The decision, routes and jobs commit atomically.
 ### Production and operations
 
 `canonical_contents` is immutable platform-neutral output.
-`output_requests` freezes destination plans; `adaptation_runs` owns bounded
-adaptation and metadata checkpoints. `content_packages` contains exact copy,
-units and semantic visual intent. `visual_plan_runs` claim fixed-profile planning
-and `visual_recipes` preserve the selected active archetype, profile identity and
-bounded selection provenance.
+`output_requests` freezes destination plans. `visual_plan_runs` references an
+output before any adaptation, and `visual_recipes` freezes its account identity,
+curated archetype and complete deterministic selection provenance.
+`adaptation_runs` references that recipe and owns bounded copy/metadata checkpoints.
+`content_packages` preserves the same recipe ID, exact copy, units and semantic
+claim-referenced visual cues. RenderRun is created only after package finalization.
+SQL guards enforce matching output → recipe → adaptation → package → render
+lineage and prevent changes to frozen visual inputs. The
+[visual rendering contract](visual-rendering.md) owns recipe fields and selection.
 `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
@@ -87,7 +91,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 9. All workers open and validate databases through
+authoritative schema, at version 10. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates

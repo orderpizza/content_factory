@@ -45,7 +45,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('missing local link',self.run_check())
 
     def test_unrouted_focused_document_is_rejected(self):
-        self.alter('docs/system.md',lambda text:text.replace('[Visual rendering](specs/visual-rendering.md)', 'Visual rendering'))
+        self.alter('docs/system.md',lambda text:text.replace('(specs/visual-rendering.md)', ''))
         self.assertIn('Unrouted focused document: docs/specs/visual-rendering.md',self.run_check())
 
     def test_root_readme_broken_anchor_is_rejected(self):
@@ -57,7 +57,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('exactly three',self.run_check())
 
     def test_schema_version_disagreement_is_rejected(self):
-        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 9','user_version = 99'))
+        self.alter('docs/contracts/application-schema.sql',lambda text:text.replace('user_version = 10','user_version = 99'))
         self.assertIn('schema version disagrees',self.run_check())
 
     def test_undocumented_table_is_rejected(self):

@@ -18,7 +18,8 @@ Human idea / reply → ContentThread + IntakeRequest
 → clarification or BriefRevision + DeterminationRequest
 
 Determination → three domain assessments → selected ContentJob + GenerationRun
-→ canonical content → Instagram adaptation → visual recipe → Gemini rendering
+→ canonical content → deterministic visual planning → Instagram adaptation
+→ deterministic prompt compilation → Gemini rendering
 → ReviewRequest + exact slides → dashboard
 ```
 
@@ -28,14 +29,15 @@ pinned local MiniLM resolution and frozen `attention_v3` scoring. It selects
 attention evidence, never editorial domains. Determination evaluates all three
 remits against immutable evidence and catalogs.
 
-All three domains use one Gemini storyboard call and shared local splitting
-into six review PNGs: English `expression_breakdown_v1`, AI/Tech
-`ai_tech_explainer_v1`, and Psychology `psychology_explainer_v1`. Domain-specific
-prompts and overlays preserve the accepted English baseline. Unsupported
-domain/archetype combinations stop explicitly, with no HTML fallback. The former
-deterministic visual library is archived as reference-only material, with no
-gallery tooling or active imports. Shared recipe/claim plumbing remains for all
-three Gemini profiles.
+Each account/domain has exactly three curated archetypes. Deterministic planning
+selects an immutable recipe from canonical semantics and recent account history
+before Instagram adaptation. Account identity, archetype, compiler, technical
+renderer contract and overlays are separate contracts; only an archetype is a
+visual template. One Gemini storyboard call and shared local splitting produce
+six review PNGs. The accepted English baseline prompt and overlays are preserved.
+Unsupported combinations stop explicitly with no HTML fallback. The former
+deterministic visual library remains archived and inactive. See
+[visual rendering](specs/visual-rendering.md) for the nine archetypes and provenance.
 
 The current acceptance boundary is review-ready slides visible in the dashboard.
 Generic review → posting/delivery → external delivery records and R2 staging

@@ -551,6 +551,7 @@ CREATE TABLE output_requests (
 
 CREATE TABLE adaptation_runs (
     adaptation_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
     output_request_id INTEGER NOT NULL REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     run_number INTEGER NOT NULL CHECK(run_number>0),
     status TEXT NOT NULL CHECK(status IN ('waiting_capacity','pending','claimed','running','retry_wait','succeeded','failed','cancelled')),
@@ -566,34 +567,32 @@ CREATE TABLE adaptation_runs (
 
 CREATE TABLE content_packages (
     content_package_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
     output_request_id INTEGER NOT NULL UNIQUE REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     adaptation_run_id INTEGER NOT NULL UNIQUE REFERENCES adaptation_runs(adaptation_run_id) ON DELETE RESTRICT,
     package_json TEXT NOT NULL CHECK(json_valid(package_json)), content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
-    visual_intent_json TEXT NOT NULL CHECK(json_valid(visual_intent_json)), created_at TEXT NOT NULL
+    visual_cues_json TEXT NOT NULL CHECK(json_valid(visual_cues_json)), created_at TEXT NOT NULL
 );
 
 CREATE TABLE visual_plan_runs (
     visual_plan_run_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    output_request_id INTEGER NOT NULL REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     run_number INTEGER NOT NULL CHECK(run_number>0),
     status TEXT NOT NULL CHECK(status IN ('pending','claimed','running','retry_wait','succeeded','failed','cancelled','blocked')),
     claim_owner TEXT, claimed_at TEXT, lease_expires_at TEXT, claim_version INTEGER NOT NULL DEFAULT 0,
     attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
-    fallback_from_visual_recipe_id INTEGER REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
     failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
-    UNIQUE(content_package_id,run_number)
+    UNIQUE(output_request_id,run_number)
 );
 
 CREATE TABLE visual_recipes (
     visual_recipe_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    content_package_id INTEGER NOT NULL REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
+    output_request_id INTEGER NOT NULL REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     visual_plan_run_id INTEGER NOT NULL UNIQUE REFERENCES visual_plan_runs(visual_plan_run_id) ON DELETE RESTRICT,
     recipe_json TEXT NOT NULL CHECK(json_valid(recipe_json)), recipe_hash TEXT NOT NULL CHECK(length(recipe_hash)=64),
-    registry_release TEXT NOT NULL, registry_fingerprint TEXT NOT NULL CHECK(length(registry_fingerprint)=64),
     selection_provenance_json TEXT NOT NULL CHECK(json_valid(selection_provenance_json)),
-    fallback_from_visual_recipe_id INTEGER REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
     created_at TEXT NOT NULL,
-    UNIQUE(content_package_id,visual_plan_run_id)
+    UNIQUE(output_request_id)
 );
 
 CREATE TABLE render_runs (
@@ -958,7 +957,7 @@ CREATE INDEX ix_determination_requests_pickup ON determination_requests(status,n
 CREATE UNIQUE INDEX uq_generation_active_job ON generation_runs(content_job_id) WHERE status IN ('waiting_capacity','pending','claimed','running','retry_wait');
 
 CREATE UNIQUE INDEX uq_adaptation_active_output ON adaptation_runs(output_request_id) WHERE status IN ('waiting_capacity','pending','claimed','running','retry_wait');
-CREATE UNIQUE INDEX uq_visual_plan_active_package ON visual_plan_runs(content_package_id) WHERE status IN ('pending','claimed','running','retry_wait');
+CREATE UNIQUE INDEX uq_visual_plan_active_output ON visual_plan_runs(output_request_id) WHERE status IN ('pending','claimed','running','retry_wait');
 
 CREATE INDEX ix_delivery_cleanup_pickup
     ON delivery_cleanup_tasks(status,next_attempt_at,created_at);
@@ -1038,4 +1037,26 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 9;
+PRAGMA user_version = 10;
+
+CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
+WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)
+BEGIN SELECT RAISE(ABORT, 'adaptation recipe destination mismatch'); END;
+CREATE TRIGGER package_recipe_lineage BEFORE INSERT ON content_packages
+WHEN NOT EXISTS (SELECT 1 FROM adaptation_runs a WHERE a.adaptation_run_id=NEW.adaptation_run_id AND a.output_request_id=NEW.output_request_id AND a.visual_recipe_id=NEW.visual_recipe_id)
+BEGIN SELECT RAISE(ABORT, 'package recipe lineage mismatch'); END;
+CREATE TRIGGER render_recipe_lineage BEFORE INSERT ON render_runs
+WHEN NOT EXISTS (SELECT 1 FROM content_packages p WHERE p.content_package_id=NEW.content_package_id AND p.visual_recipe_id=NEW.visual_recipe_id)
+BEGIN SELECT RAISE(ABORT, 'render recipe lineage mismatch'); END;
+CREATE TRIGGER recipe_plan_lineage BEFORE INSERT ON visual_recipes
+WHEN NOT EXISTS (SELECT 1 FROM visual_plan_runs v WHERE v.visual_plan_run_id=NEW.visual_plan_run_id AND v.output_request_id=NEW.output_request_id)
+BEGIN SELECT RAISE(ABORT, 'recipe plan destination mismatch'); END;
+CREATE TRIGGER adaptation_recipe_immutable BEFORE UPDATE OF output_request_id,visual_recipe_id ON adaptation_runs
+BEGIN SELECT RAISE(ABORT, 'adaptation recipe is immutable'); END;
+CREATE TRIGGER visual_plan_input_immutable BEFORE UPDATE OF output_request_id ON visual_plan_runs
+BEGIN SELECT RAISE(ABORT, 'visual plan input is immutable'); END;
+
+CREATE TRIGGER package_visual_lineage_immutable BEFORE UPDATE OF output_request_id,adaptation_run_id,visual_recipe_id,package_json,content_hash,visual_cues_json ON content_packages
+BEGIN SELECT RAISE(ABORT, 'content package is immutable'); END;
+CREATE TRIGGER render_visual_lineage_immutable BEFORE UPDATE OF content_package_id,visual_recipe_id ON render_runs
+BEGIN SELECT RAISE(ABORT, 'render lineage is immutable'); END;

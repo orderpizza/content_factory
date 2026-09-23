@@ -23,7 +23,7 @@ from workflow.gemini_adaptation import _validated_body_checkpoint
 from workflow.active_visual_profiles import (DOMAIN_ARCHETYPES, EXPLAINER_ROLES,
                                              EXPRESSION_ROLES,
                                              active_recipe, validate_recipe,
-                                             validate_unit_layouts)
+                                             validate_recipe_roles)
 import json
 import test_gemini_workflow as fixtures
 import unittest
@@ -49,7 +49,6 @@ EXPRESSION_UNITS = [
 
 def domain_response(fixture, domain):
     response = fixture.adaptation_response('instagram', claim_id=f'{domain}.example.1')
-    response['visual_intent']['primary_structure'] = 'cards'
     if domain == 'english':
         response['visual_units'] = deepcopy(EXPRESSION_UNITS)
         return response
@@ -77,11 +76,10 @@ def domain_response(fixture, domain):
         for role, (title, body) in zip(EXPLAINER_ROLES, copy)
     ]
     response['hashtags'] = []
-    response['visual_intent']['image_need'] = 'required'
     return response
 
 
-def prepare_domain(store, fixture, domain, origin='human'):
+def prepare_domain(store, fixture, domain, origin='human', canonical_content=None):
     fixture.register_catalog(store)
     if origin == 'human':
         fixture.create_determination_request(store)
@@ -108,7 +106,8 @@ def prepare_domain(store, fixture, domain, origin='human'):
     fixture.assertIsNotNone(GeminiDeterminationWorker(store,
         FakeGeminiClient(fixture.decision(catalog, selected_pipeline=domain))).run_once())
     fixture.assertIsNotNone(GeminiPipelineRunner(store,
-        FakeGeminiClient(fixture.canonical_response(domain))).run_once())
+        FakeGeminiClient(canonical_content or fixture.canonical_response(domain))).run_once())
+    fixture.assertIsNotNone(VisualPlanner(store).run_once())
 
 
 class DomainBoundaryTests(unittest.TestCase):
@@ -138,7 +137,7 @@ class DomainBoundaryTests(unittest.TestCase):
                         self._render_and_check(store, fixture, domain, origin)
 
     def _render_and_check(self, store, fixture, domain, origin):
-        self.assertIsNotNone(VisualPlanner(store).run_once())
+        self.assertIsNone(VisualPlanner(store).run_once())
         client = (FakeImageClient() if origin == "human" else
                   FakeImageClient(image_fixtures.storyboard_image("JPEG"), mime_type="image/jpeg"))
         artifact_root = Path(fixture.temporary.name) / 'review-assets'
@@ -152,11 +151,11 @@ class DomainBoundaryTests(unittest.TestCase):
         package = json.loads(store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
         recipe_row = store.connection.execute('SELECT * FROM visual_recipes').fetchone()
         selected = json.loads(recipe_row['recipe_json'])
-        self.assertEqual(selected['archetype_id'], DOMAIN_ARCHETYPES[domain])
+        self.assertEqual(selected['archetype_id'], {'english': 'expression_story_scene_v1', 'ai_tech': 'ai_tech_explainer_v1', 'psychology': 'psychology_human_scenario_v1'}[domain])
         self.assertEqual(len(package['visual_units']), 6)
         if domain != 'english':
             self.assertEqual([unit['role'] for unit in package['visual_units']], list(EXPLAINER_ROLES))
-        self.assertEqual(json.loads(recipe_row['selection_provenance_json'])['strategy'], 'explicit_domain_archetype_v1')
+        self.assertEqual(json.loads(recipe_row['selection_provenance_json'])['strategy'], 'deterministic_archetype_selector_v1')
         content = json.loads(client.calls[0].split('SLIDE_CONTENT\n')[1])
         self.assertEqual([(slide['title'], slide['body']) for slide in content['slides']],
                          [(unit['title'], unit['body']) for unit in package['visual_units']])
@@ -165,12 +164,12 @@ class DomainBoundaryTests(unittest.TestCase):
             self.assertNotIn('Semantic sequence:', client.calls[0])
             self.assertIn('The supplied title and body are the only text', client.calls[0])
         if domain == 'psychology':
-            self.assertIn('qualified, not absolute', client.calls[0])
+            self.assertIn('qualified', client.calls[0])
             self.assertIn('alternative explanations', client.calls[0])
         manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
         self.assertEqual(manifest['pipeline_id'], domain)
-        self.assertEqual(manifest['archetype_id'], DOMAIN_ARCHETYPES[domain])
-        self.assertEqual(manifest['prompt_version'], OVERLAY_PROFILES[domain]['prompt_version'])
+        self.assertEqual(manifest['archetype_id'], selected['archetype_id'])
+        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v2')
         self.assertEqual(manifest['overlay']['brand_text'], 'o2_english' if domain == 'english' else None)
         self.assertEqual(manifest['storyboard']['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
         self.assertEqual(len(list(artifact_root.rglob('raw-storyboard.*'))), 1)
@@ -198,7 +197,7 @@ class DomainBoundaryTests(unittest.TestCase):
             'SELECT COUNT(*) FROM canonical_contents c JOIN output_requests o USING(canonical_content_id) '
             'JOIN adaptation_runs a USING(output_request_id) '
             'JOIN content_packages p ON p.adaptation_run_id=a.adaptation_run_id '
-            'JOIN visual_plan_runs v USING(content_package_id) '
+            'JOIN visual_plan_runs v ON v.output_request_id=o.output_request_id '
             'JOIN visual_recipes vr USING(visual_plan_run_id) '
             'JOIN render_runs r USING(visual_recipe_id) '
             'JOIN review_requests rr ON rr.render_run_id=r.render_run_id AND rr.content_package_id=p.content_package_id'
@@ -248,10 +247,10 @@ class DomainBoundaryTests(unittest.TestCase):
                         image_client = FakeImageClient()
                         self.assertIsNone(DispatchVisualRenderer(store, Path(fixture.temporary.name)/'assets', image_client=image_client).run_once())
                         self.assertEqual(image_client.calls, [])
-                        for table in ('content_packages', 'visual_plan_runs', 'render_runs', 'review_requests'):
+                        for table in ('content_packages', 'render_runs', 'review_requests'):
                             self.assertEqual(store.connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0], 0)
 
-    def test_active_english_review_rejects_expression_copy_before_visual_planning(self):
+    def test_active_english_review_rejects_expression_copy_before_rendering(self):
         fixture = self.fixture()
         with WorkflowStore(fixture.path) as store:
             prepare_domain(store, fixture, 'english')
@@ -285,16 +284,11 @@ class DomainBoundaryTests(unittest.TestCase):
                     prepare_domain(store, fixture, domain)
                     response = domain_response(fixture, domain)
                     self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
-                    # Simulate an unsupported persisted recipe without mutating immutable evidence.
-                    run = store.claim('visual_plan_runs', 'visual_plan_run_id', 'fixture-planner')
-                    other_domain = next(item for item in DOMAINS if item != domain)
-                    roles = EXPRESSION_ROLES if other_domain == 'english' else EXPLAINER_ROLES
-                    unsupported = active_recipe(other_domain, list(roles))
-                    store.create_visual_recipe(run, unsupported, {'fixture': 'unsupported format'})
                     client = FakeImageClient()
                     root = Path(fixture.temporary.name)/'assets'
                     renderer = DispatchVisualRenderer(store, root, image_client=client)
-                    self.assertIsNone(renderer.run_once())
+                    with patch('workflow.gemini_image_renderer.supports_image_rendering', return_value=False):
+                        self.assertIsNone(renderer.run_once())
                     self.assertEqual(client.calls, [])
                     self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0], 'blocked')
                     self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
@@ -308,7 +302,7 @@ class DomainBoundaryTests(unittest.TestCase):
                     with WorkflowStore(fixture.path) as store:
                         prepare_domain(store, fixture, domain)
                         self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(domain_response(fixture, domain))).run_once())
-                        self.assertIsNotNone(VisualPlanner(store).run_once())
+                        self.assertIsNone(VisualPlanner(store).run_once())
                         client = FakeImageClient(error=RuntimeError('provider failure')) if failure == 'provider' else FakeImageClient(data=b'bad') if failure == 'processing' else FakeImageClient()
                         root = Path(fixture.temporary.name)/'assets'
                         renderer = DispatchVisualRenderer(store, root, image_client=client)
@@ -335,7 +329,7 @@ class DomainBoundaryTests(unittest.TestCase):
             with WorkflowStore(fixture.path) as store:
                 prepare_domain(store, fixture, domain)
                 self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(domain_response(fixture, domain))).run_once())
-                self.assertIsNotNone(VisualPlanner(store).run_once())
+                self.assertIsNone(VisualPlanner(store).run_once())
                 run = store.claim('render_runs', 'render_run_id', 'interrupted')
                 store.begin_model_invocation(phase='image_rendering', table='render_runs', key='render_run_id', row=run,
                     request_version='test', prompt_version='test', schema_version='test', request_value={}, model_id='fake')
@@ -363,7 +357,7 @@ class DomainBoundaryTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(first['archetype_id'], DOMAIN_ARCHETYPES[domain])
             validate_recipe(first, production=False)
-            validate_unit_layouts(first, roles)
+            validate_recipe_roles(first, roles)
             for other_domain, other_archetype in DOMAIN_ARCHETYPES.items():
                 other_roles = EXPRESSION_ROLES if other_domain == 'english' else EXPLAINER_ROLES
                 self.assertEqual(active_recipe(other_domain, list(other_roles))['archetype_id'], other_archetype)

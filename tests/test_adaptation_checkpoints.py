@@ -3,6 +3,7 @@
 from __future__ import annotations
 from common.gemini import GeminiUsage
 from copy import deepcopy
+from visual_fixtures import EXPRESSION_UNITS
 from pathlib import Path
 from workflow import GeminiAdaptationWorker, WorkflowStore
 import delivery_fixtures
@@ -30,10 +31,8 @@ class AdaptationCheckpointTests(delivery_fixtures.DeliveryFixture, unittest.Test
     def test_delivery_adaptation_repairs_only_metadata_from_checkpointed_body(self):
         first = {
             "caption_summary": "A focused practical lesson.", "cta": None,
-            "visual_units": [{"role": role, "title": "Break the ice",
-                              "body": "Ease the first awkward moment.", "claim_ids": []}
-                             for role in ("hook", "explanation", "example", "example", "takeaway")],
-            "visual_intent": {"schema_version": "visual_intent_v1", "primary_structure": "editorial", "tone": "professional", "density": "medium", "emphasis_targets": ["takeaway"], "image_need": "none"},
+            "visual_units": deepcopy(EXPRESSION_UNITS),
+            "visual_cues": [],
             "public_text_claim_ids": [], "private_tags": ["duplicate", "duplicate"],
             "hashtags": [], "alt_text": "A simple lesson card.",
         }
