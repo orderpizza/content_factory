@@ -57,8 +57,10 @@ Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 | GENERATION | 12000 | 4000 |
 | ADAPTATION | 12000 | 8000 |
 
-The tracked template spells out every override. Thinking and JSON share the
-output allowance. [Reliability](reliability.md#gemini-accounting) owns admission,
+For Gemini 3 text models, Intake, Determination, Generation and Adaptation set
+the provider thinking level to `LOW`; other text models receive no thinking-level
+setting. Thinking and JSON share the output allowance. The tracked template
+spells out every override. [Reliability](reliability.md#gemini-accounting) owns admission,
 uncertain usage and the limits of input-token estimates.
 
 ## Local composition

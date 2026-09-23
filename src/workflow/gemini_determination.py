@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 import json
 
-from common.gemini import VertexGeminiClient
+from common.gemini import VertexGeminiClient, configured_model
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
@@ -92,7 +92,10 @@ class GeminiDeterminationWorker:
     ):
         self.store = store
         maximum = None if store.model_budget_policy is None else store.model_budget_policy.phase_limits["determination"][1]
-        self.client = client or VertexGeminiClient(max_output_tokens=maximum)
+        self.client = client or VertexGeminiClient(
+            max_output_tokens=maximum,
+            thinking_level="LOW" if configured_model().startswith("gemini-3") else None,
+        )
         self.instance_id = instance_id
 
     def run_once(self) -> int | None:

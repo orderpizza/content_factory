@@ -1106,7 +1106,7 @@ class WorkflowStore:
             intent = package.get("visual_intent")
             if intent is None:
                 raise ValueError("adaptation package must provide bounded visual intent")
-            from .visual_registry import validate_intent
+            from .active_visual_profiles import validate_intent
             validate_intent(intent)
             package_id=int(self.connection.execute("INSERT INTO content_packages(output_request_id,adaptation_run_id,package_json,content_hash,visual_intent_json,created_at) VALUES (?,?,?,?,?,?)",(output["output_request_id"],run["adaptation_run_id"],canonical(package),digest(package),canonical(intent),moment)).lastrowid)
             self.connection.execute("INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)",(package_id,moment))
@@ -1115,7 +1115,7 @@ class WorkflowStore:
 
     def create_visual_recipe(self, run: Any, recipe: dict[str, Any], provenance: dict[str, Any]) -> int:
         """Persist one immutable selected recipe and atomically hand off rendering."""
-        from .visual_registry import validate_recipe
+        from .active_visual_profiles import validate_recipe
         moment = now()
         validated = validate_recipe(recipe, production=self.catalog_kind == "production")
         with self.transaction():
@@ -1133,27 +1133,6 @@ class WorkflowStore:
             self.connection.execute("INSERT INTO render_runs(content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,'pending',2,?)", (run["content_package_id"], recipe_id, render_number, moment))
             self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
             return recipe_id
-
-    def schedule_visual_fallback(self, run: Any, *, reason: str) -> int | None:
-        """Fail an unreviewed render and schedule a new immutable planning attempt."""
-        moment = now()
-        with self.transaction():
-            review = self.connection.execute("SELECT 1 FROM review_requests WHERE render_run_id=?", (run["render_run_id"],)).fetchone()
-            if review:
-                raise RuntimeError("reviewed assets cannot receive an automatic visual fallback")
-            recipe = self.connection.execute("SELECT visual_recipe_id,recipe_json FROM visual_recipes WHERE visual_recipe_id=?", (run["visual_recipe_id"],)).fetchone()
-            if recipe is None:
-                raise ValueError("render run has no visual recipe")
-            fallback = json.loads(recipe["recipe_json"])
-            archetype_id = fallback.get("archetype_id")
-            from .visual_registry import ARCHETYPES
-            next_archetype = ARCHETYPES.get(archetype_id, {}).get("fallback_archetype_id")
-            if not next_archetype:
-                self._finish_claim("render_runs", "render_run_id", run, "failed", moment, reason)
-                return None
-            number = int(self.connection.execute("SELECT COALESCE(MAX(run_number),0)+1 FROM visual_plan_runs WHERE content_package_id=?", (run["content_package_id"],)).fetchone()[0])
-            self._finish_claim("render_runs", "render_run_id", run, "failed", moment, reason)
-            return int(self.connection.execute("INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,fallback_from_visual_recipe_id,created_at) VALUES (?,?, 'pending',2,?,?)", (run["content_package_id"], number, recipe["visual_recipe_id"], moment)).lastrowid)
 
     def complete_render(
         self,

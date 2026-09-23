@@ -1,7 +1,7 @@
 # Visual rendering
 
-**Owner:** Active Gemini review rendering, frozen recipes and the preserved
-inactive deterministic visual library.
+**Owner:** Active Gemini review rendering, fixed domain profiles and local
+post-image processing.
 
 ## Active boundary
 
@@ -16,15 +16,15 @@ domain and recipe before any image call. Supported pairs are exclusively:
 | `ai_tech` | `ai_tech_explainer_v1` | `gemini_ai_tech_storyboard_v1` |
 | `psychology` | `psychology_explainer_v1` | `gemini_psychology_storyboard_v1` |
 
-AI/Tech and Psychology use explicit deterministic domain/archetype compatibility,
-recorded as `explicit_domain_archetype_v1` selection provenance. Diversity scores
-cannot select another archetype. Their narrow six-unit validators run during
-adaptation, planning and image prompt construction. The [package contract](content-production.md#instagram-package-contract)
-owns their role sequence, semantic purposes and copy bounds. English selection
-conditions remain unchanged; the two new archetypes are never English candidates.
-Registry release `visual_registry_release_v5` adds the two semantic archetypes
-using the existing minimal editorial recipe envelope. They have no HTML template,
-brand component or fallback archetype. No recipe or canonical schema changes.
+All three domains use explicit deterministic domain/archetype compatibility,
+recorded as `explicit_domain_archetype_v1` selection provenance. The active
+profile contract exposes exactly one profile per domain; it has no selector,
+generic registry archetypes or fallback rules. The narrow AI/Tech and Psychology
+six-unit validators run during adaptation, planning and image prompt construction;
+English retains its accepted six-slide expression validator. The [package contract](content-production.md#instagram-package-contract)
+owns the role sequences, semantic purposes and copy bounds. The persisted recipe
+envelope remains immutable for lineage, but records the fixed active profile rather
+than a reusable visual-library recipe. No recipe or canonical schema changes.
 
 Unsupported domain/archetype combinations end RenderRun in `blocked` with a
 format-specific reason. Invalid supported-domain package shapes fail before an
@@ -79,8 +79,10 @@ by default, with SDK retries disabled. Its model and image size remain
 environment-configurable, and the requested size must be supported by the selected
 model. It sends only the storyboard prompt, with no image parts;
 [the SDK documentation](https://googleapis.github.io/python-genai/) describes that
-transport. Prompts forbid branding, counters and footer CTAs and reserve the top
-10%, bottom 14% and generous side margins in every panel. Each storyboard output
+transport. Prompts forbid branding, counters, headers, footers and category or
+semantic-role labels; the supplied title and body are the only model-rendered
+text. Local processing owns all chrome and reserves the top 10%, bottom 14% and
+generous side margins in every panel. Each storyboard output
 must be a single PNG/JPEG, at least 600×480, at most 40 million pixels/40 MB and
 within 0.04 of the 5:4 aspect ratio. Border-background and projection analysis
 finds panel bounds without assuming an exact canvas color; an auditable equal-grid
@@ -133,17 +135,13 @@ refinement/review-feedback creates fresh work for a complete rerun; no in-place
 render retry command is provided.
 
 
-## Preserved inactive visual library
+## Archived deterministic visual library
 
-The deterministic library remains available for local visual development and its
-established recipe/asset safety tests. Its implementation is `static_renderer.py`,
-`visual_primitives.py`, `visual_expression.py` and the registry; icons and avatars
-live in `assets/visual/`. Shared recipe plumbing also supports all three active Gemini profiles.
-
-HTML/Playwright is used only by gallery/development tooling, with no workflow
-selector or automatic fallback. [Operations](../current-state.md#operator-entrypoints)
-owns the gallery command and output location. Avatar provenance is in
-`assets/visual/avatars/manifest.json`.
+The former generic HTML/Playwright library, gallery tooling, assets and historical
+tests are retained only under `archive/deterministic_visual_library/`. It is not
+on an active import path and has no operator command, selector, renderer or
+fallback. Its archived material is reference-only future work; restoring it
+requires a deliberate new contract and implementation.
 
 The dashboard serves review assets only after path, length and hash validation.
 R2 is downstream staging, never a renderer input or canonical asset store.

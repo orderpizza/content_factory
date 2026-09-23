@@ -23,9 +23,9 @@ membership and lexical credit, not pooled semantic corroboration.
 
 ## Artifacts and publication
 
-[Visual rendering](visual-rendering.md) owns deterministic recipe selection,
-temporary output, atomic promotion, manifest/hash validation and quarantine of
-uncommitted final artifacts.
+[Visual rendering](visual-rendering.md) owns fixed-profile selection, temporary
+output, atomic promotion, manifest/hash validation and quarantine of uncommitted
+final artifacts.
 File existence alone is never proof of a completed render or reviewed asset.
 
 [Posting](posting.md) owns authorization, pre-final cancellation, durable
@@ -120,6 +120,13 @@ schema checks, hash verification and atomic file promotion. It requests passive
 WAL checkpointing; truncation requires no active claims and reports busy results.
 Restore verification uses a temporary directory. Explicit verified backup pruning
 keeps 14 newest snapshots plus eight older weekly representatives.
+
+For the 24/7 review-only Mac Mini baseline, `launchd` schedules one backup and
+restore-verification pass daily at 03:15 local Mac time. The backup worker has
+the same database, artifact and backup roots as the continuous workers, but is
+not kept alive: its next scheduled pass is the retry boundary after a failed
+maintenance run. Operators inspect its persisted heartbeat and `maintenance_runs`
+before treating backup recovery as healthy.
 
 There is no automatic database-row or terminal-rendered-asset age deletion.
 Backup pruning and transient R2 cleanup are not database retention. Measurement

@@ -6,7 +6,8 @@
 ## Processes
 
 Run from the Mac Mini repository root against one current-schema database.
-The [operations guide](../current-state.md) owns copyable session commands.
+The [operations guide](../current-state.md) owns copyable session commands and
+the supported 24/7 review-only LaunchAgent composition.
 
 No process initializes or migrates the database implicitly. Incompatible schemas
 fail closed. Secret settings load once at startup; restart after changes.
@@ -85,8 +86,12 @@ not that it is healthy. Queue counts expose pending, failed and deferred work.
 Maintenance uses an exclusive local process lock, SQLite online backups,
 checksum/integrity verification and bounded checkpointing. Restore checks are
 local temporary operations. Backup pruning is explicit, not part of routine
-planning verification. Supported operation uses the foreground entrypoints in the
-operations guide.
+planning verification. The supported continuous baseline runs exactly one
+Detection poller, one Gemini review workflow poller, one loopback dashboard and
+one independent storage monitor. A separately scheduled backup process runs an
+online backup plus restore verification. Launchd restarts the four continuous
+processes after exits; shared database/artifact/backup paths are command-line
+arguments, not inferred from process-local defaults.
 
 ## Diagnostic logging
 

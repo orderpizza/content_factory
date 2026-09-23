@@ -9,8 +9,8 @@ from detection.store import DetectionStore
 from hashlib import sha256
 from pathlib import Path
 from workflow import WORKFLOW_PIPELINES
+from workflow.active_visual_profiles import EXPRESSION_ROLES, active_recipe
 from workflow.store import canonical, digest
-from workflow.visual_planner import choose_recipe
 import tempfile
 
 
@@ -146,12 +146,12 @@ class DeliveryFixture:
         if stop_at_adaptation:
             store.connection.commit()
             return adaptation_id
-        count = 5
-        profile = "static_instagram_delivery_v1"
+        count = 6
+        profile = "gemini_instagram_review_v1"
         width, height = (1080, 1350)
-        units = [{"role": "hook", "title": "Title", "body": "Body", "claim_ids": []}
-                 for _ in range(count)]
-        intent = {"schema_version": "visual_intent_v1", "primary_structure": "editorial",
+        units = [{"role": role, "title": "Title", "body": "Body", "claim_ids": []}
+                 for role in EXPRESSION_ROLES]
+        intent = {"schema_version": "visual_intent_v1", "primary_structure": "cards",
                   "tone": "professional", "density": "medium",
                   "emphasis_targets": ["takeaway"], "image_need": "none"}
         package = {"schema_version": "output_adaptation_v1", "platform": platform,
@@ -171,7 +171,8 @@ class DeliveryFixture:
             "INSERT INTO visual_plan_runs(content_package_id,run_number,status,attempt_limit,created_at,completed_at) VALUES (?,1,'succeeded',1,?,?)",
             (package_id, moment, moment),
         ).lastrowid
-        recipe, provenance = choose_recipe(intent, platform=platform, pipeline="english", account=binding["account"], unit_count=count, production=True, history=[])
+        recipe = active_recipe("english", list(EXPRESSION_ROLES))
+        provenance = {"strategy": "fixture_active_profile"}
         recipe_id = store.connection.execute(
             "INSERT INTO visual_recipes(content_package_id,visual_plan_run_id,recipe_json,recipe_hash,registry_release,registry_fingerprint,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
             (package_id, plan_id, canonical(recipe), digest(recipe), recipe["registry_release"], recipe["registry_fingerprint"], canonical(provenance), moment),
@@ -197,7 +198,7 @@ class DeliveryFixture:
             assets.append({"role": "delivery_jpeg", "ordinal": ordinal, "path": str(path.resolve()),
                            "mime": "image/jpeg", "width": width, "height": height,
                            "bytes": len(data), "sha256": sha256(data).hexdigest()})
-        manifest = {"schema_version": "render_manifest_v1", "renderer": "html_playwright_v1",
+        manifest = {"schema_version": "render_manifest_v1", "renderer": "gemini_storyboard_designer_v1",
                     "profile_id": profile, "content_hash": digest(package),
                     "browser_version": "fixture", "pillow_version": "fixture",
                     "review_only": False, "assets": assets}

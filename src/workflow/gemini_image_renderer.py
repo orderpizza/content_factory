@@ -16,9 +16,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model
 from .model_budget import ModelBudgetPolicy
 from .workers import local_operation
-from .static_renderer import StaticVisualRenderer, _asset
-from .visual_primitives import EXPRESSION_LABELS
-from .visual_explainers import DOMAIN_ARCHETYPES, validate_domain_units
+from .active_review_renderer import ActiveReviewRenderer, _asset
+from .active_visual_profiles import DOMAIN_ARCHETYPES, EXPRESSION_LABELS
+from .visual_explainers import validate_domain_units
 from .gemini_explainer_profiles import EXPLAINER_GEOMETRY, EXPLAINER_PROFILES
 
 PROMPT_VERSION = "gemini_carousel_storyboard_v1"
@@ -125,14 +125,12 @@ def build_storyboard_prompt(package, recipe, *, pipeline_id):
         validate_domain_units(package["visual_units"], pipeline_id)
         profile = EXPLAINER_PROFILES[pipeline_id]
         slides = [
-            {"slide": ordinal, "semantic_role": profile["semantics"][ordinal - 1],
-             "title": unit["title"], "body": unit["body"],
+            {"slide": ordinal, "title": unit["title"], "body": unit["body"],
              "design_direction": profile["directions"][ordinal - 1]}
             for ordinal, unit in enumerate(package["visual_units"], 1)
         ]
-        sequence = "\n".join(f"{ordinal}. {label}" for ordinal, label in enumerate(profile["semantics"], 1))
         return (profile["designer_brief"] + "\n" + EXPLAINER_GEOMETRY
-                + f"\nArchetype: {recipe['archetype_id']}\nSemantic sequence:\n{sequence}\nSLIDE_CONTENT\n"
+                + f"\nArchetype: {recipe['archetype_id']}\nSLIDE_CONTENT\n"
                 + json.dumps({"total": 6, "slides": slides}, ensure_ascii=False))
     grammar = SEMANTIC_GRAMMARS[recipe["archetype_id"]]
     units = package["visual_units"]
@@ -470,8 +468,8 @@ def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: 
     return Image.alpha_composite(slide.convert("RGBA"), layer).convert("RGB")
 
 
-class GeminiImageRenderer(StaticVisualRenderer):
-    """Reuse the atomic review lifecycle; generate and split one storyboard."""
+class GeminiImageRenderer(ActiveReviewRenderer):
+    """Generate and split one active-domain Gemini storyboard."""
     engine = "gemini_storyboard_designer_v1"
 
     def __init__(self, store, artifact_root, *, client=None, budget_policy=None):
@@ -566,7 +564,7 @@ class GeminiImageRenderer(StaticVisualRenderer):
         }
 
 
-class DispatchVisualRenderer(StaticVisualRenderer):
+class DispatchVisualRenderer(ActiveReviewRenderer):
     """Active review renderer: three explicit Gemini profiles, no HTML fallback."""
     def __init__(self, store, artifact_root, *, image_client=None):
         super().__init__(store, artifact_root, instance_id="renderer-gemini-review")

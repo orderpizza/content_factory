@@ -4,13 +4,10 @@ These checks protect shape and readable capacity, not factual or editorial truth
 """
 from collections.abc import Mapping
 
+from .active_visual_profiles import (DOMAIN_ARCHETYPES, EXPLAINER_ROLES,
+                                     validate_expression_units)
 
-EXPLAINER_ROLES = ("hook", "explanation", "explanation", "example", "explanation", "takeaway")
-DOMAIN_ARCHETYPES = {
-    "english": "expression_breakdown_v1",
-    "ai_tech": "ai_tech_explainer_v1",
-    "psychology": "psychology_explainer_v1",
-}
+
 AI_TECH_SEMANTICS = (
     "hook", "what changed / what it is", "why it matters / how it works",
     "practical use / example", "limitations / caveats", "takeaway",
@@ -81,8 +78,10 @@ def validate_psychology_units(units):
         raise ValueError("psychology slide 6 requires takeaway and qualification copy")
 
 
-def validate_domain_units(units, pipeline_id):
-    if pipeline_id == "ai_tech":
+def validate_domain_units(units, pipeline_id, *, strict_english: bool = False):
+    if pipeline_id == "english" and strict_english:
+        validate_expression_units(units)
+    elif pipeline_id == "ai_tech":
         validate_ai_tech_units(units)
     elif pipeline_id == "psychology":
         validate_psychology_units(units)

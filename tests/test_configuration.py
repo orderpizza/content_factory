@@ -64,7 +64,7 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
 
     def test_utility_imports_do_not_open_databases_or_load_environment(self):
         with patch("database.current.connect") as connection, patch("common.environment.load_environment_file") as environment:
-            for name in ("serve_dashboard.py", "run_detection.py", "run_workflow.py", "run_storage_monitor.py", "run_maintenance.py", "create_local_idea.py", "setup_development.py", "check_smoke_readiness.py", "render_visual_gallery.py"):
+            for name in ("serve_dashboard.py", "run_detection.py", "run_workflow.py", "run_storage_monitor.py", "run_maintenance.py", "install_review_baseline.py", "create_local_idea.py", "setup_development.py", "check_smoke_readiness.py"):
                 runpy.run_path(str(ROOT / "scripts" / name), run_name="import_check")
             connection.assert_not_called()
             environment.assert_not_called()
@@ -96,6 +96,58 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
                     else:
                         module["main"]()
                 self.assertEqual(worker_store.call_args.args[0], str(self.path))
+
+    def test_review_baseline_plists_have_one_shared_runtime_and_safe_roles(self):
+        module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
+        root = Path(self.temporary.name)
+        agents = module["build_agents"](
+            database=root / "current.db",
+            artifacts=root / "artifacts",
+            backups=root / "backups",
+            log_root=root / "logs",
+            port=8788,
+            backup_hour=3,
+            backup_minute=15,
+        )
+        self.assertEqual(set(agents), {"detection", "workflow", "dashboard", "storage", "backup"})
+        self.assertEqual(
+            {agent["ProgramArguments"][agent["ProgramArguments"].index("--database") + 1] for agent in agents.values()},
+            {str(root / "current.db")},
+        )
+        self.assertTrue(all(agent["WorkingDirectory"] == str(ROOT) for agent in agents.values()))
+        self.assertTrue(all(agent["EnvironmentVariables"]["CONTENT_FACTORY_LOG_ROOT"] == str(root / "logs") for agent in agents.values()))
+        self.assertTrue(all(str(ROOT / "src") in agent["EnvironmentVariables"]["PYTHONPATH"] for agent in agents.values()))
+        self.assertTrue(all("site-packages" in agent["EnvironmentVariables"]["PYTHONPATH"] for agent in agents.values()))
+        self.assertTrue(all(agents[name]["KeepAlive"] for name in ("detection", "workflow", "dashboard", "storage")))
+        self.assertNotIn("KeepAlive", agents["backup"])
+        self.assertEqual(agents["backup"]["StartCalendarInterval"], {"Hour": 3, "Minute": 15})
+        workflow = agents["workflow"]["ProgramArguments"]
+        self.assertEqual(workflow[0], str(Path(sys.executable).absolute()))
+        self.assertIn("--gemini", workflow)
+        self.assertIn("--review-preview", workflow)
+        self.assertNotIn("--planning-only", workflow)
+        dashboard = agents["dashboard"]["ProgramArguments"]
+        self.assertEqual(dashboard[dashboard.index("--host") + 1], "127.0.0.1")
+
+    def test_review_baseline_write_is_atomic_and_serializes_launchd_plists(self):
+        module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
+        destination = Path(self.temporary.name) / "LaunchAgents"
+        agents = module["build_agents"](
+            database=self.path,
+            artifacts=Path(self.temporary.name) / "artifacts",
+            backups=Path(self.temporary.name) / "backups",
+            log_root=Path(self.temporary.name) / "logs",
+            port=8787,
+            backup_hour=3,
+            backup_minute=15,
+        )
+        paths = module["write_agents"](agents, destination)
+        self.assertEqual(len(paths), 5)
+        self.assertFalse(list(destination.glob("*.tmp")))
+        with (destination / "com.contentfactory.review.workflow.plist").open("rb") as source:
+            payload = __import__("plistlib").load(source)
+        self.assertEqual(payload["Label"], "com.contentfactory.review.workflow")
+        self.assertTrue(payload["KeepAlive"])
 
 
 class DatabaseInitializationTests(unittest.TestCase):

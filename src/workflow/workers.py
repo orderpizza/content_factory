@@ -193,11 +193,21 @@ class AdaptationWorker:
     def _process(self, run):
         output=self.store.connection.execute("SELECT o.*,c.canonical_json FROM output_requests o JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE o.output_request_id=?",(run["output_request_id"],)).fetchone()
         content=json.loads(output["canonical_json"])
-        unit_count = 5
-        roles = ["hook"] + ["explanation"] * max(0, unit_count - 2) + (["takeaway"] if unit_count > 1 else [])
-        units = [{"role": role, "title": content["hook"], "body": content["context"], "claim_ids": []} for role in roles]
+        pipeline_id = content["pipeline_id"]
+        if pipeline_id == "english":
+            units = [
+                {"role": "hook", "title": "A useful phrase", "body": "Start a friendly conversation with confidence.", "claim_ids": []},
+                {"role": "explanation", "title": "What it means", "body": "Use this phrase to make a first exchange feel easier.", "claim_ids": []},
+                {"role": "explanation", "title": "When to use it", "body": "In a quiet room\nWith a new group\nAt a first meeting", "claim_ids": []},
+                {"role": "example", "title": "In a sentence", "body": "She asked a question to start the conversation.\nHe used it to welcome a new teammate.", "claim_ids": []},
+                {"role": "example", "title": "A short dialogue", "body": "A: It feels quiet here.\nB: I can ask a friendly question.\nA: That sounds helpful.", "claim_ids": []},
+                {"role": "takeaway", "title": "Remember this", "body": "Use it in a quiet moment.\nStart with a friendly question.", "claim_ids": []},
+            ]
+        else:
+            roles = ["hook", "explanation", "explanation", "example", "explanation", "takeaway"]
+            units = [{"role": role, "title": "A useful lesson", "body": "A concise, qualified placeholder explanation for review.", "claim_ids": []} for role in roles]
         public = content["hook"]
-        package={"schema_version":"output_adaptation_v1","platform":output["platform"],"account":output["account"],"format":output["content_format"],"public_text":public,"caption":public,"hashtags":[],"private_tags":["fixture","placeholder"],"alt_text":content["context"],"claim_mappings":[],"visual_units":units,"visual_intent":{"schema_version":"visual_intent_v1","primary_structure":"editorial","tone":"professional","density":"medium","emphasis_targets":["takeaway"],"image_need":"none"},"delivery_ready":False,"placeholder":True}
+        package={"schema_version":"output_adaptation_v1","platform":output["platform"],"account":output["account"],"format":output["content_format"],"public_text":public,"caption":public,"hashtags":[],"private_tags":["fixture","placeholder"],"alt_text":content["context"],"claim_mappings":[],"visual_units":units,"visual_intent":{"schema_version":"visual_intent_v1","primary_structure":"cards","tone":"professional","density":"medium","emphasis_targets":["takeaway"],"image_need":"none"},"delivery_ready":False,"placeholder":True}
         package["cta"] = None
         return self.store.create_package(run,package)
 

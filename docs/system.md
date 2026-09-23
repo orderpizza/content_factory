@@ -32,9 +32,10 @@ All three domains use one Gemini storyboard call and shared local splitting
 into six review PNGs: English `expression_breakdown_v1`, AI/Tech
 `ai_tech_explainer_v1`, and Psychology `psychology_explainer_v1`. Domain-specific
 prompts and overlays preserve the accepted English baseline. Unsupported
-domain/archetype combinations stop explicitly, with no HTML fallback. The deterministic visual library and HTML renderer remain preserved
-inactive, with gallery tooling and tests. Shared recipe/claim plumbing remains
-for all three Gemini profiles.
+domain/archetype combinations stop explicitly, with no HTML fallback. The former
+deterministic visual library is archived as reference-only material, with no
+gallery tooling or active imports. Shared recipe/claim plumbing remains for all
+three Gemini profiles.
 
 The current acceptance boundary is review-ready slides visible in the dashboard.
 Generic review → posting/delivery → external delivery records and R2 staging

@@ -18,7 +18,6 @@ from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiIn
 from workflow.gemini_determination import DETERMINATION_SCHEMA
 from workflow.gemini_generation import DOMAIN_FIELDS, generation_schema
 from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
-from workflow.static_renderer import StaticVisualRenderer
 import json
 import runpy
 import sys
@@ -452,16 +451,25 @@ class GeminiWorkflowTests(unittest.TestCase):
                 1,
             )
 
-    def test_adaptation_thinking_policy_is_scoped_to_gemini_three(self):
-        for model, expected in (("gemini-3-flash-preview", "LOW"), ("gemini-2.5-flash", None)):
-            with self.subTest(model=model), patch(
-                "workflow.gemini_adaptation.configured_model", return_value=model
-            ), patch("workflow.gemini_adaptation.VertexGeminiClient") as factory:
-                store = SimpleNamespace(model_budget_policy=SimpleNamespace(
-                    phase_limits={"adaptation": (12000, 8000)}
-                ))
-                GeminiAdaptationWorker(store)
-                factory.assert_called_once_with(max_output_tokens=8000, thinking_level=expected)
+    def test_structured_text_thinking_policy_is_scoped_to_gemini_three(self):
+        workers = (
+            ("workflow.gemini_intake", GeminiIntakeWorker, "intake", (8000, 4000)),
+            ("workflow.gemini_determination", GeminiDeterminationWorker, "determination", (12000, 4000)),
+            ("workflow.gemini_generation", GeminiPipelineRunner, "generation", (12000, 4000)),
+            ("workflow.gemini_adaptation", GeminiAdaptationWorker, "adaptation", (12000, 8000)),
+        )
+        for module, worker, phase, limits in workers:
+            for model, expected in (("gemini-3-flash-preview", "LOW"), ("gemini-2.5-flash", None)):
+                with self.subTest(worker=worker.__name__, model=model), patch(
+                    f"{module}.configured_model", return_value=model
+                ), patch(f"{module}.VertexGeminiClient") as factory:
+                    store = SimpleNamespace(model_budget_policy=SimpleNamespace(
+                        phase_limits={phase: limits}
+                    ))
+                    worker(store)
+                    factory.assert_called_once_with(
+                        max_output_tokens=limits[1], thinking_level=expected
+                    )
 
     def test_gemini_adaptation_enforces_cta_limit_without_discarding_canonical(self):
         with WorkflowStore(self.path) as store:
@@ -499,75 +507,6 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertEqual(run["status"], "failed")
             self.assertEqual(invocation["outcome"], "schema_failed")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_packages").fetchone()[0], 0)
-
-    def test_static_renderer_produces_exact_review_assets_for_inactive_library(self):
-        artifact_root = Path(self.temporary.name) / "artifacts"
-        with WorkflowStore(self.path) as store:
-            package_ids = self.prepare_packages(store, command_id="render-valid")
-            before = {
-                row["content_package_id"]: row["package_json"]
-                for row in store.connection.execute(
-                    "SELECT content_package_id,package_json FROM content_packages"
-                ).fetchall()
-            }
-            self.assertIsNotNone(VisualPlanner(store).run_once())
-            first_review = StaticVisualRenderer(store, artifact_root).run_once()
-            self.assertIsNotNone(first_review)
-            reviews = store.connection.execute(
-                "SELECT content_package_id,status FROM review_requests ORDER BY review_request_id"
-            ).fetchall()
-            self.assertEqual([row["content_package_id"] for row in reviews], package_ids)
-            self.assertTrue(all(row["status"] == "awaiting_review" for row in reviews))
-            manifests = [json.loads(row[0]) for row in store.connection.execute(
-                "SELECT manifest_json FROM render_runs ORDER BY render_run_id"
-            )]
-            self.assertTrue(all(item.get("visual_recipe_hash") and item.get("visual_registry_fingerprint") for item in manifests))
-            asset_counts = store.connection.execute(
-                "SELECT r.content_package_id,COUNT(*) count FROM render_assets a "
-                "JOIN render_runs r ON r.render_run_id=a.render_run_id "
-                "GROUP BY r.content_package_id ORDER BY r.content_package_id"
-            ).fetchall()
-            self.assertEqual([row["count"] for row in asset_counts], [15])
-            for row in store.connection.execute(
-                "SELECT local_path,width,height,mime_type FROM render_assets "
-                "WHERE asset_role='delivery_jpeg'"
-            ).fetchall():
-                path = Path(row["local_path"])
-                self.assertTrue(path.is_file())
-                from PIL import Image
-                with Image.open(path) as image:
-                    self.assertEqual(image.format, "JPEG")
-                    self.assertEqual(image.size, (row["width"], row["height"]))
-            asset_id = store.connection.execute(
-                "SELECT render_asset_id FROM render_assets "
-                "WHERE asset_role='delivery_jpeg' ORDER BY render_asset_id LIMIT 1"
-            ).fetchone()[0]
-            handler = runpy.run_path(str(ROOT / "scripts" / "serve_dashboard.py"))[
-                "DashboardHandler"
-            ]
-            handler.database_path = str(self.path)
-            handler.artifact_root = artifact_root.resolve()
-            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-            thread = Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                base = f"http://127.0.0.1:{server.server_address[1]}"
-                with urlopen(base + "/", timeout=5) as response:
-                    self.assertIn("img-src 'self' data:", response.headers["Content-Security-Policy"])
-                with urlopen(base + f"/asset?render_asset_id={asset_id}", timeout=5) as response:
-                    self.assertEqual(response.headers.get_content_type(), "image/jpeg")
-                    self.assertGreater(len(response.read()), 1000)
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=5)
-            after = {
-                row["content_package_id"]: row["package_json"]
-                for row in store.connection.execute(
-                    "SELECT content_package_id,package_json FROM content_packages"
-                ).fetchall()
-            }
-            self.assertEqual(before, after)
 
     def test_dashboard_http_command_enforces_csrf_and_only_creates_intake_handoff(self):
         from workflow.maintenance import StorageMonitor

@@ -16,20 +16,35 @@ from test_gemini_image_renderer import FakeImageClient
 import test_gemini_image_renderer as image_fixtures
 from test_gemini_workflow import FakeGeminiClient
 from test_semantic_detection import FakeEncoder
-from test_visual_library import EXPRESSION_UNITS, intent, recipe
 from unittest.mock import patch
 from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiPipelineRunner, VisualPlanner, WorkflowStore
 from workflow.gemini_image_renderer import DispatchVisualRenderer, OVERLAY_PROFILES, build_storyboard_prompt, supports_image_rendering
 from workflow.gemini_adaptation import _validated_body_checkpoint
-from workflow.visual_explainers import DOMAIN_ARCHETYPES, EXPLAINER_ROLES
-from workflow.visual_planner import choose_recipe
-from workflow.visual_registry import validate_recipe, validate_unit_layouts
+from workflow.active_visual_profiles import (DOMAIN_ARCHETYPES, EXPLAINER_ROLES,
+                                             EXPRESSION_ROLES,
+                                             active_recipe, validate_recipe,
+                                             validate_unit_layouts)
 import json
 import test_gemini_workflow as fixtures
 import unittest
 
 
 DOMAINS = ('english', 'ai_tech', 'psychology')
+
+EXPRESSION_UNITS = [
+    {'role': 'hook', 'title': 'Break the ice',
+     'body': 'Start a conversation and make people feel more comfortable.', 'claim_ids': []},
+    {'role': 'explanation', 'title': 'What it means',
+     'body': 'Start a conversation and help people feel comfortable in a new situation.', 'claim_ids': []},
+    {'role': 'explanation', 'title': 'When to use it',
+     'body': 'In a quiet room\nWith a new group\nAt a first meeting', 'claim_ids': []},
+    {'role': 'example', 'title': 'In a sentence',
+     'body': 'She told a funny story to break the ice.\nHe asked a question to break the ice.', 'claim_ids': []},
+    {'role': 'example', 'title': 'A short dialogue',
+     'body': 'Mia: It feels quiet in here.\nJay: I can break the ice with a question.\nMia: Great idea.', 'claim_ids': []},
+    {'role': 'takeaway', 'title': 'Remember this',
+     'body': 'Use it in a quiet moment.\nStart with a friendly question.', 'claim_ids': []},
+]
 
 
 def domain_response(fixture, domain):
@@ -113,12 +128,14 @@ class DomainBoundaryTests(unittest.TestCase):
                         response = domain_response(fixture, domain)
                         json_client = FakeGeminiClient(response)
                         self.assertIsNotNone(GeminiAdaptationWorker(store, json_client).run_once())
-                        if domain != 'english':
+                        if domain == 'english':
+                            self.assertIn('exactly six visual units in this order', json_client.calls[0]['prompt'])
+                            self.assertIn('short dialogue', json_client.calls[0]['prompt'])
+                            self.assertIn('never return a two-turn dialogue', json_client.calls[0]['prompt'])
+                        else:
                             self.assertIn('exactly six visual units', json_client.calls[0]['prompt'])
                             self.assertIn('qualification' if domain == 'psychology' else 'Limitations / caveats', json_client.calls[0]['prompt'])
-                        with patch('workflow.static_renderer.StaticVisualRenderer._render_assets',
-                                   side_effect=AssertionError('HTML must remain inactive')):
-                            self._render_and_check(store, fixture, domain, origin)
+                        self._render_and_check(store, fixture, domain, origin)
 
     def _render_and_check(self, store, fixture, domain, origin):
         self.assertIsNotNone(VisualPlanner(store).run_once())
@@ -139,12 +156,14 @@ class DomainBoundaryTests(unittest.TestCase):
         self.assertEqual(len(package['visual_units']), 6)
         if domain != 'english':
             self.assertEqual([unit['role'] for unit in package['visual_units']], list(EXPLAINER_ROLES))
-            self.assertEqual(json.loads(recipe_row['selection_provenance_json'])['strategy'], 'explicit_domain_archetype_v1')
+        self.assertEqual(json.loads(recipe_row['selection_provenance_json'])['strategy'], 'explicit_domain_archetype_v1')
         content = json.loads(client.calls[0].split('SLIDE_CONTENT\n')[1])
         self.assertEqual([(slide['title'], slide['body']) for slide in content['slides']],
                          [(unit['title'], unit['body']) for unit in package['visual_units']])
         if domain != 'english':
-            self.assertEqual([slide['semantic_role'] for slide in content['slides']], list(OVERLAY_PROFILES[domain]['semantics']))
+            self.assertTrue(all('semantic_role' not in slide for slide in content['slides']))
+            self.assertNotIn('Semantic sequence:', client.calls[0])
+            self.assertIn('The supplied title and body are the only text', client.calls[0])
         if domain == 'psychology':
             self.assertIn('qualified, not absolute', client.calls[0])
             self.assertIn('alternative explanations', client.calls[0])
@@ -232,6 +251,32 @@ class DomainBoundaryTests(unittest.TestCase):
                         for table in ('content_packages', 'visual_plan_runs', 'render_runs', 'review_requests'):
                             self.assertEqual(store.connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0], 0)
 
+    def test_active_english_review_rejects_expression_copy_before_visual_planning(self):
+        fixture = self.fixture()
+        with WorkflowStore(fixture.path) as store:
+            prepare_domain(store, fixture, 'english')
+            response = domain_response(fixture, 'english')
+            response['visual_units'][0]['title'] = 'This expression title is too long'
+            canonical = json.loads(store.connection.execute(
+                'SELECT canonical_json FROM canonical_contents'
+            ).fetchone()[0])
+            with self.assertRaises(ValueError):
+                _validated_body_checkpoint(
+                    response, canonical, platform='instagram', pipeline_id='english',
+                    strict_english_capacity=True,
+                )
+            client = FakeGeminiClient(response)
+            self.assertIsNone(GeminiAdaptationWorker(
+                store, client, strict_english_capacity=True
+            ).run_once())
+            self.assertEqual(client.calls[0]['temperature'], 0.3)
+            self.assertEqual(store.connection.execute(
+                'SELECT status FROM adaptation_runs'
+            ).fetchone()[0], 'failed')
+            self.assertEqual(store.connection.execute(
+                'SELECT COUNT(*) FROM content_packages'
+            ).fetchone()[0], 0)
+
     def test_unsupported_domain_archetypes_block_without_html(self):
         for domain in DOMAINS:
             with self.subTest(domain=domain):
@@ -242,13 +287,14 @@ class DomainBoundaryTests(unittest.TestCase):
                     self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
                     # Simulate an unsupported persisted recipe without mutating immutable evidence.
                     run = store.claim('visual_plan_runs', 'visual_plan_run_id', 'fixture-planner')
-                    unsupported = recipe('editorial_clean_v1', roles=[u['role'] for u in response['visual_units']])
+                    other_domain = next(item for item in DOMAINS if item != domain)
+                    roles = EXPRESSION_ROLES if other_domain == 'english' else EXPLAINER_ROLES
+                    unsupported = active_recipe(other_domain, list(roles))
                     store.create_visual_recipe(run, unsupported, {'fixture': 'unsupported format'})
                     client = FakeImageClient()
                     root = Path(fixture.temporary.name)/'assets'
                     renderer = DispatchVisualRenderer(store, root, image_client=client)
-                    with patch('workflow.static_renderer.StaticVisualRenderer._render_assets', side_effect=AssertionError('HTML invoked')):
-                        self.assertIsNone(renderer.run_once())
+                    self.assertIsNone(renderer.run_once())
                     self.assertEqual(client.calls, [])
                     self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0], 'blocked')
                     self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
@@ -273,7 +319,7 @@ class DomainBoundaryTests(unittest.TestCase):
                             if failure == 'overlay' and args[1] == 3:
                                 raise OSError('fixture write failure')
                             return apply_overlays(*args, **kwargs)
-                        with patch('workflow.gemini_image_renderer.apply_overlays', side_effect=overlay), patch('workflow.static_renderer.StaticVisualRenderer._render_assets', side_effect=AssertionError('HTML invoked')):
+                        with patch('workflow.gemini_image_renderer.apply_overlays', side_effect=overlay):
                             self.assertIsNone(renderer.run_once())
                         self.assertIsNone(renderer.run_once())
                         self.assertEqual(len(client.calls), 1)
@@ -310,14 +356,14 @@ class DomainBoundaryTests(unittest.TestCase):
                 if domain != other_domain:
                     with self.assertRaises(ValueError):
                         build_storyboard_prompt(package, {'archetype_id': archetype}, pipeline_id=domain)
-        for domain in ('ai_tech', 'psychology'):
-            for structure in ('cards', 'scenario', 'process', 'comparison', 'editorial'):
-                first, provenance = choose_recipe(intent(primary_structure=structure, image_need='required'), platform='instagram', pipeline=domain, account='fixture', unit_count=6, unit_roles=list(EXPLAINER_ROLES), production=False, history=[])
-                second, _ = choose_recipe(intent(primary_structure=structure, image_need='required'), platform='instagram', pipeline=domain, account='fixture', unit_count=6, unit_roles=list(EXPLAINER_ROLES), production=False, history=[first]*12)
-                self.assertEqual(first, second)
-                self.assertEqual(first['archetype_id'], DOMAIN_ARCHETYPES[domain])
-                self.assertEqual(provenance['candidate_count'], 1)
-                validate_recipe(first, production=False)
-                validate_unit_layouts(first, list(EXPLAINER_ROLES))
-                with self.assertRaises(ValueError):
-                    choose_recipe(intent(), platform='instagram', pipeline='english', account='fixture', unit_count=6, unit_roles=list(EXPLAINER_ROLES), production=False, history=[], force_archetype=DOMAIN_ARCHETYPES[domain])
+        for domain in DOMAINS:
+            roles = [unit['role'] for unit in domain_response(fixtures.GeminiWorkflowTests(), domain)['visual_units']]
+            first = active_recipe(domain, roles)
+            second = active_recipe(domain, roles)
+            self.assertEqual(first, second)
+            self.assertEqual(first['archetype_id'], DOMAIN_ARCHETYPES[domain])
+            validate_recipe(first, production=False)
+            validate_unit_layouts(first, roles)
+            for other_domain, other_archetype in DOMAIN_ARCHETYPES.items():
+                other_roles = EXPRESSION_ROLES if other_domain == 'english' else EXPLAINER_ROLES
+                self.assertEqual(active_recipe(other_domain, list(other_roles))['archetype_id'], other_archetype)

@@ -70,15 +70,16 @@ content commits before adaptation begins. Failure on one output does not rerun
 generation.
 
 Success atomically persists one ContentPackage per OutputRequest, completes the
-adaptation and creates its first pending VisualPlanRun. The shared deterministic
-planner selects a compatible curated visual archetype/preset, then resolves only
-its approved variants and commits a separate immutable VisualRecipe before
-creating its RenderRun. RenderRuns reference the exact package and recipe.
+adaptation and creates its first pending VisualPlanRun. The active planner selects
+the single fixed Gemini profile for the package domain and commits a separate
+immutable VisualRecipe before creating its RenderRun. RenderRuns reference the
+exact package and recipe.
 Synthetic packages remain non-deliverable. All three supported domain formats
 use [Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
 Adaptation owns exact semantic copy and visual intent, never final image prompts.
 The renderer interprets each domain archetype as six semantic slide roles;
-deterministic CSS/layout tokens do not guide Gemini. The HTML library remains inactive.
+deterministic CSS/layout tokens do not guide Gemini. The former HTML library is
+reference-only in the archive and is never a fallback.
 
 ## Instagram package contract
 
@@ -96,7 +97,10 @@ hook, explanation, explanation, example, example, takeaway.
 Local limits: title 120 characters, body 600, caption summary 1100, total caption
 1500; CTA at most 12 words/120 characters or null; 2–6 unique private tags, at most
 8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
-canonical claim must be mapped into copy or units.
+canonical claim must be mapped into copy or units. The active Gemini review
+workflow additionally applies the English expression archetype's position-specific
+title, word-count and line-count limits during adaptation; it never defers those
+capacity errors to visual planning.
 
 The broad `output_adaptation_v1` schema stays at 5–8 units. Domain-aware local
 validation (including body checkpoints) requires exactly six units for AI/Tech

@@ -29,8 +29,9 @@ The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
 Determination routes, jobs, adaptation/render progress and exact review slides.
 Accept/reject/request-changes commands do not publish. Generic posting/delivery
 records and R2 staging are preserved inactive; provider delivery is not
-implemented in the current baseline. The deterministic visual library, local
-assets and HTML gallery renderer are preserved inactive.
+implemented in the current baseline. The former deterministic visual library is
+reference-only under `archive/deterministic_visual_library/`; it is not runnable
+or reachable from the workflow.
 
 ## Fresh setup
 
@@ -41,7 +42,7 @@ uv sync --frozen --extra dev
 .venv/bin/python -m playwright install chromium
 ```
 
-Chromium supports browser tests and inactive visual-library tooling. Copy
+Chromium supports browser tests. Copy
 `.env.example` to ignored `.env` if needed and configure values locally; process
 environment overrides the file. See [configuration](specs/configuration.md).
 Create a new database (choose another filename if this one exists):
@@ -136,6 +137,39 @@ deletes data. [Reliability](specs/reliability.md#storage-backup-and-retention)
 owns backup/retention and [runtime](specs/runtime.md#diagnostic-logging) owns safe
 rotating diagnostics. The dashboard refreshes every ten seconds, preserving drafts.
 
+### Continuous review-only Mac Mini baseline
+
+After explicit setup of a new current-schema database, install the supported
+review-only baseline with one shared set of absolute paths:
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --install \
+  --database data/review-baseline.db \
+  --artifacts data/artifacts/review-baseline \
+  --backups data/backups/review-baseline
+```
+
+It writes five user LaunchAgents: one Detection poller, one Gemini
+`--review-preview` workflow poller, one loopback dashboard at
+http://127.0.0.1:8787, one model-free storage monitor, and a daily 03:15 local
+backup/restore-verification pass. The first four have launchd restart policy;
+the backup worker is scheduled rather than continuously restarted. Secrets stay
+in the local `.env` and are not copied to plist files. Logs are PID-rotated by
+the workers and service stdout/stderr goes under `data/logs/review-baseline`.
+
+The installer never creates or migrates a database. Preview generated plists
+without loading them by replacing `--install` with `--write-only`; inspect all
+five load states with:
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --status
+```
+
+Use a new dashboard port through `--port` when 8787 is already occupied. Before
+calling the baseline healthy after restart, run `--status`, open the loopback
+dashboard, and inspect the persisted worker heartbeats, storage sample and latest
+successful backup/restore-verification evidence.
+
 ## Operator entrypoints
 
 | Script in `scripts/` | Responsibility |
@@ -147,20 +181,18 @@ rotating diagnostics. The dashboard refreshes every ten seconds, preserving draf
 | `create_local_idea.py` | Submit an idea or reply/refine a thread |
 | `run_storage_monitor.py` | Independent model-free storage/growth observation |
 | `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
+| `install_review_baseline.py` | Write/load/status the five review-only Mac Mini LaunchAgents |
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
-| `render_visual_gallery.py` | Local gallery for the preserved inactive HTML visual library |
 | `run_tests.py` | Offline suite, including local browser and packaging checks |
 | `check_docs.py` | Documentation links, schema, sources, domain and environment consistency |
 
-Explicit maintenance and inactive-gallery examples:
+Explicit maintenance example:
 
 ```sh
 .venv/bin/python scripts/run_maintenance.py --database data/baseline.db --backups data/backups --restore-verify
-.venv/bin/python scripts/render_visual_gallery.py --archetype expression_breakdown_v1
 ```
 
 Maintenance does not prune backups unless `--prune-backups` is supplied.
-The gallery writes ignored `data/artifacts/visual-gallery` and creates no workflow records.
 
 ## Project map
 
@@ -172,9 +204,9 @@ The gallery writes ignored `data/artifacts/visual-gallery` and creates no workfl
 | `src/workflow/catalog.py` | Three editorial remits and catalog read model |
 | `src/workflow/gemini_intake.py`, `gemini_determination.py` | Planning workers |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
-| `src/workflow/gemini_image_renderer.py` | Three domain storyboard profiles and shared local processing |
-| `src/workflow/visual_registry.py`, `visual_planner.py` | Frozen semantic recipes and preserved visual registry |
-| `src/workflow/static_renderer.py`, `visual_primitives.py` | Preserved inactive HTML visual library |
+| `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Fixed active Gemini domain profiles and immutable planning evidence |
+| `src/workflow/active_review_renderer.py`, `gemini_image_renderer.py` | Atomic review assets, Gemini storyboards and shared local processing |
+| `archive/deterministic_visual_library/` | Reference-only former generic visual library; never imported or run |
 | `src/dashboard/` | Evidence, progress and review read models |
 | `src/common/gemini.py`, `gemini_image.py` | Isolated single-attempt model transports |
 | `config/releases/detection.json` | Active nonsecret source and algorithm policy |
@@ -188,6 +220,6 @@ The gallery writes ignored `data/artifacts/visual-gallery` and creates no workfl
 ```
 
 These use fake providers and temporary databases; no paid inference or public
-posting occurs. Browser tests and inactive gallery rendering run locally.
+posting occurs. Browser tests run locally.
 Tests protect the accepted English mechanics, not the aesthetic or factual
 quality of every model response. Live editorial results require human review.

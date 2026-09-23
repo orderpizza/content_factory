@@ -145,8 +145,9 @@ def main() -> None:
             workers = (intake_worker, determination_worker)
             if args.review_preview:
                 workers += (
-                    GeminiPipelineRunner(store), GeminiAdaptationWorker(store),
-                    VisualPlanner(store), DispatchVisualRenderer(store, args.artifacts),
+                    GeminiPipelineRunner(store), GeminiAdaptationWorker(store, strict_english_capacity=True),
+                    VisualPlanner(store),
+                    DispatchVisualRenderer(store, args.artifacts),
                 )
             workers = (StorageMonitor(store, args.artifacts, args.backups or ROOT / "data/backups"),) + workers
             if not args.poll:

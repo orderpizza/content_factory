@@ -10,7 +10,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from test_gemini_workflow import FakeGeminiClient
-from test_visual_library import EXPRESSION_ROLES, EXPRESSION_UNITS, recipe
+from workflow.active_visual_profiles import EXPRESSION_ROLES, active_recipe
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
@@ -22,6 +22,23 @@ import unittest
 
 
 COLORS = ['#d03030', '#30d030', '#3030d0', '#d0d030', '#d030d0', '#30d0d0']
+
+EXPRESSION_UNITS = [
+    {'role': 'hook', 'title': 'Break the ice', 'body': 'Start a conversation and make people feel more comfortable.', 'claim_ids': []},
+    {'role': 'explanation', 'title': 'What it means', 'body': 'Start a conversation and help people feel comfortable in a new situation.', 'claim_ids': []},
+    {'role': 'explanation', 'title': 'When to use it', 'body': 'In a quiet room\nWith a new group\nAt a first meeting', 'claim_ids': []},
+    {'role': 'example', 'title': 'In a sentence', 'body': 'She told a funny story to break the ice.\nHe asked a question to break the ice.', 'claim_ids': []},
+    {'role': 'example', 'title': 'A short dialogue', 'body': 'Mia: It feels quiet in here.\nJay: I can break the ice with a question.\nMia: Great idea.', 'claim_ids': []},
+    {'role': 'takeaway', 'title': 'Remember this', 'body': 'Use it in a quiet moment.\nStart with a friendly question.', 'claim_ids': []},
+]
+
+
+def recipe(archetype: str, *, roles: list[str]):
+    domain = next(domain for domain, value in {
+        'english': 'expression_breakdown_v1', 'ai_tech': 'ai_tech_explainer_v1',
+        'psychology': 'psychology_explainer_v1',
+    }.items() if value == archetype)
+    return active_recipe(domain, list(roles))
 
 
 def slide_image(index=0):
@@ -84,7 +101,7 @@ class ImagePipelineTests(unittest.TestCase):
         prompt = build_storyboard_prompt(package, value, pipeline_id="english")
         # Characterization of the accepted full English design brief and fixture copy.
         self.assertEqual(sha256(prompt.encode()).hexdigest(),
-                         'b093726a0c22236fd1cecae4fa994e2910b0f46bb8610c893f9f516999061e79')
+                         '1c58cc306f382b14f8913f54c7252ae890d3db78b57949a0ce8b6cd27d3ddee1')
         content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
         self.assertEqual(content['total'], 6)
         self.assertEqual([slide['title'] for slide in content['slides']],
@@ -384,17 +401,13 @@ class ImageWorkflowTests(unittest.TestCase):
             self.assertEqual(client.calls, [])
 
 
-    def test_unsupported_english_format_blocks_without_html_fallback(self):
+    def test_english_format_uses_its_active_gemini_profile_without_html_fallback(self):
         with WorkflowStore(self.path) as store:
-            self.fixture.prepare_packages(store)
-            self.assertIsNotNone(VisualPlanner(store).run_once())
+            self.prepare(store)
             client = FakeImageClient()
             worker = DispatchVisualRenderer(store, self.artifacts, image_client=client)
-            with patch('workflow.static_renderer.StaticVisualRenderer._render_assets', side_effect=AssertionError('HTML invoked')):
-                self.assertIsNone(worker.run_once())
-                self.assertIsNone(worker.run_once())
-            self.assertEqual(client.calls, [])
+            self.assertIsNotNone(worker.run_once())
+            self.assertEqual(len(client.calls), 1)
             row = store.connection.execute('SELECT status,failure_reason FROM render_runs').fetchone()
-            self.assertEqual(tuple(row), ('blocked', 'Gemini visual renderer not implemented for this English format.'))
-            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 0)
-            self.assertFalse(self.artifacts.exists())
+            self.assertEqual(tuple(row), ('succeeded', None))
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 1)

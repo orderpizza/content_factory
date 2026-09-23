@@ -14,9 +14,10 @@ from .store import WorkflowStore
 from .workers import local_operation
 from .visual_explainers import (AI_TECH_ADAPTATION_GUIDANCE, PSYCHOLOGY_ADAPTATION_GUIDANCE,
                                 EXPLAINER_CAPACITY_GUIDANCE, validate_domain_units)
+from .active_visual_profiles import EXPRESSION_ADAPTATION_GUIDANCE, validate_intent
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v3"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v5"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v1"
 SUPPORTED_FORMATS = {
@@ -112,6 +113,7 @@ class GeminiAdaptationWorker:
         *,
         instance_id: str = "adaptation-gemini",
         production: bool = False,
+        strict_english_capacity: bool = False,
     ):
         self.store = store
         maximum = None
@@ -123,6 +125,7 @@ class GeminiAdaptationWorker:
         )
         self.instance_id = instance_id
         self.production = production
+        self.strict_english_capacity = strict_english_capacity
 
     def run_once(self) -> int | None:
         run = self.store.claim(
@@ -170,6 +173,7 @@ class GeminiAdaptationWorker:
             package = _validate_package(
                 response, canonical, platform=platform, account=output["account"],
                 content_format=content_format, production=True, pipeline_id=output["pipeline_id"],
+                strict_english_capacity=self.strict_english_capacity,
             )
             self.store.checkpoint_adaptation(run, metadata=metadata)
             return self.store.create_package(run, package)
@@ -187,7 +191,8 @@ class GeminiAdaptationWorker:
         try:
             response = self.client.generate_json(
                 _adaptation_prompt(request_value), schema,
-                temperature=1.0 if str(getattr(self.client, "model", "")).startswith("gemini-3") else 0.3,
+                temperature=(0.3 if self.strict_english_capacity else 1.0)
+                if str(getattr(self.client, "model", "")).startswith("gemini-3") else 0.3,
             )
         except Exception as error:
             outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
@@ -208,12 +213,16 @@ class GeminiAdaptationWorker:
                 content_format=content_format,
                 production=self.production,
                 pipeline_id=output["pipeline_id"],
+                strict_english_capacity=self.strict_english_capacity,
             )
         except Exception as error:
             body = None
             if self.production:
                 try:
-                    body = _validated_body_checkpoint(response, canonical, platform=platform, pipeline_id=output["pipeline_id"])
+                    body = _validated_body_checkpoint(
+                        response, canonical, platform=platform, pipeline_id=output["pipeline_id"],
+                        strict_english_capacity=self.strict_english_capacity,
+                    )
                 except ValueError:
                     body = None
             self.store.finish_model_invocation(
@@ -231,6 +240,7 @@ class GeminiAdaptationWorker:
             package = _validate_package(
                 response, canonical, platform=platform, account=output["account"],
                 content_format=content_format, production=True, pipeline_id=output["pipeline_id"],
+                strict_english_capacity=self.strict_english_capacity,
             )
             self.store.checkpoint_adaptation(run, metadata=metadata)
             return self.store.create_package(run, package)
@@ -238,7 +248,10 @@ class GeminiAdaptationWorker:
         if self.production:
             self.store.checkpoint_adaptation(
                 run,
-                body=_validated_body_checkpoint(response, canonical, platform=platform, pipeline_id=output["pipeline_id"]),
+                body=_validated_body_checkpoint(
+                    response, canonical, platform=platform, pipeline_id=output["pipeline_id"],
+                    strict_english_capacity=self.strict_english_capacity,
+                ),
                 metadata=_validated_metadata(response, platform=platform),
             )
         self.store.finish_model_invocation(
@@ -305,7 +318,8 @@ def metadata_schema(platform: str) -> dict[str, Any]:
 
 
 def _validated_body_checkpoint(
-    value: Any, canonical: Mapping[str, Any], *, platform: str, pipeline_id: str | None = None
+    value: Any, canonical: Mapping[str, Any], *, platform: str, pipeline_id: str | None = None,
+    strict_english_capacity: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("adapted body must be an object")
@@ -319,7 +333,8 @@ def _validated_body_checkpoint(
     units = _visual_units(value.get("visual_units"), allowed, 5, 8)
     if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
         raise ValueError("Instagram units must start with hook and end with takeaway")
-    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"))
+    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"),
+                          strict_english=strict_english_capacity)
     cta = value.get("cta")
     if cta is not None:
         cta = _bounded_text(cta, "cta", 1, 120)
@@ -361,6 +376,7 @@ def _validate_package(
     content_format: str,
     production: bool = False,
     pipeline_id: str | None = None,
+    strict_english_capacity: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("Gemini adaptation response must be an object")
@@ -384,7 +400,8 @@ def _validate_package(
     units = _visual_units(value["visual_units"], canonical_claim_ids, 5, 8)
     if units[0]["role"] != "hook" or units[-1]["role"] != "takeaway":
         raise ValueError("Instagram units must start with hook and end with takeaway")
-    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"))
+    validate_domain_units(units, pipeline_id or canonical.get("pipeline_id"),
+                          strict_english=strict_english_capacity)
     cta = value["cta"]
     if cta is not None:
         cta = _bounded_text(cta, "cta", 1, 120)
@@ -436,7 +453,6 @@ def _validate_package(
 
 
 def _visual_intent(value: Any) -> dict[str, Any]:
-    from .visual_registry import validate_intent
     return validate_intent(value)
 
 
@@ -502,9 +518,10 @@ def _visual_unit(value: Any, allowed_claims: set[str]) -> dict[str, Any]:
 
 
 def _adaptation_prompt(request_value: dict[str, Any]) -> str:
-    guidance = {"ai_tech": AI_TECH_ADAPTATION_GUIDANCE,
+    guidance = {"english": EXPRESSION_ADAPTATION_GUIDANCE,
+                "ai_tech": AI_TECH_ADAPTATION_GUIDANCE,
                 "psychology": PSYCHOLOGY_ADAPTATION_GUIDANCE}.get(request_value["pipeline_id"], "")
-    if guidance:
+    if request_value["pipeline_id"] in {"ai_tech", "psychology"}:
         guidance += EXPLAINER_CAPACITY_GUIDANCE + "\n"
     return """You are the bounded output-adaptation worker for a local content
 factory. Adapt the immutable canonical object to the one frozen destination.

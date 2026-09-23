@@ -9,7 +9,6 @@ from io import StringIO
 from pathlib import Path
 from workflow import GeminiAdaptationWorker, GeminiPipelineRunner, VisualPlanner, WorkflowStore, inspect_smoke_readiness
 from workflow.delivery import PublicationReconciliationWorker, R2CleanupWorker
-from workflow.static_renderer import StaticVisualRenderer
 from workflow.workers import AdaptationWorker, PipelineRunner, VisualRenderer
 import runpy
 import tempfile
@@ -127,7 +126,6 @@ class SmokeReadinessTests(unittest.TestCase):
             GeminiAdaptationWorker(store, client=object()),
             VisualPlanner(store),
             VisualRenderer(store, self.artifacts),
-            StaticVisualRenderer(store, self.artifacts),
             R2CleanupWorker(store),
             PublicationReconciliationWorker(store),
         )
