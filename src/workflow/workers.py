@@ -2,7 +2,7 @@
 
 The default policies are deliberately deterministic placeholders.  They make
 the complete lineage demonstrable without pretending that Gemini credentials,
-model prices, renderer profiles, or publication access have been approved.
+model prices, visual configuration, or publication access have been approved.
 """
 
 from __future__ import annotations

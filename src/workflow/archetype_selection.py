@@ -1,7 +1,7 @@
 """Auditable field-aware semantic scoring; no provider calls or random rotation."""
 import re
 from collections import Counter
-from .active_visual_profiles import ARCHETYPES, DOMAIN_ARCHETYPES, SELECTOR_VERSION
+from .active_visual_profiles import ARCHETYPES, DEFAULT_ARCHETYPE_BY_DOMAIN, SELECTOR_VERSION
 
 HISTORY_LIMIT = 8
 # Each signal is bounded once, regardless of repeated keywords or copy length.
@@ -63,7 +63,7 @@ def semantic_signals(canonical, domain):
 
 def _winner(candidates, domain):
     eligible = [c for c in candidates if c['eligible']]
-    return min(eligible, key=lambda c: (-c['selection_score'], c['archetype_id'] != DOMAIN_ARCHETYPES[domain], c['archetype_id']))
+    return min(eligible, key=lambda c: (-c['selection_score'], c['archetype_id'] != DEFAULT_ARCHETYPE_BY_DOMAIN[domain], c['archetype_id']))
 
 
 def select_archetype(canonical, domain, history):
@@ -74,7 +74,7 @@ def select_archetype(canonical, domain, history):
         if a.domain != domain:
             continue
         reasons = [s for s in a.selection_characteristics if signals.get(s)]
-        baseline = a.archetype_id == DOMAIN_ARCHETYPES[domain]
+        baseline = a.archetype_id == DEFAULT_ARCHETYPE_BY_DOMAIN[domain]
         fit = 5 if baseline else sum(SIGNAL_WEIGHTS[s] for s in reasons)
         penalty = min(1.0, counts[a.archetype_id] * 0.25)
         candidates.append({'archetype_id': a.archetype_id, 'fit_score': fit,
@@ -110,7 +110,7 @@ def validate_selection(s, domain, selected):
         if not isinstance(c, dict) or set(c) != {'archetype_id', 'fit_score', 'recent_use_penalty', 'selection_score', 'eligible', 'reason_codes'} or c['archetype_id'] != id:
             raise ValueError('invalid candidate provenance')
         codes = c['reason_codes']
-        baseline = id == DOMAIN_ARCHETYPES[domain]
+        baseline = id == DEFAULT_ARCHETYPE_BY_DOMAIN[domain]
         if not isinstance(codes, list) or any(not isinstance(x, str) for x in codes) or len(set(codes)) != len(codes):
             raise ValueError('invalid selector reasons')
         if baseline:

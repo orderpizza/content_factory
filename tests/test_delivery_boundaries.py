@@ -52,7 +52,7 @@ class DeliveryBoundaryTests(delivery_fixtures.DeliveryFixture, unittest.TestCase
         self.assertFalse(initialize_database(self.path))
         with connect(self.path) as connection:
             validate_database(connection)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 11)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0], 1)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 

@@ -87,10 +87,9 @@ class ActiveReviewRenderer:
                 "profile_id": spec["profile_id"],
                 "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
                 "visual_profile_fingerprint": recipe["profile_fingerprint"],
-                "content_hash": package_row["content_hash"], "browser_version": None,
+                "content_hash": package_row["content_hash"],
                 "pillow_version": PIL.__version__, "review_only": True,
-                "font_sha256": None,
-                "visual_assets": [], "assets": assets, **engine_metadata,
+                "assets": assets, **engine_metadata,
             }
             return self.store.complete_render(run, manifest, assets)
         except Exception:

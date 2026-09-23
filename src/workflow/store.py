@@ -308,6 +308,9 @@ class WorkflowStore:
             raise ValueError("a domain has one Instagram destination")
         normalized = []
         for output in outputs:
+            allowed = {"platform", "account", "content_format", "output_contract_version", "ready", "safe_reason"}
+            if not isinstance(output, dict) or set(output) - allowed:
+                raise ValueError("fixture output contains unsupported fields")
             if output.get("platform") not in {"instagram"} or not str(output.get("account", "")).strip():
                 raise ValueError("fixture output requires a supported platform and explicit account")
             if not isinstance(output.get("content_format"), str) or not output["content_format"].strip():
@@ -317,7 +320,6 @@ class WorkflowStore:
             normalized.append({
                 "platform": output["platform"], "account": output["account"], "content_format": output["content_format"],
                 "output_contract_version": output.get("output_contract_version", "placeholder_v1"),
-                "renderer_compatibility": output.get("renderer_compatibility", "placeholder"),
                 "ready": int(output.get("ready", False)), "safe_reason": output.get("safe_reason", "operator fixture"),
             })
         if len({(o["platform"], o["account"], o["content_format"]) for o in normalized}) != len(normalized):
@@ -333,7 +335,7 @@ class WorkflowStore:
             ).fetchone()
             if prior:
                 bindings = self.connection.execute(
-                    "SELECT platform,account,content_format,output_contract_version,renderer_compatibility,ready,safe_reason FROM output_bindings WHERE pipeline_capability_id=?",
+                    "SELECT platform,account,content_format,output_contract_version,ready,safe_reason FROM output_bindings WHERE pipeline_capability_id=?",
                     (prior["pipeline_capability_id"],),
                 ).fetchall()
                 if (bool(prior["enabled"]) != enabled or bool(prior["generation_ready"]) != generation_ready
@@ -347,8 +349,8 @@ class WorkflowStore:
             capability_id = int(cur.lastrowid)
             for output in outputs:
                 self.connection.execute(
-                    "INSERT INTO output_bindings(pipeline_capability_id,platform,account,content_format,output_contract_version,renderer_compatibility,ready,safe_reason,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (capability_id, output["platform"], output["account"], output["content_format"], output.get("output_contract_version", "placeholder_v1"), output.get("renderer_compatibility", "placeholder"), int(bool(output.get("ready"))), str(output.get("safe_reason", "operator fixture")), moment),
+                    "INSERT INTO output_bindings(pipeline_capability_id,platform,account,content_format,output_contract_version,ready,safe_reason,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (capability_id, output["platform"], output["account"], output["content_format"], output.get("output_contract_version", "placeholder_v1"), int(bool(output.get("ready"))), str(output.get("safe_reason", "operator fixture")), moment),
                 )
         return capability_id
 
@@ -484,12 +486,12 @@ class WorkflowStore:
     def register_production_configuration(self, value: dict[str, Any]) -> int:
         """Materialize one immutable, non-secret production catalog for production."""
         expected = {
-            "policy_version", "approved_by", "approved_at", "profile_approved",
-            "renderer_profile", "destinations", "bindings",
+            "policy_version", "approved_by", "approved_at", "visual_configuration_approved",
+            "destinations", "bindings",
         }
         if not isinstance(value, dict) or set(value) != expected:
             raise ValueError("production configuration has an invalid closed shape")
-        if value["policy_version"] != "production_configuration_v1":
+        if value["policy_version"] != "production_configuration_v2":
             raise ValueError("unsupported production configuration policy")
         if not isinstance(value["approved_by"], str) or not value["approved_by"].strip():
             raise ValueError("production configuration requires an approving actor")
@@ -497,23 +499,9 @@ class WorkflowStore:
             approved_at = parse_timestamp(str(value["approved_at"]))
         except (TypeError, ValueError) as error:
             raise ValueError("production configuration approved_at must be ISO-8601") from error
-        if type(value["profile_approved"]) is not bool:
-            raise ValueError("profile_approved must be boolean")
+        if type(value["visual_configuration_approved"]) is not bool:
+            raise ValueError("visual_configuration_approved must be boolean")
         value = {**value, "approved_at": serialize_timestamp(approved_at)}
-        profile = value["renderer_profile"]
-        if not isinstance(profile, dict) or set(profile) != {
-            "profile_version", "template_version", "font_path", "font_sha256"
-        }:
-            raise ValueError("production renderer profile has an invalid closed shape")
-        if (
-            profile["profile_version"] != "static_social_delivery_profiles_v1"
-            or profile["template_version"] != "static_social_template_v1"
-            or not isinstance(profile["font_path"], str)
-            or not Path(profile["font_path"]).is_absolute()
-            or not isinstance(profile["font_sha256"], str)
-            or not re.fullmatch(r"[0-9a-f]{64}", profile["font_sha256"])
-        ):
-            raise ValueError("production renderer profile version or font fingerprint is invalid")
         destinations = value["destinations"]
         bindings = value["bindings"]
         if not isinstance(destinations, list) or not destinations:
@@ -652,12 +640,12 @@ class WorkflowStore:
                     raise ValueError("production binding format does not match its platform")
                 self.connection.execute(
                     "INSERT INTO output_bindings(pipeline_capability_id,platform,account,content_format,"
-                    "output_contract_version,renderer_compatibility,ready,safe_reason,created_at,"
-                    "social_destination_id,delivery_enabled,profile_approved) "
-                    "VALUES (?,?,?,?,?,'html_playwright_v1',1,?,?,?,1,?)",
+                    "output_contract_version,ready,safe_reason,created_at,"
+                    "social_destination_id,delivery_enabled,visual_configuration_approved) "
+                    "VALUES (?,?,?,?,?,1,?,?,?,1,?)",
                     (capability_ids[pipeline], destination["platform"], destination["account_key"],
                      expected_format, expected_format, "production binding; readiness is checked separately",
-                     moment, destination_ids[destination_key], int(value["profile_approved"])),
+                     moment, destination_ids[destination_key], int(value["visual_configuration_approved"])),
                 )
             expected_pairs = {
                 (pipeline, destination["destination_key"])
@@ -1645,7 +1633,7 @@ class WorkflowStore:
                 "SELECT p.status,p.claim_owner,p.claim_version,p.lease_expires_at,"
                 "q.status request_status,q.expires_at,"
                 "t.status thread_status,a.status attempt_status,a.final_publication_request_sent_at "
-                ",b.delivery_enabled,b.profile_approved,d.enabled destination_enabled,"
+                ",b.delivery_enabled,b.visual_configuration_approved,d.enabled destination_enabled,"
                 "cr.status readiness_status,cr.valid_until readiness_valid_until "
                 "FROM post_records p JOIN post_requests q ON q.post_request_id=p.post_request_id "
                 "JOIN review_requests v ON v.review_request_id=q.review_request_id "
@@ -1679,7 +1667,7 @@ class WorkflowStore:
             ):
                 raise RuntimeError("delivery authorization was cancelled or claim is stale")
             if (
-                not row["delivery_enabled"] or not row["profile_approved"]
+                not row["delivery_enabled"] or not row["visual_configuration_approved"]
                 or not row["destination_enabled"] or row["readiness_status"] != "ready"
                 or row["readiness_valid_until"] <= moment
             ):
@@ -2152,7 +2140,7 @@ class WorkflowStore:
             "SELECT v.review_request_id,v.status review_status,v.expires_at review_expires_at,"
             "v.package_hash,v.manifest_hash,v.render_run_id,p.content_package_id,p.package_json,"
             "p.content_hash,r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
-            "b.output_binding_id,b.delivery_enabled,b.profile_approved,d.social_destination_id,"
+            "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.destination_key,d.enabled destination_enabled,d.config_json,d.secret_ref,"
             "d.provider_account_id,d.configuration_release_id,cr.status readiness_status,"
             "cr.valid_until readiness_valid_until,pp.policy_version,pp.timezone_name,"
@@ -2172,8 +2160,8 @@ class WorkflowStore:
             raise ValueError("review is not bound to an active production destination")
         if row["review_status"] != "awaiting_review" or row["review_expires_at"] <= moment:
             raise ValueError("review is not current and awaiting authorization")
-        if not row["delivery_enabled"] or not row["profile_approved"] or not row["destination_enabled"]:
-            raise ValueError("production destination or visual profile is disabled")
+        if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
+            raise ValueError("production destination is disabled or visual configuration is not approved")
         if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
         return self._validate_delivery_artifacts(row)
@@ -2184,7 +2172,7 @@ class WorkflowStore:
             "pq.post_request_id,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
             "pq.destination_key,pq.render_run_id,p.content_package_id,p.package_json,p.content_hash,"
             "r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
-            "b.output_binding_id,b.delivery_enabled,b.profile_approved,d.social_destination_id,"
+            "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.enabled destination_enabled,d.config_json,d.secret_ref,d.provider_account_id,"
             "d.configuration_release_id,cr.status readiness_status,cr.valid_until readiness_valid_until,"
             "pp.policy_version,pp.timezone_name,pp.max_posts_per_day,pp.min_post_interval_minutes,"
@@ -2206,8 +2194,8 @@ class WorkflowStore:
             raise ValueError("delivery lacks current approved authorization")
         if row["expires_at"] <= moment or row["eligible_at"] > moment:
             raise ValueError("delivery is expired or not yet policy eligible")
-        if not row["delivery_enabled"] or not row["profile_approved"] or not row["destination_enabled"]:
-            raise ValueError("production destination or visual profile is disabled")
+        if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
+            raise ValueError("production destination is disabled or visual configuration is not approved")
         if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
         context = self._validate_delivery_artifacts(row)

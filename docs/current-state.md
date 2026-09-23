@@ -2,10 +2,13 @@
 
 ## System state
 
-The current schema is **10**, defined by
+The current schema is **11**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
+The inactive production configuration contract is `production_configuration_v2`;
+[configuration](specs/configuration.md#preserved-production-configuration) owns
+its visual-approval semantics. No existing database is upgraded automatically.
 All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
 Automatic Detection and human ideas both feed three-domain Determination:

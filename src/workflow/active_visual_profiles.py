@@ -13,7 +13,7 @@ from .visual_art_direction import (
 PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v2"
 RENDERER_CONTRACT_ID = "image_storyboard_3x2_v1"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
-DOMAIN_ARCHETYPES = {
+DEFAULT_ARCHETYPE_BY_DOMAIN = {
     "english": "expression_breakdown_v1",
     "ai_tech": "ai_tech_explainer_v1",
     "psychology": "psychology_explainer_v1",
@@ -267,14 +267,14 @@ def validate_archetype_units(units, archetype_id):
 
 
 def active_recipe(pipeline_id, roles=None, *, account='fixture', archetype_id=None, selection=None):
-    a = ARCHETYPES[archetype_id or DOMAIN_ARCHETYPES[pipeline_id]]
+    a = ARCHETYPES[archetype_id or DEFAULT_ARCHETYPE_BY_DOMAIN[pipeline_id]]
     if a.domain != pipeline_id or (roles is not None and roles != [s.role for s in a.slides]):
         raise ValueError('archetype domain/grammar mismatch')
     if selection is None:
         # Offline fixture construction only. Runtime always supplies audited selection.
         from .archetype_selection import select_archetype
         _, selection = select_archetype({}, pipeline_id, [])
-        if a.archetype_id != DOMAIN_ARCHETYPES[pipeline_id]:
+        if a.archetype_id != DEFAULT_ARCHETYPE_BY_DOMAIN[pipeline_id]:
             raise ValueError('specialized recipes require selector provenance')
     return {'schema_version': 'visual_recipe_v5', 'account': account,
             'account_visual_profile_id': a.account_visual_profile_id,

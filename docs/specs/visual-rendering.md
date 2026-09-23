@@ -32,9 +32,23 @@ Archetypes specify eligibility, semantic selection traits, art direction, negati
 constraints and six ordered slide compositions, visual modes and copy capacities.
 There is no theme/font/component combination registry.
 
+The current registry `ACCOUNT_PROFILES` is keyed by domain because the active
+catalog has one Instagram destination per domain. The frozen recipe also records
+the actual account, and recent-use history is account-scoped. This does not support
+independent visual identities for several accounts in one domain, or a single
+cross-domain account identity. The preserved inactive delivery catalog is not an
+account-first visual registry. Generalizing ownership requires explicit
+account-to-profile configuration and persisted eligibility; that work is deferred
+until multiple-account visual operation is needed. No account key is invented
+from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
+not the complete three-archetype set.
+
 Infrastructure is independently versioned: `gemini_storyboard_prompt_v2` identifies
 the deterministic compiler, `image_storyboard_3x2_v1` identifies technical output
-geometry, and overlay IDs identify local chrome. Archetype version is an integer.
+geometry, and overlay IDs identify local chrome. Neither
+`gemini_storyboard_prompt_v2` nor `image_storyboard_3x2_v1` is a visual template.
+The former is compiler infrastructure; the latter is the technical renderer
+contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
 profile fingerprint, compiler version, renderer contract, overlay profile and
 selection. The fingerprint covers all account/art-direction/archetype/overlay
@@ -151,6 +165,12 @@ invocation request hash contains the prompt only. No raw prompts enter diagnosti
 logs or model ledgers. All six final assets commit with one ReviewRequest only
 after complete success. Failed temporary output is removed; paid-call evidence
 remains in the invocation ledger.
+
+The manifest's `profile_id` (`gemini_instagram_review_v1`) identifies the
+review-output validation profile, not a curated template. Account and overlay
+profiles retain their distinct meanings. Local overlay font selection and the
+preserved production approval gate are described in
+[configuration](configuration.md#preserved-production-configuration).
 
 The one storyboard call has one admission and accounting record against the shared
 daily/job limits, using image prices. A current live claim is required for the

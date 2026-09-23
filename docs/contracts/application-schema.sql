@@ -465,13 +465,12 @@ CREATE TABLE output_bindings (
     account TEXT NOT NULL,
     content_format TEXT NOT NULL,
     output_contract_version TEXT NOT NULL,
-    renderer_compatibility TEXT NOT NULL,
     ready INTEGER NOT NULL CHECK (ready IN (0,1)),
     safe_reason TEXT NOT NULL,
     created_at TEXT NOT NULL, social_destination_id INTEGER
     REFERENCES social_destinations(social_destination_id) ON DELETE RESTRICT, delivery_enabled INTEGER NOT NULL DEFAULT 0
-    CHECK(delivery_enabled IN (0,1)), profile_approved INTEGER NOT NULL DEFAULT 0
-    CHECK(profile_approved IN (0,1)),
+    CHECK(delivery_enabled IN (0,1)), visual_configuration_approved INTEGER NOT NULL DEFAULT 0
+    CHECK(visual_configuration_approved IN (0,1)),
     UNIQUE(pipeline_capability_id, platform, account, content_format)
 );
 
@@ -1037,7 +1036,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)

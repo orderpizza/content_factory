@@ -17,6 +17,34 @@ Determination freezes its catalog at request creation. Registration is immutable
 and idempotent only for matching input; use a fresh database for this baseline.
 No schema migration or database reset is implicit.
 
+## Preserved production configuration
+
+The inactive delivery catalog accepts a closed `production_configuration_v2`:
+`policy_version`, `approved_by`, `approved_at`, `visual_configuration_approved`,
+`destinations` and `bindings`. Registration freezes the configuration and copies
+its visual approval into each output binding. Superseded configuration shapes
+are rejected; this is not a migration path or a provider-enabling command.
+
+`visual_configuration_approved` is a separate operator attestation that the
+visual setup intended for the bound destinations has been accepted: account
+visual identity, curated archetype set, prompt compiler, technical renderer
+contract and local overlays. `approved_by`/`approved_at` identify the configuration
+registration; they do not by themselves assert visual acceptance. A false visual
+approval blocks the production catalog, Post now, delivery preparation and the
+final-send check even when provider readiness is current. These are the preserved
+delivery gates, not an additional approval for each selected archetype or post.
+Exact post review and per-destination Post now remain separate requirements.
+This flag is not an automatic comparison against visual-code fingerprints.
+The active review-only workflow does not use this production approval gate.
+
+Output bindings describe domain/destination/format and readiness. The technical
+renderer contract is frozen once in VisualRecipe, not duplicated on the binding.
+Production configuration contains no renderer-owned template or unused font
+metadata. Active review overlays use `CONTENT_FACTORY_FONT_PATH` and the existing
+local fallback-font sequence in `gemini_image_renderer.py`. No production JSON
+font path is loaded and no font fingerprint is currently verified or recorded;
+this cleanup does not introduce a font-attestation subsystem.
+
 ## Environment loading
 
 `.env.example` is the canonical tracked inventory of operator-facing variables.

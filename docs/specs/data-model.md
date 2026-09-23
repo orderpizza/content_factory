@@ -56,7 +56,11 @@ append-only history. `intake_requests` freeze their message boundary.
 `brief_revisions` are numbered immutable children; source snapshots preserve
 original Detection evidence during human refinement.
 
-`pipeline_capabilities` and `output_bindings` define available routes.
+`pipeline_capabilities` and `output_bindings` define available routes. Bindings
+carry destination/format readiness and the preserved production
+`visual_configuration_approved` gate; the
+[configuration contract](configuration.md#preserved-production-configuration)
+owns its approval semantics. Renderer geometry belongs to VisualRecipe only.
 `social_destinations` and configuration/readiness records belong to the preserved
 inactive delivery catalog; fixture bindings have no deliverable destination.
 
@@ -91,7 +95,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 10. All workers open and validate databases through
+authoritative schema, at version 11. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates

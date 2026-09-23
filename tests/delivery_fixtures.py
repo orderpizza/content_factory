@@ -50,11 +50,8 @@ class DeliveryFixture:
             "content_format": "instagram_static_carousel_v2",
         } for pipeline in WORKFLOW_PIPELINES for item in destinations]
         return {
-            "policy_version": "production_configuration_v1", "approved_by": "test",
-            "approved_at": "2026-09-13T00:00:00", "profile_approved": True,
-            "renderer_profile": {"profile_version": "static_social_delivery_profiles_v1",
-                                 "template_version": "static_social_template_v1",
-                                 "font_path": "/fixture/font.ttf", "font_sha256": "f" * 64},
+            "policy_version": "production_configuration_v2", "approved_by": "test",
+            "approved_at": "2026-09-13T00:00:00", "visual_configuration_approved": True,
             "destinations": destinations, "bindings": bindings,
         }
 
@@ -198,7 +195,7 @@ class DeliveryFixture:
                            "bytes": len(data), "sha256": sha256(data).hexdigest()})
         manifest = {"schema_version": "render_manifest_v1", "renderer": "gemini_storyboard_designer_v1",
                     "profile_id": profile, "content_hash": digest(package),
-                    "browser_version": "fixture", "pillow_version": "fixture",
+                    "pillow_version": "fixture",
                     "review_only": False, "assets": assets}
         store.connection.commit()
         run = store.connection.execute("SELECT * FROM render_runs WHERE render_run_id=?", (render_id,)).fetchone()

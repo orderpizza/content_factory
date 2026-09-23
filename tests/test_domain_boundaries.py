@@ -20,7 +20,7 @@ from unittest.mock import patch
 from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiPipelineRunner, VisualPlanner, WorkflowStore
 from workflow.gemini_image_renderer import DispatchVisualRenderer, OVERLAY_PROFILES, build_storyboard_prompt, supports_image_rendering
 from workflow.gemini_adaptation import _validated_body_checkpoint
-from workflow.active_visual_profiles import (DOMAIN_ARCHETYPES, EXPLAINER_ROLES,
+from workflow.active_visual_profiles import (DEFAULT_ARCHETYPE_BY_DOMAIN, EXPLAINER_ROLES,
                                              EXPRESSION_ROLES,
                                              active_recipe, validate_recipe,
                                              validate_recipe_roles)
@@ -345,7 +345,7 @@ class DomainBoundaryTests(unittest.TestCase):
     def test_domain_compatibility_and_planning_are_explicit(self):
         for domain in DOMAINS:
             package = {'platform': 'instagram', 'visual_units': domain_response(fixtures.GeminiWorkflowTests(), domain)['visual_units']}
-            for other_domain, archetype in DOMAIN_ARCHETYPES.items():
+            for other_domain, archetype in DEFAULT_ARCHETYPE_BY_DOMAIN.items():
                 self.assertEqual(supports_image_rendering(package, {'archetype_id': archetype}, pipeline_id=domain), domain == other_domain)
                 if domain != other_domain:
                     with self.assertRaises(ValueError):
@@ -355,9 +355,9 @@ class DomainBoundaryTests(unittest.TestCase):
             first = active_recipe(domain, roles)
             second = active_recipe(domain, roles)
             self.assertEqual(first, second)
-            self.assertEqual(first['archetype_id'], DOMAIN_ARCHETYPES[domain])
+            self.assertEqual(first['archetype_id'], DEFAULT_ARCHETYPE_BY_DOMAIN[domain])
             validate_recipe(first, production=False)
             validate_recipe_roles(first, roles)
-            for other_domain, other_archetype in DOMAIN_ARCHETYPES.items():
+            for other_domain, other_archetype in DEFAULT_ARCHETYPE_BY_DOMAIN.items():
                 other_roles = EXPRESSION_ROLES if other_domain == 'english' else EXPLAINER_ROLES
                 self.assertEqual(active_recipe(other_domain, list(other_roles))['archetype_id'], other_archetype)

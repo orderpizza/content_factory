@@ -24,7 +24,7 @@ def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:
     )
     if kind == "production":
         fields += (
-            ",b.delivery_enabled,b.profile_approved,d.enabled destination_enabled,"
+            ",b.delivery_enabled,b.visual_configuration_approved,d.enabled destination_enabled,"
             "d.destination_key,r.status readiness_status,r.valid_until readiness_valid_until"
         )
     rows = connection.execute(
@@ -49,7 +49,7 @@ def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:
                 ready = (
                     bool(row["ready"])
                     and bool(row["delivery_enabled"])
-                    and bool(row["profile_approved"])
+                    and bool(row["visual_configuration_approved"])
                     and bool(row["destination_enabled"])
                     and row["readiness_status"] == "ready"
                     and isinstance(row["readiness_valid_until"], str)
@@ -58,7 +58,7 @@ def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:
                 output["ready"] = ready
                 if not ready:
                     output["safe_reason"] = (
-                        "production output blocked: profile/provider readiness is not current"
+                        "production output blocked: visual configuration approval or provider readiness is not current"
                     )
             else:
                 output["ready"] = bool(output["ready"])

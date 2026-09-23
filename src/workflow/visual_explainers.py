@@ -1,4 +1,4 @@
-"""Six-slide copy contracts for the two Gemini explainer profiles.
+"""Shared six-slide copy contracts for AI/Tech and Psychology archetypes.
 
 These checks protect shape and readable capacity, not factual or editorial truth.
 """

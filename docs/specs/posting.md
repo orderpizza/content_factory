@@ -13,7 +13,10 @@ track delivery; publication resources and cleanup tasks track staged objects;
 reconciliation requests/checks preserve uncertain outcomes. Review acceptance
 alone never authorizes public delivery. Dormant store methods and injected fake
 adapter tests retain per-destination authorization, cadence, live-claim fencing,
-final-send markers and no automatic repost after uncertain publication.
+final-send markers and no automatic repost after uncertain publication. The
+preserved visual-configuration approval gate is defined in
+[configuration](configuration.md#preserved-production-configuration); it does
+not replace exact post review or per-destination authorization.
 
 `workflow.delivery` preserves generic delivery orchestration with an empty
 adapter registry by default. A missing adapter fails before the final-send marker.

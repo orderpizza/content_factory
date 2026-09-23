@@ -29,7 +29,9 @@ pinned local MiniLM resolution and frozen `attention_v3` scoring. It selects
 attention evidence, never editorial domains. Determination evaluates all three
 remits against immutable evidence and catalogs.
 
-Each account/domain has exactly three curated archetypes. Deterministic planning
+Each active account/domain has exactly three curated archetypes. The current
+visual registry uses the one-account-per-domain limitation; account-first
+multi-account ownership is not implemented. Deterministic planning
 selects an immutable recipe from canonical semantics and recent account history
 before Instagram adaptation. Account identity, archetype, compiler, technical
 renderer contract and overlays are separate contracts; only an archetype is a

@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from workflow import WorkflowStore, VisualPlanner, GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiPipelineRunner
-from workflow.active_visual_profiles import (ARCHETYPES, ACCOUNT_PROFILES, DOMAIN_ARCHETYPES,
+from workflow.active_visual_profiles import (ARCHETYPES, ACCOUNT_PROFILES, DEFAULT_ARCHETYPE_BY_DOMAIN,
     active_recipe, validate_recipe, validate_archetype_units)
 from workflow.archetype_selection import select_archetype
 from workflow.gemini_adaptation import _validate_package, adaptation_schema
@@ -89,7 +89,7 @@ class CuratedContractTests(unittest.TestCase):
                 result = select_archetype(canonical_fixture(id), a.domain, [])
                 self.assertEqual(result[0], id)
                 self.assertEqual(result, select_archetype(canonical_fixture(id), a.domain, []))
-        for domain, baseline in DOMAIN_ARCHETYPES.items():
+        for domain, baseline in DEFAULT_ARCHETYPE_BY_DOMAIN.items():
             history = [{'visual_recipe_id': n, 'archetype_id': baseline} for n in range(8, 0, -1)]
             self.assertEqual(select_archetype({}, domain, history)[0], baseline)
 
