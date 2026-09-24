@@ -281,6 +281,7 @@ def test_v1_live_intake_artifact_uses_the_persisted_source_request_column(tmp_pa
     result = json.loads((output / "cases/english_icebreaker/attempt-01/evaluation.json").read_text())
     assert info["result_counts"]["PASS"] == 1
     assert result["output"]["brief"]["canonical_target"] == "break the ice"
+    assert Decimal(result["estimated_cost_usd"]) > 0
 
 
 def test_case_that_does_not_fit_is_skipped_before_execution(tmp_path, monkeypatch):

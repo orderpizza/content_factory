@@ -1,15 +1,35 @@
 {
   "case_id": "detection_frozen_minimal",
-  "schema_version": 1,
-  "description": "Minimal detector-origin frozen input shape for future Determination acceptance.",
+  "schema_version": 2,
+  "description": "Minimal current detector-origin frozen handoff for independent Determination acceptance.",
   "source_kind": "detection_fixture",
   "input": {
-    "frozen_brief": {"topic": "A frozen detector-origin idea", "editorial_goal": "Explain a useful concept"},
-    "source_evidence": {"snapshot_version": "fixture_v1", "observations": []}
+    "frozen_brief": {
+      "editorial_goal": "Explain a source-backed enterprise feature update.",
+      "topic": "Acme Enterprise assistant availability",
+      "coverage_kind": "trend_topic",
+      "canonical_target": "Acme Enterprise assistant availability",
+      "revision_scope": "whole_brief",
+      "audience": "AI tool evaluators",
+      "desired_outcome": "inform",
+      "constraints": {"source_bound": true},
+      "source_context": "Frozen event fixture.",
+      "open_questions": []
+    },
+    "source_evidence": {
+      "evidence": [{
+        "reference_id": "fixture:acme:minimal:1",
+        "title": "Acme announces Enterprise assistant",
+        "evidence_time": "2026-09-20T00:00:00"
+      }],
+      "candidate": {"topic": "Acme Enterprise assistant availability"}
+    }
   },
-  "expectations": {"determination": {"required_selected": [], "forbidden_selected": []}},
+  "expectations": {"determination": {"required_selected": ["ai_tech"], "forbidden_selected": []}},
+  "conservation": [{"kind": "evidence_reference", "value": "fixture:acme:minimal:1"}],
   "tags": ["detection", "frozen_upstream"],
   "profiles": ["stage", "regression", "full"],
   "live_budget": {"calls_by_stage": {"determination": 1}, "image_calls": 0},
-  "stage": "determination"
+  "start_stage": "determination",
+  "end_stage": "determination"
 }
