@@ -113,7 +113,8 @@ def test_v2_chain_case_requires_complete_live_envelope_and_is_explicitly_version
     assert chain.live_budget["calls_by_stage"] == {
         "intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1,
     }
-    raw = json.loads((FIXTURES / "pass2_text_matrix.json").read_text())["cases"][20]
+    raw = next(item for item in json.loads((FIXTURES / "pass2_text_matrix.json").read_text())["cases"]
+               if item["case_id"] == "chain_english_icebreaker")
     raw["live_budget"]["calls_by_stage"].pop("generation")
     with pytest.raises(AcceptanceError, match="every live chain stage"):
         validate_case(raw)
@@ -125,6 +126,25 @@ def test_v2_detection_case_has_frozen_input_and_no_image_envelope():
     assert case.start_stage == "determination"
     assert case.input["source_evidence"]["evidence"][0]["reference_id"] == "fixture:acme:1"
     assert case.live_budget["image_calls"] == 0
+
+
+def test_v2_stage_fixture_starts_at_one_live_post_determination_stage():
+    case = next(case for case in discover_cases(FIXTURES) if case.case_id == "stage_generation_ai_scope")
+    assert case.source_kind == "stage_fixture"
+    assert (case.start_stage, case.end_stage) == ("generation", "generation")
+    assert case.input == {"fixture_id": "ai_scope_v1"}
+    assert case.live_budget["calls_by_stage"] == {"generation": 1}
+
+    malformed = {
+        "case_id": "bad-stage-fixture", "schema_version": 2,
+        "description": "invalid independent fixture", "source_kind": "stage_fixture",
+        "input": {"fixture_id": "english_evergreen_v1"}, "expectations": {}, "conservation": [],
+        "tags": ["stage"], "profiles": ["stage"],
+        "live_budget": {"calls_by_stage": {"intake": 1}, "image_calls": 0},
+        "start_stage": "intake", "end_stage": "intake",
+    }
+    with pytest.raises(AcceptanceError, match="stage fixtures"):
+        validate_case(malformed)
 
 
 def test_stability_report_keeps_individual_attempts_visible():

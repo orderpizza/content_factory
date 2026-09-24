@@ -41,7 +41,7 @@ STAGES = frozenset({"intake", "determination", "editorial_planning", "generation
 TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
 CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation")
 PROFILES = frozenset({"smoke", "stage", "regression", "full"})
-SOURCE_KINDS = frozenset({"human", "detection_fixture"})
+SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
 _CASE_KEYS_V2 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "conservation", "tags", "profiles", "live_budget", "start_stage", "end_stage"}
@@ -116,15 +116,26 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
         raise AcceptanceError(f"{path}.human cases must start at intake")
     if value["source_kind"] == "detection_fixture" and start_stage != "determination":
         raise AcceptanceError(f"{path}.detection fixtures must start at determination")
+    if value["source_kind"] == "stage_fixture" and start_stage not in {
+            "editorial_planning", "generation", "adaptation"}:
+        raise AcceptanceError(f"{path}.stage fixtures must start at a Gemini text stage after determination")
     if not isinstance(value["input"], dict) or not value["input"]:
         raise AcceptanceError(f"{path}.input must be a nonempty object")
-    input_keys = {"idea"} if value["source_kind"] == "human" else {"frozen_brief", "source_evidence"}
+    input_keys = (
+        {"idea"} if value["source_kind"] == "human" else
+        {"fixture_id"} if value["source_kind"] == "stage_fixture" else
+        {"frozen_brief", "source_evidence"}
+    )
     if set(value["input"]) != input_keys:
         raise AcceptanceError(f"{path}.input does not match source_kind")
     if value["source_kind"] == "human":
         idea = value["input"]["idea"]
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 8000:
             raise AcceptanceError(f"{path}.input.idea must contain 1-8,000 characters")
+    elif value["source_kind"] == "stage_fixture":
+        fixture_id = value["input"]["fixture_id"]
+        if not isinstance(fixture_id, str) or not _ID.fullmatch(fixture_id):
+            raise AcceptanceError(f"{path}.input.fixture_id is invalid")
     elif any(not isinstance(value["input"][key], dict) for key in input_keys):
         raise AcceptanceError(f"{path}.input frozen detection fields must be objects")
     exp = value["expectations"]

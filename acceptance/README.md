@@ -25,6 +25,15 @@ deterministic VisualPlanner between generation and adaptation. Pass 3 remains
 responsible for Gemini image generation, board/overlay evaluation and final
 ReviewRequest journeys.
 
+For independent post-Determination diagnosis, a v2 case may use the
+`stage_fixture` source kind. It selects one named, frozen local fixture and
+starts at Editorial Planning, Canonical Generation, or Adaptation. Fixture
+setup uses the production persistence handoffs with local fixed responses and
+never constructs a provider client or consumes the run's live-call budget.
+Only the declared target stage is a live Gemini invocation. This avoids
+mistaking full-chain coverage for a direct stage test while retaining an
+inspectable, current-schema upstream lineage.
+
 ## Safety and budgets
 
 A provider call requires both `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` in
