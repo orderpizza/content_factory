@@ -24,15 +24,13 @@ def _client(policy: Any, phase: str) -> VertexGeminiClient:
     )
 
 
-def _seed_detection_fixture(store: WorkflowStore, case: StageCase) -> None:
+def _seed_detection_input(store: WorkflowStore, brief: dict[str, Any], evidence: dict[str, Any]) -> None:
     """Create the same frozen Determination shape used by Scout handoff.
 
     Detection collection/scoring is deliberately outside live text acceptance.
     The fixture is already frozen evidence; this writes its downstream
     Determination handoff into the isolated production database.
     """
-    brief = case.case.input["frozen_brief"]
-    evidence = case.case.input["source_evidence"]
     required = {"editorial_goal", "topic", "coverage_kind", "canonical_target", "revision_scope", "audience", "desired_outcome", "constraints", "source_context", "open_questions"}
     if set(brief) != required or not isinstance(evidence, dict):
         raise ValueError("frozen detection fixture does not contain a production BriefRevision shape")
@@ -61,6 +59,11 @@ def _seed_detection_fixture(store: WorkflowStore, case: StageCase) -> None:
             "INSERT INTO determination_requests(revision_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,?,'pending',3,?)",
             (int(revision.lastrowid), canonical(snapshot), digest(snapshot), moment),
         )
+
+
+def _seed_detection_fixture(store: WorkflowStore, case: StageCase) -> None:
+    """Create the frozen Detection handoff declared by an acceptance case."""
+    _seed_detection_input(store, case.case.input["frozen_brief"], case.case.input["source_evidence"])
 
 
 class _FrozenFixtureClient:
@@ -115,6 +118,29 @@ def _fixture_decision(catalog: list[dict[str, Any]], pipeline_id: str) -> dict[s
         "warnings": [],
         "routes": routes,
     }
+
+
+def _bounded_ai_detection_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
+    return ({
+        "editorial_goal": "Explain a source-backed enterprise feature update.",
+        "topic": "Acme Enterprise assistant availability",
+        "coverage_kind": "trend_topic",
+        "canonical_target": "Acme Enterprise assistant availability",
+        "revision_scope": "whole_brief",
+        "audience": "AI tool evaluators",
+        "desired_outcome": "inform",
+        "constraints": {"source_bound": True},
+        "source_context": "Frozen bounded-evidence event fixture.",
+        "open_questions": [],
+    }, {
+        "evidence": [{
+            "reference_id": "fixture:acme:1",
+            "title": "Acme announces Enterprise assistant",
+            "detail": "On 2026-09-20, Acme announced an Enterprise assistant. The announcement says it will be available to Enterprise plan customers in October 2026, with centralized administrative controls and an integration with Acme Data Workspace. It does not state pricing, security certifications, geographic availability, performance benchmarks, rollout phases, deployment requirements, or comparisons with earlier versions.",
+            "evidence_time": "2026-09-20T00:00:00",
+        }],
+        "candidate": {"topic": "Acme Enterprise assistant availability"},
+    })
 
 
 def _fixture_canonical(pipeline_id: str) -> dict[str, Any]:
@@ -176,16 +202,21 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
     pipelines = {
         "english_evergreen_v1": "english",
         "ai_scope_v1": "ai_tech",
+        "ai_bounded_evidence_v1": "ai_tech",
         "psychology_uncertainty_v1": "psychology",
     }
     try:
         pipeline_id = pipelines[fixture_id]
     except KeyError as error:
         raise ValueError(f"unsupported frozen stage fixture {fixture_id!r}") from error
-    brief = _fixture_brief(pipeline_id)
-    store.create_human_idea(brief["editorial_goal"], command_id=f"frozen-{fixture_id}-{case.attempt}")
-    if GeminiIntakeWorker(store, _FrozenFixtureClient(brief), instance_id="acceptance-frozen-intake").run_once() is None:
-        raise ValueError("frozen stage fixture did not create a BriefRevision")
+    if fixture_id == "ai_bounded_evidence_v1":
+        brief, evidence = _bounded_ai_detection_fixture()
+        _seed_detection_input(store, brief, evidence)
+    else:
+        brief = _fixture_brief(pipeline_id)
+        store.create_human_idea(brief["editorial_goal"], command_id=f"frozen-{fixture_id}-{case.attempt}")
+        if GeminiIntakeWorker(store, _FrozenFixtureClient(brief), instance_id="acceptance-frozen-intake").run_once() is None:
+            raise ValueError("frozen stage fixture did not create a BriefRevision")
     request = store.connection.execute(
         "SELECT input_snapshot_json FROM determination_requests WHERE status='pending' ORDER BY determination_request_id DESC LIMIT 1"
     ).fetchone()
