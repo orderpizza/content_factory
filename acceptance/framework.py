@@ -40,8 +40,8 @@ class Category(str, Enum):
 STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering"})
 TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
 CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
-PROFILES = frozenset({"smoke", "stage", "regression", "pass3", "psychology_hardening", "psychology_spotcheck", "full"})
-SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture"})
+PROFILES = frozenset({"smoke", "stage", "regression", "pass3", "pass3_boards", "pass3_journeys", "pass3_detection_journey", "pass3_psychology_journey", "psychology_hardening", "psychology_spotcheck", "full"})
+SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture", "render_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
 _CASE_KEYS_V2 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "conservation", "tags", "profiles", "live_budget", "start_stage", "end_stage"}
@@ -119,11 +119,13 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
     if value["source_kind"] == "stage_fixture" and start_stage not in {
             "editorial_planning", "generation", "adaptation"}:
         raise AcceptanceError(f"{path}.stage fixtures must start at a Gemini text stage after determination")
+    if value["source_kind"] == "render_fixture" and start_stage != "storyboard_planning":
+        raise AcceptanceError(f"{path}.render fixtures must start at storyboard planning")
     if not isinstance(value["input"], dict) or not value["input"]:
         raise AcceptanceError(f"{path}.input must be a nonempty object")
     input_keys = (
         {"idea"} if value["source_kind"] == "human" else
-        {"fixture_id"} if value["source_kind"] == "stage_fixture" else
+        {"fixture_id"} if value["source_kind"] in {"stage_fixture", "render_fixture"} else
         {"frozen_brief", "source_evidence"}
     )
     if set(value["input"]) != input_keys:
@@ -132,7 +134,7 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
         idea = value["input"]["idea"]
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 8000:
             raise AcceptanceError(f"{path}.input.idea must contain 1-8,000 characters")
-    elif value["source_kind"] == "stage_fixture":
+    elif value["source_kind"] in {"stage_fixture", "render_fixture"}:
         fixture_id = value["input"]["fixture_id"]
         if not isinstance(fixture_id, str) or not _ID.fullmatch(fixture_id):
             raise AcceptanceError(f"{path}.input.fixture_id is invalid")

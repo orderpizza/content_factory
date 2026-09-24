@@ -1,6 +1,34 @@
 {
   "cases": [
     {
+      "case_id": "pass3_ai_grid_4_plus_1",
+      "schema_version": 2,
+      "description": "Frozen five-slide AI/Tech package proves deterministic 2×2 plus 1×1 board processing.",
+      "source_kind": "render_fixture",
+      "input": {"fixture_id": "ai_tech_grid_5_v1"},
+      "expectations": {"carousel": {"min_slides": 5, "max_slides": 5}},
+      "conservation": [],
+      "tags": ["pass3", "board_contract", "grid_2x2", "grid_1x1"],
+      "profiles": ["pass3", "pass3_boards", "full"],
+      "live_budget": {"calls_by_stage": {"image_rendering": 2}, "image_calls": 2},
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
+      "case_id": "pass3_psychology_grid_6_plus_6_plus_2",
+      "schema_version": 2,
+      "description": "Frozen fourteen-slide Psychology package proves deterministic multi-board 3×2 and 2×1 processing.",
+      "source_kind": "render_fixture",
+      "input": {"fixture_id": "psychology_grid_14_v1"},
+      "expectations": {"carousel": {"min_slides": 14, "max_slides": 14}},
+      "conservation": [],
+      "tags": ["pass3", "board_contract", "grid_3x2", "grid_2x1", "multi_board"],
+      "profiles": ["pass3", "pass3_boards", "full"],
+      "live_budget": {"calls_by_stage": {"image_rendering": 3}, "image_calls": 3},
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
       "case_id": "pass3_human_english_review",
       "schema_version": 2,
       "description": "Human English idea through the complete production review-render path.",
@@ -9,7 +37,7 @@
       "expectations": {"determination": {"required_selected": ["english"], "forbidden_selected": []}, "adaptation": {"min_slides": 6, "max_slides": 6}},
       "conservation": [{"kind": "exact_identifier", "value": "break the ice"}],
       "tags": ["pass3", "human", "english", "grid_3x2"],
-      "profiles": ["pass3", "full"],
+      "profiles": ["pass3", "pass3_journeys", "full"],
       "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 1}, "image_calls": 1},
       "start_stage": "intake",
       "end_stage": "image_rendering"
@@ -26,7 +54,7 @@
       "expectations": {"determination": {"required_selected": ["ai_tech"], "forbidden_selected": []}, "adaptation": {"min_slides": 4, "max_slides": 14}},
       "conservation": [{"kind": "evidence_reference", "value": "fixture:pass3:acme:1"}, {"kind": "scope", "value": "not stated"}],
       "tags": ["pass3", "detection", "ai_tech", "dynamic"],
-      "profiles": ["pass3", "full"],
+      "profiles": ["pass3", "pass3_journeys", "pass3_detection_journey", "full"],
       "live_budget": {"calls_by_stage": {"determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
       "start_stage": "determination",
       "end_stage": "image_rendering"
@@ -40,7 +68,7 @@
       "expectations": {"determination": {"required_selected": ["psychology"], "forbidden_selected": []}, "adaptation": {"min_slides": 4, "max_slides": 14}},
       "conservation": [{"kind": "qualification", "value": "possible"}, {"kind": "epistemic_strength", "value": "may simply need time"}],
       "tags": ["pass3", "human", "psychology", "dynamic"],
-      "profiles": ["pass3", "full"],
+      "profiles": ["pass3", "pass3_journeys", "pass3_psychology_journey", "full"],
       "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
       "start_stage": "intake",
       "end_stage": "image_rendering"

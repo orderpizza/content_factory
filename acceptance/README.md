@@ -99,6 +99,14 @@ LIVE_TEST_MAX_IMAGE_CALLS=7 \
 .venv/bin/python -m acceptance.runners.matrix --live-gemini --profile pass3 --max-usd 5.00
 ```
 
+`pass3_boards` is the smaller deterministic-grid set: it creates frozen,
+production-shaped 5-slide and 14-slide packages through local fixture workers,
+then invokes only the production StoryboardPlanner, prompt compiler and image
+renderer. It guarantees 4+1 and 6+6+2 pagination without spending text calls.
+`pass3_journeys` contains the Human English, frozen Detection AI/Tech and Human
+Psychology integrations; the individual Detection/Psychology profiles support a
+focused continuation after a separately recorded provider failure.
+
 Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
 individual stage examples, `regression` is a curated representative set, and
 `psychology_hardening` is the focused Psychology Generation/Adaptation campaign;

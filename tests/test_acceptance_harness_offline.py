@@ -147,6 +147,12 @@ def test_pass3_cases_extend_the_production_chain_and_reserve_dynamic_board_envel
     assert english.live_budget["image_calls"] == 1
     assert detection.live_budget["image_calls"] == psychology.live_budget["image_calls"] == 3
     assert detection.source_kind == "detection_fixture"
+    fixed_five = cases["pass3_ai_grid_4_plus_1"]
+    fixed_fourteen = cases["pass3_psychology_grid_6_plus_6_plus_2"]
+    assert fixed_five.source_kind == fixed_fourteen.source_kind == "render_fixture"
+    assert fixed_five.start_stage == fixed_fourteen.start_stage == "storyboard_planning"
+    assert fixed_five.live_budget["image_calls"] == 2
+    assert fixed_fourteen.live_budget["image_calls"] == 3
 
 
 def test_v2_stage_fixture_starts_at_one_live_post_determination_stage():
@@ -298,7 +304,7 @@ def test_pass3_dry_run_plans_image_envelopes_without_constructing_any_provider(t
         limits={"max_usd": "5", "max_calls": None, "max_image_calls": None, "max_cases": None},
         environment={}, case_directory=FIXTURES, output_root=tmp_path / "acceptance")
     assert calls == [] and info["actual_calls"] == 0 and info["actual_image_calls"] == 0
-    assert info["result_counts"]["SKIP"] == 3
+    assert info["result_counts"]["SKIP"] == 5
     assert (output / "gallery.html").exists()
 
 

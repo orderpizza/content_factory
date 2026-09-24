@@ -310,6 +310,68 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
             raise ValueError("frozen stage fixture did not create a visual recipe")
 
 
+RENDER_FIXTURES = {
+    "ai_tech_grid_5_v1": ("ai_tech", 5),
+    "psychology_grid_14_v1": ("psychology", 14),
+}
+
+
+def _fixture_adaptation(pipeline_id: str, total_slides: int) -> dict[str, Any]:
+    claim_id = f"{pipeline_id}.example.1"
+    roles = ["hook", *["explanation" if index % 2 else "example" for index in range(1, total_slides - 1)], "takeaway"]
+    units = []
+    for ordinal, role in enumerate(roles, 1):
+        title = f"{pipeline_id.replace('_', ' ').title()} point {ordinal}"
+        if role == "takeaway":
+            body = "Treat this as a concise, qualified educational takeaway for human review."
+        elif role == "example":
+            body = "A concrete, bounded example supports the explanation without adding new claims."
+        else:
+            body = "This explanation is intentionally concise, reviewable, and visually separable from adjacent panels."
+        units.append({"role": role, "title": title, "body": body, "claim_ids": [claim_id]})
+    return {
+        "caption_summary": "A bounded fixture for production storyboard and image-render acceptance.",
+        "cta": "Review each visual panel.",
+        "private_tags": ["acceptance", "visual review"],
+        "hashtags": ["#aitech"] if pipeline_id == "ai_tech" else ["#psychology"],
+        "alt_text": "A bounded multi-panel educational carousel for local acceptance review.",
+        "public_text_claim_ids": [claim_id],
+        "visual_units": units,
+        "visual_cues": [],
+    }
+
+
+def _seed_render_fixture(store: WorkflowStore, case: StageCase) -> None:
+    """Create a fixed package through production handoffs, then leave planning pending."""
+    try:
+        pipeline_id, total_slides = RENDER_FIXTURES[case.case.input["fixture_id"]]
+    except KeyError as error:
+        raise ValueError(f"unsupported render fixture {case.case.input['fixture_id']!r}") from error
+    brief = _fixture_brief(pipeline_id, case.case.input["fixture_id"])
+    store.create_human_idea(brief["editorial_goal"], command_id=f"render-{case.case.case_id}-{case.attempt}")
+    if GeminiIntakeWorker(store, _FrozenFixtureClient(brief), instance_id="acceptance-render-intake").run_once() is None:
+        raise ValueError("render fixture did not create a BriefRevision")
+    request = store.connection.execute(
+        "SELECT input_snapshot_json FROM determination_requests WHERE status='pending' ORDER BY determination_request_id DESC LIMIT 1"
+    ).fetchone()
+    if request is None:
+        raise ValueError("render fixture did not create a DeterminationRequest")
+    catalog = json.loads(request["input_snapshot_json"])["catalog"]
+    if GeminiDeterminationWorker(store, _FrozenFixtureClient(_fixture_decision(catalog, pipeline_id)),
+                                 instance_id="acceptance-render-determination").run_once() is None:
+        raise ValueError("render fixture did not create a DeterminationDecision")
+    if EditorialPlanningWorker(store, instance_id="acceptance-render-editorial").run_once() is None:
+        raise ValueError("render fixture did not create a ContentJob")
+    if GeminiPipelineRunner(store, _FrozenFixtureClient(_fixture_canonical(pipeline_id)),
+                            instance_id="acceptance-render-generation").run_once() is None:
+        raise ValueError("render fixture did not create canonical content")
+    if VisualPlanner(store, instance_id="acceptance-render-visual").run_once() is None:
+        raise ValueError("render fixture did not create a visual recipe")
+    if GeminiAdaptationWorker(store, _FrozenFixtureClient(_fixture_adaptation(pipeline_id, total_slides)),
+                              instance_id="acceptance-render-adaptation").run_once() is None:
+        raise ValueError("render fixture did not create a ContentPackage")
+
+
 def _ledger(store: WorkflowStore, phases: list[str]) -> tuple[int, int, str | None, int]:
     if not phases:
         return 0, 0, None, 0
@@ -437,6 +499,9 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
         # as a live call. It writes only a frozen upstream handoff.
         with WorkflowStore(database) as fixture_store:
             _seed_stage_fixture(fixture_store, stage_case)
+    elif case.source_kind == "render_fixture":
+        with WorkflowStore(database) as fixture_store:
+            _seed_render_fixture(fixture_store, stage_case)
     requested = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
     active = requested[requested.index(case.start_stage):requested.index(case.end_stage) + 1]
     executed: list[str] = []
