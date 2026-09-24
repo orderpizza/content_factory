@@ -10,6 +10,11 @@ class GeminiConfigurationError(RuntimeError):
     """Raised when the local Vertex configuration is incomplete."""
 
 
+# Text calls are one provider attempt. A finite deadline leaves an uncertain
+# ledger reservation rather than letting a claimed worker wait indefinitely.
+TEXT_REQUEST_TIMEOUT_MS = 60_000
+
+
 def configured_model() -> str:
     """Return the configured model name."""
     return os.getenv("GEMINI_MODEL") or os.getenv("VERTEX_AI_MODEL") or "gemini-2.5-flash"
@@ -96,7 +101,15 @@ class VertexGeminiClient:
                 "google-genai is not installed; install the project dependencies before using Gemini"
             ) from error
 
-        client = genai.Client(vertexai=True, project=self.project, location=self.location)
+        client = genai.Client(
+            vertexai=True,
+            project=self.project,
+            location=self.location,
+            http_options=types.HttpOptions(
+                timeout=TEXT_REQUEST_TIMEOUT_MS,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
         try:
             response = client.models.generate_content(
                 model=self.model,

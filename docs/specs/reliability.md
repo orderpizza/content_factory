@@ -69,6 +69,10 @@ failures retain their invocation outcome and usage when available. A lost/starte
 call is not assumed free and cannot be blindly repeated. There is no operator
 accounting-recovery command.
 
+Text requests use one provider attempt and a finite 60-second transport timeout.
+An interrupted or timed-out request remains uncertain in the invocation ledger;
+workers do not convert that uncertainty into an automatic paid retry.
+
 The local input guard is 32,000 serialized request characters, not exact input
 tokenization. Output allowance is sent to the client. Configured input-token
 maxima are reservation assumptions, not a separately implemented tokenizer or

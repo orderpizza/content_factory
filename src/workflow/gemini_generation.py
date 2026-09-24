@@ -315,6 +315,17 @@ def _source_reference_ids(source_context: Mapping[str, Any]) -> list[str]:
 
 
 def _generation_prompt(request_value: dict[str, Any]) -> str:
+    domain_safety = ""
+    if request_value["pipeline_id"] == "ai_tech":
+        domain_safety = """
+For AI/Tech, do not invent or imply product capabilities, integrations,
+availability, dates, providers, benchmarks, data practices, or deployment
+scope. A message:* reference records only the user's request, not evidence of
+a product fact. When the frozen brief or plan is hypothetical, keep every
+capability and use case explicitly hypothetical; keep the no-availability
+scope visible in the domain payload and limitations. Do not turn a hypothetical
+workflow into a real product description.
+"""
     return """You are the domain generation worker for a local content factory.
 The immutable editorial_plan fixes the strategic angle. Find its selected candidate
 and preserve its angle, reader promise, must_cover_points, evidence_requirements and
@@ -332,6 +343,8 @@ Use qualified_inference for a cautious interpretation and generated_example for
 invented teaching/example scenarios; label both honestly. Do not imply that a
 model-generated statement was independently verified. Keep each key point
 distinct and make the domain_payload match the supplied domain schema exactly.
+
+""" + domain_safety + """
 
 <FROZEN_JOB>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """

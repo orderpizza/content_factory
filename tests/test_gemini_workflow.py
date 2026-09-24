@@ -564,6 +564,14 @@ class GeminiWorkflowTests(unittest.TestCase):
             def __init__(self, **values):
                 self.values = values
 
+        class HttpOptions:
+            def __init__(self, **values):
+                self.values = values
+
+        class HttpRetryOptions:
+            def __init__(self, **values):
+                self.values = values
+
         response = SimpleNamespace(
             text='{"ok": true}',
             usage_metadata=SimpleNamespace(
@@ -571,7 +579,11 @@ class GeminiWorkflowTests(unittest.TestCase):
             ),
         )
         fake_genai = ModuleType("google.genai")
-        fake_genai.types = SimpleNamespace(GenerateContentConfig=GenerateContentConfig)
+        fake_genai.types = SimpleNamespace(
+            GenerateContentConfig=GenerateContentConfig,
+            HttpOptions=HttpOptions,
+            HttpRetryOptions=HttpRetryOptions,
+        )
 
         class Client:
             def __init__(self, **values):
@@ -622,6 +634,8 @@ class GeminiWorkflowTests(unittest.TestCase):
         self.assertEqual(len(closed), len([call for call in calls if call[0] == 'client']))
         self.assertEqual(calls[0][1]["project"], "fixture-project")
         self.assertEqual(calls[1][1]["config"].values["response_mime_type"], "application/json")
+        self.assertEqual(calls[0][1]["http_options"].values["timeout"], 60_000)
+        self.assertEqual(calls[0][1]["http_options"].values["retry_options"].values["attempts"], 1)
         self.assertIsNone(calls[1][1]["config"].values["thinking_config"])
 
     def test_vertex_schema_projection_preserves_contract_and_local_cardinality_checks(self):
