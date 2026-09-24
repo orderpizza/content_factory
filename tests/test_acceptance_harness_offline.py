@@ -124,7 +124,9 @@ def test_v2_detection_case_has_frozen_input_and_no_image_envelope():
     case = next(case for case in discover_cases(FIXTURES) if case.case_id == "chain_frozen_ai_scope")
     assert case.source_kind == "detection_fixture"
     assert case.start_stage == "determination"
-    assert case.input["source_evidence"]["evidence"][0]["reference_id"] == "fixture:acme:1"
+    evidence = case.input["source_evidence"]["evidence"][0]
+    assert evidence["reference_id"] == "fixture:acme:1"
+    assert "October 2026" in evidence["detail"]
     assert case.live_budget["image_calls"] == 0
 
 
