@@ -137,6 +137,8 @@ def test_v2_stage_fixture_starts_at_one_live_post_determination_stage():
     assert (case.start_stage, case.end_stage) == ("generation", "generation")
     assert case.input == {"fixture_id": "ai_scope_v1"}
     assert case.live_budget["calls_by_stage"] == {"generation": 1}
+    assert case.expectations["canonical"]["must_preserve"] == []
+    assert case.conservation == ({"kind": "scope", "value": "No availability claim"},)
 
     bounded = next(case for case in discover_cases(FIXTURES) if case.case_id == "stage_generation_ai_bounded")
     assert bounded.input == {"fixture_id": "ai_bounded_evidence_v1"}
