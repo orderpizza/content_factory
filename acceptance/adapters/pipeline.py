@@ -143,6 +143,37 @@ def _bounded_ai_detection_fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     })
 
 
+def _bounded_ai_plan(snapshot: dict[str, Any]) -> dict[str, Any]:
+    reference = snapshot["allowed_evidence_reference_ids"][0]
+    qualifications = ["source_backed_claims", "dated_context", "availability_scope", "limitations", "provider_claim_distinction"]
+    candidates = [
+        {
+            "candidate_id": "confirmed-update", "angle": "What the dated Enterprise assistant announcement confirms and leaves open.",
+            "angle_type": "what_changed", "reader_promise": "Separate confirmed access and feature facts from the details evaluators cannot yet infer.",
+            "relevance": "AI tool evaluators need a bounded view of an announced Enterprise assistant.",
+            "must_cover_points": ["September 20 announcement", "October 2026 Enterprise-plan availability", "centralized administrative controls", "Acme Data Workspace integration", "unstated pricing, certification, geography, benchmarks, rollout, deployment, and comparison details"],
+            "evidence_reference_ids": [reference], "evidence_requirements": ["Use only stated announcement facts and identify the named omissions."],
+            "qualification_requirements": qualifications,
+        },
+        {
+            "candidate_id": "evaluation-boundary", "angle": "What an evaluator can confirm now versus what remains unavailable.",
+            "angle_type": "limitations", "reader_promise": "Give evaluators a source-bound checklist without treating omissions as product claims.",
+            "relevance": "The announced availability and controls are useful only with clear limits on unknown details.",
+            "must_cover_points": ["dated source", "Enterprise-plan scope", "confirmed controls and integration", "all named unknown categories"],
+            "evidence_reference_ids": [reference], "evidence_requirements": ["Do not infer an omitted category from the product name or plan."],
+            "qualification_requirements": qualifications,
+        },
+    ]
+    return {
+        "domain": "ai_tech", "lane": "trend", "audience_intent": "Inform AI tool evaluators with a source-bound update.",
+        "why_now": "The source records a September 20, 2026 announcement with October 2026 availability.",
+        "candidates": candidates, "selected_candidate_id": "confirmed-update",
+        "selection_rationale": "The confirmed-update angle keeps provider claims and omissions visibly separate.",
+        "selection_dimensions": {dimension: "Frozen bounded-evidence fixture." for dimension in ("domain_fit", "audience_usefulness", "evidence_strength", "timeliness", "novelty", "explanatory_potential")},
+        "series_key": None, "experiment_key": None, "experiment_intention": None,
+    }
+
+
 def _fixture_canonical(pipeline_id: str) -> dict[str, Any]:
     payloads = {
         "english": {
@@ -227,7 +258,17 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
                                  instance_id="acceptance-frozen-determination").run_once() is None:
         raise ValueError("frozen stage fixture did not create a DeterminationDecision")
     if case.case.start_stage in {"generation", "adaptation"}:
-        if EditorialPlanningWorker(store, instance_id="acceptance-frozen-editorial").run_once() is None:
+        if fixture_id == "ai_bounded_evidence_v1":
+            planning_run = store.connection.execute(
+                "SELECT input_snapshot_json FROM editorial_plan_runs WHERE status='pending' ORDER BY editorial_plan_run_id DESC LIMIT 1"
+            ).fetchone()
+            if planning_run is None:
+                raise ValueError("bounded stage fixture did not create an EditorialPlanRun")
+            plan = _bounded_ai_plan(json.loads(planning_run["input_snapshot_json"]))
+            editorial = GeminiEditorialPlanningWorker(store, _FrozenFixtureClient(plan), instance_id="acceptance-frozen-editorial")
+        else:
+            editorial = EditorialPlanningWorker(store, instance_id="acceptance-frozen-editorial")
+        if editorial.run_once() is None:
             raise ValueError("frozen stage fixture did not create a ContentJob")
     if case.case.start_stage == "adaptation":
         if GeminiPipelineRunner(store, _FrozenFixtureClient(_fixture_canonical(pipeline_id)),
