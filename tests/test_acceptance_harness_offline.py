@@ -142,6 +142,12 @@ def test_v2_stage_fixture_starts_at_one_live_post_determination_stage():
     assert bounded.input == {"fixture_id": "ai_bounded_evidence_v1"}
     assert bounded.expectations["canonical"]["require_evidence_refs"] is True
 
+
+def test_underspecified_intake_cases_allow_a_safe_clarification():
+    cases = {case.case_id: case for case in discover_cases(FIXTURES)}
+    for case_id in ("intake_format_constraint", "intake_current_event", "intake_experiment_like"):
+        assert cases[case_id].expectations["intake"]["statuses"] == ["completed", "needs_clarification"]
+
     malformed = {
         "case_id": "bad-stage-fixture", "schema_version": 2,
         "description": "invalid independent fixture", "source_kind": "stage_fixture",
