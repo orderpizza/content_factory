@@ -79,8 +79,10 @@ def build_storyboard_prompt(package, recipe, *, pipeline_id, board=None):
                        design_direction=grammar_for_unit(a, units[i-1], i-1).composition)
                   for panel, i in enumerate(board['slide_indices'], 1)]
         geometry = (f"Render one storyboard board containing exactly {board['capacity']} panels arranged in "
-                    f"{board['cols']} columns and {board['rows']} rows. Aspect ratio {board['aspect_ratio']}. "
-                    "Panels are ordered left-to-right, top-to-bottom. Each panel is a separate 4:5 Instagram slide. "
+                    f"{board['cols']} columns and {board['rows']} rows. Provider board aspect ratio {board['provider_aspect_ratio']}. "
+                    "Raw board panels are ordered left-to-right, top-to-bottom. Each raw panel will be center-fit into a final 4:5 Instagram slide at 1080×1350. "
+                    "Important content, titles, bodies, faces, diagrams, and meaningful visual elements must stay "
+                    "away from the extreme panel edges because each panel will be center-fit into the final 4:5 Instagram slide. "
                     "Each panel must be the same size. No outer margins. No gutters. No spacing between panels. "
                     "Panels must touch edge-to-edge. The whole image must be evenly divisible into the specified grid. "
                     "No extra frame, border, whitespace around the board, or panel overlap. "

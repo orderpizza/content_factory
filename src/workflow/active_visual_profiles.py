@@ -8,8 +8,8 @@ from .visual_art_direction import (
     EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
-PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v3"
-RENDERER_CONTRACT_ID = "image_storyboard_paginated_v1"
+PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v4"
+RENDERER_CONTRACT_ID = "image_storyboard_paginated_v2"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
 DEFAULT_ARCHETYPE_BY_DOMAIN = {
     "english": "expression_breakdown_v1",

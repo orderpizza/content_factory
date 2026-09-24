@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **13**, defined by
+The current schema is **14**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -22,7 +22,8 @@ the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, deterministic visual planning,
 archetype-aware Instagram adaptation and Gemini review rendering. English retains six-slide review carousels. AI/Tech and Psychology produce 4–14
 slides through persisted deterministic storyboard pagination, sequential Gemini
-board calls and equal-grid splitting into 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
+board calls with explicit supported provider ratios, equal-grid splitting and
+proportional center-fit normalization into uniformly 4:5, 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
 and Psychology explainers remain safe baselines. Canonical semantics and bounded
 recent-use penalties choose the immutable recipe before adaptation. One deterministic
 prompt compiler guides the shared image renderer. See the

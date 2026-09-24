@@ -88,7 +88,10 @@ lineage and prevent changes to frozen visual inputs. The
 [visual rendering contract](visual-rendering.md) owns recipe fields and selection.
 `storyboard_plan_runs` uniquely references the package. `storyboard_plans` is
 immutable and uniquely binds run/package/output, recipe, versions, total and board
-JSON. `render_runs.storyboard_plan_id` is required and unique; SQL guards prevent
+JSON (`storyboard_plan_v2`). Each board explicitly freezes provider aspect ratio,
+final slide aspect ratio and dimensions, and split/normalization strategy;
+[visual rendering](visual-rendering.md) owns their closed mapping.
+`render_runs.storyboard_plan_id` is required and unique; SQL guards prevent
 lineage substitution. `model_invocations.claim_version` fences sequential boards
 within one render claim.
 `render_runs` and assets preserve actual local files;
@@ -104,7 +107,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 13. All workers open and validate databases through
+authoritative schema, at version 14. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates

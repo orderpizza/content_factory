@@ -48,10 +48,10 @@ until multiple-account visual operation is needed. No account key is invented
 from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
 not the complete three-archetype set.
 
-Infrastructure is independently versioned: `gemini_storyboard_prompt_v3` identifies
-the deterministic compiler, `image_storyboard_paginated_v1` identifies technical output
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v4` identifies
+the deterministic compiler, `image_storyboard_paginated_v2` identifies technical output
 geometry, and overlay IDs identify local chrome. Neither
-`gemini_storyboard_prompt_v3` nor `image_storyboard_paginated_v1` is a visual template.
+`gemini_storyboard_prompt_v4` nor `image_storyboard_paginated_v2` is a visual template.
 The former is compiler infrastructure; the latter is the technical renderer
 contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
@@ -95,12 +95,13 @@ paid image generation. No automatic visual fallback exists.
 
 ## Gemini designer review rendering
 
-`storyboard_plan_v1` is an immutable persisted boundary after adaptation. A
+`storyboard_plan_v2` is an immutable persisted boundary after adaptation. A
 StoryboardPlanRun claims a ContentPackage; its fenced transaction commits the plan
 and one RenderRun. The plan freezes package/output/recipe lineage, total slide count,
 planner version and ordered boards. No provider chooses pagination. Each board
 contains index, rows, columns, capacity, inclusive slide range, explicit slide
-indices, aspect ratio and split strategy.
+indices, `provider_aspect_ratio`, `slide_aspect_ratio`, `final_width`,
+`final_height` and split strategy. There is no ambiguous `aspect_ratio` field.
 
 All three English archetypes remain exactly six slides on one 3×2 board. All
 six AI/Tech and Psychology archetypes allow 4–14 slides (normally 4–8); adaptation
@@ -110,30 +111,51 @@ The finite board family is 3×2, 2×2, 2×1, 1×1 (columns × rows), capacities
 larger capacities first, except total eight uses the explicit balanced 4+4 rule.
 Examples: 4→4, 6→6, 8→4+4, 10→6+4, 12→6+6, 14→6+6+2. Slide order never changes.
 
-For AI/Tech and Psychology, board aspect ratio is reduced `(4*cols):(5*rows)`:
-3×2→6:5, 2×2→4:5, 2×1→8:5, 1×1→4:5. The compiler requires an exact board spec,
-validates it against the deterministic plan, and enumerates only that board's exact
-text, global slide ordinals and local panel order. It supplies account/archetype art
-direction and bounded semantic cues. It requires equal panels, edge-to-edge contact,
-no margins, gutters, extra borders, overlap, extra labels or paraphrased text.
-Exact text is serialized last. Archetypes supply style and role compositions;
-the plan owns geometry.
+Provider board shape and final slide shape are separate contracts. The planner
+uses this closed mapping (columns × rows), never a ratio derived from final cells:
 
-The image adapter requests the planned aspect ratio and configured image size
+| Capacity | Grid | `provider_aspect_ratio` |
+| --- | --- | --- |
+| 1 | 1×1 | 4:5 |
+| 2 | 2×1 | 3:2 |
+| 4 | 2×2 | 4:5 |
+| 6 | 3×2 | 5:4 |
+
+The shared Gemini adapter owns the supported subset (4:5, 3:2, 5:4); planner,
+plan validation and transport reject unsupported values before any paid call.
+Every board freezes the same Instagram carousel output profile:
+`slide_aspect_ratio="4:5"`, `final_width=1080`, `final_height=1350`. All final
+slides in a carousel have identical dimensions, even when its raw boards use
+different provider ratios. Packing and global slide ordering are unchanged.
+
+The compiler validates the board spec against the deterministic plan and enumerates
+only that board's exact text, global slide ordinals and local row-major panel order.
+It supplies the exact provider ratio, rows/columns, equal panels, edge-to-edge
+contact, no margins/gutters/borders/overlap or additional text. It distinguishes
+raw panels from final slides and keeps titles, bodies, faces, diagrams and meaningful
+visuals away from extreme panel edges to allow center-fit cropping. Exact supplied
+text is serialized last; the model must not omit, summarize or paraphrase it.
+
+The image adapter requests the planned provider ratio and configured image size
 (default 2K), one call per board with SDK retries disabled and no references.
-The dynamic path accepts a single PNG/JPEG per board, at most 40 MB / 40 million
-pixels and at least 200×250 pixels per cell. Dimensions must be exactly divisible
-by columns/rows and match the planned ratio exactly. Invalid geometry fails visibly;
-there is no margin detection, approximate crop or HTML fallback. Row-major equal
-rectangles are resized once to **1080×1350**, without content-dependent cropping.
-Provider support for these exact aspect ratios and compliant dimensions is required;
-unsupported provider requests fail without substituting a different layout.
+The dynamic path accepts one PNG/JPEG, at most 40 MB / 40 million pixels, at least
+200×250 pixels per raw cell, and dimensions exactly divisible by columns/rows.
+The returned width/height ratio may differ by at most **2% relative** from the
+requested provider ratio to accommodate pixel rounding. Materially wrong ratios,
+non-divisible grids, small cells and invalid images fail visibly.
+
+`equal_grid_then_fit_4x5_v1` first crops exactly the planned number of equal cells
+in row-major order. Each raw cell then uses `ImageOps.fit` with Lanczos resampling
+and centering `(0.5, 0.5)` to produce **1080×1350**. It crops proportionally instead
+of stretching a non-4:5 cell. There is no margin inference or fallback. Raw cells
+are not required to be 4:5; only final slides are. Content near edges can be cropped,
+so model composition and final visual/text quality still require human review.
 
 English is an explicit preservation exception: all three English archetypes retain
 their existing 5:4 raw-board request and adaptive margin/gutter processing, with the
-recorded equal-grid fallback. Their persisted plan still records the logical 3×2
-panel grid and 6:5 panel-grid ratio, but `english_accepted_v1` selects the accepted
-5:4 transport and splitting. In particular `expression_breakdown_v1` uses
+recorded equal-grid fallback. Their persisted plan records the 3×2 grid, provider ratio 5:4 and final slide
+ratio 4:5 / 1080×1350. `english_accepted_v1` retains the accepted transport and
+splitting. In particular `expression_breakdown_v1` uses
 `_build_accepted_expression_breakdown_prompt` and
 `EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1`; its full prompt and overlay pixel
 hashes remain unchanged. This exception preserves the accepted English baseline.
@@ -158,7 +180,10 @@ before any paid board can defer. There is no per-board resume or repair command.
 The renderer reads the committed plan before calling the compiler. Raw PNG/JPEG
 boards retain their provider bytes and file types. Manifest provenance links every
 final ordinal to its board, cell, source rectangle, invocation, filename and hash;
-board records include prompt hash, raw hash/size/media and split metadata. The
+board records include grid/capacity, provider ratio, final slide ratio/dimensions,
+split strategy, prompt hash, raw hash/size/media, raw dimensions and source rectangles.
+Split metadata names `ImageOps.fit`, Lanczos, center `(0.5, 0.5)` and final dimensions;
+source rectangles describe the equal-grid cells before normalization. The
 manifest also freezes StoryboardPlan ID/content, recipe/profile identity, compiler,
 renderer, selection and overlay provenance. All assets and one ReviewRequest commit
 only after the full ordered set succeeds. Temporary failed output is removed;

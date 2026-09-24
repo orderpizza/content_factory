@@ -98,7 +98,7 @@ class FakeImageClient:
             a, b = map(int, aspect_ratio.split(':'))
             with Image.open(BytesIO(data)) as source:
                 stream = BytesIO()
-                source.resize((a*200,b*200)).save(stream,format='JPEG' if self.mime_type=='image/jpeg' else 'PNG')
+                source.resize((a*240,b*240)).save(stream,format='JPEG' if self.mime_type=='image/jpeg' else 'PNG')
                 data = stream.getvalue()
         return GeneratedImage(data, self.mime_type)
 
@@ -295,7 +295,7 @@ class ImageWorkflowTests(unittest.TestCase):
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
-            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v3')
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v4')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))

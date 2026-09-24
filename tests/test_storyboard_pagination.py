@@ -6,8 +6,8 @@ from pathlib import Path
 import sqlite3
 import unittest
 from unittest.mock import patch
-from PIL import Image
-from common.gemini_image import GeneratedImage
+from PIL import Image, ImageDraw
+from common.gemini_image import GeneratedImage, VertexGeminiImageClient, validate_provider_aspect_ratio
 from dashboard.flow import render_job_progress
 from dashboard.workflow import _review_preview
 from workflow import WorkflowStore, GeminiAdaptationWorker
@@ -22,10 +22,13 @@ from test_gemini_image_renderer import FakeImageClient
 
 
 def board_bytes(board, *, width_delta=0):
-    image = Image.new('RGB', (board['cols'] * 200 + width_delta, board['rows'] * 250))
+    ar_width, ar_height = map(int, board['provider_aspect_ratio'].split(':'))
+    width, height = ar_width * 150, ar_height * 150
+    image = Image.new('RGB', (width + width_delta, height))
+    cw, ch = width // board['cols'], height // board['rows']
     for cell, ordinal in enumerate(board['slide_indices']):
-        x, y = cell % board['cols'] * 200, cell // board['cols'] * 250
-        image.paste((ordinal * 15, 80, 130), (x, y, x + 200, y + 250))
+        x, y = cell % board['cols'] * cw, cell // board['cols'] * ch
+        image.paste((ordinal * 15, 80, 130), (x, y, x + cw, y + ch))
     stream = BytesIO()
     image.save(stream, format='PNG')
     return stream.getvalue()
@@ -39,7 +42,7 @@ class PlannedClient(FakeImageClient):
     def generate_image(self, prompt, *, aspect_ratio='5:4'):
         self.calls.append(prompt)
         board = self.boards[len(self.calls)-1]
-        assert aspect_ratio == board['aspect_ratio']
+        assert aspect_ratio == board['provider_aspect_ratio']
         if len(self.calls) == self.fail_at:
             raise RuntimeError('fake provider failure')
         return GeneratedImage(board_bytes(board), 'image/png')
@@ -72,7 +75,74 @@ class PaginationTests(unittest.TestCase):
                 for ordinal, slide in zip(board['slide_indices'],split.slides):
                     self.assertEqual(slide.size,(1080,1350))
                     self.assertEqual(slide.getpixel((540,675)),(ordinal*15,80,130))
-                with self.assertRaises(ValueError): split_equal_grid(board_bytes(board,width_delta=1),board)
+                with self.assertRaises(ValueError): split_equal_grid(board_bytes(board,width_delta=1 if board['cols'] > 1 else 100),board)
+
+    def test_closed_provider_mapping_for_every_supported_count(self):
+        expected = {1: (1,1,'4:5'), 2: (2,1,'3:2'), 4: (2,2,'4:5'), 6: (3,2,'5:4')}
+        seen = set()
+        for domain in ('ai_tech','psychology'):
+            for count in range(4,15):
+                boards=paginate(count,domain)
+                self.assertEqual(sum(b['capacity'] for b in boards),count)
+                self.assertEqual([i for b in boards for i in b['slide_indices']],list(range(1,count+1)))
+                for board in boards:
+                    seen.add(board['capacity'])
+                    self.assertEqual((board['cols'],board['rows'],board['provider_aspect_ratio']),expected[board['capacity']])
+                    self.assertNotIn('aspect_ratio',board)
+                    self.assertNotIn(board['provider_aspect_ratio'],('6:5','8:5'))
+                    self.assertEqual((board['slide_aspect_ratio'],board['final_width'],board['final_height']),('4:5',1080,1350))
+                    self.assertEqual(board['split_strategy'],'equal_grid_then_fit_4x5_v1')
+        self.assertEqual(seen,set(expected))
+        english=paginate(6,'english')[0]
+        self.assertEqual(english['provider_aspect_ratio'],'5:4')
+        self.assertEqual(english['split_strategy'],'english_accepted_v1')
+
+    def test_unsupported_provider_ratio_fails_before_sdk_call_or_planning(self):
+        client=VertexGeminiImageClient(project='test',model='fake')
+        for ratio in ('6:5','8:5','1:1','unknown'):
+            with self.assertRaises(ValueError): validate_provider_aspect_ratio(ratio)
+            with patch('google.genai.Client') as provider:
+                with self.assertRaises(ValueError): client.generate_image('test',aspect_ratio=ratio)
+                provider.assert_not_called()
+        with patch.dict('workflow.storyboard_planner.PROVIDER_ASPECT_RATIOS',{6:'6:5'}):
+            with self.assertRaises(ValueError): make_plan(6,'ai_tech')
+        plan=make_plan(6,'ai_tech'); plan['boards'][0]['provider_aspect_ratio']='6:5'
+        with self.assertRaises(ValueError): validate_plan(plan,6,'ai_tech')
+
+    def test_provider_pixel_rounding_is_tolerated_but_wrong_shapes_are_not(self):
+        board=paginate(6,'ai_tech')[0]
+        def png(width,height):
+            stream=BytesIO(); Image.new('RGB',(width,height)).save(stream,format='PNG'); return stream.getvalue()
+        # Divisible 3×2 grid, slightly different from nominal 5:4 and exact 4:5 cells.
+        for width,height in ((1200,962),(1194,960)):
+            split=split_equal_grid(png(width,height),board)
+            self.assertEqual(len(split.slides),6)
+            self.assertEqual(split.metadata['source_rectangles'][0],[0,0,width//3,height//2])
+        for width,height in ((1200,1200),(1200,800),(1201,960),(597,478)):
+            with self.assertRaises(ValueError): split_equal_grid(png(width,height),board)
+
+    def test_center_fit_crops_each_cell_without_geometric_stretch(self):
+        for count in (6,14):
+            board=paginate(count,'ai_tech')[-1]  # 3×2 and 2×1 have non-4:5 raw cells.
+            with Image.open(BytesIO(board_bytes(board))) as original:
+                raw=original.copy()
+            cw,ch=raw.width//board['cols'],raw.height//board['rows']
+            self.assertNotEqual(cw*5,ch*4)
+            draw=ImageDraw.Draw(raw)
+            for cell in range(board['capacity']):
+                x=(cell%board['cols'])*cw+cw//2
+                y=(cell//board['cols'])*ch+ch//2
+                draw.ellipse((x-35,y-35,x+35,y+35),fill=(255,255,255))
+            stream=BytesIO(); raw.save(stream,format='PNG')
+            split=split_equal_grid(stream.getvalue(),board)
+            for cell,slide in enumerate(split.slides):
+                mask=slide.convert('L').point(lambda p: 255 if p>240 else 0)
+                left,top,right,bottom=mask.getbbox()
+                # A direct anisotropic resize would turn this circle into an ellipse.
+                self.assertLessEqual(abs((right-left)-(bottom-top)),2)
+                self.assertEqual(slide.size,(1080,1350))
+                self.assertEqual(split.metadata['source_rectangles'][cell],
+                    [cell%board['cols']*cw,cell//board['cols']*ch,(cell%board['cols']+1)*cw,(cell//board['cols']+1)*ch])
 
 
 class StoryboardBoundaryTests(unittest.TestCase):
@@ -91,7 +161,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         return response
 
     def test_fresh_database_acceptance_english_six_ai_eight_psychology_fourteen(self):
-        for domain,count,capacities in [('english',6,[6]),('ai_tech',8,[4,4]),('psychology',14,[6,6,2])]:
+        for domain,count,capacities in [('english',6,[6]),('ai_tech',8,[4,4]),('ai_tech',10,[6,4]),('psychology',14,[6,6,2])]:
             with self.subTest(domain=domain):
                 f=self.fixture()
                 with WorkflowStore(f.path) as store:
@@ -123,11 +193,21 @@ class StoryboardBoundaryTests(unittest.TestCase):
                         if domain=='english': continue
                         self.assertIn(f"{board['cols']} columns and {board['rows']} rows",prompt)
                         self.assertIn('No outer margins. No gutters.',prompt)
+                        self.assertIn(f"Provider board aspect ratio {board['provider_aspect_ratio']}",prompt)
+                        self.assertIn('Panels must touch edge-to-edge',prompt)
+                        self.assertIn('away from the extreme panel edges',prompt)
+                        self.assertIn('center-fit into the final 4:5 Instagram slide',prompt)
+                        self.assertNotIn('Each panel is a separate 4:5 Instagram slide',prompt)
                         exact=json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                         self.assertEqual([u['slide'] for u in exact['slides']],board['slide_indices'])
                         self.assertEqual([u['body'] for u in exact['slides']], [response['visual_units'][i-1]['body'] for i in board['slide_indices']])
                         self.assertEqual(prompt,build_storyboard_prompt(package,recipe,pipeline_id=domain,board=board))
                     if domain!='english':
+                        for expected, actual in zip(boards, manifest['boards']):
+                            for key, value in expected.items(): self.assertEqual(actual[key],value)
+                            self.assertEqual(actual['split']['normalization']['method'],'ImageOps.fit')
+                            self.assertEqual(actual['split']['normalization']['centering'],[0.5,0.5])
+                            self.assertEqual(len(actual['split']['source_rectangles']),expected['capacity'])
                         self.assertEqual([s['board_index'] for s in manifest['slides']], [b['board_index'] for b in boards for _ in b['slide_indices']])
                     self.assertEqual(store.connection.execute('PRAGMA foreign_key_check').fetchall(),[])
 

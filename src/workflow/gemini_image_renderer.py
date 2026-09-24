@@ -289,15 +289,18 @@ def split_storyboard_with_metadata(data: bytes) -> StoryboardSplit:
     slides = [ImageOps.fit(source.crop(rectangle), (1080, 1350), method=Image.Resampling.LANCZOS,
                            centering=(0.5, 0.5)) for rectangle in rectangles]
     metadata["source_rectangles"] = [list(rectangle) for rectangle in rectangles]
+    metadata["normalization"] = dict(method="ImageOps.fit", resampling="LANCZOS", centering=[0.5, 0.5],
+                                     slide_aspect_ratio="4:5", final_width=1080, final_height=1350)
     return StoryboardSplit(slides, metadata)
 
 
 def split_equal_grid(data, board):
     """Strict persisted-grid crop; no margin inference or content-dependent cropping."""
-    from .storyboard_planner import LAYOUTS
+    from .storyboard_planner import validate_board_geometry, SPLIT_STRATEGY
+    validate_board_geometry(board)
     cols, rows = board['cols'], board['rows']
-    if (cols, rows) != LAYOUTS.get(board['capacity']):
-        raise ValueError('unsupported storyboard grid')
+    if board['split_strategy'] != SPLIT_STRATEGY:
+        raise ValueError('equal-grid splitter requires its planned normalization strategy')
     if len(data) > 40_000_000:
         raise ValueError('storyboard exceeds image byte limit')
     with Image.open(BytesIO(data)) as raw:
@@ -308,15 +311,23 @@ def split_equal_grid(data, board):
             raise ValueError('storyboard dimensions unsafe or too small')
         if width % cols or height % rows:
             raise ValueError('storyboard dimensions are not divisible by the planned grid')
-        if width * 5 * rows != height * 4 * cols:
-            raise ValueError('storyboard aspect ratio does not match the planned grid')
+        ar_width, ar_height = map(int, board['provider_aspect_ratio'].split(':'))
+        # Permit provider pixel rounding, but not a different board shape (2% relative).
+        if abs((width / height) / (ar_width / ar_height) - 1) > 0.02:
+            raise ValueError('storyboard aspect ratio does not match the requested provider ratio')
         source = ImageOps.exif_transpose(raw).convert('RGB')
         if source.size != (width, height):
             raise ValueError('storyboard orientation inconsistent')
         cw, ch = width // cols, height // rows
         rectangles = [(c*cw, r*ch, (c+1)*cw, (r+1)*ch) for r in range(rows) for c in range(cols)]
-        slides = [source.crop(box).resize((1080, 1350), Image.Resampling.LANCZOS) for box in rectangles]
-    return StoryboardSplit(slides, dict(method='equal_grid_v1', fallback_used=False,
+        if len(rectangles) != board['capacity']:
+            raise ValueError('split cell count does not match the storyboard plan')
+        slides = [ImageOps.fit(source.crop(box), (board['final_width'], board['final_height']),
+                              method=Image.Resampling.LANCZOS, centering=(0.5, 0.5)) for box in rectangles]
+    return StoryboardSplit(slides, dict(method=SPLIT_STRATEGY, fallback_used=False,
+        normalization=dict(method='ImageOps.fit', resampling='LANCZOS', centering=[0.5, 0.5],
+                           slide_aspect_ratio=board['slide_aspect_ratio'],
+                           final_width=board['final_width'], final_height=board['final_height']),
         raw_dimensions=dict(width=width, height=height), source_rectangles=[list(b) for b in rectangles]))
 
 
@@ -476,7 +487,7 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             "renderer_contract_id": recipe["renderer_contract_id"],
             "overlay_profile_id": recipe["overlay_profile_id"],
             "selection": recipe["selection"],
-            "storyboard": {"columns": STORYBOARD_COLUMNS, "rows": STORYBOARD_ROWS,
+            "storyboard": {**spec["storyboard_plan"]["boards"][0], "columns": STORYBOARD_COLUMNS, "rows": STORYBOARD_ROWS,
                            "prompt_sha256": sha256(prompt.encode()).hexdigest(),
                            "raw": {"filename": raw.name, "mime_type": generated.mime_type,
                                    "extension": generated.extension, "bytes": len(data),
@@ -498,11 +509,11 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board)
             invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
                 key='render_run_id', row=run, request_version='image_storyboard_request_v2',
-                prompt_version=PROMPT_COMPILER_VERSION, schema_version='image_storyboard_paginated_v1',
+                prompt_version=PROMPT_COMPILER_VERSION, schema_version='image_storyboard_paginated_v2',
                 request_value={'prompt': prompt, 'board': board}, model_id=self.client.model,
                 budget_policy=self.budget_policy, board_index=board['board_index'])
             try:
-                generated = self.client.generate_image(prompt, aspect_ratio=board['aspect_ratio'])
+                generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
             except Exception:
                 self.store.finish_model_invocation(invocation, outcome='transport_failed', usage=self.client.last_usage,
                     error='storyboard generation failed', budget_policy=self.budget_policy)

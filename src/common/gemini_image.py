@@ -6,6 +6,16 @@ import os
 from common.gemini import GeminiUsage, VertexGeminiClient
 
 
+# Closed capability subset used by the current storyboard renderer contract.
+SUPPORTED_STORYBOARD_ASPECT_RATIOS = frozenset({'4:5', '3:2', '5:4'})
+
+
+def validate_provider_aspect_ratio(value: str) -> str:
+    if not isinstance(value, str) or value not in SUPPORTED_STORYBOARD_ASPECT_RATIOS:
+        raise ValueError('unsupported storyboard provider aspect ratio')
+    return value
+
+
 def configured_image_model() -> str:
     return os.getenv("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-image"
 
@@ -33,6 +43,7 @@ class VertexGeminiImageClient(VertexGeminiClient):
         super().__init__(**kwargs)
 
     def generate_image(self, prompt: str, *, aspect_ratio: str = "5:4") -> GeneratedImage:
+        validate_provider_aspect_ratio(aspect_ratio)
         from google import genai
         from google.genai import types
 

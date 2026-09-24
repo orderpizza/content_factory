@@ -174,7 +174,7 @@ class DomainBoundaryTests(unittest.TestCase):
         manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
         self.assertEqual(manifest['pipeline_id'], domain)
         self.assertEqual(manifest['archetype_id'], selected['archetype_id'])
-        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v3')
+        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v4')
         self.assertEqual(manifest['overlay']['brand_text'], 'o2_english' if domain == 'english' else None)
         self.assertEqual((manifest['storyboard'] if domain == 'english' else manifest['boards'][0])['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
         self.assertEqual(len(list(artifact_root.rglob('raw-storyboard*.*'))), 1)

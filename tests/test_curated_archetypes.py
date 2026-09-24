@@ -226,7 +226,7 @@ class CuratedContractTests(unittest.TestCase):
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
                 self.assertEqual(sha256(prompt.encode()).hexdigest(), hashes[id])
-                for text in (('3×2 storyboard', '5:4', 'Do not rewrite') if a.domain == 'english' else ('3 columns and 2 rows', '6:5', 'Do not omit, summarize, expand')) + ('top 10%', 'bottom 14%', id, 'subject_claim_id', 'participants_count'):
+                for text in (('3×2 storyboard', '5:4', 'Do not rewrite') if a.domain == 'english' else ('3 columns and 2 rows', 'Provider board aspect ratio 5:4', 'Do not omit, summarize, expand')) + ('top 10%', 'bottom 14%', id, 'subject_claim_id', 'participants_count'):
                     self.assertIn(text, prompt)
                 content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                 response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)

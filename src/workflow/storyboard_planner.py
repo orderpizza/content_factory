@@ -1,9 +1,24 @@
 """Finite deterministic pagination; SQLite owns the handoff to rendering."""
-from math import gcd
+from common.gemini_image import validate_provider_aspect_ratio
 
-SCHEMA_VERSION = 'storyboard_plan_v1'
+SCHEMA_VERSION = 'storyboard_plan_v2'
 PLANNER_VERSION = 'balanced_eight_largest_first_v1'
 LAYOUTS = {6: (3, 2), 4: (2, 2), 2: (2, 1), 1: (1, 1)}
+PROVIDER_ASPECT_RATIOS = {1: '4:5', 2: '3:2', 4: '4:5', 6: '5:4'}
+FINAL_WIDTH, FINAL_HEIGHT = 1080, 1350
+SLIDE_ASPECT_RATIO = '4:5'
+SPLIT_STRATEGY = 'equal_grid_then_fit_4x5_v1'
+
+
+def validate_board_geometry(board):
+    if ((board['cols'], board['rows']) != LAYOUTS.get(board['capacity'])
+        or board['provider_aspect_ratio'] != PROVIDER_ASPECT_RATIOS.get(board['capacity'])
+        or (board['slide_aspect_ratio'], board['final_width'], board['final_height'])
+           != (SLIDE_ASPECT_RATIO, FINAL_WIDTH, FINAL_HEIGHT)
+        or board['split_strategy'] not in {SPLIT_STRATEGY, 'english_accepted_v1'}):
+        raise ValueError('unsupported storyboard geometry/normalization contract')
+    validate_provider_aspect_ratio(board['provider_aspect_ratio'])
+    return board
 
 
 def slide_bounds(domain):
@@ -23,12 +38,12 @@ def paginate(total, domain):
         # Explicit balanced-eight exception; otherwise minimum boards, largest first.
         capacity = 4 if total == 8 and remaining == 8 else next(c for c in LAYOUTS if c <= remaining)
         cols, rows = LAYOUTS[capacity]
-        factor = gcd(4 * cols, 5 * rows)
-        boards.append(dict(board_index=len(boards) + 1, rows=rows, cols=cols,
+        boards.append(validate_board_geometry(dict(board_index=len(boards) + 1, rows=rows, cols=cols,
             capacity=capacity, slide_start=start, slide_end=start + capacity - 1,
             slide_indices=list(range(start, start + capacity)),
-            aspect_ratio=f'{4 * cols // factor}:{5 * rows // factor}',
-            split_strategy='english_accepted_v1' if domain == 'english' else 'equal_grid_v1'))
+            provider_aspect_ratio=PROVIDER_ASPECT_RATIOS[capacity],
+            slide_aspect_ratio=SLIDE_ASPECT_RATIO, final_width=FINAL_WIDTH, final_height=FINAL_HEIGHT,
+            split_strategy='english_accepted_v1' if domain == 'english' else SPLIT_STRATEGY)))
         start += capacity
         remaining -= capacity
     return boards
