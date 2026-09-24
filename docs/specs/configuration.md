@@ -92,16 +92,18 @@ Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 | INTAKE | 8000 | 2000 |
 | DETERMINATION | 12000 | 4000 |
 | EDITORIAL_PLANNING | 12000 | 4000 |
-| GENERATION | 12000 | 4000 |
+| GENERATION | 12000 | 6000 |
 | ADAPTATION | 12000 | 8000 |
 
 For Gemini 3 text models, Intake, Determination, Editorial Planning, Generation and Adaptation set
 the provider thinking level to `LOW`; other text models receive no thinking-level
 setting. Thinking and JSON share the output allowance. Adaptation retains its 8000-token
 ceiling: dynamic v3 output is bounded at fourteen units; truncation fails validation.
-No measured provider usage distribution justifies changing thinking/JSON headroom.
-A lower ceiling should follow measured usage and truncation checks. The tracked template
-spells out every override. [Reliability](reliability.md#gemini-accounting) owns admission,
+Generation uses a 6,000-token default after bounded-evidence calibration found a
+4,000-token truncation near the limit; the 6,000-token sample completed well
+below its ceiling. A lower or higher ceiling should follow measured usage and
+truncation checks. The tracked template spells out every override.
+[Reliability](reliability.md#gemini-accounting) owns admission,
 uncertain usage and the limits of input-token estimates.
 
 ## Local composition

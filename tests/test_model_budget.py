@@ -9,6 +9,7 @@ from pathlib import Path
 from test_gemini_workflow import FakeGeminiClient
 from types import SimpleNamespace
 from workflow import GeminiIntakeWorker, ModelBudgetPolicy, WorkflowStore
+from workflow.model_budget import DEFAULT_PHASE_LIMITS
 from workflow.store import now
 import tempfile
 import unittest
@@ -28,6 +29,18 @@ class ModelBudgetTests(unittest.TestCase):
         initialize_database(self.path)
         with DetectionStore(self.path) as store:
             store.apply_manifest(load_manifest(MANIFEST))
+
+    def test_generation_default_reserves_calibrated_six_thousand_output_tokens(self):
+        self.assertEqual(DEFAULT_PHASE_LIMITS["generation"], (12_000, 6_000))
+        environment = {
+            "GEMINI_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+            "GEMINI_DAILY_WARNING_USD": "5",
+            "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+            "GEMINI_JOB_HARD_LIMIT_USD": "2",
+        }
+        policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
+        self.assertEqual(policy.worst_case("generation"), (12_000, 6_000, 24_000))
 
     def test_model_budget_is_reserved_before_call_and_settled_from_usage(self):
         policy = ModelBudgetPolicy(

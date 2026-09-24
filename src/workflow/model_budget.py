@@ -22,7 +22,9 @@ DEFAULT_PHASE_LIMITS = {
     "intake": (8_000, 2_000),
     "editorial_planning": (12_000, 4_000),
     "determination": (12_000, 4_000),
-    "generation": (12_000, 4_000),
+    # Live bounded-evidence calibration found a 4,000-token Generation response
+    # truncation near the limit; 6,000 is the smallest tested headroom.
+    "generation": (12_000, 6_000),
     # Carousel JSON and thinking share the provider output-token allowance.
     "adaptation": (12_000, 8_000),
     "image_rendering": (8_000, 8_000),
