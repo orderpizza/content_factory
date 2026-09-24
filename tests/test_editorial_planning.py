@@ -11,8 +11,9 @@ from workflow.development import prepare_development_database
 from workflow import WorkflowStore, GeminiDeterminationWorker, GeminiIntakeWorker, GeminiPipelineRunner
 from workflow.editorial_planning import (
     EditorialPlanningWorker, GeminiEditorialPlanningWorker, fixture_plan, validate_plan,
-    QUALIFICATIONS, PLAN_SCHEMA,
+    QUALIFICATIONS, PLAN_SCHEMA, planning_prompt,
 )
+from workflow.gemini_generation import _source_reference_ids
 from dashboard.planning import render_threads
 from test_gemini_workflow import FakeGeminiClient, brief
 import test_gemini_workflow as fixtures
@@ -42,6 +43,18 @@ class EditorialPlanningTests(unittest.TestCase):
 
     def count(self, table):
         return self.store.connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+
+    def test_external_evidence_reference_id_is_preserved_for_planning_and_generation(self):
+        references = _source_reference_ids({
+            'evidence': [{'reference_id': 'fixture:acme:1'}],
+            'messages': [{'message_id': 7}],
+        })
+        self.assertEqual(references, ['fixture:acme:1', 'message:7'])
+        prompt = planning_prompt({
+            'domain': 'ai_tech',
+            'allowed_evidence_reference_ids': ['fixture:acme:1'],
+        })
+        self.assertIn('copy its evidence_reference_ids exactly from', prompt)
 
     def test_domains_plan_before_job_and_generation_consumes_plan(self):
         for domain in QUALIFICATIONS:

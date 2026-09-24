@@ -228,5 +228,8 @@ Do not invent research, etymology, cultural generalizations, benchmarks or diagn
 All candidates must include the supplied required qualification codes; generation will
 carry these requirements forward. Keep source facts distinct from provider claims,
 inferences and hypothetical examples. No factual entailment is assumed from an ID.
+When a candidate uses evidence, copy its evidence_reference_ids exactly from
+allowed_evidence_reference_ids in FROZEN_INPUT. Do not add, remove, or transform
+an identifier prefix. An ID establishes provenance membership only, not factual support.
 Allowed strategies and required qualifications:
 ''' + canonical({'strategies': STRATEGIES[snapshot['domain']], 'qualifications': QUALIFICATIONS[snapshot['domain']]}) + '\n<FROZEN_INPUT>\n' + canonical(snapshot) + '\n</FROZEN_INPUT>\nReturn only the closed JSON schema.'
