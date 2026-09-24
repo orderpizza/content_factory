@@ -6,14 +6,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from acceptance.framework import (Category, StageCase, StageExecution, Status,
+from acceptance.framework import (Category, StageCase, StageExecution, Status, TEXT_STAGES,
                                   initialize_acceptance_database,
                                   require_live_authorization)
 from common.gemini import VertexGeminiClient, configured_model
+from common.gemini_image import VertexGeminiImageClient
 from workflow import (GeminiAdaptationWorker, GeminiDeterminationWorker,
                       GeminiEditorialPlanningWorker, GeminiIntakeWorker,
                       GeminiPipelineRunner, VisualPlanner, WorkflowStore,
-                      EditorialPlanningWorker)
+                      EditorialPlanningWorker, StoryboardPlanner)
+from workflow.gemini_image_renderer import DispatchVisualRenderer
+from workflow.gemini_prompt_compiler import build_storyboard_prompt
 from workflow.store import canonical, digest, now
 
 
@@ -312,13 +315,14 @@ def _ledger(store: WorkflowStore, phases: list[str]) -> tuple[int, int, str | No
         return 0, 0, None, 0
     placeholders = ",".join("?" for _ in phases)
     rows = store.connection.execute(
-        f"SELECT model_invocation_id,model_id,outcome,estimated_cost_micro_usd FROM model_invocations WHERE phase IN ({placeholders}) ORDER BY model_invocation_id",
+        f"SELECT model_invocation_id,phase,model_id,outcome,estimated_cost_micro_usd FROM model_invocations WHERE phase IN ({placeholders}) ORDER BY model_invocation_id",
         phases,
     ).fetchall()
     calls = sum(row["outcome"] != "blocked" for row in rows)
+    image_calls = sum(row["phase"] == "image_rendering" and row["outcome"] != "blocked" for row in rows)
     cost = sum(int(row["estimated_cost_micro_usd"] or 0) for row in rows)
     model = None if not rows else rows[-1]["model_id"]
-    return calls, 0, model, cost
+    return calls, image_calls, model, cost
 
 
 def _outputs(store: WorkflowStore) -> dict[str, Any]:
@@ -344,11 +348,26 @@ def _outputs(store: WorkflowStore) -> dict[str, Any]:
     package = store.connection.execute("SELECT content_package_id,package_json FROM content_packages ORDER BY content_package_id DESC LIMIT 1").fetchone()
     if package:
         result["adaptation"] = {"content_package_id": package["content_package_id"], "package": json.loads(package["package_json"])}
+    storyboard = store.connection.execute("SELECT storyboard_plan_id,schema_version,planner_version,total_slides,boards_json FROM storyboard_plans ORDER BY storyboard_plan_id DESC LIMIT 1").fetchone()
+    if storyboard:
+        result["storyboard_planning"] = {
+            "storyboard_plan_id": storyboard["storyboard_plan_id"],
+            "plan": {"schema_version": storyboard["schema_version"], "planner_version": storyboard["planner_version"],
+                     "total_slides": storyboard["total_slides"], "boards": json.loads(storyboard["boards_json"])},
+        }
+    render = store.connection.execute("SELECT render_run_id,status,manifest_json FROM render_runs ORDER BY render_run_id DESC LIMIT 1").fetchone()
+    if render:
+        review = store.connection.execute("SELECT review_request_id,status FROM review_requests WHERE render_run_id=?", (render["render_run_id"],)).fetchone()
+        result["image_rendering"] = {
+            "render_run_id": render["render_run_id"], "status": render["status"],
+            "manifest": None if render["manifest_json"] is None else json.loads(render["manifest_json"]),
+            "review_request": None if review is None else {"review_request_id": review["review_request_id"], "status": review["status"]},
+        }
     return result
 
 
 def _failed_category(store: WorkflowStore, stage: str) -> Category:
-    table = {"intake": "intake_requests", "determination": "determination_requests", "editorial_planning": "editorial_plan_runs", "generation": "generation_runs", "adaptation": "adaptation_runs"}.get(stage)
+    table = {"intake": "intake_requests", "determination": "determination_requests", "editorial_planning": "editorial_plan_runs", "generation": "generation_runs", "adaptation": "adaptation_runs", "storyboard_planning": "storyboard_plan_runs", "image_rendering": "render_runs"}.get(stage)
     if table is None:
         return Category.CONTRACT
     status = store.connection.execute(f"SELECT status FROM {table} ORDER BY 1 DESC LIMIT 1").fetchone()
@@ -362,8 +381,54 @@ def _failed_category(store: WorkflowStore, stage: str) -> Category:
     return Category.CONTRACT
 
 
-def execute_case(stage_case: StageCase, database: Path, authorization: Any, text_policy: Any) -> StageExecution:
-    """Run a requested text-stage range, stopping at the first failed handoff."""
+def _write_render_inputs(store: WorkflowStore, artifact_root: Path) -> None:
+    """Keep acceptance-only prompt/plan evidence beside production render assets."""
+    row = store.connection.execute(
+        "SELECT cp.package_json,vr.recipe_json,sp.storyboard_plan_id,sp.schema_version,sp.planner_version,"
+        "sp.total_slides,sp.boards_json,j.pipeline_id FROM render_runs rr "
+        "JOIN content_packages cp ON cp.content_package_id=rr.content_package_id "
+        "JOIN visual_recipes vr ON vr.visual_recipe_id=rr.visual_recipe_id "
+        "JOIN storyboard_plans sp ON sp.storyboard_plan_id=rr.storyboard_plan_id "
+        "JOIN output_requests o ON o.output_request_id=cp.output_request_id "
+        "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+        "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
+        "ORDER BY rr.render_run_id DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        raise ValueError("render evidence requires a committed RenderRun")
+    plan = {"schema_version": row["schema_version"], "planner_version": row["planner_version"],
+            "total_slides": row["total_slides"], "boards": json.loads(row["boards_json"])}
+    package, recipe = json.loads(row["package_json"]), json.loads(row["recipe_json"])
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    (artifact_root / "storyboard_plan.json").write_text(json.dumps({"storyboard_plan_id": row["storyboard_plan_id"], **plan}, ensure_ascii=False, indent=2) + "\n")
+    for board in plan["boards"]:
+        prompt = build_storyboard_prompt(package, recipe, pipeline_id=row["pipeline_id"],
+                                         board=None if row["pipeline_id"] == "english" else board)
+        (artifact_root / f"prompt-board-{board['board_index']:02d}.txt").write_text(prompt + "\n")
+
+
+def _write_render_outputs(output: dict[str, Any], artifact_root: Path) -> None:
+    rendered = output.get("image_rendering", {})
+    manifest = rendered.get("manifest")
+    if manifest is None:
+        return
+    (artifact_root / "render-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    validations = []
+    for board in manifest.get("boards", [manifest.get("storyboard")]):
+        if not board:
+            continue
+        raw, split = board.get("raw", {}), board.get("split", {})
+        validations.append({"board_index": board.get("board_index"), "grid": {"rows": board.get("rows"), "columns": board.get("cols", board.get("columns"))},
+                            "capacity": board.get("capacity"), "provider_aspect_ratio": board.get("provider_aspect_ratio"),
+                            "raw": raw, "raw_dimensions": split.get("raw_dimensions"),
+                            "source_rectangles": split.get("source_rectangles"), "split_strategy": split.get("method"),
+                            "normalization": split.get("normalization")})
+    (artifact_root / "board-validation.json").write_text(json.dumps({"boards": validations}, ensure_ascii=False, indent=2) + "\n")
+
+
+def execute_case(stage_case: StageCase, database: Path, authorization: Any, text_policy: Any,
+                 image_policy: Any | None = None, artifact_root: Path | None = None) -> StageExecution:
+    """Run an isolated production journey, including image rendering when requested."""
     require_live_authorization(authorization)
     initialize_acceptance_database(database)
     case = stage_case.case
@@ -372,7 +437,7 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
         # as a live call. It writes only a frozen upstream handoff.
         with WorkflowStore(database) as fixture_store:
             _seed_stage_fixture(fixture_store, stage_case)
-    requested = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation")
+    requested = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
     active = requested[requested.index(case.start_stage):requested.index(case.end_stage) + 1]
     executed: list[str] = []
     with WorkflowStore(database, model_budget_policy=text_policy) as store:
@@ -380,6 +445,14 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
             store.create_human_idea(case.input["idea"], command_id=f"acceptance-{case.case_id}-{stage_case.attempt}")
         elif case.source_kind == "detection_fixture":
             _seed_detection_fixture(store, stage_case)
+        def render():
+            if image_policy is None or artifact_root is None:
+                raise ValueError("image rendering requires an image budget policy and an artifact workspace")
+            _write_render_inputs(store, artifact_root)
+            image_client = VertexGeminiImageClient(max_output_tokens=image_policy.phase_limits["image_rendering"][1])
+            return DispatchVisualRenderer(store, artifact_root, image_client=image_client,
+                                          budget_policy=image_policy).run_once()
+
         workers = {
             "intake": lambda: GeminiIntakeWorker(store, _client(text_policy, "intake"), instance_id=f"acceptance-intake-{stage_case.attempt}").run_once(),
             "determination": lambda: GeminiDeterminationWorker(store, _client(text_policy, "determination"), instance_id=f"acceptance-determination-{stage_case.attempt}").run_once(),
@@ -387,6 +460,8 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
             "generation": lambda: GeminiPipelineRunner(store, _client(text_policy, "generation"), instance_id=f"acceptance-generation-{stage_case.attempt}").run_once(),
             "visual_selection": lambda: VisualPlanner(store, instance_id=f"acceptance-visual-{stage_case.attempt}").run_once(),
             "adaptation": lambda: GeminiAdaptationWorker(store, _client(text_policy, "adaptation"), instance_id=f"acceptance-adaptation-{stage_case.attempt}", strict_english_capacity=True).run_once(),
+            "storyboard_planning": lambda: StoryboardPlanner(store, instance_id=f"acceptance-storyboard-{stage_case.attempt}").run_once(),
+            "image_rendering": render,
         }
         for stage in active:
             value = workers[stage]()
@@ -400,10 +475,13 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
                         calls, images, model, cost = _ledger(store, ["intake"])
                         return StageExecution(Status.PASS, "intake", model, _outputs(store), calls, images, cost,
                                               executed_stages=tuple(executed))
-                calls, images, model, cost = _ledger(store, [s for s in active if s != "visual_selection"])
+                calls, images, model, cost = _ledger(store, [s for s in active if s in {*TEXT_STAGES, "image_rendering"}])
                 return StageExecution(Status.ERROR, stage, model, _outputs(store), calls, images, cost,
                                       f"Production {stage} did not complete; downstream stages were not invoked.",
                                       _failed_category(store, stage), tuple(executed))
-        calls, images, model, cost = _ledger(store, [s for s in active if s != "visual_selection"])
-        return StageExecution(Status.PASS, case.end_stage, model, _outputs(store), calls, images, cost,
+        calls, images, model, cost = _ledger(store, [s for s in active if s in {*TEXT_STAGES, "image_rendering"}])
+        output = _outputs(store)
+        if "image_rendering" in active:
+            _write_render_outputs(output, artifact_root)
+        return StageExecution(Status.PASS, case.end_stage, model, output, calls, images, cost,
                               executed_stages=tuple(executed))

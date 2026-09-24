@@ -21,9 +21,11 @@ The harness is designed for three scopes:
 Pass 1 established the authorization, admission and isolated-workspace
 foundation. Pass 2 invokes the production Intake, Determination, Editorial
 Planning, Canonical Generation and Adaptation workers; chains also run the
-deterministic VisualPlanner between generation and adaptation. Pass 3 remains
-responsible for Gemini image generation, board/overlay evaluation and final
-ReviewRequest journeys.
+deterministic VisualPlanner between generation and adaptation. Pass 3 extends
+that same isolated journey through StoryboardPlan, production PromptCompiler,
+Vertex image rendering, deterministic split/overlay processing and the final
+ReviewRequest. It retains original raw boards and writes an independent
+`gallery.html` for human review; it does not add a model-based visual judge.
 
 For independent post-Determination diagnosis, a v2 case may use the
 `stage_fixture` source kind. It selects one named, frozen local fixture and
@@ -81,6 +83,22 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 .venv/bin/python -m acceptance.runners.matrix --live-gemini --profile smoke --repeat 3 --max-usd 0.50
 ```
 
+Plan the finite Pass 3 campaign without a provider call:
+
+```sh
+.venv/bin/python -m acceptance.runners.matrix --profile pass3 --dry-run --max-usd 5.00
+```
+
+Run it only after configuring the image model/pricing and deliberately choosing
+an image-call ceiling. The profile reserves its maximum dynamic-board envelope
+before starting each case; a completed case can consume fewer boards.
+
+```sh
+CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
+LIVE_TEST_MAX_IMAGE_CALLS=7 \
+.venv/bin/python -m acceptance.runners.matrix --live-gemini --profile pass3 --max-usd 5.00
+```
+
 Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
 individual stage examples, `regression` is a curated representative set, and
 `psychology_hardening` is the focused Psychology Generation/Adaptation campaign;
@@ -98,6 +116,14 @@ completed handoff (`intake.json`, `determination.json`, `editorial_plan.json`,
 failure. The database preserves production model invocations/reservations; it
 is never the normal development database. Credentials, tokens, and full auth
 configuration are never copied into artifacts.
+
+For a completed image case, the attempt directory also contains the immutable
+`storyboard_plan.json`, one compiled `prompt-board-*.txt` per board,
+`render-manifest.json`, and `board-validation.json`. The production renderer
+keeps raw PNG/JPEG provider bytes and final PNG review slides in its atomic
+`render-*/` directory. The run-root `gallery.html` links raw boards and shows
+the ordered final slides. These artifacts make geometry, overlay, source-rectangle
+and visual-quality review inspectable without re-calling a provider.
 
 The result JSON is authoritative. Summary Markdown is a concise index. PASS,
 WARN, FAIL, ERROR, and SKIP are result statuses; `SKIP_BUDGET` is a distinct

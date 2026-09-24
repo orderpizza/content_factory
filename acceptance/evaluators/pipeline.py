@@ -110,6 +110,31 @@ def evaluate_pipeline(case: StageCase, execution: Any) -> StageEvaluation:
         mapped_ids = {mapping["claim_id"] for mapping in package.get("claim_mappings", [])}
         if canonical_ids and canonical_ids != mapped_ids:
             findings.append(_finding(case, "adaptation", Status.FAIL, Category.LINEAGE, "claim_lineage_incomplete", "Public package does not map every upstream canonical claim."))
+    rendered = output.get("image_rendering")
+    if rendered:
+        manifest = rendered.get("manifest")
+        review = rendered.get("review_request")
+        if rendered.get("status") != "succeeded" or not manifest or not review:
+            findings.append(_finding(case, "image_rendering", Status.FAIL, Category.CONTRACT, "review_render_incomplete", "Image rendering did not create a persisted complete ReviewRequest."))
+        else:
+            plan = manifest.get("storyboard_plan", {})
+            boards = manifest.get("boards", [manifest.get("storyboard")])
+            slides = manifest.get("slides", [])
+            expected_ordinals = list(range(1, int(plan.get("total_slides", 0)) + 1))
+            if [slide.get("ordinal") for slide in slides] != expected_ordinals:
+                findings.append(_finding(case, "image_rendering", Status.FAIL, Category.LINEAGE, "global_slide_order", "Manifest final-slide ordinals do not match the StoryboardPlan."))
+            if any((slide.get("final", {}).get("filename") is None or slide.get("source_rectangle") is None) for slide in slides):
+                findings.append(_finding(case, "image_rendering", Status.FAIL, Category.LINEAGE, "slide_provenance_missing", "A final slide lacks a source rectangle or final artifact reference."))
+            for board in boards:
+                if not board or not board.get("raw", {}).get("sha256") or not board.get("prompt_sha256"):
+                    findings.append(_finding(case, "image_rendering", Status.FAIL, Category.LINEAGE, "board_provenance_missing", "A board lacks raw-image or prompt provenance."))
+                    break
+                split = board.get("split", {})
+                normalization = split.get("normalization", {})
+                if normalization.get("final_width") != 1080 or normalization.get("final_height") != 1350:
+                    findings.append(_finding(case, "image_rendering", Status.FAIL, Category.CONTRACT, "final_dimensions", "Rendered slides are not normalized to 1080×1350."))
+                    break
+            findings.append(_finding(case, "image_rendering", Status.WARN, Category.VISUAL, "human_visual_review_required", "Structural checks passed; inspect the generated boards and final slides in gallery.html for text fidelity and visual quality."))
     findings.extend(_conservation(case, output))
     findings.append(_finding(case, execution.stage, Status.PASS, Category.CONTRACT, "production_handoffs_completed", "Requested production handoffs completed with inspectable persisted artifacts."))
     status = Status.FAIL if any(f.status == Status.FAIL for f in findings) else Status.WARN if any(f.status == Status.WARN for f in findings) else Status.PASS

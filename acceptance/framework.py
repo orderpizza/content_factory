@@ -37,10 +37,10 @@ class Category(str, Enum):
     BUDGET = "budget"
 
 
-STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "image_rendering"})
+STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering"})
 TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
-CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation")
-PROFILES = frozenset({"smoke", "stage", "regression", "psychology_hardening", "psychology_spotcheck", "full"})
+CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
+PROFILES = frozenset({"smoke", "stage", "regression", "pass3", "psychology_hardening", "psychology_spotcheck", "full"})
 SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
@@ -211,9 +211,11 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
     image_calls = budget["image_calls"]
     if type(image_calls) is not int or image_calls < 0 or image_calls != calls.get("image_rendering", 0):
         raise AcceptanceError(f"{path}.live_budget.image_calls is invalid")
-    required_live = [stage for stage in CHAIN_STAGES[CHAIN_STAGES.index(start_stage):CHAIN_STAGES.index(end_stage) + 1] if stage in TEXT_STAGES]
-    if any(calls.get(stage, 0) != 1 for stage in required_live):
-        raise AcceptanceError(f"{path}.live_budget must declare one call for every live chain stage")
+    required_live = [stage for stage in CHAIN_STAGES[CHAIN_STAGES.index(start_stage):CHAIN_STAGES.index(end_stage) + 1]
+                     if stage in {*TEXT_STAGES, "image_rendering"}]
+    if any((calls.get(stage, 0) != 1 if stage != "image_rendering" else calls.get(stage, 0) < 1)
+           for stage in required_live):
+        raise AcceptanceError(f"{path}.live_budget must declare every live chain stage: one text call per text stage and a positive image-board envelope")
     if any(stage not in required_live and count for stage, count in calls.items()):
         raise AcceptanceError(f"{path}.live_budget includes a stage outside the requested journey")
     return Case(case_id, version, value["description"], value["source_kind"], value["input"], exp,

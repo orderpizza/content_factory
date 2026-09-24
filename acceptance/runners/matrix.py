@@ -22,6 +22,7 @@ from acceptance.framework import (
     require_live_authorization, result_dict, write_json,
 )
 from acceptance.adapters import execute_case
+from acceptance.gallery import write_gallery
 from acceptance.evaluators import evaluate_pipeline
 from common.environment import load_environment_file
 from common.gemini import configured_model
@@ -269,7 +270,8 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
                     execution = stage_registry.execute(stage_case, database, authorization, text_policy)
                     evaluation = evaluate_hard_invariants(stage_case, execution)
                 else:
-                    execution = execute_case(stage_case, database, authorization, text_policy)
+                    execution = execute_case(stage_case, database, authorization, text_policy,
+                                             image_policy=image_policy, artifact_root=attempt_dir)
                     evaluation = evaluate_pipeline(stage_case, execution)
             except Exception as error:
                 execution = StageExecution(Status.ERROR, case.stage, None,
@@ -309,6 +311,7 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
                "cases": cost_rows})
     stability = _stability(results)
     write_json(workspace.root / "stability.json", stability)
+    gallery = write_gallery(workspace.root, results)
     run_info = {"schema_version": 1, "framework_version": FRAMEWORK_VERSION,
         "run_id": workspace.run_id, "started_at": workspace.started_at, "ended_at": utc_now(),
         "git_revision": _git_revision(), "profile": profile, "mode": "dry_run" if dry_run else "live",
@@ -319,7 +322,7 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
         "planned_max_cost_usd": str(Decimal(planned_max_cost) / Decimal(1_000_000)),
         "result_counts": counts, "actual_calls": sum(r["calls"] for r in results),
         "actual_image_calls": sum(r["image_calls"] for r in results),
-        "stability_report": "stability.json"}
+        "stability_report": "stability.json", "gallery": gallery.name}
     write_json(workspace.root / "run.json", run_info)
     (workspace.root / "summary.md").write_text(_summary(results, {**run_info, "max_usd": str(budget.max_usd)}, planned))
     return workspace.root, run_info
@@ -337,7 +340,7 @@ def _git_revision() -> str | None:
 def main(argv: list[str] | None = None) -> int:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=sorted({"smoke", "stage", "regression", "psychology_hardening", "psychology_spotcheck", "full"}), default="smoke")
+    parser.add_argument("--profile", choices=sorted({"smoke", "stage", "regression", "pass3", "psychology_hardening", "psychology_spotcheck", "full"}), default="smoke")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--live-gemini", action="store_true")
     parser.add_argument("--max-usd")

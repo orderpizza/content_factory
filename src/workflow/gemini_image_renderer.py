@@ -554,9 +554,10 @@ class GeminiImageRenderer(ActiveReviewRenderer):
 
 class DispatchVisualRenderer(ActiveReviewRenderer):
     """Dispatch eligible account archetypes to one Gemini renderer, with no fallback."""
-    def __init__(self, store, artifact_root, *, image_client=None):
+    def __init__(self, store, artifact_root, *, image_client=None, budget_policy=None):
         super().__init__(store, artifact_root, instance_id="renderer-gemini-review")
-        self.image_renderer = GeminiImageRenderer(store, artifact_root, client=image_client)
+        self.image_renderer = GeminiImageRenderer(store, artifact_root, client=image_client,
+                                                  budget_policy=budget_policy)
 
     @local_operation("render_runs", "render_run_id")
     def _process(self, run):

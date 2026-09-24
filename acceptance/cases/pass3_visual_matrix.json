@@ -1,0 +1,49 @@
+{
+  "cases": [
+    {
+      "case_id": "pass3_human_english_review",
+      "schema_version": 2,
+      "description": "Human English idea through the complete production review-render path.",
+      "source_kind": "human",
+      "input": {"idea": "English only: teach break the ice in a first meeting using six slides: hook, meaning, use cases, examples, short dialogue, and takeaway."},
+      "expectations": {"determination": {"required_selected": ["english"], "forbidden_selected": []}, "adaptation": {"min_slides": 6, "max_slides": 6}},
+      "conservation": [{"kind": "exact_identifier", "value": "break the ice"}],
+      "tags": ["pass3", "human", "english", "grid_3x2"],
+      "profiles": ["pass3", "full"],
+      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 1}, "image_calls": 1},
+      "start_stage": "intake",
+      "end_stage": "image_rendering"
+    },
+    {
+      "case_id": "pass3_detection_ai_review",
+      "schema_version": 2,
+      "description": "Frozen Detection evidence through the complete AI/Tech review-render path.",
+      "source_kind": "detection_fixture",
+      "input": {
+        "frozen_brief": {"editorial_goal": "Explain a source-backed enterprise feature update.", "topic": "Acme Enterprise assistant availability", "coverage_kind": "trend_topic", "canonical_target": "Acme Enterprise assistant availability", "revision_scope": "whole_brief", "audience": "AI tool evaluators", "desired_outcome": "inform", "constraints": {"source_bound": true}, "source_context": "Frozen event fixture.", "open_questions": []},
+        "source_evidence": {"evidence": [{"reference_id": "fixture:pass3:acme:1", "title": "Acme announces Enterprise assistant", "detail": "On 2026-09-20, Acme announced an Enterprise assistant for Enterprise plan customers in October 2026 with centralized administrative controls and an Acme Data Workspace integration. Pricing, certifications, geography, benchmarks, rollout phases, deployment requirements, and comparisons are not stated.", "evidence_time": "2026-09-20T00:00:00"}], "candidate": {"topic": "Acme Enterprise assistant availability"}}
+      },
+      "expectations": {"determination": {"required_selected": ["ai_tech"], "forbidden_selected": []}, "adaptation": {"min_slides": 4, "max_slides": 14}},
+      "conservation": [{"kind": "evidence_reference", "value": "fixture:pass3:acme:1"}, {"kind": "scope", "value": "not stated"}],
+      "tags": ["pass3", "detection", "ai_tech", "dynamic"],
+      "profiles": ["pass3", "full"],
+      "live_budget": {"calls_by_stage": {"determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
+      "start_stage": "determination",
+      "end_stage": "image_rendering"
+    },
+    {
+      "case_id": "pass3_human_psychology_review",
+      "schema_version": 2,
+      "description": "Human Psychology observation through the complete review-render path, retaining qualification review.",
+      "source_kind": "human",
+      "input": {"idea": "Psychology only: explain hesitation in an unfamiliar group as an observation. Social uncertainty is one possible explanation; people may simply need time. Offer an optional low-stakes question, without diagnosis or asserted motives."},
+      "expectations": {"determination": {"required_selected": ["psychology"], "forbidden_selected": []}, "adaptation": {"min_slides": 4, "max_slides": 14}},
+      "conservation": [{"kind": "qualification", "value": "possible"}, {"kind": "epistemic_strength", "value": "may simply need time"}],
+      "tags": ["pass3", "human", "psychology", "dynamic"],
+      "profiles": ["pass3", "full"],
+      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
+      "start_stage": "intake",
+      "end_stage": "image_rendering"
+    }
+  ]
+}

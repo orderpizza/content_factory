@@ -133,11 +133,15 @@ The separate [`acceptance` framework](../acceptance/README.md) adds versioned
 stage and chain cases, dry-run planning, isolated run workspaces, production
 ledger evidence and machine-readable results. Pass 2 covers Intake,
 Determination, Editorial Planning, Canonical Generation, deterministic visual
-selection and Adaptation; it does not invoke image rendering or create a final
-ReviewRequest. Dry-run does not require live opt-in. Real calls require both
+selection and Adaptation. The opt-in Pass 3 profile continues selected Human
+and frozen Detection journeys through deterministic StoryboardPlan, production
+prompt compilation, Gemini image boards, split/overlay processing and a final
+ReviewRequest. It preserves raw boards and final slides in the isolated run,
+plus a local static gallery; its visual-quality decision remains human review.
+Dry-run does not require live opt-in. Real calls require both
 `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` and `--live-gemini`, plus an
 explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
-other stage, chain and image cases are reserved for later passes.
+normal CI never invokes the text or image clients.
 
 The focused `psychology_hardening` profile runs ten isolated Psychology
 Generation observations and five Generation→Adaptation chains (15 generation

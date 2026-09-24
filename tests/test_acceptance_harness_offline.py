@@ -33,6 +33,13 @@ def text_policy():
     return ModelBudgetPolicy.from_environment("fake-text", environment())
 
 
+def image_policy():
+    return ModelBudgetPolicy.from_environment("fake-image", {
+        **environment(), "GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD": "2",
+        "GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD": "8",
+    }, image=True)
+
+
 def raw_case():
     return json.loads((FIXTURES / "english_icebreaker.json").read_text())
 
@@ -129,6 +136,17 @@ def test_v2_detection_case_has_frozen_input_and_no_image_envelope():
     assert evidence["reference_id"] == "fixture:acme:1"
     assert "October 2026" in evidence["detail"]
     assert case.live_budget["image_calls"] == 0
+
+
+def test_pass3_cases_extend_the_production_chain_and_reserve_dynamic_board_envelopes():
+    cases = {case.case_id: case for case in discover_cases(FIXTURES)}
+    english = cases["pass3_human_english_review"]
+    detection = cases["pass3_detection_ai_review"]
+    psychology = cases["pass3_human_psychology_review"]
+    assert english.end_stage == detection.end_stage == psychology.end_stage == "image_rendering"
+    assert english.live_budget["image_calls"] == 1
+    assert detection.live_budget["image_calls"] == psychology.live_budget["image_calls"] == 3
+    assert detection.source_kind == "detection_fixture"
 
 
 def test_v2_stage_fixture_starts_at_one_live_post_determination_stage():
@@ -269,6 +287,19 @@ def test_normal_pytest_dry_run_cannot_make_real_provider_invocation_even_with_cr
     assert costs["cases"][0]["planned_max_calls"] == 1
     assert costs["cases"][0]["text_calls"] == 0
     assert "Planned maximum spend" in (output / "summary.md").read_text()
+
+
+def test_pass3_dry_run_plans_image_envelopes_without_constructing_any_provider(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(matrix, "_policies", lambda env, need_images: (text_policy(), image_policy()))
+    from common import gemini_image
+    monkeypatch.setattr(gemini_image, "VertexGeminiImageClient", lambda *args, **kwargs: calls.append((args, kwargs)))
+    output, info = matrix.run_matrix(profile="pass3", dry_run=True, cli_live=False, repeat=1,
+        limits={"max_usd": "5", "max_calls": None, "max_image_calls": None, "max_cases": None},
+        environment={}, case_directory=FIXTURES, output_root=tmp_path / "acceptance")
+    assert calls == [] and info["actual_calls"] == 0 and info["actual_image_calls"] == 0
+    assert info["result_counts"]["SKIP"] == 3
+    assert (output / "gallery.html").exists()
 
 
 def test_v1_live_intake_artifact_uses_the_persisted_source_request_column(tmp_path, monkeypatch):

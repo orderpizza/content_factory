@@ -17,6 +17,7 @@ data/*.db-*
 data/*.db.*.bak
 data/*.db.*.bak-*
 data/artifacts/
+data/acceptance/
 data/archive/
 data/backups/
 # Isolated, non-deliverable live acceptance evidence; never commit databases/assets.
