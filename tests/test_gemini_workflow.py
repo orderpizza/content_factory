@@ -18,7 +18,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiIntakeWorker, GeminiPipelineRunner, VisualPlanner, WORKFLOW_PIPELINES, WorkflowStore
 from workflow.gemini_determination import DETERMINATION_SCHEMA
-from workflow.gemini_generation import DOMAIN_FIELDS, generation_schema
+from workflow.gemini_generation import DOMAIN_FIELDS, _generation_prompt, _validate_content, generation_schema
+from workflow.gemini_adaptation import _adaptation_prompt
 from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
 import json
 import runpy
@@ -420,6 +421,56 @@ class GeminiWorkflowTests(unittest.TestCase):
     def test_generation_schema_rejects_unknown_pipeline(self):
         with self.assertRaisesRegex(ValueError, "unsupported workflow pipeline"):
             generation_schema("unknown")
+
+    def test_psychology_generation_prompt_preserves_the_observation_inference_boundary(self):
+        temptations = (
+            "motives from hesitation in an unfamiliar group",
+            "mechanisms from a quiet employee in a large meeting",
+            "causes from a delayed text response",
+            "multiple explanations for deadline-near assignment starts",
+            "diagnosis from less eye contact",
+            "personality labels from a workplace disagreement",
+            "frequency claims from checking social-media reactions",
+            "relationship intent from requesting time alone",
+        )
+        response = self.canonical_response("psychology")
+        response["claims"] = [
+            {"claim_id": "observation", "text": "The supplied scenario describes one observed behavior.",
+             "claim_kind": "source_bound_fact", "evidence_reference_ids": ["message:1"],
+             "qualification": "Directly reflects the frozen scenario."},
+            {"claim_id": "possibility", "text": "One possible explanation is contextual and cannot be established here.",
+             "claim_kind": "qualified_inference", "evidence_reference_ids": [],
+             "qualification": "This is a possibility, not an established internal state or cause."},
+            {"claim_id": "example", "text": "A fictional observer offers a low-stakes invitation.",
+             "claim_kind": "generated_example", "evidence_reference_ids": [],
+             "qualification": "Illustrative example, not evidence about a person."},
+        ]
+        for temptation in temptations:
+            with self.subTest(temptation=temptation):
+                prompt = _generation_prompt({
+                    "pipeline_id": "psychology", "brief": {"topic": temptation}, "angle": {},
+                    "editorial_plan": {}, "source_context": {}, "allowed_source_reference_ids": ["message:1"],
+                })
+                self.assertIn("observation and an\nexplanation", prompt)
+                self.assertIn("Do not infer an unobserved\ninternal motive", prompt)
+                self.assertIn("credible alternative_explanations", prompt)
+                self.assertIn("qualified_inference", prompt)
+                self.assertIn("keep the observation singular and scenario-bound", prompt)
+                self.assertIn("Every alternative_explanations entry must itself be phrased as a possibility", prompt)
+                self.assertIn("the only\nestablished behavioral statement allowed anywhere in the response is that", prompt)
+                validated = _validate_content(response, "psychology", {"message:1"})
+                self.assertEqual(validated["claims"][1]["claim_kind"], "qualified_inference")
+
+    def test_psychology_adaptation_prompt_cannot_strengthen_canonical_uncertainty(self):
+        prompt = _adaptation_prompt({
+            "pipeline_id": "psychology", "canonical_content": self.canonical_response("psychology"),
+            "selected_archetype": {}, "destination": {}, "canonical_hash": "fixture",
+        })
+        self.assertIn("never make an observation's possible explanation sound like an", prompt)
+        self.assertIn("Do not turn a possibility\ninto a certainty", prompt)
+        self.assertIn("select one alternative as the real reason", prompt)
+        self.assertIn("do not\nintroduce population frequency", prompt)
+        self.assertIn("preserve that exact scope in\nevery public field", prompt)
 
     def test_gemini_adaptation_creates_independent_validated_packages(self):
         with WorkflowStore(self.path) as store:

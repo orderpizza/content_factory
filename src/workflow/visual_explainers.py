@@ -21,7 +21,10 @@ limitations visibly in explanation copy. Never invent product claims or benchmar
 PSYCHOLOGY_ADAPTATION_GUIDANCE = DYNAMIC_GUIDANCE + """Keep observation, concept,
 possible mechanism, example, alternative explanations and practical implications
 distinct. Preserve uncertainty and qualification in the takeaway and relevant units.
-Avoid diagnosis, asserted private motives and medical advice.
+Do not make a possible explanation into the reason, or omit alternatives in a way
+that makes an unobserved motive, mechanism, or cause sound established. Avoid
+diagnosis, asserted private motives, unsupported population generalizations, and
+medical advice.
 """
 EXPLAINER_CAPACITY_GUIDANCE = """Titles: at most 80 characters, 12 words, 2 lines.
 Bodies: at most 280 characters, 45 words, 5 lines, 18 words per line.

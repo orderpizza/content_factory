@@ -21,7 +21,7 @@ from .active_visual_profiles import (EXPRESSION_ADAPTATION_GUIDANCE, archetype_c
 from .visual_cues import VISUAL_CUES_SCHEMA, validate_cues
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v7"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v10"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v3"
 SUPPORTED_FORMATS = {
@@ -551,6 +551,15 @@ with at most one cue per slide. Each cue references a canonical subject_claim_id
 already mapped to that slide, a bounded semantic_emphasis and participants_count.
 These are semantic references only; account/archetype configuration owns design.
 Preserve canonical meaning, all claim mappings, uncertainty and qualification.
+For Psychology, never make an observation's possible explanation sound like an
+established motive, mechanism, cause, or diagnosis. Do not turn a possibility
+into a certainty, select one alternative as the real reason, or remove the
+qualification/alternatives that make a psychological interpretation accurate.
+Keep useful practical implications independent of any unverified explanation.
+When the canonical is limited to one scenario, keep it scenario-bound: do not
+introduce population frequency, a general behavioral rule, a new observed
+detail, or a declarative alternative. Preserve both the scope and modal force
+of the canonical explanation rather than using a punchier general mechanism.
 
 The local validator also requires these limits. Each visual title is at most
 120 characters and each visual body at most 600; aim below 60 and 240 respectively
@@ -575,6 +584,11 @@ letters, digits, or underscores.
 """ + guidance + """<FROZEN_OUTPUT>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """
 </FROZEN_OUTPUT>
+
+For Psychology content based on one scenario, preserve that exact scope in
+every public field. The observation may be stated; every explanation or
+alternative must remain visibly possible. Do not create a general fact about
+how people or behavior work while making the copy shorter or more engaging.
 
 Return only JSON matching the supplied schema."""
 

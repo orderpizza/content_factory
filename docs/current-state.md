@@ -139,6 +139,15 @@ ReviewRequest. Dry-run does not require live opt-in. Real calls require both
 explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
 other stage, chain and image cases are reserved for later passes.
 
+The focused `psychology_hardening` profile runs ten isolated Psychology
+Generation observations and five Generation→Adaptation chains (15 generation
+and 5 adaptation calls when all cases are admitted). It is an opt-in, text-only
+semantic review set: deterministic checks cover contracts and lineage while
+human review assesses observation fidelity, uncertainty, alternatives, causal
+strength, diagnosis restraint, generalization, and whether adaptation increases
+certainty. It has zero image-call budget and does not reopen the broader matrix.
+`psychology_spotcheck` is the smaller high-risk subset for a post-change check.
+
 ## Monitoring and maintenance
 
 Planning ignores storage admission, including missing/stale/critical samples;

@@ -44,7 +44,7 @@ quality or complete domain safety.
 | --- | --- |
 | English | Accurate meaning, nuance, register and region; natural examples; suitable audience difficulty; no invented etymology or culture-wide generalization |
 | AI / Tech | Dated availability and scope; provider claims distinguished from observed results; no fabricated tests, benchmarks or prices |
-| Psychology / Behavior | Observation distinguished from inference; alternative explanations; no diagnosis, invented research or asserted private motives |
+| Psychology / Behavior | Observation distinguished from inference; credible alternatives retained where uncertainty matters; no diagnosis, invented research, asserted private motives, or causal/frequency claims unsupported by the frozen material |
 
 ## Current domain payloads
 
@@ -56,7 +56,21 @@ separate teaching-reference schema.
 | --- | --- | --- |
 | English | target_kind, target, plain_meaning, nuance, register_and_region | usage_notes, avoid_misuse |
 | AI / Tech | product_or_feature, change_summary, as_of_context, availability_scope | capabilities, use_cases, limitations |
-| Psychology / Behavior | observed_behavior, context, concept, possible_mechanism, example, qualification | alternative_explanations, practical_implications |
+| Psychology / Behavior | observed_behavior, context, concept, example, qualification; possible_mechanism is nullable | alternative_explanations, practical_implications |
+
+The existing Psychology payload is an epistemic structure, not evidence that an
+interpretation is true. `observed_behavior` states the supported observation;
+`possible_mechanism` is an explicitly uncertain possible explanation;
+`alternative_explanations` keeps other credible readings visible; and
+`qualification` states the boundary. The common claim envelope records a
+directly supported observation as `source_bound_fact`, an unestablished
+interpretation as `qualified_inference`, and an invented illustration as
+`generated_example`. No additional schema field is needed: human review still
+assesses whether public prose preserves those distinctions.
+
+An isolated everyday observation is not population evidence. It must remain
+scenario-bound in both canonical and adapted copy; neither stage may invent a
+frequency, general behavioral pattern, or additional observed detail.
 
 The common canonical envelope supplies examples, claims and takeaway separately.
 No slide count, caption, geometry or account belongs in a domain payload.

@@ -1137,7 +1137,7 @@ class WorkflowStore:
             if existing:
                 self._finish_claim("generation_runs","generation_run_id",run,"succeeded",moment,None); return int(existing[0])
             identity=digest({"job":job["content_identity"],"body":value})
-            canonical_id=int(self.connection.execute("INSERT INTO canonical_contents(content_job_id,generation_run_id,canonical_identity,canonical_json,canonical_hash,schema_version,created_at) VALUES (?,?,?,?,?,'canonical_content_v1',?)",(job["content_job_id"],run["generation_run_id"],identity,canonical(value),digest(value),moment)).lastrowid)
+            canonical_id=int(self.connection.execute("INSERT INTO canonical_contents(content_job_id,generation_run_id,canonical_identity,canonical_json,canonical_hash,schema_version,created_at) VALUES (?,?,?,?,?,?,?)",(job["content_job_id"],run["generation_run_id"],identity,canonical(value),digest(value),value.get("schema_version", "canonical_content_v1"),moment)).lastrowid)
             for output in json.loads(job["output_plan_json"]):
                 input_value={"canonical_content_id":canonical_id,"output":output}
                 out=int(self.connection.execute("INSERT INTO output_requests(canonical_content_id,output_binding_id,platform,account,content_format,output_identity,output_contract_version,input_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)",(canonical_id,output.get("output_binding_id"),output["platform"],output["account"],output["content_format"],digest(input_value),output.get("output_contract_version","placeholder_v1"),canonical(input_value),moment)).lastrowid)

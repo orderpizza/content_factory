@@ -13,8 +13,8 @@ from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
 
 
-GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v2"
-GENERATION_SCHEMA_VERSION = "canonical_content_v1"
+GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v5"
+GENERATION_SCHEMA_VERSION = "canonical_content_v2"
 CLAIM_KINDS = ("source_bound_fact", "qualified_inference", "generated_example")
 
 
@@ -54,7 +54,7 @@ DOMAIN_FIELDS: dict[str, dict[str, str]] = {
         "observed_behavior": "string",
         "context": "string",
         "concept": "string",
-        "possible_mechanism": "string",
+        "possible_mechanism": "nullable_string",
         "alternative_explanations": "list",
         "example": "string",
         "practical_implications": "list",
@@ -69,7 +69,9 @@ def generation_schema(pipeline_id: str) -> dict[str, Any]:
         raise ValueError(f"unsupported workflow pipeline: {pipeline_id}")
     domain_fields = DOMAIN_FIELDS[pipeline_id]
     domain_properties = {
-        field: _string() if kind == "string" else _string_list()
+        field: (_string() if kind == "string" else
+                {"anyOf": [_string(), {"type": "null"}]} if kind == "nullable_string" else
+                _string_list())
         for field, kind in domain_fields.items()
     }
     return {
@@ -277,9 +279,10 @@ def _validate_content(
     normalized_payload = {}
     for field, kind in field_kinds.items():
         normalized_payload[field] = (
-            _nonempty(payload[field], field)
-            if kind == "string"
-            else _validated_strings(payload[field], field, 1, 12)
+            _nonempty(payload[field], field) if kind == "string" else
+            (None if payload[field] is None else _nonempty(payload[field], field))
+            if kind == "nullable_string" else
+            _validated_strings(payload[field], field, 1, 12)
         )
     normalized["domain_payload"] = normalized_payload
     return normalized
@@ -338,6 +341,40 @@ suggested capabilities, comparisons, eligibility, pricing, integrations,
 security, rollout, or deployment details factual. If the evidence only confirms
 an announcement, say that the details are not specified; do not fill them in.
 """
+    elif request_value["pipeline_id"] == "psychology":
+        domain_safety = """
+For Psychology, keep the epistemic boundary between an observation and an
+explanation explicit throughout the hook, context, key points, examples,
+takeaway, claims, and domain_payload. State only what the frozen material
+actually observes or supports as established. Do not infer an unobserved
+internal motive, goal, emotion, cognitive state, mechanism, intention, or
+causal explanation from behavior unless the frozen evidence directly supports
+it. Do not turn one scenario into an unsupported population frequency or a
+diagnostic, personality, attachment, trauma, neurodivergence, or mental-health
+claim.
+
+When an explanation is not established, write it as a possibility, not as the
+hidden reason: make the uncertainty visible in the public text, use
+qualified_inference with an honest qualification, and make possible_mechanism
+read as a possible explanation. Preserve credible alternative_explanations
+where several explanations fit. Do not let a caveat elsewhere make a confident
+sentence acceptable. Practical implications must remain useful without relying
+on one unverified explanation. Use source_bound_fact only for directly
+supported observations with frozen evidence; use generated_example only for a
+clearly invented illustration.
+When the evidence establishes no explanation, return null for possible_mechanism
+instead of supplying a plausible mechanism.
+
+When the frozen material supplies one everyday scenario rather than research or
+population evidence, keep the observation singular and scenario-bound. Do not
+add a claim that the behavior is common, frequent, typical, documented, or
+generally observed, and do not add a new behavioral detail. Do not give an
+unestablished explanation a technical label that makes it sound established.
+Every alternative_explanations entry must itself be phrased as a possibility,
+not as a bare assertion about the person. The practical implication should help
+the reader respond to the observed situation without treating a hypothesis as
+the explanation.
+"""
     return """You are the domain generation worker for a local content factory.
 The immutable editorial_plan fixes the strategic angle. Find its selected candidate
 and preserve its angle, reader promise, must_cover_points, evidence_requirements and
@@ -363,5 +400,14 @@ distinct and make the domain_payload match the supplied domain schema exactly.
 <FROZEN_JOB>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """
 </FROZEN_JOB>
+
+For a Psychology job whose frozen material is one scenario, the only
+established behavioral statement allowed anywhere in the response is that
+scenario's observation. Do not convert it into a statement about how people,
+groups, or behavior generally work. Every statement beyond the observation must
+be an explicitly uncertain possibility or a clearly invented example. Check
+every hook, context, key point, takeaway, claim, payload field, and alternative
+before returning: no explanation, alternative, mechanism, or practical
+implication may read as an established reason or general behavioral fact.
 
 Return only JSON matching the supplied schema."""

@@ -40,7 +40,7 @@ class Category(str, Enum):
 STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "image_rendering"})
 TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
 CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation")
-PROFILES = frozenset({"smoke", "stage", "regression", "full"})
+PROFILES = frozenset({"smoke", "stage", "regression", "psychology_hardening", "psychology_spotcheck", "full"})
 SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}

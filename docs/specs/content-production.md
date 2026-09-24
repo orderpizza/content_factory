@@ -30,7 +30,7 @@ Instagram binding. Generation makes one Gemini drafting call for
 the claimed run. The plan is a writing constraint: preserve its selected angle,
 reader promise, must-cover points and qualifications; do not select a new strategy.
 The request recipe is `content_job_recipe_v3`; the generation prompt is
-`workflow_gemini_generation_prompt_v2`. Its closed `canonical_content_v1` schema contains:
+`workflow_gemini_generation_prompt_v5`. Its closed `canonical_content_v2` schema contains:
 
 - hook, context, 2–8 key points, 0–8 examples, takeaway and optional CTA;
 - up to 30 claims, each with a unique ID, text, kind, evidence reference IDs
@@ -50,6 +50,21 @@ reference catalog, autonomous research or second semantic-validation model call.
 For AI/Tech, source titles, identifiers, brief targets and planner proposals are
 not evidence of unstated product details; generation must keep title-only
 evidence to the stated announcement and explicit unknowns.
+
+Psychology uses the existing `observed_behavior`, `possible_mechanism`,
+`alternative_explanations`, `qualification`, and common claim fields rather
+than a new schema field. A directly supported observation is source-bound when
+it has frozen evidence; an explanation that is not established is a
+`qualified_inference` with visible uncertainty; an invented situation is a
+`generated_example`. `possible_mechanism` is nullable: when the frozen material
+does not establish an explanation, the canonical must use null rather than fill
+the field with a plausible mechanism. The generation prompt requires the same distinction in
+public prose, not only metadata: it must not infer private motives, mechanisms,
+or causal explanations from behavior, and must retain credible alternatives
+where uncertainty matters. A single-scenario input is not population evidence:
+generation and adaptation must not turn it into a common/frequent/general rule,
+or add observed details. This remains a prompt and human-review boundary;
+the structural validator cannot prove semantic entailment.
 
 Successful generation commits one canonical result per job, all frozen
 OutputRequests and their initial pending VisualPlanRuns together. Failure does
@@ -112,7 +127,7 @@ remains exactly six units. AI/Tech and Psychology allow 4–14 units, normally 4
 exactly one hook first, one takeaway last, interior roles only explanation/example,
 and at least one of each interior role. Their six archetypes retain role-specific
 composition guidance without prescribing fixed positions. Adaptation prompt
-`workflow_gemini_adaptation_prompt_v7` instructs expansion instead of dense text;
+`workflow_gemini_adaptation_prompt_v10` instructs expansion instead of dense text;
 over-capacity responses fail and require narrower adaptation/planning, never truncation.
 
 `visual_explainers.py` validates dynamic-domain titles at 80 characters/12 words/
@@ -120,7 +135,9 @@ over-capacity responses fail and require narrower adaptation/planning, never tru
 compact archetypes retain their stricter word limits. AI/Tech requires substantive
 explanation copy and Psychology a substantive final takeaway (at least 20 body
 characters). These are deterministic capacity checks, not proof that a caveat is
-meaningful. Every canonical claim must still be mapped; body checkpoints apply
+meaningful. Psychology adaptation must not strengthen an uncertain explanation
+into a motive, mechanism, cause, or diagnosis, or silently select one retained
+alternative. Every canonical claim must still be mapped; body checkpoints apply
 the same rules. Prompts require visible AI/Tech limitations, availability scope and
 as-of context; Psychology preserves observation versus inference, alternative
 explanations and takeaway qualification. Human review assesses semantic fidelity.

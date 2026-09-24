@@ -83,6 +83,8 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 
 Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
 individual stage examples, `regression` is a curated representative set, and
+`psychology_hardening` is the focused Psychology Generation/Adaptation campaign;
+`psychology_spotcheck` is its smaller post-change high-risk subset;
 `full` is reserved for the broad/expensive matrix. The committed Pass 2 matrix
 includes the Intake edge-case catalogue and representative human and frozen
 Detection chains; operators choose profiles and explicit ceilings deliberately.

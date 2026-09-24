@@ -79,7 +79,35 @@ class _FrozenFixtureClient:
         return deepcopy(self.response)
 
 
-def _fixture_brief(pipeline_id: str) -> dict[str, Any]:
+PSYCHOLOGY_HARDENING_FIXTURES = {
+    "psychology_unfamiliar_group_v1": ("Hesitation in an unfamiliar group", "A person speaks less during their first meeting with an unfamiliar group."),
+    "psychology_quiet_employee_v1": ("Quiet employee in a large meeting", "An employee contributes little during a large team meeting but participates actively in smaller discussions."),
+    "psychology_delayed_response_v1": ("Delayed text response", "Someone regularly takes several hours to respond to messages."),
+    "psychology_deadline_start_v1": ("Deadline-near assignment start", "A student repeatedly starts an assignment shortly before the deadline."),
+    "psychology_eye_contact_v1": ("Less eye contact", "Someone makes less eye contact during a conversation."),
+    "psychology_workplace_disagreement_v1": ("Workplace disagreement", "A coworker disagrees with a proposal in a meeting but says little afterward."),
+    "psychology_reaction_checking_v1": ("Checking social-media reactions", "A person frequently checks how many reactions their posts receive."),
+    "psychology_time_alone_v1": ("Requesting time alone", "One partner asks for more time alone after several busy weeks."),
+    "psychology_group_preference_v1": ("Changed group preference", "A participant changes their stated preference after hearing that everyone else chose differently."),
+    "psychology_option_comparison_v1": ("Continued option comparison", "A shopper continues comparing options after finding one that meets all stated requirements."),
+}
+
+
+def _fixture_brief(pipeline_id: str, fixture_id: str | None = None) -> dict[str, Any]:
+    if fixture_id in PSYCHOLOGY_HARDENING_FIXTURES:
+        target, observation = PSYCHOLOGY_HARDENING_FIXTURES[fixture_id]
+        return {
+            "editorial_goal": "Explain the stated observation without diagnosing a person or asserting an unobserved reason.",
+            "topic": target,
+            "coverage_kind": "behavior_observation",
+            "canonical_target": target,
+            "revision_scope": "whole_brief",
+            "audience": "people considering an everyday social or behavioral observation",
+            "desired_outcome": "inform",
+            "constraints": {"stage_fixture": "psychology_epistemic_hardening_v1", "observation": observation},
+            "source_context": observation,
+            "open_questions": [],
+        }
     targets = {
         "english": ("break the ice", "intermediate English learners", "Teach a practical workplace expression."),
         "ai_tech": ("AI meeting assistant scope", "AI tool evaluators", "Explain a hypothetical, reviewable AI workflow."),
@@ -235,6 +263,7 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
         "ai_scope_v1": "ai_tech",
         "ai_bounded_evidence_v1": "ai_tech",
         "psychology_uncertainty_v1": "psychology",
+        **{fixture_id: "psychology" for fixture_id in PSYCHOLOGY_HARDENING_FIXTURES},
     }
     try:
         pipeline_id = pipelines[fixture_id]
@@ -244,7 +273,7 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
         brief, evidence = _bounded_ai_detection_fixture()
         _seed_detection_input(store, brief, evidence)
     else:
-        brief = _fixture_brief(pipeline_id)
+        brief = _fixture_brief(pipeline_id, fixture_id)
         store.create_human_idea(brief["editorial_goal"], command_id=f"frozen-{fixture_id}-{case.attempt}")
         if GeminiIntakeWorker(store, _FrozenFixtureClient(brief), instance_id="acceptance-frozen-intake").run_once() is None:
             raise ValueError("frozen stage fixture did not create a BriefRevision")
