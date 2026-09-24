@@ -21,6 +21,8 @@ from acceptance.framework import (
     case_fits_remaining, Category, evaluate_hard_invariants, initialize_acceptance_database,
     require_live_authorization, result_dict, write_json,
 )
+from acceptance.adapters import execute_case
+from acceptance.evaluators import evaluate_pipeline
 from common.environment import load_environment_file
 from common.gemini import configured_model
 from common.timestamps import utc_now
@@ -61,6 +63,7 @@ def _planned(cases: list[Case], text_policy: Any, image_policy: Any | None, repe
         calls, images, cost = configured_worst_case(case, text_policy, image_policy)
         for attempt in range(1, repeat + 1):
             rows.append({"case_id": case.case_id, "attempt": attempt, "stage": case.stage,
+                         "start_stage": case.start_stage, "end_stage": case.end_stage,
                          "source_kind": case.source_kind, "max_calls": calls,
                          "max_image_calls": images,
                          "estimated_max_cost_usd": str(Decimal(cost) / Decimal(1_000_000))})
@@ -164,6 +167,39 @@ def _summary(results: list[dict[str, Any]], budget: dict[str, Any], planned: lis
     return "\n".join(lines)
 
 
+def _write_stage_artifacts(attempt_dir: Path, execution: StageExecution) -> None:
+    """Keep partial successful handoffs inspectable after a later stage fails."""
+    for stage, value in execution.output.items():
+        if stage in {"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation"}:
+            filename = {"editorial_planning": "editorial_plan", "generation": "canonical",
+                        "visual_selection": "visual_recipe"}.get(stage, stage)
+            write_json(attempt_dir / f"{filename}.json", value)
+
+
+def _stability(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Report repeat consistency without treating wording changes as failures."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for result in results:
+        grouped.setdefault(result["case_id"], []).append(result)
+    rows = []
+    for case_id in sorted(grouped):
+        attempts = grouped[case_id]
+        successful = [item for item in attempts if item["status"] in {"PASS", "WARN"}]
+        outputs = [item.get("output", {}) for item in successful]
+        routes = [tuple(sorted(route["pipeline_id"] for route in output.get("determination", {}).get("routes", []) if route["disposition"] == "selected")) for output in outputs]
+        outcomes = [output.get("determination", {}).get("outcome") for output in outputs]
+        lanes = [output.get("editorial_planning", {}).get("plan", {}).get("lane") for output in outputs]
+        slides = [len(output.get("adaptation", {}).get("package", {}).get("visual_units", [])) for output in outputs if output.get("adaptation")]
+        conservation_ok = [not any(f["code"].startswith("conservation_") and f["status"] == "FAIL" for f in item["findings"]) for item in successful]
+        stable = lambda values: None if len(values) < 2 else len(set(values)) == 1
+        rows.append({"case_id": case_id, "attempts": len(attempts), "successful_attempts": len(successful),
+                     "schema_success_rate": None if not attempts else len(successful) / len(attempts),
+                     "determination_route_stable": stable(routes), "determination_outcome_stable": stable(outcomes),
+                     "editorial_lane_stable": stable(lanes), "adaptation_slide_count_stable": stable(slides),
+                     "conservation_success_rate": None if not conservation_ok else sum(conservation_ok) / len(conservation_ok)})
+    return {"schema_version": 1, "cases": rows}
+
+
 def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
                limits: dict[str, Any], environment: Mapping[str, str],
                case_directory: Path, output_root: Path) -> tuple[Path, dict[str, Any]]:
@@ -227,8 +263,14 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
             write_json(attempt_dir / "input.json", case.input)
             database = attempt_dir / "workflow.db"
             try:
-                execution = stage_registry.execute(stage_case, database, authorization, text_policy)
-                evaluation = evaluate_hard_invariants(stage_case, execution)
+                # Preserve Pass 1's direct Intake executor for v1 compatibility;
+                # v2 routes each requested range through the modular production adapters.
+                if case.schema_version == 1 and case.stage == "intake":
+                    execution = stage_registry.execute(stage_case, database, authorization, text_policy)
+                    evaluation = evaluate_hard_invariants(stage_case, execution)
+                else:
+                    execution = execute_case(stage_case, database, authorization, text_policy)
+                    evaluation = evaluate_pipeline(stage_case, execution)
             except Exception as error:
                 execution = StageExecution(Status.ERROR, case.stage, None,
                                            error=f"{type(error).__name__}: case execution failed")
@@ -236,6 +278,7 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
             used_calls += execution.calls; used_images += execution.image_calls; used_cases += 1
             spent += execution.estimated_cost_micro_usd
             write_json(attempt_dir / "evaluation.json", result_dict(stage_case, execution, evaluation))
+            _write_stage_artifacts(attempt_dir, execution)
             if database.exists():
                 # SQLite stores no secrets; keep it as inspectable run evidence.
                 pass
@@ -264,6 +307,8 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
                "total_estimated_cost_usd": str(Decimal(actual_cost) / Decimal(1_000_000)),
                "total_estimated_max_cost_usd": str(Decimal(planned_max_cost) / Decimal(1_000_000)),
                "cases": cost_rows})
+    stability = _stability(results)
+    write_json(workspace.root / "stability.json", stability)
     run_info = {"schema_version": 1, "framework_version": FRAMEWORK_VERSION,
         "run_id": workspace.run_id, "started_at": workspace.started_at, "ended_at": utc_now(),
         "git_revision": _git_revision(), "profile": profile, "mode": "dry_run" if dry_run else "live",
@@ -273,7 +318,8 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
         "estimated_cost_usd": str(Decimal(actual_cost) / Decimal(1_000_000)),
         "planned_max_cost_usd": str(Decimal(planned_max_cost) / Decimal(1_000_000)),
         "result_counts": counts, "actual_calls": sum(r["calls"] for r in results),
-        "actual_image_calls": sum(r["image_calls"] for r in results)}
+        "actual_image_calls": sum(r["image_calls"] for r in results),
+        "stability_report": "stability.json"}
     write_json(workspace.root / "run.json", run_info)
     (workspace.root / "summary.md").write_text(_summary(results, {**run_info, "max_usd": str(budget.max_usd)}, planned))
     return workspace.root, run_info

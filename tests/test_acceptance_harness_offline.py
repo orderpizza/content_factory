@@ -106,6 +106,41 @@ def test_case_validation_and_closed_schema():
             validate_case(value)
 
 
+def test_v2_chain_case_requires_complete_live_envelope_and_is_explicitly_versioned():
+    chain = next(case for case in discover_cases(FIXTURES) if case.case_id == "chain_english_icebreaker")
+    assert chain.schema_version == 2
+    assert (chain.start_stage, chain.end_stage, chain.stage) == ("intake", "adaptation", "adaptation")
+    assert chain.live_budget["calls_by_stage"] == {
+        "intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1,
+    }
+    raw = json.loads((FIXTURES / "pass2_text_matrix.json").read_text())["cases"][20]
+    raw["live_budget"]["calls_by_stage"].pop("generation")
+    with pytest.raises(AcceptanceError, match="every live chain stage"):
+        validate_case(raw)
+
+
+def test_v2_detection_case_has_frozen_input_and_no_image_envelope():
+    case = next(case for case in discover_cases(FIXTURES) if case.case_id == "chain_frozen_ai_scope")
+    assert case.source_kind == "detection_fixture"
+    assert case.start_stage == "determination"
+    assert case.input["source_evidence"]["evidence"][0]["reference_id"] == "fixture:acme:1"
+    assert case.live_budget["image_calls"] == 0
+
+
+def test_stability_report_keeps_individual_attempts_visible():
+    results = [
+        {"case_id": "a", "status": "PASS", "output": {"determination": {"outcome": "accepted", "routes": []}}, "findings": []},
+        {"case_id": "a", "status": "FAIL", "output": {}, "findings": []},
+    ]
+    report = matrix._stability(results)
+    assert report["cases"] == [{
+        "case_id": "a", "attempts": 2, "successful_attempts": 1, "schema_success_rate": 0.5,
+        "determination_route_stable": None, "determination_outcome_stable": None,
+        "editorial_lane_stable": None, "adaptation_slide_count_stable": None,
+        "conservation_success_rate": 1.0,
+    }]
+
+
 def test_duplicate_case_ids_rejected(tmp_path):
     data = raw_case()
     (tmp_path / "a.json").write_text(json.dumps(data))

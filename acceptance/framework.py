@@ -37,11 +37,14 @@ class Category(str, Enum):
     BUDGET = "budget"
 
 
-STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "adaptation", "image_rendering"})
+STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "image_rendering"})
+TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
+CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation")
 PROFILES = frozenset({"smoke", "stage", "regression", "full"})
 SOURCE_KINDS = frozenset({"human", "detection_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_CASE_KEYS = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
+_CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
+_CASE_KEYS_V2 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "conservation", "tags", "profiles", "live_budget", "start_stage", "end_stage"}
 _EXPECTATION_KEYS = {"determination", "canonical", "carousel"}
 _MAX_BUDGET_MICRO_USD = 9_223_372_036_854_775_807
 
@@ -78,26 +81,41 @@ class Case:
     profiles: tuple[str, ...]
     live_budget: dict[str, int]
     stage: str
+    start_stage: str | None = None
+    end_stage: str | None = None
+    conservation: tuple[dict[str, Any], ...] = ()
 
 
 def validate_case(value: Any, *, path: str = "case") -> Case:
     if not isinstance(value, dict):
         raise AcceptanceError(f"{path} must be an object")
-    unknown = set(value) - _CASE_KEYS
-    missing = _CASE_KEYS - set(value)
+    version = value.get("schema_version") if isinstance(value, dict) else None
+    keys = _CASE_KEYS_V1 if version == 1 else _CASE_KEYS_V2 if version == 2 else set()
+    unknown = set(value) - keys
+    missing = keys - set(value)
     if unknown or missing:
         raise AcceptanceError(f"{path} keys invalid (unknown={sorted(unknown)}, missing={sorted(missing)})")
     case_id = value["case_id"]
     if not isinstance(case_id, str) or not _ID.fullmatch(case_id):
         raise AcceptanceError(f"{path}.case_id is invalid")
-    if value["schema_version"] != 1 or type(value["schema_version"]) is not int:
+    if version not in {1, 2} or type(version) is not int:
         raise AcceptanceError(f"{path} uses an unknown schema version")
     if not isinstance(value["description"], str) or not value["description"].strip():
         raise AcceptanceError(f"{path}.description is required")
     if not isinstance(value["source_kind"], str) or value["source_kind"] not in SOURCE_KINDS:
         raise AcceptanceError(f"{path}.source_kind is invalid")
-    if not isinstance(value["stage"], str) or value["stage"] not in STAGES:
-        raise AcceptanceError(f"{path}.stage is invalid")
+    if version == 1:
+        start_stage = end_stage = value["stage"]
+    else:
+        start_stage, end_stage = value["start_stage"], value["end_stage"]
+    if (not isinstance(start_stage, str) or not isinstance(end_stage, str)
+            or start_stage not in CHAIN_STAGES or end_stage not in CHAIN_STAGES
+            or CHAIN_STAGES.index(start_stage) > CHAIN_STAGES.index(end_stage)):
+        raise AcceptanceError(f"{path}.start_stage/end_stage is invalid")
+    if value["source_kind"] == "human" and start_stage != "intake":
+        raise AcceptanceError(f"{path}.human cases must start at intake")
+    if value["source_kind"] == "detection_fixture" and start_stage != "determination":
+        raise AcceptanceError(f"{path}.detection fixtures must start at determination")
     if not isinstance(value["input"], dict) or not value["input"]:
         raise AcceptanceError(f"{path}.input must be a nonempty object")
     input_keys = {"idea"} if value["source_kind"] == "human" else {"frozen_brief", "source_evidence"}
@@ -110,27 +128,67 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
     elif any(not isinstance(value["input"][key], dict) for key in input_keys):
         raise AcceptanceError(f"{path}.input frozen detection fields must be objects")
     exp = value["expectations"]
-    if not isinstance(exp, dict) or set(exp) - _EXPECTATION_KEYS:
+    allowed = {
+        "intake": {"statuses", "must_preserve"},
+        "determination": {"required_selected", "forbidden_selected", "required_dispositions", "outcome"},
+        "editorial": {"lanes", "min_candidates", "max_candidates"},
+        "canonical": {"must_preserve", "required_claim_kinds", "require_evidence_refs"},
+        "adaptation": {"min_slides", "max_slides", "required_roles"},
+        "carousel": {"min_slides", "max_slides"},
+    }
+    if not isinstance(exp, dict) or set(exp) - set(allowed):
         raise AcceptanceError(f"{path}.expectations has unknown keys")
-    allowed = {"determination": {"required_selected", "forbidden_selected"}, "canonical": {"must_preserve"}, "carousel": {"min_slides", "max_slides"}}
     for section_name, section_value in exp.items():
         if not isinstance(section_value, dict) or set(section_value) - allowed[section_name]:
             raise AcceptanceError(f"{path}.expectations.{section_name} has invalid shape")
-        if section_name in {"determination", "canonical"}:
+        if section_name in {"determination", "canonical", "intake"}:
             for key, items in section_value.items():
-                if not isinstance(items, list) or any(not isinstance(item, str) or not item.strip() for item in items):
+                if key == "outcome":
+                    if not isinstance(items, str) or items not in {"accepted", "blocked", "not_recommended"}:
+                        raise AcceptanceError(f"{path}.expectations.determination.outcome is invalid")
+                elif key == "require_evidence_refs":
+                    if type(items) is not bool:
+                        raise AcceptanceError(f"{path}.expectations.canonical.require_evidence_refs is invalid")
+                elif not isinstance(items, list) or any(not isinstance(item, str) or not item.strip() for item in items):
                     raise AcceptanceError(f"{path}.expectations.{section_name}.{key} must be a list of nonempty strings")
-        else:
+        elif section_name in {"carousel", "adaptation"}:
             for key, count in section_value.items():
-                _positive_int(count, f"{path}.expectations.carousel.{key}")
+                if key == "required_roles":
+                    if not isinstance(count, list) or not count or any(not isinstance(role, str) or not role for role in count):
+                        raise AcceptanceError(f"{path}.expectations.adaptation.required_roles is invalid")
+                else:
+                    _positive_int(count, f"{path}.expectations.carousel.{key}")
             if "min_slides" in section_value and "max_slides" in section_value and section_value["min_slides"] > section_value["max_slides"]:
                 raise AcceptanceError(f"{path}.expectations.carousel bounds are reversed")
+        else:
+            for key, count in section_value.items():
+                if key == "lanes":
+                    if not isinstance(count, list) or not count or any(item not in {"trend", "evergreen", "series", "experiment"} for item in count):
+                        raise AcceptanceError(f"{path}.expectations.editorial.lanes is invalid")
+                else:
+                    _positive_int(count, f"{path}.expectations.editorial.{key}")
     for key in ("tags", "profiles"):
         items = value[key]
         if not isinstance(items, list) or not items or any(not isinstance(x, str) or not _ID.fullmatch(x) for x in items) or len(set(items)) != len(items):
             raise AcceptanceError(f"{path}.{key} must be a nonempty unique string list")
     if set(value["profiles"]) - PROFILES:
         raise AcceptanceError(f"{path}.profiles contains an unknown profile")
+    conservation_value = [] if version == 1 else value["conservation"]
+    if not isinstance(conservation_value, list):
+        raise AcceptanceError(f"{path}.conservation must be a list")
+    conservation: list[dict[str, Any]] = []
+    kinds = {"exact_identifier", "normalized_phrase", "required_concept_terms", "qualification", "scope", "epistemic_strength", "evidence_reference", "claim_lineage"}
+    for index, item in enumerate(conservation_value):
+        if not isinstance(item, dict) or set(item) != {"kind", "value"} or item["kind"] not in kinds:
+            raise AcceptanceError(f"{path}.conservation[{index}] is invalid")
+        if isinstance(item["value"], str):
+            if not item["value"].strip():
+                raise AcceptanceError(f"{path}.conservation[{index}].value is empty")
+        elif item["kind"] == "required_concept_terms" and isinstance(item["value"], list) and all(isinstance(term, str) and term.strip() for term in item["value"]):
+            pass
+        else:
+            raise AcceptanceError(f"{path}.conservation[{index}].value is invalid")
+        conservation.append(dict(item))
     budget = value["live_budget"]
     if not isinstance(budget, dict) or set(budget) != {"calls_by_stage", "image_calls"}:
         raise AcceptanceError(f"{path}.live_budget has invalid shape")
@@ -142,17 +200,27 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
     image_calls = budget["image_calls"]
     if type(image_calls) is not int or image_calls < 0 or image_calls != calls.get("image_rendering", 0):
         raise AcceptanceError(f"{path}.live_budget.image_calls is invalid")
-    if value["stage"] not in calls:
-        raise AcceptanceError(f"{path}.stage must have a declared call envelope")
-    return Case(case_id, 1, value["description"], value["source_kind"], value["input"], exp,
-                tuple(value["tags"]), tuple(value["profiles"]), budget, value["stage"])
+    required_live = [stage for stage in CHAIN_STAGES[CHAIN_STAGES.index(start_stage):CHAIN_STAGES.index(end_stage) + 1] if stage in TEXT_STAGES]
+    if any(calls.get(stage, 0) != 1 for stage in required_live):
+        raise AcceptanceError(f"{path}.live_budget must declare one call for every live chain stage")
+    if any(stage not in required_live and count for stage, count in calls.items()):
+        raise AcceptanceError(f"{path}.live_budget includes a stage outside the requested journey")
+    return Case(case_id, version, value["description"], value["source_kind"], value["input"], exp,
+                tuple(value["tags"]), tuple(value["profiles"]), budget, end_stage,
+                start_stage, end_stage, tuple(conservation))
 
 
 def discover_cases(directory: Path) -> list[Case]:
     cases: list[Case] = []
     for path in sorted(directory.glob("*.json")):
         try:
-            cases.append(validate_case(json.loads(path.read_text()), path=path.name))
+            parsed = json.loads(path.read_text())
+            # A matrix file is only a container for individually closed cases;
+            # each child is still validated by the versioned case schema.
+            values = parsed["cases"] if isinstance(parsed, dict) and set(parsed) == {"cases"} else [parsed]
+            if not isinstance(values, list) or not values:
+                raise AcceptanceError(f"{path.name} matrix must contain a nonempty cases list")
+            cases.extend(validate_case(item, path=f"{path.name}[{index}]") for index, item in enumerate(values, 1))
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             raise AcceptanceError(f"{path.name} is not valid JSON: {error}") from None
     ids = [case.case_id for case in cases]
@@ -190,6 +258,7 @@ class StageExecution:
     estimated_cost_micro_usd: int = 0
     error: str | None = None
     error_category: Category = Category.PROVIDER
+    executed_stages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -375,7 +444,9 @@ def evaluate_hard_invariants(stage_case: StageCase, execution: StageExecution) -
 
 def result_dict(stage_case: StageCase, execution: StageExecution, evaluation: StageEvaluation) -> dict[str, Any]:
     return {"schema_version": 1, "case_id": stage_case.parent_case_id, "attempt": stage_case.attempt,
-            "stage": execution.stage, "status": evaluation.status.value,
+            "stage": execution.stage, "start_stage": stage_case.case.start_stage,
+            "end_stage": stage_case.case.end_stage, "executed_stages": list(execution.executed_stages),
+            "status": evaluation.status.value,
             "model_id": execution.model_id, "calls": execution.calls,
             "image_calls": execution.image_calls,
             "estimated_cost_usd": str(Decimal(execution.estimated_cost_micro_usd) / Decimal(1_000_000)),

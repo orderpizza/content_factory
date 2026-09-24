@@ -130,8 +130,11 @@ Stop the workflow with Ctrl+C when finished. This flow does not publish.
 ## Opt-in Gemini acceptance harness
 
 The separate [`acceptance` framework](../acceptance/README.md) adds versioned
-cases, dry-run planning, isolated run workspaces, and machine-readable results.
-Dry-run does not require live opt-in. Real calls require both
+stage and chain cases, dry-run planning, isolated run workspaces, production
+ledger evidence and machine-readable results. Pass 2 covers Intake,
+Determination, Editorial Planning, Canonical Generation, deterministic visual
+selection and Adaptation; it does not invoke image rendering or create a final
+ReviewRequest. Dry-run does not require live opt-in. Real calls require both
 `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` and `--live-gemini`, plus an
 explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
 other stage, chain and image cases are reserved for later passes.

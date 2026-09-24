@@ -1,16 +1,16 @@
 # Gemini acceptance framework
 
 This directory holds opt-in live acceptance tooling, versioned input cases,
-future stage evaluators, and run reports. It is separate from production worker
+stage/chain evaluators, and run reports. It is separate from production worker
 composition. Normal tests use fake providers and remain offline.
 
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for
 a realistic input. A case is a golden input and a set of stable constraints;
 Gemini output is not a golden snapshot. Generated hooks, captions, and other
-stochastic text must not be checked by exact equality. Pass 1 evaluates only
-basic deterministic execution/artifact invariants and does not claim semantic
-quality. There is no Gemini judge.
+stochastic text must not be checked by exact equality. Pass 2 evaluates
+deterministic contracts, conservative conservation checks, and human-review
+findings; it does not claim semantic quality. There is no Gemini judge.
 
 The harness is designed for three scopes:
 
@@ -18,12 +18,12 @@ The harness is designed for three scopes:
 2. **Chain:** several live stages using each prior result as frozen input.
 3. **Full journey:** Human or Detection through review-ready assets.
 
-Pass 1 establishes the versioned case and result models, central double opt-in,
-budget admission, isolated workspaces, repeat/profile support, and artifacts.
-Pass 2 will add the broad text and semantic stage matrix. Pass 3 will add image,
-visual, and full-journey acceptance. The current live adapter executes human
-Intake. Other source/stage combinations are representable and dry-runnable, but
-are reported as unsupported in live mode until their later stage adapters land.
+Pass 1 established the authorization, admission and isolated-workspace
+foundation. Pass 2 invokes the production Intake, Determination, Editorial
+Planning, Canonical Generation and Adaptation workers; chains also run the
+deterministic VisualPlanner between generation and adaptation. Pass 3 remains
+responsible for Gemini image generation, board/overlay evaluation and final
+ReviewRequest journeys.
 
 ## Safety and budgets
 
@@ -58,7 +58,7 @@ Plan selected cases without a provider call:
 .venv/bin/python -m acceptance.runners.matrix --profile smoke --dry-run --max-usd 0.20
 ```
 
-Run the live smoke Intake case:
+Run the live smoke case:
 
 ```sh
 CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
@@ -74,16 +74,19 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 
 Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
 individual stage examples, `regression` is a curated representative set, and
-`full` is reserved for a broad/expensive matrix. Pass 1 intentionally includes
-only three small framework-validation fixtures.
+`full` is reserved for the broad/expensive matrix. The committed Pass 2 matrix
+includes the Intake edge-case catalogue and representative human and frozen
+Detection chains; operators choose profiles and explicit ceilings deliberately.
 
 Every run writes under `data/acceptance/<run-id>/` by default. It includes
-`run.json`, `plan.json`, `summary.md`, `costs.json`, and one `input.json` plus
-`evaluation.json` per case attempt. Live Intake uses a new current-schema
-SQLite database per attempt. The database preserves production model
-invocations/reservations; it is never the normal development database. Case
-outputs contain test content and generated output for inspection. Credentials,
-tokens, and full auth configuration are never copied into artifacts.
+`run.json`, `plan.json`, `summary.md`, `costs.json`, `stability.json`, and one
+`input.json` plus `evaluation.json` per case attempt. Live attempts use a new
+current-schema SQLite database per attempt. Chain attempts retain every
+completed handoff (`intake.json`, `determination.json`, `editorial_plan.json`,
+`canonical.json`, `visual_recipe.json`, and `adaptation.json`) before a later
+failure. The database preserves production model invocations/reservations; it
+is never the normal development database. Credentials, tokens, and full auth
+configuration are never copied into artifacts.
 
 The result JSON is authoritative. Summary Markdown is a concise index. PASS,
 WARN, FAIL, ERROR, and SKIP are result statuses; `SKIP_BUDGET` is a distinct
@@ -93,13 +96,21 @@ failures away.
 
 ## Cases and evaluators
 
-Cases use closed JSON schema version 1. Unknown versions, fields, malformed
-expectations, duplicate IDs, and invalid budgets fail before a provider call.
-Expectations are structured and versioned so future stage-specific checks can
-be added deliberately. The intended checks include required/forbidden selected
-routes, preserved canonical facts, and slide-count bounds; they do not require
-an exact stochastic response string. Evaluators separate hard deterministic
-invariants from future semantic, editorial, and visual review.
+Cases use closed JSON schemas. Version 1 remains readable for Pass 1 fixtures.
+Version 2 explicitly adds `start_stage`, `end_stage`, stage expectations and
+conservation expectations; it does not overload the v1 `stage` field. A JSON
+file may contain one case or a `{ "cases": [...] }` matrix. Unknown versions,
+fields, malformed expectations, duplicate IDs, and invalid budgets fail before
+a provider call.
+
+Hard contract findings can fail: closed schemas, route disposition, editorial
+candidate/lane bounds, visual recipe lineage and slide bounds. Declared exact
+identifiers and normalized phrases can fail when visibly absent. Scope,
+qualification, epistemic strength, evidence-reference and claim-lineage checks
+are WARN/human-review where lexical matching cannot establish semantic
+equivalence. `stability.json` reports per-case schema success,
+route/outcome/lane/slide-count stability and conservation success without
+hiding individual failures.
 
 Normal pytest does not discover or import the CLI as a test, and the live
 provider factory is reachable only after the central opt-in gate in the live
