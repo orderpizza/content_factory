@@ -225,6 +225,11 @@ series for an intentional recurring format; experiment only for a deliberate edi
 strategy test with a stated intention, never merely for unusual content or visuals.
 Do not invent freshness or detection measurements: use supplied as_of and source dates.
 Do not invent research, etymology, cultural generalizations, benchmarks or diagnoses.
+For AI/Tech, a source title, product name, brief target, or evidence ID supports only
+the words it explicitly contains. Do not turn an announcement title into a capability,
+comparison, availability, eligibility, security, integration, deployment, pricing, or
+rollout claim. If frozen evidence confirms only that an announcement occurred, choose
+a treatment limited to what the announcement identifies and what it does not specify.
 All candidates must include the supplied required qualification codes; generation will
 carry these requirements forward. Keep source facts distinct from provider claims,
 inferences and hypothetical examples. No factual entailment is assumed from an ID.

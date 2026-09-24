@@ -72,6 +72,9 @@ def evaluate_pipeline(case: StageCase, execution: Any) -> StageEvaluation:
         for term in exp["canonical"].get("must_preserve", []):
             if _norm(term) not in canonical_text:
                 findings.append(_finding(case, "generation", Status.FAIL, Category.SEMANTIC, "canonical_term_missing", "Declared canonical term is absent."))
+        for term in exp["canonical"].get("forbidden_terms", []):
+            if _norm(term) in canonical_text:
+                findings.append(_finding(case, "generation", Status.FAIL, Category.SEMANTIC, "canonical_forbidden_term_present", "A term excluded by the frozen-evidence case is present in canonical content."))
         kinds = {claim.get("claim_kind") for claim in canonical.get("claims", [])}
         for kind in exp["canonical"].get("required_claim_kinds", []):
             if kind not in kinds:

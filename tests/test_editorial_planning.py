@@ -56,6 +56,13 @@ class EditorialPlanningTests(unittest.TestCase):
         })
         self.assertIn('copy its evidence_reference_ids exactly from', prompt)
 
+    def test_ai_planning_prompt_limits_title_only_evidence(self):
+        prompt = planning_prompt({
+            'domain': 'ai_tech',
+            'allowed_evidence_reference_ids': ['fixture:acme:1'],
+        })
+        self.assertIn('a source title, product name, brief target, or evidence ID supports only', prompt)
+
     def test_domains_plan_before_job_and_generation_consumes_plan(self):
         for domain in QUALIFICATIONS:
             with self.subTest(domain=domain):

@@ -47,6 +47,9 @@ Validation enforces structure, cardinality and reference membership. It does
 that a domain's editorial rules are satisfied. There is no approved teaching
 reference catalog, autonomous research or second semantic-validation model call.
 [Domain policy](../pipelines/domains.md) guides prompts and human review.
+For AI/Tech, source titles, identifiers, brief targets and planner proposals are
+not evidence of unstated product details; generation must keep title-only
+evidence to the stated announcement and explicit unknowns.
 
 Successful generation commits one canonical result per job, all frozen
 OutputRequests and their initial pending VisualPlanRuns together. Failure does

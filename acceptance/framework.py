@@ -143,7 +143,7 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
         "intake": {"statuses", "must_preserve"},
         "determination": {"required_selected", "forbidden_selected", "required_dispositions", "outcome"},
         "editorial": {"lanes", "min_candidates", "max_candidates"},
-        "canonical": {"must_preserve", "required_claim_kinds", "require_evidence_refs"},
+        "canonical": {"must_preserve", "forbidden_terms", "required_claim_kinds", "require_evidence_refs"},
         "adaptation": {"min_slides", "max_slides", "required_roles"},
         "carousel": {"min_slides", "max_slides"},
     }

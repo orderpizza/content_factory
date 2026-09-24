@@ -332,6 +332,11 @@ a product fact. When the frozen brief or plan is hypothetical, keep every
 capability and use case explicitly hypothetical; keep the no-availability
 scope visible in the domain payload and limitations. Do not turn a hypothetical
 workflow into a real product description.
+An evidence title, product name, candidate topic, or evidence ID supports only
+the literal facts stated in the frozen source text. It cannot make the plan's
+suggested capabilities, comparisons, eligibility, pricing, integrations,
+security, rollout, or deployment details factual. If the evidence only confirms
+an announcement, say that the details are not specified; do not fill them in.
 """
     return """You are the domain generation worker for a local content factory.
 The immutable editorial_plan fixes the strategic angle. Find its selected candidate
