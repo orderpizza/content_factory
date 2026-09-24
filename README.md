@@ -11,13 +11,16 @@ Sources / Human ideas → Detection / Intake → Determination
 → Canonical generation → Visual planning → Instagram adaptation → Gemini rendering → Review
 ```
 
-All three domains produce six 1080×1350 Instagram review PNGs using one Gemini
-3×2 storyboard call and shared local processing. English uses
-`expression_breakdown_v1`, AI/Tech uses `ai_tech_explainer_v1`, and Psychology
-uses `psychology_explainer_v1`, each with its own prompt profile. The dashboard shows
-progress, evidence and exact review assets. Actual posting is outside the current
-implementation scope; generic delivery records and R2 staging remain preserved.
-The deterministic visual library and HTML renderer are preserved inactive.
+English produces exactly six 1080×1350 Instagram review PNGs from one Gemini 3×2
+storyboard. AI/Tech and Psychology produce 4–14 slides with deterministic
+pagination across 1×1, 2×1, 2×2, and 3×2 boards; each domain has three curated
+archetypes. Shared local processing makes every final slide 4:5 (1080×1350).
+See the [visual rendering contract](docs/specs/visual-rendering.md) for the
+profiles, board mapping, split behavior, and review requirements. The dashboard
+shows progress, evidence and exact review assets. Actual posting is outside the
+current implementation scope; generic delivery records and R2 staging remain
+preserved. The deterministic visual library and HTML renderer are preserved
+inactive.
 
 Start with [operations](docs/current-state.md), [architecture and document
 ownership](docs/system.md), and [agent instructions](AGENTS.md).

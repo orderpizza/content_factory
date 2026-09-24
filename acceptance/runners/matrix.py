@@ -340,7 +340,7 @@ def _git_revision() -> str | None:
 def main(argv: list[str] | None = None) -> int:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=sorted({"smoke", "stage", "regression", "pass3", "pass3_boards", "pass3_journeys", "pass3_detection_journey", "pass3_psychology_journey", "psychology_hardening", "psychology_spotcheck", "full"}), default="smoke")
+    parser.add_argument("--profile", choices=sorted({"smoke", "stage", "regression", "pass3", "pass3_boards", "pass3_closure", "pass3_journeys", "pass3_detection_journey", "pass3_psychology_journey", "psychology_hardening", "psychology_spotcheck", "full"}), default="smoke")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--live-gemini", action="store_true")
     parser.add_argument("--max-usd")

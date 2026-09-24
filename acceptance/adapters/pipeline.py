@@ -311,6 +311,7 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
 
 
 RENDER_FIXTURES = {
+    "english_grid_6_v1": ("english", 6),
     "ai_tech_grid_5_v1": ("ai_tech", 5),
     "psychology_grid_14_v1": ("psychology", 14),
 }
@@ -318,6 +319,34 @@ RENDER_FIXTURES = {
 
 def _fixture_adaptation(pipeline_id: str, total_slides: int) -> dict[str, Any]:
     claim_id = f"{pipeline_id}.example.1"
+    if pipeline_id == "english":
+        # This is intentionally a complete, capacity-valid English package.
+        # It prepares the real planner/compiler/renderer path without spending
+        # text-stage calls or weakening the accepted six-position grammar.
+        units = [
+            {"role": "hook", "title": "Break the Ice",
+             "body": "Make a new conversation feel easier.", "claim_ids": [claim_id]},
+            {"role": "explanation", "title": "Meaning",
+             "body": "It means making an awkward first moment feel more relaxed.", "claim_ids": [claim_id]},
+            {"role": "explanation", "title": "When to Use It",
+             "body": "At a first meeting\nBefore a group activity\nWhen introductions feel quiet", "claim_ids": [claim_id]},
+            {"role": "example", "title": "Examples",
+             "body": "I told a light joke to break the ice.\nA simple question can break the ice.", "claim_ids": [claim_id]},
+            {"role": "example", "title": "Short Dialogue",
+             "body": "A: Is this your first visit?\nB: Yes, it is.\nA: Let me break the ice.", "claim_ids": [claim_id]},
+            {"role": "takeaway", "title": "Remember",
+             "body": "Use it for a new start.\nKeep the tone friendly.", "claim_ids": [claim_id]},
+        ]
+        return {
+            "caption_summary": "A compact English expression fixture for review-render acceptance.",
+            "cta": "Review each expression panel.",
+            "private_tags": ["acceptance", "english expression"],
+            "hashtags": ["#english"],
+            "alt_text": "A six-panel English expression carousel for local acceptance review.",
+            "public_text_claim_ids": [claim_id],
+            "visual_units": units,
+            "visual_cues": [],
+        }
     roles = ["hook", *["explanation" if index % 2 else "example" for index in range(1, total_slides - 1)], "takeaway"]
     units = []
     for ordinal, role in enumerate(roles, 1):

@@ -2,122 +2,104 @@
 
 ## Executive summary
 
-**PASS 3 PARTIALLY ACCEPTED — specific visual and coverage defects remain.**
-Live Gemini Image produced structurally valid, review-ready assets through the
-production renderer. The strict 2×2, 1×1 and 3×2 contracts, split/normalization,
-overlays, raw-asset retention and ReviewRequest creation have real evidence.
-However, 2×1 and live multi-board processing did not complete after a provider
-failure, and real generated text contains a visible misspelling. English's
-adaptive margin/gutter path also lacks live evidence because its upstream
-Generation call failed.
+**PASS 3 ACCEPTED — VISUAL RENDERING CONTRACT VALIDATED.**
 
-## Environment and cost
+Live Gemini Image evidence now covers the full active board family and both
+processing paths: English's six-slide adaptive-split compatibility path and
+dynamic 1×1, 2×1, 2×2, and 3×2 boards. The production renderer completed
+4+1 and 6+6+2 multi-board runs, retained raw boards, created correctly ordered
+1080×1350 review PNGs, applied overlays, and committed ReviewRequests. This is
+acceptance of the rendering contract, not acceptance of Gemini typography,
+posting automation, provider reliability, or Psychology editorial quality.
 
-| Item | Result |
+## Live evidence
+
+| Contract evidence | Result |
 | --- | --- |
-| Image model / requested size | `gemini-3.1-flash-image` / `2K` |
-| Text model | `gemini-3-flash-preview` |
-| Compiler / renderer contract | `gemini_storyboard_prompt_v4` / `image_storyboard_paginated_v2` |
-| Image attempts / completed boards | 6 / 4 |
-| Text attempts / completed | 9 / 7 |
-| Settled ledger estimate | `$0.445809` |
+| 1×1 | AI/Tech five-slide fixture, second board; PASS |
+| 2×2 | AI/Tech five-slide fixture, first board; PASS |
+| 3×2 | Frozen Detection AI/Tech journey and both 6-slide long-carousel boards; PASS |
+| 4+1 multi-board orchestration | AI/Tech five-slide fixture completed sequentially; PASS |
+| English adaptive path | Six-slide English fixture, one 3×2 5:4 board, ReviewRequest; PASS |
+| 2×1 | Long-carousel third board, two 4:5 finals, ReviewRequest; PASS |
+| 6+6+2 long pagination | Three sequential boards, all 14 ordered finals; PASS |
+| Detection through review | Frozen Detection AI/Tech journey; PASS |
 
-The original five-case preflight planned 26 total calls (14 text, 12 image) and
-`$6.11`, below the authorized `$10` / 15-image-call ceiling. The campaign used
-focused, smaller runs after a local per-job admission mismatch was discovered;
-no automatic paid retry occurred.
+The closure campaign was deliberately limited to four image calls: one English
+board and three boards for the 14-slide fixture. All four succeeded. The
+English board ledger estimate was `$0.101572`; the long fixture's estimate was
+`$0.303487`, for `$0.405059` in closure evidence. No text-stage calls or
+automatic paid retries were used.
 
-## Board coverage and 3A contract results
+## English adaptive split
 
-| Grid | Live evidence | Raw board / validation | Status |
-| --- | --- | --- | --- |
-| 1×1 | AI/Tech 5-slide fixture, board 2 | PNG, 1856×2304, 4:5; valid | PASS |
-| 2×1 | None | The 14-slide fixture failed before its first board returned bytes | INCOMPLETE |
-| 2×2 | AI/Tech 5-slide fixture, board 1 | PNG, 1856×2304, 4:5; valid | PASS |
-| 3×2 | Frozen Detection AI/Tech journey | PNG, 2304×1856, 5:4; valid | PASS |
-| Multi-board | None completed | 14-slide fixture provider `ClientError` before board 1 | INCOMPLETE |
+The production-shaped English fixture selected `expression_story_scene_v1` and
+completed the normal English planner, prompt compiler, renderer, overlay and
+ReviewRequest path. Its requested 3×2 board was a 2304×1856 PNG at 5:4, and all
+six finals are 1080×1350 PNGs in order.
 
-Every successful board had one original PNG, a recorded requested ratio and raw
-dimensions, SHA-256 hash, prompt hash, source rectangles, final hashes and
-StoryboardPlan lineage. The local image-job cap initially allowed one board and
-blocked a later board; the focused acceptance run used the authorized envelope
-as its isolated job cap and completed the 4+1 case. This was an admission setup
-defect, not an image-processing defect.
+Gemini returned no confidently detectable shared border/margin family. The
+accepted English fallback therefore ran exactly as designed:
 
-## 3B processing and visual inspection
-
-The 5-slide fixture proved deterministic board order 4+1, row-major splitting,
-global counters 1/5–5/5 and final-slide cue removal. The frozen-Detection
-journey proved 3×2 row-major extraction and counters 1/6–6/6. All successful
-final PNGs are exactly 1080×1350. No swapped, duplicated or missing panels,
-overlay collision, or cross-panel composition was seen in the successful boards.
-
-The transparent chrome is readable and unobtrusive: dynamic headers, counters
-and non-final swipe cues are correct; no footer brand appears for AI/Tech.
-Comparing raw-board cells with final PNGs showed no material softness, crop
-damage or encoding degradation. The source rectangles are equal-grid cells and
-the rendered UI lines/text remain crisp after Lanczos fit and overlay.
-
-English margin/gutter diagnostics are **not exercised live**. The English Human
-journey stopped at a classified Generation transport failure before StoryboardPlan
-or image rendering; no equal-grid fallback or adaptive margin decision can be
-claimed for this campaign.
-
-## 3C full journey results
-
-| Journey | Result |
+| Diagnostic | Result |
 | --- | --- |
-| Human → English → ReviewRequest | Generation transport failure; no image attempt or ReviewRequest |
-| Frozen Detection → AI/Tech → ReviewRequest | Complete six-slide 3×2 carousel; ReviewRequest created |
-| Human → Psychology → ReviewRequest | Intake provider `504 DEADLINE_EXCEEDED`; no image attempt or ReviewRequest |
+| Split method | `equal_grid_fallback_v1` |
+| Fallback | `true` |
+| Outer crop box | `[0, 0, 2304, 1856]` |
+| Detected gutters | none |
+| Equal source cells | six 768×928 row-major rectangles |
+| Normalization | centered Lanczos `ImageOps.fit` to 1080×1350 |
 
-The completed Detection carousel used `ai_tech_product_ui_v1`. The fixture
-carousel used `ai_tech_explainer_v1`; it is valid board evidence but not a
-publication-quality editorial sample.
+The local English labels, `o2_english` footer, seeded non-final CTA sequence,
+and missing final-slide cue are present. The fallback result is visually
+separable and crisp; no processing-induced crop or softness defect was found.
 
-## Visual findings and failure taxonomy
+## 2×1 and long-pagination result
 
-| Category | Finding |
-| --- | --- |
-| Provider | One multi-board image `ClientError`; English Generation transport failure; Psychology Intake 504. All are retained as distinct errors. |
-| Board contract / splitter / overlay | No deterministic defect observed on the four completed boards. |
-| Text fidelity | The Detection board's “Unstated Details” panel renders **“Dareo certifications”** rather than the supplied “certifications”. The fixture carousel also paraphrases supplied body copy and includes malformed “ceess”. This is a Gemini visual-text defect. |
-| Content density | The Detection carousel is readable and well structured; some visual labels add model-authored text beyond the adaptation copy and need human editing. |
-| Aesthetics | The Detection product-UI carousel is coherent, legible and educational. The fixed fixture is structurally useful but visually generic and text-heavy. |
+The existing 14-slide Psychology fixture completed its deterministic plan with
+three sequential calls: 6+6+2. The two 3×2 boards were 2304×1856 PNGs; the
+third 2×1 board was a 2528×1696 PNG at the planned 3:2 provider ratio. The 2×1
+board split into two equal 1264×1696 source cells, then centered-Lanczos fit
+them to ordered 1080×1350 finals 13 and 14. Counters run 1/14 through 14/14;
+the final slide has no swipe cue. There were no swapped, duplicated, missing,
+or processing-softened panels, and no material crop injury was observed.
 
-The strongest success is the frozen-Detection AI/Tech carousel: source-bound
-content, six separable panels, precise overlays and a complete ReviewRequest.
-The most important visual defect is provider-rendered text fidelity, not the
-deterministic image-processing path.
+This corrects the earlier report: the successful five-slide 4+1 fixture had
+already proved live multi-board orchestration. The outstanding gaps were the
+2×1 board and the longer 6+6+2 sequence, both now closed.
+
+## Remaining visual debt
+
+No deterministic rendering defect was found in the accepted evidence. Gemini's
+rendered typography remains a mandatory human-review concern:
+
+- The 2×1 fixture board renders the supplied word `without` as `wit-` / `whout`.
+- Earlier evidence retained a malformed `ceess` and “Dareo certifications”; the
+  English closure board also adds a model-authored `crack` label.
+
+The examples remain structurally useful, but exact supplied copy, spelling,
+extra model-authored labels, and semantic visual quality are not guaranteed by
+image generation. Provider transport failures remain an operational concern;
+the renderer deliberately has no automatic paid replay. Human review remains
+mandatory, posting remains disabled, and the separate Psychology qualification
+work is not resolved by this visual acceptance.
 
 ## Evidence locations
 
-Local, ignored acceptance workspaces retain raw boards, compiled prompts,
-validation, manifests, final slides and galleries:
+Ignored local workspaces retain immutable plans, prompts, raw provider boards,
+manifests, final PNGs, SQLite ledgers and galleries; no provider assets,
+databases, or credentials are committed.
 
-- `data/acceptance/20260924T141256-927001fb/` — 2×2 + 1×1 fixture
-- `data/acceptance/20260924T141553-3b7bc0af/` — complete frozen-Detection carousel
-- `data/acceptance/20260924T141719-18153459/` — Psychology Intake 504
+- `data/acceptance/20260924T141256-927001fb/` — completed 2×2 + 1×1 / 4+1 fixture
+- `data/acceptance/20260924T141553-3b7bc0af/` — completed frozen-Detection 3×2 journey
+- `data/acceptance/20260924T233110-3dc0c5e2/cases/pass3_english_adaptive_grid_6/attempt-01/` — English adaptive fallback evidence
+- `data/acceptance/20260924T233110-3dc0c5e2/cases/pass3_psychology_grid_6_plus_6_plus_2/attempt-01/` — completed 6+6+2 and 2×1 evidence
 
-No raw provider assets, databases or credentials are committed.
+## Decision and next move
 
-## Known non-visual debt
+**PASS 3 ACCEPTED — VISUAL RENDERING CONTRACT VALIDATED.**
 
-Psychology adaptation can still strengthen uncertain or scenario-bound language.
-This campaign did not reach Psychology adaptation, so that publication-readiness
-debt remains separate from the Intake provider failure and visual acceptance.
-
-## Remaining risks and decision
-
-- Obtain one successful 2×1/multi-board run before treating the dynamic
-  paginated renderer as fully accepted.
-- Obtain a real English board before accepting adaptive margin/gutter handling.
-- Keep human review mandatory for Gemini-rendered typography and model-authored
-  labels; correct misspellings before publication.
-- Provider reliability/resume remains operational debt; no automatic paid retry
-  is implemented.
-
-**PASS 3 PARTIALLY ACCEPTED — specific visual defects remain.** Continue with
-the proven renderer contract, but run the smallest replacement evidence cases
-when the provider is healthy: one English 3×2 board and one 14-slide dynamic
-multi-board carousel. Posting remains disabled.
+The next recommended work is **Visual Quality / Text Fidelity Strategy**:
+decide whether Gemini should continue rendering both visuals and critical text,
+or whether Gemini composition should be combined with deterministic rendering
+for critical copy. Do not implement that strategy as part of Pass 3 closure.

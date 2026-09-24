@@ -143,13 +143,12 @@ Dry-run does not require live opt-in. Real calls require both
 explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
 normal CI never invokes the text or image clients.
 
-The first live Pass 3 campaign has partial acceptance evidence: 1×1, 2×2 and
-3×2 Gemini boards reached review-ready 1080×1350 assets, while 2×1/multi-board
-and English adaptive-split evidence remain incomplete after separately recorded
-provider failures. The frozen Detection AI/Tech journey reached ReviewRequest;
-the Human English and Psychology journeys did not. Gemini-rendered visual text
-showed a spelling defect, so visual text remains a human-review gate. See the
-repository-root `PASS3_VISUAL_ACCEPTANCE_REPORT.md`; posting remains disabled.
+Pass 3 validates the visual-rendering contract with live 1×1, 2×1, 2×2 and
+3×2 boards, including 4+1 and 6+6+2 multi-board sequencing, English adaptive
+split fallback, local overlays and ReviewRequest creation. Gemini-rendered
+visual text remains a human-review gate; provider reliability, posting and
+Psychology editorial quality are separate concerns. See the repository-root
+`PASS3_VISUAL_ACCEPTANCE_REPORT.md`; posting remains disabled.
 
 The focused `psychology_hardening` profile runs ten isolated Psychology
 Generation observations and five Generation→Adaptation chains (15 generation

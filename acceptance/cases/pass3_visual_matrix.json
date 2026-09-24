@@ -1,6 +1,20 @@
 {
   "cases": [
     {
+      "case_id": "pass3_english_adaptive_grid_6",
+      "schema_version": 2,
+      "description": "Frozen six-slide English package proves the accepted adaptive 3×2 split and overlay path.",
+      "source_kind": "render_fixture",
+      "input": {"fixture_id": "english_grid_6_v1"},
+      "expectations": {"carousel": {"min_slides": 6, "max_slides": 6}},
+      "conservation": [{"kind": "exact_identifier", "value": "break the ice"}],
+      "tags": ["pass3", "english", "adaptive_split", "grid_3x2"],
+      "profiles": ["pass3", "pass3_closure", "full"],
+      "live_budget": {"calls_by_stage": {"image_rendering": 1}, "image_calls": 1},
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
       "case_id": "pass3_ai_grid_4_plus_1",
       "schema_version": 2,
       "description": "Frozen five-slide AI/Tech package proves deterministic 2×2 plus 1×1 board processing.",
@@ -23,7 +37,7 @@
       "expectations": {"carousel": {"min_slides": 14, "max_slides": 14}},
       "conservation": [],
       "tags": ["pass3", "board_contract", "grid_3x2", "grid_2x1", "multi_board"],
-      "profiles": ["pass3", "pass3_boards", "full"],
+      "profiles": ["pass3", "pass3_boards", "pass3_closure", "full"],
       "live_budget": {"calls_by_stage": {"image_rendering": 3}, "image_calls": 3},
       "start_stage": "storyboard_planning",
       "end_stage": "image_rendering"
