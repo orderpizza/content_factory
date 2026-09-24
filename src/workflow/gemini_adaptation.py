@@ -564,6 +564,13 @@ hashtags, joined with blank lines) must fit 1,500 characters.
 Check these limits before returning JSON; do not omit a required qualification
 or claim mapping to fit.
 
+For AI/Tech and Psychology explainers, every slide body must be at most 45
+words, with at most five lines and at most 18 words per line. Keep each title
+to at most 12 words. These are hard local readability limits, not suggestions:
+shorten or split copy before returning it. Before returning, verify every
+hashtag is unique, lowercase ASCII, begins with #, and contains only lowercase
+letters, digits, or underscores.
+
 """ + guidance + """<FROZEN_OUTPUT>
 """ + json.dumps(request_value, ensure_ascii=False, sort_keys=True) + """
 </FROZEN_OUTPUT>
