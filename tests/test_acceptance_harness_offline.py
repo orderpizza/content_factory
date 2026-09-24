@@ -251,6 +251,38 @@ def test_normal_pytest_dry_run_cannot_make_real_provider_invocation_even_with_cr
     assert "Planned maximum spend" in (output / "summary.md").read_text()
 
 
+def test_v1_live_intake_artifact_uses_the_persisted_source_request_column(tmp_path, monkeypatch):
+    monkeypatch.setattr(matrix, "_policies", lambda env, need_images: (text_policy(), None))
+    from common import gemini
+
+    class FakeClient:
+        model = "fake-live-intake"
+        last_usage = None
+
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_json(self, prompt, schema, *, temperature):
+            return {
+                "editorial_goal": "Teach a useful English expression.",
+                "topic": "break the ice", "coverage_kind": "language_subject",
+                "canonical_target": "break the ice", "revision_scope": "whole_brief",
+                "audience": "English learners", "desired_outcome": "teach",
+                "constraints": {}, "source_context": "A local fixture.", "open_questions": [],
+            }
+
+    monkeypatch.setattr(gemini, "VertexGeminiClient", FakeClient)
+    output, info = matrix.run_matrix(
+        profile="smoke", dry_run=False, cli_live=True, repeat=1,
+        limits={"max_usd": "0.2", "max_calls": None, "max_image_calls": None, "max_cases": None},
+        environment={"CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS": "1"},
+        case_directory=FIXTURES, output_root=tmp_path / "acceptance",
+    )
+    result = json.loads((output / "cases/english_icebreaker/attempt-01/evaluation.json").read_text())
+    assert info["result_counts"]["PASS"] == 1
+    assert result["output"]["brief"]["canonical_target"] == "break the ice"
+
+
 def test_case_that_does_not_fit_is_skipped_before_execution(tmp_path, monkeypatch):
     monkeypatch.setattr(matrix, "_policies", lambda env, need_images: (text_policy(), None))
     calls = []

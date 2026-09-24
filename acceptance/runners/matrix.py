@@ -115,7 +115,7 @@ def _intake_executor(stage_case: StageCase, database: Path, authorization: Any, 
             "SELECT status FROM intake_requests WHERE intake_request_id=?", (request_id,)
         ).fetchone()
         revision = store.connection.execute(
-            "SELECT brief_json FROM brief_revisions WHERE intake_request_id=?", (request_id,)
+            "SELECT brief_json FROM brief_revisions WHERE source_intake_request_id=?", (request_id,)
         ).fetchone()
         invocation = store.connection.execute(
             "SELECT model_id,outcome,estimated_cost_micro_usd FROM model_invocations WHERE entity_type='intake_request' AND entity_id=?",
