@@ -10,6 +10,7 @@ from acceptance.framework import (
     case_fits_remaining, evaluate_hard_invariants, initialize_acceptance_database, result_dict,
     LiveAuthorization, require_live_authorization, validate_case, write_json,
 )
+from acceptance.evaluators.pipeline import _contains_unqualified_term
 from acceptance.runners import matrix
 from workflow.model_budget import ModelBudgetPolicy
 
@@ -205,6 +206,11 @@ def test_hard_invariant_evaluator_reports_stage_failure():
         StageExecution(Status.ERROR, "intake", None, error="safe failure"))
     assert value.status == Status.ERROR
     assert value.findings[0].category == Category.PROVIDER
+
+
+def test_unsupported_fact_guard_allows_an_explicit_unknown_but_not_an_assertion():
+    assert not _contains_unqualified_term("Security certifications are not stated in the announcement.", "security certification")
+    assert _contains_unqualified_term("The assistant includes security certifications.", "security certification")
 
 
 def test_stage_registry_routes_supported_stage_and_reports_unregistered_stage():

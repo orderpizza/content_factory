@@ -18,6 +18,16 @@ def _norm(value: str) -> str:
     return " ".join(re.findall(r"[\w'-]+", value.casefold()))
 
 
+def _contains_unqualified_term(text: str, term: str) -> bool:
+    """Return true only when a guard term is not visibly marked as unknown."""
+    normalized_term = _norm(term)
+    for match in re.finditer(re.escape(normalized_term), text):
+        window = text[max(0, match.start() - 96):min(len(text), match.end() + 96)]
+        if not re.search(r"\b(no|not|without|unknown|unstated|unspecified|omitted|missing|lacks?|lack)\b", window):
+            return True
+    return False
+
+
 def _finding(case: StageCase, stage: str, status: Status, category: Category, code: str, message: str) -> Finding:
     return Finding(case.parent_case_id, stage, status, category, code, message)
 
@@ -73,7 +83,7 @@ def evaluate_pipeline(case: StageCase, execution: Any) -> StageEvaluation:
             if _norm(term) not in canonical_text:
                 findings.append(_finding(case, "generation", Status.FAIL, Category.SEMANTIC, "canonical_term_missing", "Declared canonical term is absent."))
         for term in exp["canonical"].get("forbidden_terms", []):
-            if _norm(term) in canonical_text:
+            if _contains_unqualified_term(canonical_text, term):
                 findings.append(_finding(case, "generation", Status.FAIL, Category.SEMANTIC, "canonical_forbidden_term_present", "A term excluded by the frozen-evidence case is present in canonical content."))
         kinds = {claim.get("claim_kind") for claim in canonical.get("claims", [])}
         for kind in exp["canonical"].get("required_claim_kinds", []):
