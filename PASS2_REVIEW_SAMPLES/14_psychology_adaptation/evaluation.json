@@ -1,0 +1,22 @@
+{
+  "attempt": 3,
+  "case_id": "stage_adaptation_psychology",
+  "start_stage": "adaptation",
+  "end_stage": "adaptation",
+  "executed_stages": [
+    "adaptation"
+  ],
+  "status": "PASS",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "stage_adaptation_psychology",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "adaptation",
+      "status": "PASS"
+    }
+  ]
+}

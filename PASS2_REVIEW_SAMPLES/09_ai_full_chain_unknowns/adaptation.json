@@ -1,0 +1,171 @@
+{
+  "content_package_id": 1,
+  "package": {
+    "account": "fixture_ai_tech",
+    "alt_text": "An educational carousel detailing the announcement of the Acme Enterprise assistant on 2026-09-20. It covers the confirmed features like centralized administrative controls and Acme Data Workspace integration, but highlights major data gaps for procurement managers, including the lack of pricing, security certifications, geographic availability, and deployment details.",
+    "archetype_id": "ai_tech_product_ui_v1",
+    "caption": "When evaluating new enterprise AI tools, what is left unsaid can be just as critical as what is announced.\n\nAcme's 2026-09-20 announcement of an Enterprise assistant for October 2026 features administrative controls and workspace integration. However, critical details regarding pricing, security certifications, geographic availability, and deployment requirements are completely missing, preventing full procurement approvals.\n\nReview your October 2026 planning checklist.\n\n#acmeupdate #aitools #enterpriseai #procurement",
+    "claim_mappings": [
+      {
+        "claim_id": "claim_1",
+        "placements": [
+          "public_text",
+          "visual_unit:1",
+          "visual_unit:2"
+        ]
+      },
+      {
+        "claim_id": "claim_2",
+        "placements": [
+          "public_text",
+          "visual_unit:2"
+        ]
+      },
+      {
+        "claim_id": "claim_3",
+        "placements": [
+          "public_text",
+          "visual_unit:3"
+        ]
+      },
+      {
+        "claim_id": "claim_4",
+        "placements": [
+          "public_text",
+          "visual_unit:5"
+        ]
+      },
+      {
+        "claim_id": "claim_5",
+        "placements": [
+          "public_text",
+          "visual_unit:5"
+        ]
+      },
+      {
+        "claim_id": "claim_6",
+        "placements": [
+          "public_text",
+          "visual_unit:5"
+        ]
+      },
+      {
+        "claim_id": "claim_7",
+        "placements": [
+          "public_text",
+          "visual_unit:4",
+          "visual_unit:6"
+        ]
+      }
+    ],
+    "cta": "Review your October 2026 planning checklist.",
+    "delivery_ready": false,
+    "format": "instagram_static_carousel_v2",
+    "hashtags": [
+      "#acmeupdate",
+      "#aitools",
+      "#enterpriseai",
+      "#procurement"
+    ],
+    "platform": "instagram",
+    "private_tags": [
+      "acme_announcement",
+      "ai_tech_explainer",
+      "enterprise_assistant",
+      "procurement_gap"
+    ],
+    "public_text": "When evaluating new enterprise AI tools, what is left unsaid can be just as critical as what is announced.\n\nAcme's 2026-09-20 announcement of an Enterprise assistant for October 2026 features administrative controls and workspace integration. However, critical details regarding pricing, security certifications, geographic availability, and deployment requirements are completely missing, preventing full procurement approvals.\n\nReview your October 2026 planning checklist.\n\n#acmeupdate #aitools #enterpriseai #procurement",
+    "schema_version": "output_adaptation_v3",
+    "visual_cues": [
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "situation",
+        "slide": 1,
+        "subject_claim_id": "claim_1"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "sequence",
+        "slide": 2,
+        "subject_claim_id": "claim_2"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "situation",
+        "slide": 3,
+        "subject_claim_id": "claim_3"
+      },
+      {
+        "participants_count": 1,
+        "semantic_emphasis": "contrast",
+        "slide": 4,
+        "subject_claim_id": "claim_7"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "qualification",
+        "slide": 5,
+        "subject_claim_id": "claim_4"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "takeaway",
+        "slide": 6,
+        "subject_claim_id": "claim_7"
+      }
+    ],
+    "visual_units": [
+      {
+        "body": "What is left unsaid\ncan be just as critical\nas what is announced.",
+        "claim_ids": [
+          "claim_1"
+        ],
+        "role": "hook",
+        "title": "Evaluating New Enterprise AI"
+      },
+      {
+        "body": "Acme announced an Enterprise\nassistant on 2026-09-20, slated\nfor October 2026 release.",
+        "claim_ids": [
+          "claim_1",
+          "claim_2"
+        ],
+        "role": "explanation",
+        "title": "Acme Enterprise Assistant"
+      },
+      {
+        "body": "The tool features centralized\nadministrative controls and an\nAcme Data Workspace integration.",
+        "claim_ids": [
+          "claim_3"
+        ],
+        "role": "explanation",
+        "title": "Confirmed Features"
+      },
+      {
+        "body": "A team modeling total cost\nof ownership cannot complete\nbudgetary or compliance approvals.",
+        "claim_ids": [
+          "claim_7"
+        ],
+        "role": "example",
+        "title": "Procurement Challenges"
+      },
+      {
+        "body": "Pricing, security certifications,\ngeographic availability, and rollout\nphases remain completely undisclosed.",
+        "claim_ids": [
+          "claim_4",
+          "claim_5",
+          "claim_6"
+        ],
+        "role": "explanation",
+        "title": "Critical Data Gaps"
+      },
+      {
+        "body": "Pause implementation assumptions until\nAcme discloses critical pricing,\nsecurity, and deployment parameters.",
+        "claim_ids": [
+          "claim_7"
+        ],
+        "role": "takeaway",
+        "title": "The Strategic Takeaway"
+      }
+    ]
+  }
+}

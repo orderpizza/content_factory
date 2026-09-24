@@ -1,0 +1,76 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "Intermediate English learners want to master common idioms to feel more comfortable and professional in workplace social settings.",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "A comprehensive guide to understanding and using 'break the ice' in professional environments.",
+        "angle_type": "meaning_explanation",
+        "candidate_id": "candidate_1_meaning_usage",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "evidence_requirements": [
+          "Focus on the phrase 'break the ice' as requested in the topic brief."
+        ],
+        "must_cover_points": [
+          "Definition of 'break the ice' in a social context.",
+          "Why it is important for starting conversations.",
+          "Common workplace scenarios like meetings or networking events."
+        ],
+        "qualification_requirements": [
+          "no_invented_etymology",
+          "no_unsupported_cultural_claims",
+          "usage_context"
+        ],
+        "reader_promise": "Learners will understand the exact meaning of 'break the ice' and how to apply it in a business context.",
+        "relevance": "Directly addresses the editorial goal of teaching a practical workplace expression."
+      },
+      {
+        "angle": "Step-by-step scenarios showing exactly when and how to 'break the ice' during a first meeting.",
+        "angle_type": "scenario_teaching",
+        "candidate_id": "candidate_2_scenario_teaching",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "evidence_requirements": [
+          "Use the workplace context specified in the human source message."
+        ],
+        "must_cover_points": [
+          "A dialogue example at the start of a project kickoff.",
+          "Identifying the 'ice' (the initial tension or silence).",
+          "Specific phrases used to achieve the 'break'."
+        ],
+        "qualification_requirements": [
+          "no_invented_etymology",
+          "no_unsupported_cultural_claims",
+          "usage_context"
+        ],
+        "reader_promise": "Learners will see the idiom in action through realistic workplace dialogues.",
+        "relevance": "Provides practical application for intermediate learners who know the definition but struggle with timing."
+      }
+    ],
+    "determination_route_id": 1,
+    "domain": "english",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "a511bde91d00e2bc3ea502cb8241771cb2a2ef06969184682c889ddfff4916c8",
+    "lane": "evergreen",
+    "planner_version": "editorial_planner_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "candidate_2_scenario_teaching",
+    "selection_dimensions": {
+      "audience_usefulness": "Intermediate learners benefit most from seeing idioms in context rather than isolated definitions, helping them bridge the gap between knowledge and usage.",
+      "domain_fit": "The treatment focuses strictly on English language acquisition and workplace communication, aligning with the 'english' domain.",
+      "evidence_strength": "The selection is directly supported by the human request in message:1 to teach a practical workplace expression.",
+      "explanatory_potential": "By using a scenario, the plan explains not just what the phrase means, but the social mechanics of why and when it is used.",
+      "novelty": "The editorial treatment moves beyond a dictionary-style entry to a scenario-based teaching model, which is a more engaging way to present 'break the ice'.",
+      "timeliness": "As an evergreen idiom, its utility is constant for professionals, and the treatment reflects current workplace norms as of late 2026."
+    },
+    "selection_rationale": "Candidate 2 is selected because it offers the highest instructional value for intermediate learners by demonstrating the idiom within a specific workplace scenario, fulfilling the editorial goal more effectively than a simple definition.",
+    "series_key": null,
+    "why_now": "The expression 'break the ice' is a foundational workplace idiom that remains highly relevant for professional networking and team building as of September 2026."
+  }
+}

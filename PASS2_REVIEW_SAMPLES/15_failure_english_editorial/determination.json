@@ -1,0 +1,41 @@
+{
+  "decision_id": 1,
+  "outcome": "accepted",
+  "rationale": "The brief explicitly requests an 'English only' focus to teach the idiom 'break the ice' within a workplace context. The 'english' pipeline is the only domain that directly aligns with this linguistic educational goal and the specific constraint provided in the source context. While 'psychology' could theoretically address the social dynamics of first meetings, the binding scope constraint 'English only' and the goal of teaching an idiom make it an inappropriate fit for this specific request. The 'ai_tech' domain has no relevance to this topic.",
+  "routes": [
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "ai_tech",
+      "reason": "The topic of workplace idioms and social interaction is unrelated to AI tools or technology."
+    },
+    {
+      "disposition": "selected",
+      "fit": "excellent",
+      "output_assessments_json": "[{\"account\":\"fixture_english\",\"content_format\":\"instagram_static_carousel_v2\",\"output_binding_id\":1,\"output_contract_version\":\"placeholder_v1\",\"platform\":\"instagram\",\"ready\":true,\"safe_reason\":\"development planning only; no delivery authorization\"}]",
+      "outputs": [
+        {
+          "account": "fixture_english",
+          "content_format": "instagram_static_carousel_v2",
+          "output_binding_id": 1,
+          "output_contract_version": "placeholder_v1",
+          "platform": "instagram",
+          "ready": true,
+          "safe_reason": "development planning only; no delivery authorization"
+        }
+      ],
+      "pipeline_id": "english",
+      "reason": "The brief and source context explicitly target English language learners and the teaching of a specific idiom ('break the ice'), which falls directly under the remit of the english pipeline."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "poor",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "psychology",
+      "reason": "Although the topic involves social interaction, the explicit 'English only' constraint and the focus on teaching a specific idiom prioritize linguistic instruction over psychological analysis."
+    }
+  ]
+}

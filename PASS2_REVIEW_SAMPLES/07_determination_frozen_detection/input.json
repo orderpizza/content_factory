@@ -1,0 +1,28 @@
+{
+  "frozen_brief": {
+    "audience": "AI tool evaluators",
+    "canonical_target": "Acme Enterprise assistant availability",
+    "constraints": {
+      "source_bound": true
+    },
+    "coverage_kind": "trend_topic",
+    "desired_outcome": "inform",
+    "editorial_goal": "Explain a source-backed enterprise feature update.",
+    "open_questions": [],
+    "revision_scope": "whole_brief",
+    "source_context": "Frozen event fixture.",
+    "topic": "Acme Enterprise assistant availability"
+  },
+  "source_evidence": {
+    "candidate": {
+      "topic": "Acme Enterprise assistant availability"
+    },
+    "evidence": [
+      {
+        "evidence_time": "2026-09-20T00:00:00",
+        "reference_id": "fixture:acme:minimal:1",
+        "title": "Acme announces Enterprise assistant"
+      }
+    ]
+  }
+}

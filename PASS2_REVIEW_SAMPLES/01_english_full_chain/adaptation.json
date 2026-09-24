@@ -1,0 +1,149 @@
+{
+  "content_package_id": 1,
+  "package": {
+    "account": "fixture_english",
+    "alt_text": "An educational carousel about the English idiom 'break the ice'. Slide 1 introduces the phrase in a workplace context. Slide 2 defines it as relieving tension or starting a conversation. Slide 3 outlines professional use cases like first meetings and workshops. Slide 4 provides real-life examples of breaking the ice with coworkers. Slide 5 shows a short dialogue between two colleagues using the phrase. Slide 6 concludes with a takeaway on how mastering this idiom helps initiate conversations and reduce social awkwardness.",
+    "archetype_id": "expression_story_scene_v1",
+    "caption": "Stepping into a new office can feel like walking into a freezer, but knowing how to 'break the ice' can instantly warm up your professional relationships.\n\nStarting a new job or joining a new team can be intimidating. This guide breaks down the popular idiom 'break the ice,' explaining its meaning, professional context, and practical usage. Learn how to use this phrase to relieve tension, start conversations, and build comfortable working relationships with your new coworkers from day one.\n\nTry this phrase in your next meeting.\n\n#breaktheice #businessenglish #englishlearning #idioms #learnenglish #workplaceenglish",
+    "claim_mappings": [
+      {
+        "claim_id": "claim_001",
+        "placements": [
+          "public_text",
+          "visual_unit:1",
+          "visual_unit:2",
+          "visual_unit:5"
+        ]
+      },
+      {
+        "claim_id": "claim_002",
+        "placements": [
+          "public_text",
+          "visual_unit:1",
+          "visual_unit:3",
+          "visual_unit:4"
+        ]
+      },
+      {
+        "claim_id": "claim_003",
+        "placements": [
+          "public_text",
+          "visual_unit:4",
+          "visual_unit:5",
+          "visual_unit:6"
+        ]
+      }
+    ],
+    "cta": "Try this phrase in your next meeting.",
+    "delivery_ready": false,
+    "format": "instagram_static_carousel_v2",
+    "hashtags": [
+      "#breaktheice",
+      "#businessenglish",
+      "#englishlearning",
+      "#idioms",
+      "#learnenglish",
+      "#workplaceenglish"
+    ],
+    "platform": "instagram",
+    "private_tags": [
+      "english_idioms",
+      "instagram_carousel",
+      "vocabulary_building",
+      "workplace_communication"
+    ],
+    "public_text": "Stepping into a new office can feel like walking into a freezer, but knowing how to 'break the ice' can instantly warm up your professional relationships.\n\nStarting a new job or joining a new team can be intimidating. This guide breaks down the popular idiom 'break the ice,' explaining its meaning, professional context, and practical usage. Learn how to use this phrase to relieve tension, start conversations, and build comfortable working relationships with your new coworkers from day one.\n\nTry this phrase in your next meeting.\n\n#breaktheice #businessenglish #englishlearning #idioms #learnenglish #workplaceenglish",
+    "schema_version": "output_adaptation_v3",
+    "visual_cues": [
+      {
+        "participants_count": 1,
+        "semantic_emphasis": "situation",
+        "slide": 1,
+        "subject_claim_id": "claim_001"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "qualification",
+        "slide": 2,
+        "subject_claim_id": "claim_001"
+      },
+      {
+        "participants_count": 2,
+        "semantic_emphasis": "sequence",
+        "slide": 3,
+        "subject_claim_id": "claim_002"
+      },
+      {
+        "participants_count": 2,
+        "semantic_emphasis": "contrast",
+        "slide": 4,
+        "subject_claim_id": "claim_002"
+      },
+      {
+        "participants_count": 2,
+        "semantic_emphasis": "situation",
+        "slide": 5,
+        "subject_claim_id": "claim_003"
+      },
+      {
+        "participants_count": 1,
+        "semantic_emphasis": "takeaway",
+        "slide": 6,
+        "subject_claim_id": "claim_003"
+      }
+    ],
+    "visual_units": [
+      {
+        "body": "Stepping into a new office feels cold. Learn how to warm up your professional relationships instantly.",
+        "claim_ids": [
+          "claim_001",
+          "claim_002"
+        ],
+        "role": "hook",
+        "title": "Break the Ice"
+      },
+      {
+        "body": "To break the ice means to relieve tension or start a conversation when meeting people for the first time.\nIt helps overcome initial awkwardness in professional settings.",
+        "claim_ids": [
+          "claim_001"
+        ],
+        "role": "explanation",
+        "title": "What Does It Mean?"
+      },
+      {
+        "body": "Use it during your first meeting with new coworkers.\nPerfect for starting project kickoff sessions or workshops.\nGreat for networking events and team-building environments.",
+        "claim_ids": [
+          "claim_002"
+        ],
+        "role": "explanation",
+        "title": "When to Use It"
+      },
+      {
+        "body": "I decided to break the ice at the morning meeting by asking about weekend activities.\nTo break the ice with my new desk mate, I introduced myself immediately.",
+        "claim_ids": [
+          "claim_002",
+          "claim_003"
+        ],
+        "role": "example",
+        "title": "Real-Life Examples"
+      },
+      {
+        "body": "A: Everyone looks so quiet and nervous before this big meeting.\nB: Let me tell a quick joke to break the ice.\nA: That really helped establish a comfortable working relationship!",
+        "claim_ids": [
+          "claim_001",
+          "claim_003"
+        ],
+        "role": "example",
+        "title": "In Conversation"
+      },
+      {
+        "body": "Mastering this idiom helps you confidently initiate conversations.\nIt reduces social awkwardness and builds better team dynamics.",
+        "claim_ids": [
+          "claim_003"
+        ],
+        "role": "takeaway",
+        "title": "Key Takeaway"
+      }
+    ]
+  }
+}

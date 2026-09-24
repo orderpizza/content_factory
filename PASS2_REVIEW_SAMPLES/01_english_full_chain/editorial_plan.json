@@ -1,0 +1,80 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "The audience wants to understand the specific professional application of the idiom 'break the ice' to navigate first meetings with coworkers without sounding overly casual or unprofessional.",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "A foundational guide to the meaning and professional application of 'break the ice' in team introductions.",
+        "angle_type": "meaning_explanation",
+        "candidate_id": "idiom_meaning_and_usage_001",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "evidence_requirements": [
+          "Must use the phrase 'break the ice' as specified in the source message.",
+          "Must maintain the 'first meeting with coworkers' context from the source."
+        ],
+        "must_cover_points": [
+          "Definition of 'break the ice' as relieving tension or starting a conversation.",
+          "The specific context of a first meeting with new coworkers.",
+          "Why this idiom is appropriate for professional networking.",
+          "A sample sentence showing the idiom in a workplace introduction."
+        ],
+        "qualification_requirements": [
+          "no_invented_etymology",
+          "no_unsupported_cultural_claims",
+          "usage_context"
+        ],
+        "reader_promise": "Readers will learn the precise definition of 'break the ice' and how to initiate a conversation in a new professional environment.",
+        "relevance": "Directly addresses the human request to teach the idiom within a workplace context."
+      },
+      {
+        "angle": "Practical workplace scenarios for using 'break the ice' during coffee breaks or team huddles.",
+        "angle_type": "scenario_teaching",
+        "candidate_id": "scenario_based_icebreaking_002",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "evidence_requirements": [
+          "Must adhere to the 'English only' instruction from the source.",
+          "Must focus on 'coworkers' as the primary interactants."
+        ],
+        "must_cover_points": [
+          "Scenario: Meeting a coworker at the coffee machine.",
+          "Scenario: The start of a formal team meeting.",
+          "Dialogue examples using 'break the ice' naturally.",
+          "Tips for keeping the 'icebreaker' professional and relevant to the job."
+        ],
+        "qualification_requirements": [
+          "no_invented_etymology",
+          "no_unsupported_cultural_claims",
+          "usage_context"
+        ],
+        "reader_promise": "Readers will see exactly how to deploy the phrase in common office interactions to build rapport.",
+        "relevance": "Focuses on the 'workplace context' constraint by providing situational examples."
+      }
+    ],
+    "determination_route_id": 1,
+    "domain": "english",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "2f65916cdf2a16695732e497444182c143f1bc8e18d5f86867a76a72659b8c53",
+    "lane": "evergreen",
+    "planner_version": "editorial_planner_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "idiom_meaning_and_usage_001",
+    "selection_dimensions": {
+      "audience_usefulness": "Provides clear, actionable definitions and usage rules for professionals who need to navigate new social dynamics at work.",
+      "domain_fit": "The treatment focuses on English language instruction and workplace communication, which is the core remit of the English domain.",
+      "evidence_strength": "The treatment is directly supported by the human request in message:1, which specifies the idiom and the coworker context.",
+      "explanatory_potential": "High, as it breaks down a common idiom into its functional components within a specific, high-stakes environment like a new job.",
+      "novelty": "The editorial treatment shifts from a generic idiom definition to a specific 'first meeting' professional application, providing a targeted utility.",
+      "timeliness": "Evergreen instructional content for workplace communication is consistently relevant for the target audience as of 2026."
+    },
+    "selection_rationale": "Candidate 001 provides the most direct fulfillment of the editorial goal to teach the idiom's meaning while strictly adhering to the workplace context requested in the source message. It establishes the necessary foundation before moving into complex scenarios.",
+    "series_key": null,
+    "why_now": "As of September 2026, workplace communication remains a core pillar of professional development for English learners, and the specific request for first-meeting context necessitates a targeted instructional guide."
+  }
+}

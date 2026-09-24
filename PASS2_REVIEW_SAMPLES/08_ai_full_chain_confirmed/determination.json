@@ -1,0 +1,41 @@
+{
+  "decision_id": 1,
+  "outcome": "accepted",
+  "rationale": "The brief concerns a specific enterprise AI tool update (Acme Enterprise assistant) which aligns perfectly with the ai_tech domain's remit to explain AI tools and capabilities. The evidence provides a clear timeline and feature set for AI tool evaluators. The english and psychology domains are skipped as the topic lacks a linguistic or behavioral focus.",
+  "routes": [
+    {
+      "disposition": "selected",
+      "fit": "strong",
+      "output_assessments_json": "[{\"account\":\"fixture_ai_tech\",\"content_format\":\"instagram_static_carousel_v2\",\"output_binding_id\":2,\"output_contract_version\":\"placeholder_v1\",\"platform\":\"instagram\",\"ready\":true,\"safe_reason\":\"development planning only; no delivery authorization\"}]",
+      "outputs": [
+        {
+          "account": "fixture_ai_tech",
+          "content_format": "instagram_static_carousel_v2",
+          "output_binding_id": 2,
+          "output_contract_version": "placeholder_v1",
+          "platform": "instagram",
+          "ready": true,
+          "safe_reason": "development planning only; no delivery authorization"
+        }
+      ],
+      "pipeline_id": "ai_tech",
+      "reason": "The topic directly addresses AI tool availability and enterprise features, which is the core remit of the ai_tech domain."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "english",
+      "reason": "The topic is a technical product announcement and does not involve teaching English expressions or vocabulary."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "psychology",
+      "reason": "The topic is a software release update and does not involve evidence-grounded behavioral or communication science."
+    }
+  ]
+}

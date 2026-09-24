@@ -1,0 +1,108 @@
+{
+  "canonical": {
+    "claims": [
+      {
+        "claim_id": "claim_1",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Directly verified by the provider's dated announcement text.",
+        "text": "Acme announced an Enterprise assistant on 2026-09-20."
+      },
+      {
+        "claim_id": "claim_2",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Directly verified availability scope and timeline from the source text.",
+        "text": "The Enterprise assistant is scheduled to be available to Enterprise plan customers in October 2026."
+      },
+      {
+        "claim_id": "claim_3",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Directly verified product capabilities stated in the announcement.",
+        "text": "The assistant will feature centralized administrative controls and an integration with Acme Data Workspace."
+      },
+      {
+        "claim_id": "claim_4",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Explicitly confirmed omission within the source text.",
+        "text": "The announcement does not state pricing or security certifications for the assistant."
+      },
+      {
+        "claim_id": "claim_5",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Explicitly confirmed omission within the source text.",
+        "text": "Geographic availability and performance benchmarks are not specified in the announcement."
+      },
+      {
+        "claim_id": "claim_6",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Explicitly confirmed omission within the source text.",
+        "text": "Details regarding rollout phases, deployment requirements, and comparisons with earlier versions are omitted."
+      },
+      {
+        "claim_id": "claim_7",
+        "claim_kind": "qualified_inference",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "qualification": "Logical inference based on the complete absence of pricing and security certification details.",
+        "text": "Procurement managers cannot finalize compliance or budgetary approvals for the assistant using only the 2026-09-20 announcement."
+      }
+    ],
+    "context": "On 2026-09-20, Acme announced an upcoming Enterprise assistant scheduled for release to Enterprise plan customers in October 2026. While the announcement highlighted specific administrative and integration features, it left several critical procurement and deployment questions unanswered.",
+    "cta": "Review your organization's October 2026 planning checklist to ensure these data gaps are accounted for before making procurement assumptions.",
+    "domain_payload": {
+      "as_of_context": "2026-09-20",
+      "availability_scope": "Enterprise plan customers starting October 2026",
+      "capabilities": [
+        "Centralized administrative controls",
+        "Integration with Acme Data Workspace"
+      ],
+      "change_summary": "Announced on 2026-09-20, an Enterprise assistant is slated for an October 2026 release with administrative controls and workspace integration, though key pricing and deployment details remain undisclosed.",
+      "limitations": [
+        "Pricing is not stated",
+        "Security certifications are not specified",
+        "Geographic availability is not provided",
+        "Performance benchmarks are not stated",
+        "Rollout phases are not detailed",
+        "Deployment requirements are not specified",
+        "Comparisons with earlier versions are unavailable"
+      ],
+      "product_or_feature": "Acme Enterprise assistant",
+      "use_cases": [
+        "Centralized administrative management of the assistant",
+        "Integration with Acme Data Workspace environments"
+      ]
+    },
+    "examples": [
+      "An enterprise procurement team attempting to calculate the total cost of ownership (TCO) for an October 2026 deployment will find themselves unable to complete their models due to the absence of pricing details in the initial announcement."
+    ],
+    "hook": "When evaluating new enterprise AI tools, what is left unsaid can be just as critical as what is announced.",
+    "key_points": [
+      "Acme's announcement on 2026-09-20 introduced an Enterprise assistant with an availability window set for October 2026 for Enterprise plan customers.",
+      "Confirmed features for the new assistant include centralized administrative controls and a direct integration with Acme Data Workspace.",
+      "The announcement completely omitted essential procurement details, including pricing structures and official security certifications.",
+      "Operational and deployment boundaries remain unknown, as the announcement did not state geographic availability, performance benchmarks, rollout phases, or deployment requirements."
+    ],
+    "pipeline_id": "ai_tech",
+    "schema_version": "canonical_content_v1",
+    "takeaway": "While the Acme Enterprise assistant introduces valuable administrative controls and workspace integration, AI evaluators must pause implementation assumptions until Acme discloses critical pricing, security, and deployment parameters."
+  },
+  "canonical_content_id": 1
+}

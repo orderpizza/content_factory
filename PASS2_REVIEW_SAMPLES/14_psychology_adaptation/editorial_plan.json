@@ -1,0 +1,70 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "people joining a new group",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "observed_pattern: Explain an observation without diagnosis.",
+        "angle_type": "observed_pattern",
+        "candidate_id": "1",
+        "evidence_reference_ids": [],
+        "evidence_requirements": [
+          "Use only frozen evidence; label hypothetical examples."
+        ],
+        "must_cover_points": [
+          "hesitation in an unfamiliar group"
+        ],
+        "qualification_requirements": [
+          "observation_vs_inference",
+          "alternative_explanations",
+          "uncertainty",
+          "non_diagnostic"
+        ],
+        "reader_promise": "teach",
+        "relevance": "Explain an observation without diagnosis."
+      },
+      {
+        "angle": "concept_explanation: Explain an observation without diagnosis.",
+        "angle_type": "concept_explanation",
+        "candidate_id": "2",
+        "evidence_reference_ids": [],
+        "evidence_requirements": [
+          "Use only frozen evidence; label hypothetical examples."
+        ],
+        "must_cover_points": [
+          "hesitation in an unfamiliar group"
+        ],
+        "qualification_requirements": [
+          "observation_vs_inference",
+          "alternative_explanations",
+          "uncertainty",
+          "non_diagnostic"
+        ],
+        "reader_promise": "teach",
+        "relevance": "Explain an observation without diagnosis."
+      }
+    ],
+    "determination_route_id": 3,
+    "domain": "psychology",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "b57c65842cfae9e48b93b6dde73a1b262ebaff7fc8633b0a448e5f677cb16fdf",
+    "lane": "evergreen",
+    "planner_version": "editorial_fixture_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "1",
+    "selection_dimensions": {
+      "audience_usefulness": "Offline fixture; no model assessment.",
+      "domain_fit": "Offline fixture; no model assessment.",
+      "evidence_strength": "Offline fixture; no model assessment.",
+      "explanatory_potential": "Offline fixture; no model assessment.",
+      "novelty": "Offline fixture; no model assessment.",
+      "timeliness": "Offline fixture; no model assessment."
+    },
+    "selection_rationale": "Offline fixture chooses the first supported teaching treatment.",
+    "series_key": null,
+    "why_now": "A requested educational explanation, independent of the news cycle."
+  }
+}

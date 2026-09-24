@@ -1,0 +1,88 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "The audience needs to understand the specific scope and timing of the Acme Enterprise assistant announcement to evaluate its relevance to their organization's October 2026 planning.",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "Breaking down the specific features and integration points announced for the new Acme Enterprise assistant.",
+        "angle_type": "what_changed",
+        "candidate_id": "acme_enterprise_what_changed",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "evidence_requirements": [
+          "Must use the 2026-09-20 announcement date",
+          "Must specify the October 2026 availability window",
+          "Must identify the specific integration with Acme Data Workspace"
+        ],
+        "must_cover_points": [
+          "Announcement date of 2026-09-20",
+          "Availability for Enterprise plan customers in October 2026",
+          "Centralized administrative controls feature",
+          "Integration with Acme Data Workspace",
+          "Explicit mention that pricing and security certifications were not stated"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "A clear summary of what is officially included in the upcoming Enterprise assistant release based on the provider's announcement.",
+        "relevance": "Directly addresses the audience's need to know what new tools are becoming available in their enterprise environment."
+      },
+      {
+        "angle": "Identifying the specific unknowns and boundaries of the Acme Enterprise assistant announcement for procurement planning.",
+        "angle_type": "limitations",
+        "candidate_id": "acme_enterprise_limitations",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "evidence_requirements": [
+          "Must list the specific omissions identified in the source text",
+          "Must distinguish between confirmed features and missing data points",
+          "Must reference the 2026-09-20 source date"
+        ],
+        "must_cover_points": [
+          "Absence of pricing and security certification details in the announcement",
+          "Lack of performance benchmarks or geographic availability data",
+          "Unknown deployment requirements and rollout phases",
+          "Confirmed features: admin controls and Data Workspace integration",
+          "Target audience: Enterprise plan customers"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "A realistic view of what has not yet been disclosed about the new assistant to prevent premature implementation assumptions.",
+        "relevance": "Crucial for AI tool evaluators who need to know what information (like pricing or security) is missing before making decisions."
+      }
+    ],
+    "determination_route_id": 2,
+    "domain": "ai_tech",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "e0e666c83ae60ec59917ad3cfad2f91d2bca6b7c5a2029602706a85c6f95edcd",
+    "lane": "trend",
+    "planner_version": "editorial_planner_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "acme_enterprise_limitations",
+    "selection_dimensions": {
+      "audience_usefulness": "Provides evaluators with a checklist of what is known versus what requires further inquiry before October 2026.",
+      "domain_fit": "Directly addresses enterprise AI tool availability and administrative capabilities within the ai_tech remit.",
+      "evidence_strength": "Strongly supported by fixture:acme:1, which explicitly lists both what was announced and what was omitted.",
+      "explanatory_potential": "Clarifies the current state of the product's public information, preventing audience misconceptions about its readiness for immediate deployment.",
+      "novelty": "Moves beyond a simple feature list to an analytical 'gap analysis' of the announcement, which is a distinct editorial treatment.",
+      "timeliness": "Relevant due to the 2026-09-20 announcement and the upcoming October 2026 release window."
+    },
+    "selection_rationale": "For AI tool evaluators, knowing what is *not* in an announcement is often more valuable than the features themselves. This candidate strictly adheres to the frozen evidence by highlighting the specific omissions (pricing, security, benchmarks) while still confirming the known facts, providing a high-utility, cautious perspective.",
+    "series_key": null,
+    "why_now": "Acme announced the Enterprise assistant on 2026-09-20, with a scheduled release for Enterprise plan customers in October 2026."
+  }
+}

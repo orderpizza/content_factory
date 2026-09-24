@@ -1,0 +1,27 @@
+{
+  "attempt": 2,
+  "case_id": "chain_english_icebreaker",
+  "start_stage": "intake",
+  "end_stage": "adaptation",
+  "executed_stages": [
+    "intake",
+    "determination",
+    "editorial_planning",
+    "generation",
+    "visual_selection",
+    "adaptation"
+  ],
+  "status": "PASS",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "chain_english_icebreaker",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "adaptation",
+      "status": "PASS"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "attempt": 6,
+  "case_id": "stage_generation_ai_scope",
+  "start_stage": "generation",
+  "end_stage": "generation",
+  "executed_stages": [
+    "generation"
+  ],
+  "status": "FAIL",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "stage_generation_ai_scope",
+      "category": "semantic",
+      "code": "canonical_term_missing",
+      "details": {},
+      "message": "Declared canonical term is absent.",
+      "stage": "generation",
+      "status": "FAIL"
+    },
+    {
+      "case_id": "stage_generation_ai_scope",
+      "category": "semantic",
+      "code": "conservation_scope_review",
+      "details": {},
+      "message": "Declared qualification needs human review; lexical equivalence is not treated as semantic certainty.",
+      "stage": "generation",
+      "status": "WARN"
+    },
+    {
+      "case_id": "stage_generation_ai_scope",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "generation",
+      "status": "PASS"
+    }
+  ]
+}

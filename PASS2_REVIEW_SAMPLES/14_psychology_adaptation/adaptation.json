@@ -1,0 +1,117 @@
+{
+  "content_package_id": 1,
+  "package": {
+    "account": "fixture_psychology",
+    "alt_text": "A series of educational slides explaining social uncertainty in business meetings. It covers observed hesitation, the concept of social ambiguity, a possible mechanism for reducing it with low-stakes prompts, a fictional example of a host asking a neutral question, and practical implications like keeping participation optional.",
+    "archetype_id": "psychology_human_scenario_v1",
+    "caption": "A useful psychology angle\n\nExploring social uncertainty in new groups. When people hesitate in unfamiliar business meetings, it may reflect a natural response to ambiguity. A low-stakes prompt can help reduce this uncertainty, provided participation remains optional. This general interpretation is not a diagnosis.\n\n#group_behavior #psychology_tips #social_dynamics #workplace_culture",
+    "claim_mappings": [
+      {
+        "claim_id": "psychology.example.1",
+        "placements": [
+          "public_text",
+          "visual_unit:1",
+          "visual_unit:2",
+          "visual_unit:3",
+          "visual_unit:4",
+          "visual_unit:5",
+          "visual_unit:6"
+        ]
+      }
+    ],
+    "cta": null,
+    "delivery_ready": false,
+    "format": "instagram_static_carousel_v2",
+    "hashtags": [
+      "#group_behavior",
+      "#psychology_tips",
+      "#social_dynamics",
+      "#workplace_culture"
+    ],
+    "platform": "instagram",
+    "private_tags": [
+      "behavioral_observation",
+      "business_communication",
+      "group_dynamics",
+      "social_psychology"
+    ],
+    "public_text": "A useful psychology angle\n\nExploring social uncertainty in new groups. When people hesitate in unfamiliar business meetings, it may reflect a natural response to ambiguity. A low-stakes prompt can help reduce this uncertainty, provided participation remains optional. This general interpretation is not a diagnosis.\n\n#group_behavior #psychology_tips #social_dynamics #workplace_culture",
+    "schema_version": "output_adaptation_v3",
+    "visual_cues": [
+      {
+        "participants_count": 3,
+        "semantic_emphasis": "situation",
+        "slide": 1,
+        "subject_claim_id": "psychology.example.1"
+      },
+      {
+        "participants_count": 2,
+        "semantic_emphasis": "qualification",
+        "slide": 2,
+        "subject_claim_id": "psychology.example.1"
+      },
+      {
+        "participants_count": 4,
+        "semantic_emphasis": "sequence",
+        "slide": 4,
+        "subject_claim_id": "psychology.example.1"
+      },
+      {
+        "participants_count": 1,
+        "semantic_emphasis": "takeaway",
+        "slide": 6,
+        "subject_claim_id": "psychology.example.1"
+      }
+    ],
+    "visual_units": [
+      {
+        "body": "People may hesitate in\nan unfamiliar group.\nThis is a common pattern.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "hook",
+        "title": "A useful psychology angle"
+      },
+      {
+        "body": "In a first meeting,\nambiguity often leads to\ninitial social hesitation.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "explanation",
+        "title": "Social uncertainty"
+      },
+      {
+        "body": "A low-stakes prompt\nmay reduce uncertainty\nfor the whole group.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "explanation",
+        "title": "Reducing ambiguity"
+      },
+      {
+        "body": "A host asks a\nneutral question before\nstarting the formal agenda.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "example",
+        "title": "A meeting scenario"
+      },
+      {
+        "body": "Make participation optional.\nSome may simply\nneed more time.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "explanation",
+        "title": "Practical steps"
+      },
+      {
+        "body": "Use this idea deliberately.\nReview it carefully\nbefore publication.",
+        "claim_ids": [
+          "psychology.example.1"
+        ],
+        "role": "takeaway",
+        "title": "Deliberate use"
+      }
+    ]
+  }
+}

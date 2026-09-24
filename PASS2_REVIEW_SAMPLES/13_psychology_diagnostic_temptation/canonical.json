@@ -1,0 +1,65 @@
+{
+  "canonical": {
+    "claims": [
+      {
+        "claim_id": "c1",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "qualification": "This reflects the specific constraint provided in the source context.",
+        "text": "The request is to explain the observation of hesitation in unfamiliar groups without providing a clinical diagnosis."
+      },
+      {
+        "claim_id": "c2",
+        "claim_kind": "qualified_inference",
+        "evidence_reference_ids": [],
+        "qualification": "This is a theoretical interpretation of the observed behavior, not a verified fact from the source.",
+        "text": "Hesitation in new groups may be a strategy for social data collection regarding hierarchy and unspoken rules."
+      },
+      {
+        "claim_id": "c3",
+        "claim_kind": "generated_example",
+        "evidence_reference_ids": [],
+        "qualification": "This is a hypothetical scenario created for illustrative purposes.",
+        "text": "An individual might wait until they understand the group's humor style before making a joke to avoid social friction."
+      }
+    ],
+    "context": "When individuals join an unfamiliar group, they often exhibit a period of quiet observation and delayed participation rather than immediate integration.",
+    "cta": null,
+    "domain_payload": {
+      "alternative_explanations": [
+        "Individual temperament or introversion.",
+        "High perceived social stakes within the specific group.",
+        "Fatigue or external distractions unrelated to the group itself.",
+        "Cultural differences in communication styles."
+      ],
+      "concept": "Social Monitoring and Baseline Assessment",
+      "context": "Social integration into new professional or personal circles.",
+      "example": "A guest at a dinner party listening to several conversational threads before contributing their own anecdote.",
+      "observed_behavior": "Hesitation and reduced verbal output when entering an unfamiliar group.",
+      "possible_mechanism": "The individual may be prioritizing the acquisition of social capital and norm-alignment over immediate self-expression.",
+      "practical_implications": [
+        "Group leaders should not interpret initial silence as a lack of interest.",
+        "Providing clear social scripts can reduce the duration of the hesitation phase.",
+        "Allowing for low-stakes participation can facilitate faster integration."
+      ],
+      "qualification": "This explanation is non-diagnostic and focuses on behavioral patterns rather than clinical assessment."
+    },
+    "examples": [
+      "A new employee sitting quietly in their first three team meetings without offering input.",
+      "A student joining a mid-semester club and watching the interactions for several sessions before speaking."
+    ],
+    "hook": "Entering a new social circle often triggers a distinct pause in behavior that is frequently misunderstood.",
+    "key_points": [
+      "Initial social hesitation is a common behavioral pattern in unfamiliar environments.",
+      "Observation serves as a method for gathering information about group norms.",
+      "Delayed participation is not necessarily indicative of a permanent personality trait.",
+      "Environmental factors significantly influence the duration of the adjustment period."
+    ],
+    "pipeline_id": "psychology",
+    "schema_version": "canonical_content_v1",
+    "takeaway": "Social hesitation in new groups is a functional observation phase rather than a fixed diagnostic state."
+  },
+  "canonical_content_id": 1
+}

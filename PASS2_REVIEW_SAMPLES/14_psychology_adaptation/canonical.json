@@ -1,0 +1,41 @@
+{
+  "canonical": {
+    "claims": [
+      {
+        "claim_id": "psychology.example.1",
+        "claim_kind": "generated_example",
+        "evidence_reference_ids": [],
+        "qualification": "Fictional example.",
+        "text": "The scenario is illustrative rather than a verified event."
+      }
+    ],
+    "context": "A practical, carefully qualified explanation.",
+    "cta": null,
+    "domain_payload": {
+      "alternative_explanations": [
+        "Participants may simply need more time."
+      ],
+      "concept": "Social uncertainty.",
+      "context": "A first business meeting.",
+      "example": "A host asks a neutral question before the agenda.",
+      "observed_behavior": "People may hesitate in an unfamiliar group.",
+      "possible_mechanism": "A low-stakes prompt may reduce ambiguity.",
+      "practical_implications": [
+        "Make participation optional."
+      ],
+      "qualification": "This is a general interpretation, not a diagnosis."
+    },
+    "examples": [
+      "A fictional first-meeting scenario."
+    ],
+    "hook": "A useful psychology angle",
+    "key_points": [
+      "Start with the audience need.",
+      "Use a concrete example."
+    ],
+    "pipeline_id": "psychology",
+    "schema_version": "canonical_content_v1",
+    "takeaway": "Use the idea deliberately and review it before publication."
+  },
+  "canonical_content_id": 1
+}

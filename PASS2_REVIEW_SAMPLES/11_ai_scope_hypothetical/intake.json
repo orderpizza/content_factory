@@ -1,0 +1,18 @@
+{
+  "brief": {
+    "audience": "AI tool evaluators",
+    "canonical_target": "AI meeting assistant scope",
+    "constraints": {
+      "stage_fixture": "frozen_stage_fixture_v1"
+    },
+    "coverage_kind": "language_subject",
+    "desired_outcome": "teach",
+    "editorial_goal": "Explain a hypothetical, reviewable AI workflow.",
+    "open_questions": [],
+    "revision_scope": "whole_brief",
+    "source_context": "Frozen local acceptance fixture; not external evidence.",
+    "topic": "AI meeting assistant scope"
+  },
+  "request_id": 1,
+  "status": "completed"
+}

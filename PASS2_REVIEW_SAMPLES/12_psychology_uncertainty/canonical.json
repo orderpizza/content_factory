@@ -1,0 +1,63 @@
+{
+  "canonical": {
+    "claims": [
+      {
+        "claim_id": "c1",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "qualification": "Directly reflects the provided source text.",
+        "text": "The user requested an explanation of an observation without providing a diagnosis."
+      },
+      {
+        "claim_id": "c2",
+        "claim_kind": "qualified_inference",
+        "evidence_reference_ids": [],
+        "qualification": "This is a theoretical interpretation of social behavior, not a clinical fact.",
+        "text": "Hesitation in unfamiliar groups may be a strategy for assessing social norms and hierarchies."
+      },
+      {
+        "claim_id": "c3",
+        "claim_kind": "generated_example",
+        "evidence_reference_ids": [],
+        "qualification": "This is a hypothetical scenario used for illustrative purposes.",
+        "text": "An individual might wait for a specific 'social opening' before speaking to ensure their contribution is relevant."
+      }
+    ],
+    "context": "When individuals join an unfamiliar group, they frequently exhibit a period of hesitation, characterized by reduced verbal participation and increased environmental scanning.",
+    "cta": null,
+    "domain_payload": {
+      "alternative_explanations": [
+        "Individual temperament or introversion.",
+        "Fatigue or external distractions.",
+        "Cultural norms regarding listening versus speaking."
+      ],
+      "concept": "Social baseline assessment.",
+      "context": "Joining a new group or unfamiliar social environment.",
+      "example": "A student joining a new club who listens to the group's inside jokes for several weeks before attempting to make one.",
+      "observed_behavior": "Reduced verbal output and increased visual monitoring of others.",
+      "possible_mechanism": "The individual may be prioritizing information gathering over self-expression to minimize social risk.",
+      "practical_implications": [
+        "Group leaders should not interpret initial silence as a lack of interest.",
+        "Allowing a 'grace period' for new members can facilitate more natural integration."
+      ],
+      "qualification": "This explanation is non-diagnostic and focuses on situational patterns rather than internal pathology."
+    },
+    "examples": [
+      "A new employee sitting quietly through their first three team meetings without offering opinions.",
+      "A guest at a dinner party observing the host's conversational rhythm before joining in."
+    ],
+    "hook": "Entering a new social circle often triggers a distinct, quiet pause in behavior.",
+    "key_points": [
+      "Hesitation in new groups is a common behavioral observation.",
+      "Initial silence often serves as a period for social data collection.",
+      "This behavior is distinct from clinical social anxiety or personality traits.",
+      "Contextual factors significantly influence the duration of the hesitation."
+    ],
+    "pipeline_id": "psychology",
+    "schema_version": "canonical_content_v1",
+    "takeaway": "Hesitation in new groups is a functional observation of social adjustment rather than a diagnostic indicator of an individual's character."
+  },
+  "canonical_content_id": 1
+}

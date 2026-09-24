@@ -1,0 +1,41 @@
+{
+  "decision_id": 1,
+  "outcome": "accepted",
+  "rationale": "The stage fixture supplies a single selected domain and a fixed upstream handoff.",
+  "routes": [
+    {
+      "disposition": "skipped",
+      "fit": "outside this frozen fixture remit",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "ai_tech",
+      "reason": "Frozen stage fixture reserves this case for another domain."
+    },
+    {
+      "disposition": "selected",
+      "fit": "strong fixture fit",
+      "output_assessments_json": "[{\"account\":\"fixture_english\",\"content_format\":\"instagram_static_carousel_v2\",\"output_binding_id\":1,\"output_contract_version\":\"placeholder_v1\",\"platform\":\"instagram\",\"ready\":true,\"safe_reason\":\"development planning only; no delivery authorization\"}]",
+      "outputs": [
+        {
+          "account": "fixture_english",
+          "content_format": "instagram_static_carousel_v2",
+          "output_binding_id": 1,
+          "output_contract_version": "placeholder_v1",
+          "platform": "instagram",
+          "ready": true,
+          "safe_reason": "development planning only; no delivery authorization"
+        }
+      ],
+      "pipeline_id": "english",
+      "reason": "Frozen stage fixture selects this domain."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "outside this frozen fixture remit",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "psychology",
+      "reason": "Frozen stage fixture reserves this case for another domain."
+    }
+  ]
+}

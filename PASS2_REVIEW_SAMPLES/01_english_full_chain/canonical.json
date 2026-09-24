@@ -1,0 +1,66 @@
+{
+  "canonical": {
+    "claims": [
+      {
+        "claim_id": "claim_001",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "qualification": "This definition is the standard instructional meaning provided for the workplace context.",
+        "text": "The idiom 'break the ice' means to relieve tension or start a conversation."
+      },
+      {
+        "claim_id": "claim_002",
+        "claim_kind": "source_bound_fact",
+        "evidence_reference_ids": [
+          "message:1"
+        ],
+        "qualification": "The usage is specifically constrained to professional coworker interactions as requested.",
+        "text": "The phrase is suitable for use during a first meeting with coworkers."
+      },
+      {
+        "claim_id": "claim_003",
+        "claim_kind": "qualified_inference",
+        "evidence_reference_ids": [],
+        "qualification": "This is a common professional development inference regarding social dynamics in the workplace.",
+        "text": "Using an icebreaker can help establish a more comfortable working relationship between new colleagues."
+      }
+    ],
+    "context": "In a professional setting, the first meeting with coworkers is a critical moment for building rapport and establishing a positive team dynamic.",
+    "cta": "Try using this phrase next time you are introduced to a new team member to help start the conversation.",
+    "domain_payload": {
+      "avoid_misuse": [
+        "Do not use this phrase to describe physical actions involving actual ice in a professional metaphor.",
+        "Avoid using it in high-stakes disciplinary meetings where a serious tone is required.",
+        "Ensure the 'icebreaking' activity or comment remains professional and inclusive."
+      ],
+      "nuance": "In a professional context, it implies a purposeful effort to overcome initial awkwardness to facilitate better teamwork.",
+      "plain_meaning": "To do or say something that makes people feel more relaxed in a social situation, especially when meeting for the first time.",
+      "register_and_region": "Professional / Neutral; Global English usage.",
+      "target": "break the ice",
+      "target_kind": "idiom",
+      "usage_notes": [
+        "Commonly used when describing the start of meetings, workshops, or introductions.",
+        "Can be used as a verb phrase ('to break the ice') or as a noun ('an icebreaker').",
+        "Appropriate for both formal and semi-formal workplace environments."
+      ]
+    },
+    "examples": [
+      "I decided to break the ice at the morning meeting by asking everyone about their favorite weekend activities.",
+      "To break the ice with my new desk mate, I introduced myself and asked how long they had been with the company.",
+      "Our manager started the project kickoff with a quick game to help break the ice among the different departments."
+    ],
+    "hook": "Stepping into a new office can feel like walking into a freezer, but knowing how to 'break the ice' can instantly warm up your professional relationships.",
+    "key_points": [
+      "The idiom 'break the ice' refers to the act of relieving tension or starting a conversation in a social or professional setting.",
+      "Using this phrase in a workplace context helps transition from silence to productive communication.",
+      "It is particularly effective during first meetings where team members do not yet know each other.",
+      "The idiom is considered professional and appropriate for networking and team-building environments."
+    ],
+    "pipeline_id": "english",
+    "schema_version": "canonical_content_v1",
+    "takeaway": "Mastering the idiom 'break the ice' allows you to confidently initiate conversations and reduce social awkwardness in new professional environments."
+  },
+  "canonical_content_id": 1
+}

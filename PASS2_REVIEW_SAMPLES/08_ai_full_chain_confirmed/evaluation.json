@@ -1,0 +1,44 @@
+{
+  "attempt": 2,
+  "case_id": "chain_frozen_ai_scope",
+  "start_stage": "determination",
+  "end_stage": "adaptation",
+  "executed_stages": [
+    "determination",
+    "editorial_planning",
+    "generation",
+    "visual_selection",
+    "adaptation"
+  ],
+  "status": "WARN",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "chain_frozen_ai_scope",
+      "category": "semantic",
+      "code": "conservation_evidence_reference_review",
+      "details": {},
+      "message": "Declared qualification needs human review; lexical equivalence is not treated as semantic certainty.",
+      "stage": "adaptation",
+      "status": "WARN"
+    },
+    {
+      "case_id": "chain_frozen_ai_scope",
+      "category": "semantic",
+      "code": "conservation_qualification_review",
+      "details": {},
+      "message": "Declared qualification needs human review; lexical equivalence is not treated as semantic certainty.",
+      "stage": "adaptation",
+      "status": "WARN"
+    },
+    {
+      "case_id": "chain_frozen_ai_scope",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "adaptation",
+      "status": "PASS"
+    }
+  ]
+}

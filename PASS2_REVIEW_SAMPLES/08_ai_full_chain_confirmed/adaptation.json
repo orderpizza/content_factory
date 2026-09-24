@@ -1,0 +1,174 @@
+{
+  "content_package_id": 1,
+  "package": {
+    "account": "fixture_ai_tech",
+    "alt_text": "A series of 6 conceptual product interface slides detailing the Acme Enterprise assistant announcement. Slide 1 introduces the Q4 planning timeline. Slide 2 notes October 2026 availability for Enterprise customers. Slide 3 highlights administrative controls and workspace integration. Slide 4 shows a hypothetical IT evaluation checklist separating knowns from unknowns. Slide 5 lists unstated details like pricing and security. Slide 6 summarizes next steps for evaluators.",
+    "archetype_id": "ai_tech_product_ui_v1",
+    "caption": "AI tool evaluators preparing for Q4 planning have a new timeline to track following Acme's announcement of its Enterprise assistant.\n\nAcme announced its Enterprise assistant on September 20, 2026, with availability set for October 2026 for Enterprise plan customers. Confirmed features include centralized administrative controls and Acme Data Workspace integration. However, the announcement does not state pricing, security certifications, geographic availability, performance benchmarks, rollout phases, deployment requirements, or comparisons with earlier versions.\n\nSeparate confirmed features from unstated procurement details.\n\n#acme #aitools #enterpriseai #techplanning",
+    "claim_mappings": [
+      {
+        "claim_id": "claim_1",
+        "placements": [
+          "public_text",
+          "visual_unit:1"
+        ]
+      },
+      {
+        "claim_id": "claim_2",
+        "placements": [
+          "public_text",
+          "visual_unit:2",
+          "visual_unit:6"
+        ]
+      },
+      {
+        "claim_id": "claim_3",
+        "placements": [
+          "public_text",
+          "visual_unit:3",
+          "visual_unit:6"
+        ]
+      },
+      {
+        "claim_id": "claim_4",
+        "placements": [
+          "public_text",
+          "visual_unit:3",
+          "visual_unit:6"
+        ]
+      },
+      {
+        "claim_id": "claim_5",
+        "placements": [
+          "public_text",
+          "visual_unit:5",
+          "visual_unit:6"
+        ]
+      },
+      {
+        "claim_id": "claim_6",
+        "placements": [
+          "public_text",
+          "visual_unit:5"
+        ]
+      },
+      {
+        "claim_id": "claim_7",
+        "placements": [
+          "public_text",
+          "visual_unit:4"
+        ]
+      }
+    ],
+    "cta": "Separate confirmed features from unstated procurement details.",
+    "delivery_ready": false,
+    "format": "instagram_static_carousel_v2",
+    "hashtags": [
+      "#acme",
+      "#aitools",
+      "#enterpriseai",
+      "#techplanning"
+    ],
+    "platform": "instagram",
+    "private_tags": [
+      "acme_announcement",
+      "enterprise_assistant",
+      "evaluation_framework"
+    ],
+    "public_text": "AI tool evaluators preparing for Q4 planning have a new timeline to track following Acme's announcement of its Enterprise assistant.\n\nAcme announced its Enterprise assistant on September 20, 2026, with availability set for October 2026 for Enterprise plan customers. Confirmed features include centralized administrative controls and Acme Data Workspace integration. However, the announcement does not state pricing, security certifications, geographic availability, performance benchmarks, rollout phases, deployment requirements, or comparisons with earlier versions.\n\nSeparate confirmed features from unstated procurement details.\n\n#acme #aitools #enterpriseai #techplanning",
+    "schema_version": "output_adaptation_v3",
+    "visual_cues": [
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "situation",
+        "slide": 1,
+        "subject_claim_id": "claim_1"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "sequence",
+        "slide": 2,
+        "subject_claim_id": "claim_2"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "contrast",
+        "slide": 3,
+        "subject_claim_id": "claim_3"
+      },
+      {
+        "participants_count": 1,
+        "semantic_emphasis": "situation",
+        "slide": 4,
+        "subject_claim_id": "claim_7"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "qualification",
+        "slide": 5,
+        "subject_claim_id": "claim_5"
+      },
+      {
+        "participants_count": 0,
+        "semantic_emphasis": "takeaway",
+        "slide": 6,
+        "subject_claim_id": "claim_4"
+      }
+    ],
+    "visual_units": [
+      {
+        "body": "Acme announced an Enterprise assistant on September 20, 2026.\\nThis impacts Q4 planning timelines for tech evaluators.",
+        "claim_ids": [
+          "claim_1"
+        ],
+        "role": "hook",
+        "title": "New Enterprise AI Timeline"
+      },
+      {
+        "body": "The assistant launches in October 2026.\\nAccess is restricted exclusively to Enterprise plan customers.",
+        "claim_ids": [
+          "claim_2"
+        ],
+        "role": "explanation",
+        "title": "Availability & Access"
+      },
+      {
+        "body": "The release includes centralized administrative controls.\\nIt features direct integration with Acme Data Workspace.",
+        "claim_ids": [
+          "claim_3",
+          "claim_4"
+        ],
+        "role": "explanation",
+        "title": "Core Confirmed Features"
+      },
+      {
+        "body": "An IT evaluator marks workspace integration as known.\\nSecurity compliance and pricing remain marked as pending.",
+        "claim_ids": [
+          "claim_7"
+        ],
+        "role": "example",
+        "title": "Evaluation Checklist Example"
+      },
+      {
+        "body": "Pricing, security, and geographic availability are unstated.\\nBenchmarks, rollout phases, deployment requirements,\\nand version comparisons are also missing.",
+        "claim_ids": [
+          "claim_5",
+          "claim_6"
+        ],
+        "role": "explanation",
+        "title": "Current Unknowns"
+      },
+      {
+        "body": "Expect administrative controls and workspace integration in October.\\nPrepare frameworks but await further details\\non pricing and security certifications.",
+        "claim_ids": [
+          "claim_2",
+          "claim_3",
+          "claim_4",
+          "claim_5"
+        ],
+        "role": "takeaway",
+        "title": "Next Steps for Evaluators"
+      }
+    ]
+  }
+}

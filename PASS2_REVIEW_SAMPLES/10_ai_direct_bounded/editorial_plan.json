@@ -1,0 +1,83 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "Inform AI tool evaluators with a source-bound update.",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "What the dated Enterprise assistant announcement confirms and leaves open.",
+        "angle_type": "what_changed",
+        "candidate_id": "confirmed-update",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "evidence_requirements": [
+          "Use only stated announcement facts and identify the named omissions."
+        ],
+        "must_cover_points": [
+          "September 20 announcement",
+          "October 2026 Enterprise-plan availability",
+          "centralized administrative controls",
+          "Acme Data Workspace integration",
+          "unstated pricing, certification, geography, benchmarks, rollout, deployment, and comparison details"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "Separate confirmed access and feature facts from the details evaluators cannot yet infer.",
+        "relevance": "AI tool evaluators need a bounded view of an announced Enterprise assistant."
+      },
+      {
+        "angle": "What an evaluator can confirm now versus what remains unavailable.",
+        "angle_type": "limitations",
+        "candidate_id": "evaluation-boundary",
+        "evidence_reference_ids": [
+          "fixture:acme:1"
+        ],
+        "evidence_requirements": [
+          "Do not infer an omitted category from the product name or plan."
+        ],
+        "must_cover_points": [
+          "dated source",
+          "Enterprise-plan scope",
+          "confirmed controls and integration",
+          "all named unknown categories"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "Give evaluators a source-bound checklist without treating omissions as product claims.",
+        "relevance": "The announced availability and controls are useful only with clear limits on unknown details."
+      }
+    ],
+    "determination_route_id": 2,
+    "domain": "ai_tech",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "b20c3c226f651c37ca0562a90a85fc648ea3ee7aaae88755d3c3e5e54c022336",
+    "lane": "trend",
+    "planner_version": "editorial_planner_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "confirmed-update",
+    "selection_dimensions": {
+      "audience_usefulness": "Frozen bounded-evidence fixture.",
+      "domain_fit": "Frozen bounded-evidence fixture.",
+      "evidence_strength": "Frozen bounded-evidence fixture.",
+      "explanatory_potential": "Frozen bounded-evidence fixture.",
+      "novelty": "Frozen bounded-evidence fixture.",
+      "timeliness": "Frozen bounded-evidence fixture."
+    },
+    "selection_rationale": "The confirmed-update angle keeps provider claims and omissions visibly separate.",
+    "series_key": null,
+    "why_now": "The source records a September 20, 2026 announcement with October 2026 availability."
+  }
+}

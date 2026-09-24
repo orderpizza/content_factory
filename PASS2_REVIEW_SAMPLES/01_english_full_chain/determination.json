@@ -1,0 +1,41 @@
+{
+  "decision_id": 1,
+  "outcome": "accepted",
+  "rationale": "The brief specifically requests English language instruction for a workplace idiom, which aligns perfectly with the 'english' domain's remit. The source context explicitly constrains the scope to 'English only', requiring other domains to be skipped despite potential psychological overlaps in social interaction.",
+  "routes": [
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "ai_tech",
+      "reason": "The topic of English idioms for workplace communication has no relevance to AI tools, capabilities, or technical use cases."
+    },
+    {
+      "disposition": "selected",
+      "fit": "excellent",
+      "output_assessments_json": "[{\"account\":\"fixture_english\",\"content_format\":\"instagram_static_carousel_v2\",\"output_binding_id\":1,\"output_contract_version\":\"placeholder_v1\",\"platform\":\"instagram\",\"ready\":true,\"safe_reason\":\"development planning only; no delivery authorization\"}]",
+      "outputs": [
+        {
+          "account": "fixture_english",
+          "content_format": "instagram_static_carousel_v2",
+          "output_binding_id": 1,
+          "output_contract_version": "placeholder_v1",
+          "platform": "instagram",
+          "ready": true,
+          "safe_reason": "development planning only; no delivery authorization"
+        }
+      ],
+      "pipeline_id": "english",
+      "reason": "The brief is a direct request for English language instruction regarding a specific idiom ('break the ice') for workplace communication, which is the core remit of this domain."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "weak",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "psychology",
+      "reason": "While 'breaking the ice' involves social behavior, the brief contains an explicit 'English only' domain limitation and focuses on linguistic instruction rather than psychological theory or evidence-grounded behavioral analysis."
+    }
+  ]
+}

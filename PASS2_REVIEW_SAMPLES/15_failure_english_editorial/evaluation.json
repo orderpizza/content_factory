@@ -1,0 +1,24 @@
+{
+  "attempt": 1,
+  "case_id": "chain_english_icebreaker",
+  "start_stage": "intake",
+  "end_stage": "adaptation",
+  "executed_stages": [
+    "intake",
+    "determination",
+    "editorial_planning"
+  ],
+  "status": "ERROR",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "chain_english_icebreaker",
+      "category": "provider",
+      "code": "stage_execution_failed",
+      "details": {},
+      "message": "Production editorial_planning did not complete; downstream stages were not invoked.",
+      "stage": "editorial_planning",
+      "status": "ERROR"
+    }
+  ]
+}

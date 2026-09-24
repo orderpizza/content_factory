@@ -1,0 +1,23 @@
+{
+  "attempt": 1,
+  "case_id": "chain_frozen_ai_scope",
+  "start_stage": "determination",
+  "end_stage": "adaptation",
+  "executed_stages": [
+    "determination",
+    "editorial_planning"
+  ],
+  "status": "ERROR",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "chain_frozen_ai_scope",
+      "category": "provider",
+      "code": "stage_execution_failed",
+      "details": {},
+      "message": "Production editorial_planning did not complete; downstream stages were not invoked.",
+      "stage": "editorial_planning",
+      "status": "ERROR"
+    }
+  ]
+}

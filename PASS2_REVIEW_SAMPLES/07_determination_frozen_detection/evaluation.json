@@ -1,0 +1,31 @@
+{
+  "attempt": 1,
+  "case_id": "detection_frozen_minimal",
+  "start_stage": "determination",
+  "end_stage": "determination",
+  "executed_stages": [
+    "determination"
+  ],
+  "status": "WARN",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "detection_frozen_minimal",
+      "category": "semantic",
+      "code": "conservation_evidence_reference_review",
+      "details": {},
+      "message": "Declared qualification needs human review; lexical equivalence is not treated as semantic certainty.",
+      "stage": "determination",
+      "status": "WARN"
+    },
+    {
+      "case_id": "detection_frozen_minimal",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "determination",
+      "status": "PASS"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "attempt": 1,
+  "case_id": "stage_generation_ai_bounded",
+  "start_stage": "generation",
+  "end_stage": "generation",
+  "executed_stages": [
+    "generation"
+  ],
+  "status": "PASS",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "stage_generation_ai_bounded",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "generation",
+      "status": "PASS"
+    }
+  ]
+}

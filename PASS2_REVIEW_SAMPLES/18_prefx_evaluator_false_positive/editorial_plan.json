@@ -1,0 +1,72 @@
+{
+  "editorial_plan_id": 1,
+  "plan": {
+    "audience_intent": "AI tool evaluators",
+    "brief_revision_id": 1,
+    "candidates": [
+      {
+        "angle": "what_changed: Explain a hypothetical, reviewable AI workflow.",
+        "angle_type": "what_changed",
+        "candidate_id": "1",
+        "evidence_reference_ids": [],
+        "evidence_requirements": [
+          "Use only frozen evidence; label hypothetical examples."
+        ],
+        "must_cover_points": [
+          "AI meeting assistant scope"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "teach",
+        "relevance": "Explain a hypothetical, reviewable AI workflow."
+      },
+      {
+        "angle": "why_it_matters: Explain a hypothetical, reviewable AI workflow.",
+        "angle_type": "why_it_matters",
+        "candidate_id": "2",
+        "evidence_reference_ids": [],
+        "evidence_requirements": [
+          "Use only frozen evidence; label hypothetical examples."
+        ],
+        "must_cover_points": [
+          "AI meeting assistant scope"
+        ],
+        "qualification_requirements": [
+          "source_backed_claims",
+          "dated_context",
+          "availability_scope",
+          "limitations",
+          "provider_claim_distinction"
+        ],
+        "reader_promise": "teach",
+        "relevance": "Explain a hypothetical, reviewable AI workflow."
+      }
+    ],
+    "determination_route_id": 2,
+    "domain": "ai_tech",
+    "experiment_intention": null,
+    "experiment_key": null,
+    "history": [],
+    "input_fingerprint": "82ca048ad7592e56a224ff1bb214e623acbab1a4aef105545c215fe98a14a3ff",
+    "lane": "evergreen",
+    "planner_version": "editorial_fixture_v1",
+    "schema_version": "editorial_plan_v1",
+    "selected_candidate_id": "1",
+    "selection_dimensions": {
+      "audience_usefulness": "Offline fixture; no model assessment.",
+      "domain_fit": "Offline fixture; no model assessment.",
+      "evidence_strength": "Offline fixture; no model assessment.",
+      "explanatory_potential": "Offline fixture; no model assessment.",
+      "novelty": "Offline fixture; no model assessment.",
+      "timeliness": "Offline fixture; no model assessment."
+    },
+    "selection_rationale": "Offline fixture chooses the first supported teaching treatment.",
+    "series_key": null,
+    "why_now": "A requested educational explanation, independent of the news cycle."
+  }
+}

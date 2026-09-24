@@ -1,0 +1,16 @@
+{
+  "brief": {
+    "audience": "general_technical",
+    "canonical_target": "ai_meeting_assistant_behavior",
+    "constraints": {},
+    "coverage_kind": "technical_explanation",
+    "desired_outcome": "The reader understands how AI can provide conversational prompts based on context or templates rather than psychological or behavioral diagnosis.",
+    "editorial_goal": "Explain the mechanism by which an AI meeting assistant generates opening questions without performing diagnostic analysis on participant hesitation.",
+    "open_questions": [],
+    "revision_scope": "new_content",
+    "source_context": "Explain how an AI meeting assistant can suggest an opening question without diagnosing why participants hesitate.",
+    "topic": "AI meeting assistant functionality"
+  },
+  "request_id": 1,
+  "status": "completed"
+}

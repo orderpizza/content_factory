@@ -1,0 +1,29 @@
+{
+  "frozen_brief": {
+    "audience": "AI tool evaluators",
+    "canonical_target": "Acme Enterprise assistant availability",
+    "constraints": {
+      "source_bound": true
+    },
+    "coverage_kind": "trend_topic",
+    "desired_outcome": "inform",
+    "editorial_goal": "Explain a source-backed enterprise feature update.",
+    "open_questions": [],
+    "revision_scope": "whole_brief",
+    "source_context": "Frozen event fixture.",
+    "topic": "Acme Enterprise assistant availability"
+  },
+  "source_evidence": {
+    "candidate": {
+      "topic": "Acme Enterprise assistant availability"
+    },
+    "evidence": [
+      {
+        "detail": "On 2026-09-20, Acme announced an Enterprise assistant. The announcement says it will be available to Enterprise plan customers in October 2026, with centralized administrative controls and an integration with Acme Data Workspace. It does not state pricing, security certifications, geographic availability, performance benchmarks, rollout phases, deployment requirements, or comparisons with earlier versions.",
+        "evidence_time": "2026-09-20T00:00:00",
+        "reference_id": "fixture:acme:1",
+        "title": "Acme announces Enterprise assistant"
+      }
+    ]
+  }
+}

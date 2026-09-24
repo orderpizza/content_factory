@@ -1,0 +1,41 @@
+{
+  "decision_id": 1,
+  "outcome": "accepted",
+  "rationale": "The brief concerns a specific enterprise AI feature update (Acme Enterprise assistant) which aligns perfectly with the ai_tech domain's remit to explain AI tools and capabilities. The evidence provides specific availability dates and integration details suitable for informing AI tool evaluators. The english and psychology domains are skipped as the topic does not involve language learning or behavioral science.",
+  "routes": [
+    {
+      "disposition": "selected",
+      "fit": "strong",
+      "output_assessments_json": "[{\"account\":\"fixture_ai_tech\",\"content_format\":\"instagram_static_carousel_v2\",\"output_binding_id\":2,\"output_contract_version\":\"placeholder_v1\",\"platform\":\"instagram\",\"ready\":true,\"safe_reason\":\"development planning only; no delivery authorization\"}]",
+      "outputs": [
+        {
+          "account": "fixture_ai_tech",
+          "content_format": "instagram_static_carousel_v2",
+          "output_binding_id": 2,
+          "output_contract_version": "placeholder_v1",
+          "platform": "instagram",
+          "ready": true,
+          "safe_reason": "development planning only; no delivery authorization"
+        }
+      ],
+      "pipeline_id": "ai_tech",
+      "reason": "The topic directly addresses AI tool capabilities and enterprise availability, which is the core remit of this domain. The audience of AI tool evaluators is a primary target for this pipeline."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "english",
+      "reason": "The topic is a corporate software availability announcement and does not involve teaching English expressions or vocabulary."
+    },
+    {
+      "disposition": "skipped",
+      "fit": "none",
+      "output_assessments_json": "[]",
+      "outputs": [],
+      "pipeline_id": "psychology",
+      "reason": "The topic is a technical product update and does not involve explaining human behavior or communication."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "attempt": 1,
+  "case_id": "intake_clear_complete",
+  "start_stage": "intake",
+  "end_stage": "intake",
+  "executed_stages": [
+    "intake"
+  ],
+  "status": "PASS",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "intake_clear_complete",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "intake",
+      "status": "PASS"
+    }
+  ]
+}

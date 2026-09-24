@@ -1,0 +1,22 @@
+{
+  "attempt": 3,
+  "case_id": "stage_generation_ai_scope",
+  "start_stage": "generation",
+  "end_stage": "generation",
+  "executed_stages": [
+    "generation"
+  ],
+  "status": "ERROR",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "stage_generation_ai_scope",
+      "category": "provider",
+      "code": "stage_execution_failed",
+      "details": {},
+      "message": "Production generation did not complete; downstream stages were not invoked.",
+      "stage": "generation",
+      "status": "ERROR"
+    }
+  ]
+}

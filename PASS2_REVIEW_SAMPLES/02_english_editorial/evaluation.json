@@ -1,0 +1,22 @@
+{
+  "attempt": 5,
+  "case_id": "stage_editorial_english",
+  "start_stage": "editorial_planning",
+  "end_stage": "editorial_planning",
+  "executed_stages": [
+    "editorial_planning"
+  ],
+  "status": "PASS",
+  "image_calls": 0,
+  "findings": [
+    {
+      "case_id": "stage_editorial_english",
+      "category": "contract",
+      "code": "production_handoffs_completed",
+      "details": {},
+      "message": "Requested production handoffs completed with inspectable persisted artifacts.",
+      "stage": "editorial_planning",
+      "status": "PASS"
+    }
+  ]
+}
