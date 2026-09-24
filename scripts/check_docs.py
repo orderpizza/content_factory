@@ -13,13 +13,14 @@ from database.current import SCHEMA_VERSION, CONTRACT_PATH
 from detection.configuration import load_manifest
 from workflow.catalog import WORKFLOW_PIPELINES
 
-DOCUMENTS = [*sorted(ROOT.glob('*.md')), *sorted((ROOT / "docs").rglob("*.md"))]
+DOCUMENTS = [*sorted(ROOT.glob('*.md')), *sorted((ROOT / "docs").rglob("*.md")),
+             *sorted((ROOT / "acceptance").rglob("*.md"))]
 REQUIRED = ["docs/system.md", "docs/current-state.md", "docs/specs/detection.md",
             "docs/specs/idea-intake-and-determination.md", "docs/specs/dashboard.md",
             "docs/specs/data-model.md",
             "docs/specs/configuration.md", "docs/specs/runtime.md",
             "docs/contracts/application-schema.sql", "docs/contracts/README.md",
-            ".env.example"]
+            ".env.example", "acceptance/README.md"]
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.M)
 
@@ -101,7 +102,7 @@ def main():
             for phase in DEFAULT_PHASE_LIMITS for direction in ("INPUT", "OUTPUT")}
     used |= {f"{prefix}_{direction}_COST_PER_MILLION_USD"
              for prefix in ("GEMINI", "GEMINI_IMAGE") for direction in ("INPUT", "OUTPUT")}
-    for source in [*(ROOT/"src").rglob("*.py"), *(ROOT/"scripts").glob("*.py")]:
+    for source in [*(ROOT/"src").rglob("*.py"), *(ROOT/"scripts").glob("*.py"), *(ROOT/"acceptance").rglob("*.py")]:
         if source.name == "check_docs.py":
             continue
         for node in ast.walk(ast.parse(source.read_text())):

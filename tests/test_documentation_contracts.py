@@ -18,14 +18,14 @@ class DocumentationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        for directory in ('docs','config','src','scripts'):
+        for directory in ('docs','config','src','scripts','acceptance'):
             shutil.copytree(ROOT/directory,self.root/directory,ignore=shutil.ignore_patterns('__pycache__'))
         for path in [*ROOT.glob('*.md'),ROOT/'.env.example']:
             shutil.copy2(path,self.root/path.name)
         self.main = runpy.run_path(str(ROOT/'scripts/check_docs.py'))['main']
 
     def run_check(self):
-        documents = [*self.root.glob('*.md'),*(self.root/'docs').rglob('*.md')]
+        documents = [*self.root.glob('*.md'),*(self.root/'docs').rglob('*.md'),*(self.root/'acceptance').rglob('*.md')]
         with patch.dict(self.main.__globals__,{'ROOT':self.root,'DOCUMENTS':documents,'CONTRACT_PATH':self.root/'docs/contracts/application-schema.sql'}), redirect_stdout(StringIO()) as output:
             try:
                 self.main()

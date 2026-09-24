@@ -1,0 +1,15 @@
+{
+  "case_id": "detection_frozen_minimal",
+  "schema_version": 1,
+  "description": "Minimal detector-origin frozen input shape for future Determination acceptance.",
+  "source_kind": "detection_fixture",
+  "input": {
+    "frozen_brief": {"topic": "A frozen detector-origin idea", "editorial_goal": "Explain a useful concept"},
+    "source_evidence": {"snapshot_version": "fixture_v1", "observations": []}
+  },
+  "expectations": {"determination": {"required_selected": [], "forbidden_selected": []}},
+  "tags": ["detection", "frozen_upstream"],
+  "profiles": ["stage", "regression", "full"],
+  "live_budget": {"calls_by_stage": {"determination": 1}, "image_calls": 0},
+  "stage": "determination"
+}

@@ -75,6 +75,15 @@ same daily/job ledger. Prices are operator input, not inferred defaults.
 | `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Image-model accounting prices |
 | `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS`, `GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` | Image reservation/response bounds, default 8000/8000 |
 
+Live acceptance has a separate campaign envelope, owned by
+[`acceptance/README.md`](../../acceptance/README.md). Its optional environment
+limits are `LIVE_TEST_MAX_USD`, `LIVE_TEST_MAX_CALLS`,
+`LIVE_TEST_MAX_IMAGE_CALLS` and `LIVE_TEST_MAX_CASES`. A finite positive USD
+ceiling is required for live execution; CLI limits can tighten environment
+limits. The `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` setting is only one
+half of a separate acceptance double opt-in; `--live-gemini` is also required.
+Neither setting changes production worker composition.
+
 Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 `GEMINI_{PHASE}_MAX_OUTPUT_TOKENS` override these phase defaults:
 

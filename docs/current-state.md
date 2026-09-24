@@ -127,6 +127,15 @@ and visible caveats, and Psychology qualification across each ordered review.
 These are human-review acceptance cases, not assertions of live model quality.
 Stop the workflow with Ctrl+C when finished. This flow does not publish.
 
+## Opt-in Gemini acceptance harness
+
+The separate [`acceptance` framework](../acceptance/README.md) adds versioned
+cases, dry-run planning, isolated run workspaces, and machine-readable results.
+Dry-run does not require live opt-in. Real calls require both
+`CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` and `--live-gemini`, plus an
+explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
+other stage, chain and image cases are reserved for later passes.
+
 ## Monitoring and maintenance
 
 Planning ignores storage admission, including missing/stale/critical samples;

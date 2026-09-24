@@ -1,0 +1,12 @@
+{
+  "case_id": "english_icebreaker",
+  "schema_version": 1,
+  "description": "Clear English human idea about an idiom in a first meeting.",
+  "source_kind": "human",
+  "input": {"idea": "Teach 'break the ice' for someone meeting coworkers for the first time."},
+  "expectations": {"carousel": {"min_slides": 6, "max_slides": 6}},
+  "tags": ["english", "clear_intake"],
+  "profiles": ["smoke", "stage", "regression", "full"],
+  "live_budget": {"calls_by_stage": {"intake": 1}, "image_calls": 0},
+  "stage": "intake"
+}

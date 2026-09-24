@@ -1,0 +1,12 @@
+{
+  "case_id": "incomplete_idea",
+  "schema_version": 1,
+  "description": "Human idea intentionally missing a subject and desired outcome.",
+  "source_kind": "human",
+  "input": {"idea": "Make it better for them."},
+  "expectations": {"determination": {"forbidden_selected": []}},
+  "tags": ["clarification", "human"],
+  "profiles": ["stage", "regression", "full"],
+  "live_budget": {"calls_by_stage": {"intake": 1}, "image_calls": 0},
+  "stage": "intake"
+}
