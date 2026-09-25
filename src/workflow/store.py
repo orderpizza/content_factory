@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import json
+import random
 import re
 from PIL import Image, UnidentifiedImageError
 from common.diagnostics import safe_diagnostic
@@ -787,7 +788,8 @@ class WorkflowStore:
             status = 'retry_wait' if row['attempt_count'] < row['attempt_limit'] else 'failed'
             self._finish_claim(table, key, row, status, moment, f'retryable_provider_status:{code}')
             if status == 'retry_wait':
-                delay = min(120, 15 * 2 ** (row['attempt_count'] - 1))
+                base = 15 * 2 ** (row['attempt_count'] - 1)
+                delay = min(120, base + random.uniform(0, 10))
                 self.connection.execute(f"UPDATE {table} SET completed_at=NULL,next_attempt_at=? WHERE {key}=?",
                     (serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=delay)), row[key]))
 
@@ -1164,7 +1166,7 @@ class WorkflowStore:
                 "INSERT INTO content_jobs(editorial_plan_id,determination_route_id,brief_revision_id,pipeline_id,content_identity,recipe_json,output_plan_json,priority,created_at) VALUES (?,?,?,?,?,?,?,50,?)",
                 (plan_id,run["determination_route_id"],run["revision_id"],run["pipeline_id"],digest(recipe),canonical(recipe),canonical(snapshot["outputs"]),moment),
             ).lastrowid)
-            self.connection.execute("INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',2,?)", (job,moment))
+            self.connection.execute("INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at) VALUES (?,1,'pending',3,?)", (job,moment))
             self._finish_claim("editorial_plan_runs","editorial_plan_run_id",run,"succeeded",moment,None)
             return plan_id
 
@@ -1284,7 +1286,7 @@ class WorkflowStore:
             recipe_id = int(self.connection.execute(
                 "INSERT INTO visual_recipes(output_request_id,visual_plan_run_id,recipe_json,recipe_hash,selection_provenance_json,created_at) VALUES (?,?,?,?,?,?)",
                 (run["output_request_id"], run["visual_plan_run_id"], canonical(recipe), digest(recipe), canonical(provenance), moment)).lastrowid)
-            self.connection.execute("INSERT INTO adaptation_runs(output_request_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,1,'pending',2,?)", (run["output_request_id"], recipe_id, moment))
+            self.connection.execute("INSERT INTO adaptation_runs(output_request_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,1,'pending',3,?)", (run["output_request_id"], recipe_id, moment))
             self._finish_claim("visual_plan_runs", "visual_plan_run_id", run, "succeeded", moment, None)
             return recipe_id
 

@@ -20,6 +20,9 @@ FIELDS = set('worker instance_id operation_id record_id request_id thread_id dec
              'skipped_count blocked_count selected_domains planning_run_ids job_ids model_id input_tokens output_tokens '
              'total_tokens cost_micro_usd outcome error_type error_code method path http_status '
              'command_kind row_version storage_reason sample_id table_count byte_count'.split())
+FIELDS.update({'application_version', 'schema_version', 'commit_sha', 'git_worktree_dirty', 'model_id', 'image_model',
+               'vertex_location', 'api_version', 'request_timeout_seconds', 'sdk_version',
+               'prompt_versions', 'schema_versions'})
 FIELDS.update({'lease_expires_at', 'next_attempt_at'})
 
 

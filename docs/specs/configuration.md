@@ -67,8 +67,10 @@ same daily/job ledger. Prices are operator input, not inferred defaults.
 
 | Variables | Meaning |
 | --- | --- |
-| `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex connection; authenticate locally with ADC |
-| `GEMINI_MODEL` | Text model identifier |
+| `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex connection and text endpoint; authenticate locally with ADC. `global` is recommended for models that support it; current recommended `gemini-3.7-flash` supports global routing. |
+| `GEMINI_MODEL` | Text model identifier. `gemini-3.7-flash` is the current GA Flash recommendation; model prices remain operator supplied. |
+| `GEMINI_API_VERSION` | Vertex API version. `v1` is recommended for GA models; preview model IDs default to `v1beta`. Explicit incompatible preview/`v1` configuration is rejected. |
+| `GEMINI_TEXT_TIMEOUT_SECONDS` | Finite text request timeout; default 180 seconds, allowed range 1–300 seconds. Text worker claims last 600 seconds. |
 | `GEMINI_INPUT_COST_PER_MILLION_USD`, `GEMINI_OUTPUT_COST_PER_MILLION_USD` | Text model input/output prices |
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD`, `GEMINI_JOB_HARD_LIMIT_USD` | Owner spending limits |
 | `GEMINI_IMAGE_MODEL`, `GEMINI_IMAGE_SIZE` | Storyboard model and supported request size; defaults retain 2K |

@@ -224,7 +224,7 @@ def test_duplicate_case_ids_rejected(tmp_path):
 def test_profiles_filter_by_metadata_and_unknown_profile_cli_rejected():
     cases = discover_cases(FIXTURES)
     assert [c.case_id for c in cases if "smoke" in c.profiles] == ["english_icebreaker"]
-    assert PROFILES == frozenset({"smoke", "stage", "regression", "visual", "fidelity", "journey", "full"})
+    assert PROFILES == frozenset({"smoke", "transport", "stage", "regression", "visual", "fidelity", "journey", "full"})
     assert not any("pass" in case.case_id or "pass" in profile
                    for case in cases for profile in case.profiles)
     assert not (ROOT / "acceptance" / "cases").exists()

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from .model_trace import generate_json
-from common.gemini import VertexGeminiClient, configured_model
+from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
 from .store import canonical, digest, now
 from .workers import local_operation
 from .planning_context import model_context
@@ -210,7 +210,8 @@ class EditorialPlanningWorker:
         self.store, self.instance_id = store, instance_id
 
     def run_once(self):
-        run = self.store.claim('editorial_plan_runs', 'editorial_plan_run_id', self.instance_id)
+        run = self.store.claim('editorial_plan_runs', 'editorial_plan_run_id', self.instance_id,
+                               lease_seconds=TEXT_CLAIM_LEASE_SECONDS)
         return None if run is None else self._process(run)
 
     @local_operation('editorial_plan_runs', 'editorial_plan_run_id')

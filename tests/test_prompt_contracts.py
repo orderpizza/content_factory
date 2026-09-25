@@ -160,7 +160,11 @@ class PromptContractTests(unittest.TestCase):
             self.assertIsNotNone(GeminiIntakeWorker(store, InspectClient(brief())).run_once())
             row = store.connection.execute('SELECT * FROM model_invocations').fetchone()
             self.assertEqual(json.loads(row['raw_response_text']), json.loads(row['response_json']))
-            self.assertIn('provider_response_schema', json.loads(row['trace_json'])['generation_configuration'])
+            trace = json.loads(row['trace_json'])['generation_configuration']
+            self.assertIn('provider_response_schema', trace)
+            self.assertEqual(trace['transport']['workflow_retry_attempt_ordinal'], 1)
+            self.assertEqual(trace['transport']['sdk_retry_attempts'], 1)
+            self.assertNotIn('project', trace['transport'])
             with self.assertRaises(sqlite3.IntegrityError):
                 store.connection.execute("UPDATE model_invocations SET prompt_text='forged'")
             self.assertIsNone(invocation_cost(store.connection, row['model_invocation_id'])['actual_micro_usd'])

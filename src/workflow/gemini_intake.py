@@ -7,7 +7,7 @@ from typing import Any
 import json
 
 from .model_trace import generate_json
-from common.gemini import VertexGeminiClient, configured_model
+from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
 
 from .store import WorkflowStore
 from .workers import local_operation
@@ -68,7 +68,8 @@ class GeminiIntakeWorker:
 
     def run_once(self) -> int | None:
         request = self.store.claim(
-            "intake_requests", "intake_request_id", self.instance_id
+            "intake_requests", "intake_request_id", self.instance_id,
+            lease_seconds=TEXT_CLAIM_LEASE_SECONDS,
         )
         if request is None:
             return None

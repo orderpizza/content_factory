@@ -8,7 +8,7 @@ import json
 from copy import deepcopy
 
 from .model_trace import generate_json
-from common.gemini import VertexGeminiClient, configured_model
+from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
@@ -100,7 +100,8 @@ class GeminiDeterminationWorker:
 
     def run_once(self) -> int | None:
         request = self.store.claim(
-            "determination_requests", "determination_request_id", self.instance_id
+            "determination_requests", "determination_request_id", self.instance_id,
+            lease_seconds=TEXT_CLAIM_LEASE_SECONDS,
         )
         if request is None:
             return None

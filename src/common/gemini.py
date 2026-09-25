@@ -4,6 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any
+from importlib.metadata import PackageNotFoundError, version as package_version
 
 
 class GeminiConfigurationError(RuntimeError):
@@ -12,11 +13,67 @@ class GeminiConfigurationError(RuntimeError):
 
 # Text calls are one provider attempt. A finite deadline leaves an uncertain
 # ledger reservation rather than letting a claimed worker wait indefinitely.
-TEXT_REQUEST_TIMEOUT_MS = 60_000
+DEFAULT_TEXT_TIMEOUT_SECONDS = 180
+MAX_TEXT_TIMEOUT_SECONDS = 300
+TEXT_CLAIM_LEASE_SECONDS = 600
+SDK_RETRY_ATTEMPTS = 1
+GLOBAL_TEXT_MODELS = {"gemini-3.7-flash", "gemini-3-flash-preview"}
+
+
+def text_timeout_seconds(value: str | None = None) -> int:
+    """Resolve the finite Gemini text request deadline in seconds."""
+    raw = os.getenv("GEMINI_TEXT_TIMEOUT_SECONDS") if value is None else value
+    if raw is None or raw == "":
+        return DEFAULT_TEXT_TIMEOUT_SECONDS
+    try:
+        result = int(raw)
+    except (TypeError, ValueError) as error:
+        raise GeminiConfigurationError(
+            "GEMINI_TEXT_TIMEOUT_SECONDS must be a whole number from 1 to "
+            f"{MAX_TEXT_TIMEOUT_SECONDS} seconds"
+        ) from error
+    if not 1 <= result <= MAX_TEXT_TIMEOUT_SECONDS:
+        raise GeminiConfigurationError(
+            "GEMINI_TEXT_TIMEOUT_SECONDS must be a whole number from 1 to "
+            f"{MAX_TEXT_TIMEOUT_SECONDS} seconds"
+        )
+    return result
+
+
+def configured_location(model: str | None = None) -> str:
+    """Keep operator routing; recommend global by default for known support."""
+    selected_model = model or configured_model()
+    location = os.getenv("GOOGLE_CLOUD_LOCATION")
+    if location:
+        return location
+    return "global" if selected_model in GLOBAL_TEXT_MODELS else "us-central1"
+
+
+def configured_api_version(model: str | None = None) -> str:
+    """Use stable v1 for GA model IDs and beta routing for preview model IDs."""
+    selected_model = model or configured_model()
+    explicit = os.getenv("GEMINI_API_VERSION")
+    if explicit:
+        if explicit not in {"v1", "v1beta"}:
+            raise GeminiConfigurationError(
+                "GEMINI_API_VERSION must be v1 or v1beta"
+            )
+        if "preview" in selected_model.casefold() and explicit == "v1":
+            raise GeminiConfigurationError(
+                f"{selected_model} is a preview model; GEMINI_API_VERSION=v1 may be incompatible"
+            )
+        return explicit
+    return "v1beta" if "preview" in selected_model.casefold() else "v1"
 
 
 def retryable_provider_error(error):
     """Only completed, explicit provider rejections; never ambiguous local timeouts."""
+    try:
+        from google.genai.errors import APIError
+    except ImportError:
+        return False
+    if not isinstance(error, APIError):
+        return False
     code = getattr(error, 'code', None)
     if callable(code): code = code()
     return type(code) is int and code in {429, 500, 502, 503, 504}
@@ -24,7 +81,7 @@ def retryable_provider_error(error):
 
 def configured_model() -> str:
     """Return the configured model name."""
-    return os.getenv("GEMINI_MODEL") or os.getenv("VERTEX_AI_MODEL") or "gemini-2.5-flash"
+    return os.getenv("GEMINI_MODEL") or os.getenv("VERTEX_AI_MODEL") or "gemini-3.7-flash"
 
 
 def _vertex_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
@@ -88,10 +145,26 @@ class VertexGeminiClient:
         model: str | None = None,
         max_output_tokens: int | None = None,
         thinking_level: str | None = None,
+        _text_transport: bool = True,
     ):
         self.project = project or os.getenv("GOOGLE_CLOUD_PROJECT")
-        self.location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.model = model or configured_model()
+        if _text_transport:
+            self.location = location or configured_location(self.model)
+            self.api_version = configured_api_version(self.model)
+            self.timeout_seconds = text_timeout_seconds()
+            self.timeout_ms = self.timeout_seconds * 1000
+        else:
+            # The shared image adapter keeps its independent transport policy.
+            self.location = location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+            self.api_version = None
+            self.timeout_seconds = None
+            self.timeout_ms = None
+        self.sdk_retry_attempts = SDK_RETRY_ATTEMPTS
+        try:
+            self.google_genai_version = package_version("google-genai")
+        except PackageNotFoundError:
+            self.google_genai_version = None
         if max_output_tokens is not None and (
             type(max_output_tokens) is not int or max_output_tokens < 1
         ):
@@ -119,8 +192,9 @@ class VertexGeminiClient:
             project=self.project,
             location=self.location,
             http_options=types.HttpOptions(
-                timeout=TEXT_REQUEST_TIMEOUT_MS,
-                retry_options=types.HttpRetryOptions(attempts=1),
+                timeout=self.timeout_ms,
+                api_version=self.api_version,
+                retry_options=types.HttpRetryOptions(attempts=self.sdk_retry_attempts),
             ),
         )
         try:

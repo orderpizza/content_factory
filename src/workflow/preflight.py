@@ -88,7 +88,7 @@ def inspect_smoke_readiness(
         "gemini_project", "pass" if project else "blocked",
         "Vertex project is configured" if project else "GOOGLE_CLOUD_PROJECT is missing",
     )
-    model = str(values.get("GEMINI_MODEL") or values.get("VERTEX_AI_MODEL") or "gemini-2.5-flash")
+    model = str(values.get("GEMINI_MODEL") or values.get("VERTEX_AI_MODEL") or "gemini-3.7-flash")
     add("gemini_model", "pass", f"configured model identifier: {model}")
     for check_id, (ready, detail) in dependency_probe().items():
         add(check_id, "pass" if ready else "blocked", detail)
@@ -157,7 +157,7 @@ def inspect_planning_readiness(database, *, environment=None):
         available = False
     add('google_genai', available, 'local google-genai package')
     try:
-        ModelBudgetPolicy.from_environment(values.get('GEMINI_MODEL') or values.get('VERTEX_AI_MODEL') or 'gemini-2.5-flash', values)
+        ModelBudgetPolicy.from_environment(values.get('GEMINI_MODEL') or values.get('VERTEX_AI_MODEL') or 'gemini-3.7-flash', values)
         add('gemini_budget', True, 'configured prices and bounded phase/daily/job limits are valid')
     except (ValueError, ModelBudgetConfigurationError) as error:
         add('gemini_budget', False, str(error))

@@ -23,6 +23,7 @@ from workflow.gemini_generation import DOMAIN_FIELDS, _generation_prompt, _valid
 from workflow.gemini_adaptation import _adaptation_prompt
 from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
 import json
+import os
 import runpy
 import sys
 import tempfile
@@ -677,8 +678,9 @@ class GeminiWorkflowTests(unittest.TestCase):
             response.usage_metadata = None
             client.generate_json("prompt", {"type": "object"})
             self.assertIsNone(client.last_usage)
-            limited = VertexGeminiClient(project="fixture-project", model="gemini-3-flash-preview",
-                                         max_output_tokens=8000, thinking_level="LOW")
+            with patch.dict(os.environ, {"GEMINI_API_VERSION": "v1beta", "GOOGLE_CLOUD_LOCATION": "global"}):
+                limited = VertexGeminiClient(project="fixture-project", model="gemini-3-flash-preview",
+                                             max_output_tokens=8000, thinking_level="LOW")
             limited.generate_json("prompt", {"type": "object"}, temperature=1.0)
             config = calls[-1][1]["config"].values
             self.assertEqual(config["thinking_config"], {"thinking_level": "LOW"})
@@ -688,7 +690,8 @@ class GeminiWorkflowTests(unittest.TestCase):
         self.assertEqual(len(closed), len([call for call in calls if call[0] == 'client']))
         self.assertEqual(calls[0][1]["project"], "fixture-project")
         self.assertEqual(calls[1][1]["config"].values["response_mime_type"], "application/json")
-        self.assertEqual(calls[0][1]["http_options"].values["timeout"], 60_000)
+        self.assertEqual(calls[0][1]["http_options"].values["timeout"], 180_000)
+        self.assertEqual(calls[0][1]["http_options"].values["api_version"], "v1")
         self.assertEqual(calls[0][1]["http_options"].values["retry_options"].values["attempts"], 1)
         self.assertIsNone(calls[1][1]["config"].values["thinking_config"])
 

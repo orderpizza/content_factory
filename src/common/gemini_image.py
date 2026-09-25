@@ -40,6 +40,7 @@ class GeneratedImage:
 class VertexGeminiImageClient(VertexGeminiClient):
     def __init__(self, **kwargs):
         kwargs.setdefault("model", configured_image_model())
+        kwargs["_text_transport"] = False
         super().__init__(**kwargs)
 
     def generate_image(self, prompt: str, *, aspect_ratio: str = "5:4") -> GeneratedImage:

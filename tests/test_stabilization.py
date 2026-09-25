@@ -2,6 +2,8 @@
 from copy import deepcopy
 import json
 import unittest
+from google.genai.errors import APIError
+from unittest.mock import patch
 
 from workflow import (WorkflowStore, GeminiIntakeWorker, GeminiDeterminationWorker,
                       GeminiPipelineRunner, GeminiAdaptationWorker, VisualPlanner)
@@ -176,11 +178,12 @@ class StabilizationTests(unittest.TestCase):
         policy=ModelBudgetPolicy.from_environment('fake-gemini', {
             'GEMINI_INPUT_COST_PER_MILLION_USD':'1', 'GEMINI_OUTPUT_COST_PER_MILLION_USD':'2',
             'GEMINI_DAILY_WARNING_USD':'5', 'GEMINI_DAILY_HARD_LIMIT_USD':'10', 'GEMINI_JOB_HARD_LIMIT_USD':'2'})
-        class ProviderError(Exception): code=504
+        class ProviderError(APIError):
+            def __init__(self, code, message): super().__init__(code, {"error": {"message": message}})
         class FailingClient(FakeGeminiClient):
             def generate_json(self,*a,**kw):
                 self.last_usage=None
-                raise ProviderError('deadline exceeded')
+                raise ProviderError(504, 'deadline exceeded')
         with WorkflowStore(fixture.path,model_budget_policy=policy) as store:
             store.create_human_idea('An English expression',command_id='uncertain')
             GeminiIntakeWorker(store,FailingClient({})).run_once()
@@ -189,26 +192,50 @@ class StabilizationTests(unittest.TestCase):
             self.assertIsNone(reservation['settled_micro_usd'])
             self.assertEqual(_ledger(store,['intake'])[3],reservation['worst_case_micro_usd'])
 
+            class LocalTimeoutClient(FakeGeminiClient):
+                def generate_json(self,*a,**kw):
+                    self.last_usage=None
+                    raise TimeoutError('local socket deadline')
+            store.create_human_idea('A local timeout stays uncertain',command_id='local-timeout')
+            GeminiIntakeWorker(store,LocalTimeoutClient({})).run_once()
+            local=store.connection.execute("SELECT status FROM intake_requests ORDER BY intake_request_id DESC LIMIT 1").fetchone()
+            reservation=store.connection.execute("SELECT status FROM gemini_budget_reservations ORDER BY model_invocation_id DESC LIMIT 1").fetchone()
+            self.assertEqual(local['status'],'failed')
+            self.assertEqual(reservation['status'],'uncertain')
+
     def test_transport_retries_are_bounded_and_semantic_failures_terminal(self):
-        class ProviderError(Exception): code=504
+        class ProviderError(APIError):
+            def __init__(self, code=504, message='deadline exceeded'): super().__init__(code, {"error": {"message": message}})
         class FailingClient(FakeGeminiClient):
+            def __init__(self, response, code=504):
+                super().__init__(response); self.code = code
             def generate_json(self,*a,**kw):
                 self.calls.append(1)
-                raise ProviderError('deadline exceeded')
+                raise ProviderError(self.code)
         fixture=self.fixture()
         with WorkflowStore(fixture.path) as store:
             store.create_human_idea('English expression test',command_id='retry')
             client=FailingClient({});worker=GeminiIntakeWorker(store,client)
-            worker.run_once()
+            with patch('workflow.store.random.uniform', return_value=4):
+                worker.run_once()
             row=store.connection.execute('SELECT * FROM intake_requests').fetchone()
             self.assertEqual(row['status'],'retry_wait')
+            from common.timestamps import parse_timestamp
+            delay=(parse_timestamp(row['next_attempt_at'])-parse_timestamp(row['claimed_at'])).total_seconds()
+            self.assertEqual(delay,19)
             for _ in range(row['attempt_limit']-1):
                 store.connection.execute('UPDATE intake_requests SET next_attempt_at=NULL');store.connection.commit()
-                worker.run_once()
+                with patch('workflow.store.random.uniform', return_value=4):
+                    worker.run_once()
             self.assertEqual(store.connection.execute('SELECT status FROM intake_requests').fetchone()[0],'failed')
             self.assertEqual(len(client.calls),row['attempt_limit'])
             self.assertFalse(retryable_provider_error(ValueError('504')))
             self.assertFalse(retryable_provider_error(TimeoutError()))
+            for code in (429, 503):
+                store.create_human_idea(f'provider status {code}',command_id=f'status-{code}')
+                worker=GeminiIntakeWorker(store,FailingClient({}, code))
+                worker.run_once()
+                self.assertEqual(store.connection.execute("SELECT status FROM intake_requests ORDER BY intake_request_id DESC LIMIT 1").fetchone()[0], 'retry_wait')
             store.create_human_idea('another subject',command_id='schema')
             client=FakeGeminiClient({});worker=GeminiIntakeWorker(store,client);worker.run_once();worker.run_once()
             self.assertEqual(len(client.calls),1)

@@ -85,6 +85,16 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 .venv/bin/python -m acceptance.runners.matrix --live-gemini --profile smoke --max-usd 0.20
 ```
 
+Verify text transport with one small structured-output Intake case after changing
+the configured model or endpoint. The case uses the normal persisted invocation
+trace and reports provider outcome/usage; `started_at` and `completed_at` record
+latency. It makes one text call and no image calls:
+
+```sh
+CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
+.venv/bin/python -m acceptance.runners.matrix --live-gemini --profile transport --max-usd 0.05
+```
+
 Repeat attempts independently while retaining their parent case ID:
 
 ```sh
@@ -155,7 +165,8 @@ interpreting results. No OCR or LLM judge is claimed, no reference-image chainin
 is used, and posting remains disabled. Repeat the identical comparison later to
 assess variability before recalibrating the centralized policy and its version.
 
-Profiles use scenario metadata: `smoke` is the cheapest sanity path, `stage`
+Profiles use scenario metadata: `smoke` is the cheapest sanity path, `transport`
+checks one configured structured text request, `stage`
 selects isolated stages, `regression` selects representative text chains,
 `visual` selects review-render regression, `fidelity` selects the controlled copy
 comparison, `journey` selects full integrations,

@@ -69,20 +69,29 @@ failures retain their invocation outcome and usage when available. A lost/starte
 call is not assumed free and cannot be blindly repeated. There is no operator
 accounting-recovery command.
 
-Text requests use one SDK attempt and a finite **locally configured** 60-second
-HTTP timeout (`TEXT_REQUEST_TIMEOUT_MS`). It remains unchanged: the failed trace
-alone cannot distinguish a provider deadline from the local transport deadline or
-justify increasing latency and lease exposure. Gemini 3 text clients retain LOW
-thinking and their configured output budgets.
+Text requests use one SDK attempt and a finite, configurable
+`GEMINI_TEXT_TIMEOUT_SECONDS` deadline (default 180 seconds; valid range 1–300).
+Intake, Determination, Editorial Planning, Generation and Adaptation claims use a
+600-second lease, leaving at least five minutes beyond the maximum configured
+provider deadline. This prevents another worker from claiming a valid long call
+while preserving existing claim-version fencing. Gemini 3 clients retain LOW
+thinking and their configured output budgets. `GEMINI_MODEL=gemini-3.7-flash`,
+`GOOGLE_CLOUD_LOCATION=global` and `GEMINI_API_VERSION=v1` are the recommended
+GA text route; use global only with a model that supports it. Image model and
+endpoint settings remain separate.
 
 An explicit terminal provider HTTP 429, 500, 502, 503 or 504 response may schedule
 the next existing durable text attempt, with 15-second exponential delay capped
-at 120 seconds and the record's attempt limit (normally two or three). Each retry
-has its own fenced claim, exact invocation trace and budget reservation. Missing
+at 120 seconds plus up to 10 seconds of jitter. The limit is three total calls:
+the initial attempt and at most two retries. Each retry has its own fenced claim,
+exact invocation trace and budget reservation. Missing
 usage retains the prior uncertain reservation; it is never treated as free.
 Schema, parse, semantic and deterministic contract failures do not trigger this
 retry. Local timeouts, disconnected/unknown transport outcomes, lease loss and
-image calls remain terminal without automatic paid replay. No completed text
+image calls remain terminal without automatic paid replay. The SDK is configured
+for one transport attempt, so each durable invocation remains one visible
+provider attempt. An invocation without returned usage keeps its full reservation
+as uncertain; a retry is separately reserved and accounted. No completed text
 handoff is repeated. Budget deferral and the inactive metadata-only repair retain
 their separate existing semantics.
 
@@ -105,8 +114,14 @@ retry or permission to persist invalid output.
 
 Before a real provider request, `invocation_trace_v1` freezes exact compiled prompt
 text, UTF-8 SHA-256, structured input, local response schema, projected provider
-schema and generation configuration (temperature, output cap and thinking level).
-The invocation already records prompt/request/schema versions and model ID. Image
+schema, generation configuration, model ID, Vertex location/endpoint, API version,
+request timeout, thinking level, output cap, SDK attempt count, workflow attempt
+ordinal and `google-genai` version. It also includes a non-secret runtime
+fingerprint: application and schema versions, prompt/schema versions, configured
+text and image models, endpoint settings and Git commit SHA when available. Each
+workflow process emits the same concise fingerprint at startup. Compare these
+values when diagnosing a trace from an old process; Git is optional because schema
+and prompt versions remain present. Image
 traces instead record image size, aspect ratio, modalities and output cap; their
 structured input references the prompt hash rather than duplicating its text.
 

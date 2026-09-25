@@ -8,7 +8,7 @@ import json
 import re
 
 from .model_trace import generate_json
-from common.gemini import VertexGeminiClient, configured_model
+from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
@@ -150,7 +150,8 @@ class GeminiPipelineRunner:
 
     def run_once(self) -> int | None:
         run = self.store.claim(
-            "generation_runs", "generation_run_id", self.instance_id, lease_seconds=600
+            "generation_runs", "generation_run_id", self.instance_id,
+            lease_seconds=TEXT_CLAIM_LEASE_SECONDS,
         )
         if run is None:
             return None

@@ -39,7 +39,13 @@ shapes fail before the image call. No HTML fallback is active. Explicit human sl
 locally, Editorial Planning IDs/scoring/qualification attachment are deterministic,
 and Adaptation selects required teaching claims into explicit body-line arrays.
 Only explicit retryable text-provider responses can retry within durable attempt
-limits; contract failures stop without repeated paid calls.
+limits; contract failures stop without repeated paid calls. Text transport uses a
+finite configurable 180-second deadline (maximum 300 seconds) and 600-second
+fenced claims. `gemini-3.7-flash` on Vertex `global` with API `v1` is the current
+GA text recommendation; operator pricing remains required. Startup and invocation
+traces report the effective model, endpoint, deadline, retry attempt and runtime
+prompt/schema fingerprint. See [configuration](specs/configuration.md) and
+[reliability](specs/reliability.md).
 
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
 Determination routes, editorial plans and failures, jobs, adaptation/storyboard/render progress and exact review slides.

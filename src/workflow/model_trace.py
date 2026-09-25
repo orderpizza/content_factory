@@ -1,14 +1,32 @@
 """Execution-time text request capture and existing-ledger cost projections."""
 from common.gemini import _vertex_response_schema
+from common.runtime_fingerprint import runtime_fingerprint
 
 
 def generate_json(store, invocation_id, client, prompt, schema, *, temperature):
+    invocation = store.connection.execute(
+        "SELECT model_id,attempt_ordinal FROM model_invocations WHERE model_invocation_id=?",
+        (invocation_id,),
+    ).fetchone()
+    location = getattr(client, "location", None)
     store.record_model_request(invocation_id, prompt, schema, {
         'temperature': temperature,
         'max_output_tokens': getattr(client, 'max_output_tokens', None),
         'thinking_level': getattr(client, 'thinking_level', None),
         'response_mime_type': 'application/json',
         'provider_response_schema': _vertex_response_schema(schema),
+        'transport': {
+            'model_id': invocation['model_id'],
+            'vertex_location': location,
+            'vertex_endpoint': ('aiplatform.googleapis.com' if location == 'global' else
+                                f'{location}-aiplatform.googleapis.com' if location else None),
+            'api_version': getattr(client, 'api_version', None),
+            'request_timeout_ms': getattr(client, 'timeout_ms', None),
+            'sdk_retry_attempts': getattr(client, 'sdk_retry_attempts', 1),
+            'workflow_retry_attempt_ordinal': int(invocation['attempt_ordinal']),
+            'google_genai_sdk_version': getattr(client, 'google_genai_version', None),
+        },
+        'runtime_fingerprint': runtime_fingerprint(),
     })
     response = None
     client.last_raw_response = None

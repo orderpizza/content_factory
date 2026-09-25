@@ -140,6 +140,18 @@ def main() -> None:
     if args.review_preview and not args.gemini:
         parser.error("--review-preview requires --gemini")
     try:
+        from common.runtime_fingerprint import runtime_fingerprint
+        fingerprint = runtime_fingerprint()
+        from common.operation_log import emit
+        emit('runtime', 'startup', application_version=fingerprint['application_version'],
+             schema_version=fingerprint['database_schema_version'], commit_sha=fingerprint['git_commit_sha'],
+             git_worktree_dirty=fingerprint['git_worktree_dirty'],
+             model_id=fingerprint['text_model'], image_model=fingerprint['image_model'],
+             vertex_location=fingerprint['vertex_location'], api_version=fingerprint['api_version'],
+             request_timeout_seconds=fingerprint['text_timeout_seconds'],
+             sdk_version=fingerprint['google_genai_sdk_version'],
+             prompt_versions=list(fingerprint['prompt_versions'].values()),
+             schema_versions=list(fingerprint['schema_versions'].values()))
         budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
         with WorkflowStore(database, model_budget_policy=budget_policy, enforce_storage=True) as store:
             configure_development_catalog(store)
