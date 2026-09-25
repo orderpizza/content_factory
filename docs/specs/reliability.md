@@ -88,6 +88,35 @@ Vertex while retaining types, required fields and closed objects. Local worker
 validators enforce the original bounds before persistence. This is not a paid
 retry or permission to persist invalid output.
 
+## Execution traces and cost inspection
+
+Before a real provider request, `invocation_trace_v1` freezes exact compiled prompt
+text, UTF-8 SHA-256, structured input, local response schema, projected provider
+schema and generation configuration (temperature, output cap and thinking level).
+The invocation already records prompt/request/schema versions and model ID. Image
+traces instead record image size, aspect ratio, modalities and output cap; their
+structured input references the prompt hash rather than duplicating its text.
+
+The text client retains raw response text before parsing, including invalid JSON
+and output-limit failures where text is available. Parsed response JSON and the
+terminal validation outcome are recorded separately. A successful outcome identifies
+a validated response; normalized authoritative output lives in its immutable stage
+artifact. Metadata repairs are separate invocations. A transport failure may have
+no response. Fake clients without raw text do not fabricate a raw provider response.
+SQL prevents changing frozen prompts and completed responses. Traces remain local
+SQLite evidence, not diagnostic log output. Output caps bound normal response growth;
+no binary image is duplicated in SQLite. The existing storage monitor observes JSON
+growth and physical database size; there is no automatic trace retention deletion.
+
+`model_trace.invocation_cost` projects the existing reservation and settlement:
+reserved input-token assumption, provider output cap, estimated reservation in
+micro-USD, actual input/output usage, settled cost, actual-minus-reservation delta,
+model ID and pricing-policy fingerprint. Missing settlement remains unknown, never
+zero. Image manifests expose this per board and summed across the carousel; the
+dashboard also exposes job aggregates and per-invocation accounting. Totals with
+unknown costs remain unknown. These are read models of `ModelBudgetPolicy` and its
+ledger, not an independent estimator or guaranteed price ceiling.
+
 ## Storage, backup and retention
 
 StorageMonitor records physical disk/database/WAL/artifact/backup sizes at most
@@ -155,7 +184,8 @@ restricted redirects. Models have no browsing or publishing tools. Untrusted
 source/user text cannot change policy, catalog, schema or publication authority.
 
 Diagnostic helpers redact secret/header/signed-URL patterns. Model ledgers store
-hashes, versions, usage and safe errors, not full prompts/responses.
+hashes, versions, usage and safe errors. Exact prompts/responses stay in the
+local invocation trace and are never copied into diagnostic logs.
 [Runtime logging](runtime.md#diagnostic-logging) owns process-log limits.
 Authoritative submitted messages and validated content remain intact, so never
 put credentials or private data in ideas. Redaction is not a guarantee that an

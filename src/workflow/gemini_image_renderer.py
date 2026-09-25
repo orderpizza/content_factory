@@ -362,7 +362,7 @@ def _draw_arrow(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
 
 def footer_cta_phrases(render_id: int, total: int = 6, *, pipeline_id: str = "english") -> list[str | None]:
     """Choose non-repeating, reproducible swipe cues for one render."""
-    if type(render_id) is not int or not 4 <= total <= 14 or (pipeline_id == 'english' and total != 6):
+    if type(render_id) is not int or not 4 <= total <= 14 or (pipeline_id == 'english' and total > 6):
         raise ValueError("expression carousel CTA rotation requires six slides")
     rng = Random(f"{OVERLAY_PROFILES[pipeline_id]['cta_namespace']}:{render_id}")
     phrases = rng.sample(FOOTER_CTA_PHRASES, min(total - 1, len(FOOTER_CTA_PHRASES)))
@@ -373,7 +373,7 @@ def footer_cta_phrases(render_id: int, total: int = 6, *, pipeline_id: str = "en
 
 def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: str | None, pipeline_id: str = "english", role: str | None = None) -> Image.Image:
     """Apply a single subdued RGBA type treatment after slide normalization."""
-    if slide.size != (1080, 1350) or not 1 <= ordinal <= total or not 4 <= total <= 14 or (pipeline_id == 'english' and total != 6):
+    if slide.size != (1080, 1350) or not 1 <= ordinal <= total or not 4 <= total <= 14 or (pipeline_id == 'english' and total > 6):
         raise ValueError("overlay requires six final-size slides")
     if (ordinal < total) != (cta_phrase is not None):
         raise ValueError("only slides one through five may have a swipe CTA")
@@ -381,7 +381,8 @@ def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: 
     layer = Image.new("RGBA", slide.size)
     draw = ImageDraw.Draw(layer)
     font = _overlay_font()
-    label = profile['labels'][ordinal - 1] if pipeline_id == 'english' or role is None and total == 6 else {
+    from .content_contract import english_positions
+    label = profile['labels'][english_positions(total)[ordinal - 1]] if pipeline_id == 'english' else profile['labels'][ordinal - 1] if role is None and total == 6 else {
         'hook': 'AI / TECH' if pipeline_id == 'ai_tech' else 'PSYCHOLOGY',
         'explanation': 'EXPLAINED', 'example': 'EXAMPLE', 'takeaway': 'TAKEAWAY',
     }[role]
@@ -429,8 +430,14 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
                 key='render_run_id', row=run, request_version='image_storyboard_request_v2',
                 prompt_version=PROMPT_COMPILER_VERSION, schema_version=recipe['renderer_contract_id'],
-                request_value={'prompt': prompt, 'board': board}, model_id=self.client.model,
+                request_value={'prompt_sha256': sha256(prompt.encode()).hexdigest(), 'board': board}, model_id=self.client.model,
                 budget_policy=self.budget_policy, board_index=board['board_index'])
+            from .model_trace import invocation_cost, aggregate_cost
+            from common.gemini_image import configured_image_size
+            self.store.record_model_request(invocation, prompt, None, {
+                'aspect_ratio': board['provider_aspect_ratio'], 'image_size': configured_image_size(),
+                'response_modalities': ['TEXT', 'IMAGE'], 'candidate_count': 1,
+                'max_output_tokens': getattr(self.client, 'max_output_tokens', None)})
             started = perf_counter()
             try:
                 generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
@@ -466,7 +473,8 @@ class GeminiImageRenderer(ActiveReviewRenderer):
                 raise
             self.store.finish_model_invocation(invocation, outcome='succeeded', usage=self.client.last_usage,
                 response_value={'sha256': sha256(generated.data).hexdigest()}, budget_policy=self.budget_policy)
-        return assets, dict(model_id=self.client.model, prompt_version=PROMPT_COMPILER_VERSION,
+            boards[-1]['cost'] = invocation_cost(self.store.connection, invocation)
+        return assets, dict(cost=aggregate_cost([b['cost'] for b in boards]), model_id=self.client.model, prompt_version=PROMPT_COMPILER_VERSION,
             pipeline_id=pipeline_id, archetype_id=recipe['archetype_id'], archetype_version=recipe['archetype_version'],
             account_visual_profile_id=recipe['account_visual_profile_id'], prompt_compiler_version=recipe['prompt_compiler_version'],
             renderer_contract_id=recipe['renderer_contract_id'], overlay_profile_id=recipe['overlay_profile_id'],

@@ -46,22 +46,24 @@ class EditorialPlanningTests(unittest.TestCase):
 
     def test_external_evidence_reference_id_is_preserved_for_planning_and_generation(self):
         references = _source_reference_ids({
-            'evidence': [{'reference_id': 'fixture:acme:1'}],
-            'messages': [{'message_id': 7}],
+            'evidence': [{'reference_id': 'fixture:acme:1', 'title': 'An announcement'}],
+            'messages': [{'message_id': 7, 'body': 'A request'}],
         })
         self.assertEqual(references, ['fixture:acme:1', 'message:7'])
         prompt = planning_prompt({
             'domain': 'ai_tech',
             'allowed_evidence_reference_ids': ['fixture:acme:1'],
+            'brief': {}, 'source_context': {}, 'as_of': '2026-09-25T00:00:00', 'history': [],
         })
-        self.assertIn('copy its evidence_reference_ids exactly from', prompt)
+        self.assertIn('Supplied evidence identifiers must be copied exactly', prompt)
 
     def test_ai_planning_prompt_limits_title_only_evidence(self):
         prompt = planning_prompt({
             'domain': 'ai_tech',
             'allowed_evidence_reference_ids': ['fixture:acme:1'],
+            'brief': {}, 'source_context': {}, 'as_of': '2026-09-25T00:00:00', 'history': [],
         })
-        self.assertIn('a source title, product name, brief target, or evidence ID supports only', prompt)
+        self.assertIn('Product names and announcement titles support only', prompt)
 
     def test_domains_plan_before_job_and_generation_consumes_plan(self):
         for domain in QUALIFICATIONS:
@@ -84,7 +86,8 @@ class EditorialPlanningTests(unittest.TestCase):
                 self.assertIs(client.calls[0]['schema'], PLAN_SCHEMA)
                 generator = FakeGeminiClient(fixtures.GeminiWorkflowTests.canonical_response(domain))
                 self.assertIsNotNone(GeminiPipelineRunner(self.store, generator).run_once())
-                self.assertIn('editorial_plan', generator.calls[0]['prompt'])
+                self.assertIn('selected_treatment', generator.calls[0]['prompt'])
+                self.assertNotIn('selection_dimensions', generator.calls[0]['prompt'])
                 self.assertIn('must_cover_points', generator.calls[0]['prompt'])
                 self.assertIn('Editorial plan: promise', render_threads(self.store.connection))
                 with self.assertRaises(sqlite3.IntegrityError):

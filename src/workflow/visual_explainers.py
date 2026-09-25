@@ -7,31 +7,6 @@ from collections.abc import Mapping
 from .active_visual_profiles import validate_expression_units
 
 
-DYNAMIC_GUIDANCE = """Return 4–14 concise visual units, normally 4–8. Expand with more units
-when necessary, never denser copy. Exactly one hook first and one takeaway last;
-interior roles are explanation or example, with at least one of each. Preserve
-all canonical claims and qualifications. If 14 readable units cannot contain the
-content, fail rather than dropping meaning; narrower planning is required.
-Archetype slide entries are role-specific composition examples, not fixed positions.
-"""
-AI_TECH_ADAPTATION_GUIDANCE = DYNAMIC_GUIDANCE + """Cover what changed, how it works,
-practical uses and limitations. Preserve availability_scope, as_of_context and
-limitations visibly in explanation copy. Never invent product claims or benchmarks.
-"""
-PSYCHOLOGY_ADAPTATION_GUIDANCE = DYNAMIC_GUIDANCE + """Keep observation, concept,
-possible mechanism, example, alternative explanations and practical implications
-distinct. Preserve uncertainty and qualification in the takeaway and relevant units.
-Do not make a possible explanation into the reason, or omit alternatives in a way
-that makes an unobserved motive, mechanism, or cause sound established. Avoid
-diagnosis, asserted private motives, unsupported population generalizations, and
-medical advice.
-"""
-EXPLAINER_CAPACITY_GUIDANCE = """Titles: at most 80 characters, 10 words, 2 lines.
-Bodies: at most 280 characters, 30 words, 3 lines, 16 words per line.
-Keep takeaway qualification and caveats substantive. Do not drop claim mappings.
-"""
-
-
 def validate_dynamic_roles(roles):
     if (not 4 <= len(roles) <= 14 or roles[0] != 'hook' or roles[-1] != 'takeaway'
         or any(r not in {'explanation', 'example'} for r in roles[1:-1])

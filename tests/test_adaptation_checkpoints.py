@@ -36,6 +36,8 @@ class AdaptationCheckpointTests(delivery_fixtures.DeliveryFixture, unittest.Test
             "public_text_claim_ids": [], "private_tags": ["duplicate", "duplicate"],
             "hashtags": [], "alt_text": "A simple lesson card.",
         }
+        first['visual_units'][1]['title'] = 'Ease the first moment'
+        first['visual_units'][2]['title'] = 'A room waiting to talk'
         metadata = {
             "private_tags": ["education", "language"], "hashtags": [],
             "alt_text": "A lesson card explaining how to ease an awkward first meeting.",

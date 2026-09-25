@@ -1,6 +1,7 @@
 """Thread and decision read model for both planning entry paths."""
 import json
 import uuid
+from workflow.model_trace import invocation_cost, job_cost
 from .evidence import text, link, json_detail, render_storage_status
 
 
@@ -97,6 +98,7 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
                         parts.append(json_detail('Immutable job recipe',job['recipe_json']) + json_detail('Output plan',job['output_plan_json']))
                         if generation:
                             parts.append(json_detail('Latest generation attempt',dict(generation),diagnostic=True))
+                        parts.append(json_detail('Job reservation and actual costs (micro-USD)', job_cost(connection, jid)))
                         parts.append(render_job_progress(connection, jid))
                         reviews = connection.execute('SELECT v.review_request_id FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id JOIN output_requests o ON o.output_request_id=p.output_request_id JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id WHERE c.content_job_id=? ORDER BY v.review_request_id DESC LIMIT 20',(jid,)).fetchall()
                         for review in reviews:
@@ -110,6 +112,9 @@ def render_threads(connection, *, limit=20, interactive=False, csrf_token='', th
             parts.append('<h4>Gemini activity (latest 30)</h4><ul>')
             for inv in invocations:
                 parts.append(f"<li>{text(inv['phase'])} · {text(inv['model_id'])} · {text(inv['outcome'])} · tokens {text(inv['total_tokens'])} · estimated USD {inv['estimated_cost_micro_usd']/1000000:.6f} · {text(inv['safe_error'] or '')}</li>")
+                parts.append(json_detail('Invocation reservation and actual cost (micro-USD)', invocation_cost(connection, inv['model_invocation_id'])))
+                if thread_id:
+                    parts.append(json_detail('Execution-time prompt trace', {k: inv[k] for k in ('prompt_sha256', 'prompt_text', 'request_json', 'trace_json', 'raw_response_text', 'response_json')}))
             parts.append('</ul>')
         if thread_id and len(revisions)>1:
             parts.append(link('Older brief revision →', thread_id=tid, revision_page=revision_page+1))

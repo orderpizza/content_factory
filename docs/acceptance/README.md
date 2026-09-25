@@ -57,8 +57,8 @@ Its generated hook, explanation or caption is intentionally not an exact-match
 assertion.
 
 For example, an English `break the ice` coworker scenario should retain English
-routing, the expression and workplace context; produce six role-valid English
-slides; create a ReviewRequest; and produce 1080×1350 final slides. It must not
+routing, the expression and workplace context; produce its planned role-valid English
+slides (four to six, with six for an explicit six-slide scenario); create a ReviewRequest; and produce 1080×1350 final slides. It must not
 require a particular hook sentence. A frozen AI/Tech announcement scenario
 should retain the named plan, date and evidence reference, allow only supplied
 capabilities as source-bound facts, and reject invented pricing, certification
@@ -126,3 +126,9 @@ strategies. The [runner's fidelity profile](../../acceptance/README.md#controlle
 owns definitions, authorization, evidence and the human review rubric. Thresholds
 remain provisional until live comparison; fewer boards or successful geometry
 alone cannot establish text fidelity or cross-board visual consistency.
+
+The render/fidelity fixtures are already-authored copy replayed through the
+acceptance-only `frozen_acceptance_package_v1` handoff. Their exact text, including
+historical duplicate section titles, stays frozen across forced partitions. This
+is not a new adaptation result or evidence that historical copy passed current
+authoring QA. Production workers cannot select this fixture path.

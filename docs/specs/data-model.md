@@ -101,14 +101,17 @@ within one render claim.
 `post_requests`, `post_records`, `post_attempts` and publication resources
 separate human authorization from delivery. `reconciliation_requests` and
 checks preserve uncertain outcomes without an automatic repost.
-`model_invocations` and budget reservations preserve paid-call admission,
-usage, cost and uncertainty. Storage samples, worker heartbeats/runs, maintenance
+`model_invocations` freezes structured inputs, exact prompt text/hash, schemas,
+generation configuration and raw/parsed text responses, alongside paid-call admission,
+usage, cost and uncertainty. SQL guards protect execution prompt and completed response
+traces. Budget reservations remain the single accounting ledger;
+[reliability](reliability.md#execution-traces-and-cost-inspection) owns trace semantics. Storage samples, worker heartbeats/runs, maintenance
 and artifact reconciliation provide operational evidence.
 
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 15. All workers open and validate databases through
+authoritative schema, at version 16. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates

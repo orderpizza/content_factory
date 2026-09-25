@@ -3,14 +3,31 @@ from common.timestamps import utc_now
 from typing import Any
 import json
 
-WORKFLOW_PIPELINES = ("english", "ai_tech", "psychology")
-
 
 DOMAIN_REMITS = {
     "english": "Teach usable English expressions, vocabulary and pragmatic context to language learners; popularity alone is not a teaching angle.",
     "ai_tech": "Explain AI tools, capabilities, limitations and practical use cases with evidence.",
     "psychology": "Explain evidence-grounded behavior and communication; do not invent diagnoses.",
 }
+
+# Canonical model-facing editorial context; operational readiness remains in SQLite.
+DOMAIN_CONTEXT = {
+    'english': dict(name='English learning', purpose=DOMAIN_REMITS['english'],
+        scope='Meaning, natural examples, usage, register and pragmatic nuance.',
+        exclusions='No invented etymology or unsupported culture-wide claims.'),
+    'ai_tech': dict(name='AI and technology', purpose=DOMAIN_REMITS['ai_tech'],
+        scope='Capabilities, changes, practical workflows and limitations.',
+        exclusions='No unsourced current product, benchmark, pricing or availability claims.'),
+    'psychology': dict(name='Behavior and communication', purpose=DOMAIN_REMITS['psychology'],
+        scope='Observations, qualified interpretations, alternatives and practical responses.',
+        exclusions='No diagnoses, asserted private motives or unsupported research/frequency claims.'),
+}
+WORKFLOW_PIPELINES = tuple(DOMAIN_CONTEXT)
+
+
+def domain_context(domain):
+    return {'domain_id': domain, **DOMAIN_CONTEXT[domain]}
+
 
 def read_catalog(connection, kind="fixture") -> list[dict[str, Any]]:
     pipeline_version = (

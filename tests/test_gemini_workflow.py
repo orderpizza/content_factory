@@ -1,6 +1,7 @@
 """Offline boundary tests for opt-in Gemini Intake and Determination."""
 
 from __future__ import annotations
+from claim_fixtures import register_fixture_semantics
 from workflow.editorial_planning import EditorialPlanningWorker
 from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
 from copy import deepcopy
@@ -129,7 +130,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "plain_meaning": "Make an unfamiliar social situation feel easier.",
                 "nuance": "It focuses on easing initial tension.",
                 "register_and_region": "Neutral conversational English.",
-                "usage_notes": ["Use it when people are meeting or feel awkward."],
+                "usage_notes": ["Use it when people are meeting or feel awkward.", "Try a friendly introduction.", "Ask an optional opening question."],
                 "avoid_misuse": ["Do not use it for literal ice unless making a joke."],
             },
             "ai_tech": {
@@ -152,7 +153,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "qualification": "This is a general interpretation, not a diagnosis.",
             },
         }
-        return {
+        return register_fixture_semantics({
             "hook": f"A useful {pipeline} angle",
             "context": "A practical, carefully qualified explanation.",
             "key_points": ["Start with the audience need.", "Use a concrete example."],
@@ -167,15 +168,19 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "qualification": "Fictional example.",
             }],
             "domain_payload": values[pipeline],
-        }
+        })
 
     @staticmethod
     def adaptation_response(platform: str, claim_id: str = "english.example.1") -> dict:
+        claim_ids = [c['claim_id'] for c in GeminiWorkflowTests.canonical_response(claim_id.split('.')[0])['claims']]
+        units = deepcopy(EXPRESSION_UNITS)
+        units[1]['title'] = 'Ease the first moment'
+        units[2]['title'] = 'A room waiting to talk'
         common = {
             "private_tags": ["education", "review fixture"],
             "hashtags": ["#english", "#learning"] if platform == "instagram" else [],
             "alt_text": "A clean educational card explaining an idea.",
-            "public_text_claim_ids": [claim_id],
+            "public_text_claim_ids": claim_ids,
             "visual_cues": [],
         }
         if platform == "instagram":
@@ -183,7 +188,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 **common,
                 "caption_summary": "Learn the meaning, nuance, and use of this expression.",
                 "cta": "Save this for your next meeting.",
-                "visual_units": deepcopy(EXPRESSION_UNITS),
+                "visual_units": units,
             }
         raise ValueError("unsupported platform")
 
@@ -225,10 +230,10 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "SELECT brief_json FROM brief_revisions WHERE revision_id=?", (revision_id,)
             ).fetchone()
             frozen = json.loads(revision["brief_json"])
-            self.assertEqual(set(BRIEF_FIELDS), set(frozen))
+            self.assertEqual(set(BRIEF_FIELDS) | {"field_authority"}, set(frozen))
             self.assertEqual(frozen["canonical_target"], "break the ice")
             self.assertIs(client.calls[0]["schema"], INTAKE_SCHEMA)
-            self.assertIn("Do not select or recommend a domain pipeline", client.calls[0]["prompt"])
+            self.assertIn("Do not choose a subject-area pipeline", client.calls[0]["prompt"])
             usage = store.connection.execute(
                 "SELECT outcome,input_tokens,output_tokens,total_tokens FROM model_invocations"
             ).fetchone()
@@ -288,8 +293,8 @@ class GeminiWorkflowTests(unittest.TestCase):
             self.assertTrue(all(route["reason"] for route in routes))
             selected = next(route for route in routes if route["disposition"] == "selected")
             self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM content_jobs").fetchone()[0], 1)
-            self.assertIs(client.calls[0]["schema"], DETERMINATION_SCHEMA)
-            self.assertIn("all three domain", client.calls[0]["prompt"])
+            self.assertEqual(client.calls[0]["schema"], DETERMINATION_SCHEMA)
+            self.assertIn("every domain in DOMAIN_CATALOG", client.calls[0]["prompt"])
 
     def test_gemini_determination_rejects_low_value_idea_without_jobs(self):
         with WorkflowStore(self.path) as store:
@@ -377,7 +382,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                         set(client.calls[0]["schema"]["properties"]["domain_payload"]["required"]),
                         set(DOMAIN_FIELDS[pipeline]),
                     )
-                    self.assertIn("platform-neutral canonical", client.calls[0]["prompt"])
+                    self.assertIn("reusable educational content", client.calls[0]["prompt"])
                     output_count = store.connection.execute(
                         "SELECT COUNT(*) FROM output_requests WHERE canonical_content_id=?",
                         (canonical_id,),
@@ -451,14 +456,12 @@ class GeminiWorkflowTests(unittest.TestCase):
                     "pipeline_id": "psychology", "brief": {"topic": temptation}, "angle": {},
                     "editorial_plan": {}, "source_context": {}, "allowed_source_reference_ids": ["message:1"],
                 })
-                self.assertIn("observation and an\nexplanation", prompt)
-                self.assertIn("Do not infer an unobserved\ninternal motive", prompt)
-                self.assertIn("credible alternative_explanations", prompt)
-                self.assertIn("qualified_inference", prompt)
-                self.assertIn("keep the observation singular and scenario-bound", prompt)
-                self.assertIn("Every alternative_explanations entry must itself be phrased as a possibility", prompt)
-                self.assertIn("the only\nestablished behavioral statement allowed anywhere in the response is that", prompt)
-                validated = _validate_content(response, "psychology", {"message:1"})
+                for phrase in ('supported observation', 'credible alternatives', 'hidden motives',
+                               'qualified_inference', 'population frequencies', 'possible_mechanism is null'):
+                    self.assertIn(phrase, prompt)
+                register_fixture_semantics(response)
+                validated = _validate_content(response, 'psychology', {'message:1'},
+                    {'messages': [{'message_id': 1, 'body': response['claims'][0]['text']}]})
                 self.assertEqual(validated["claims"][1]["claim_kind"], "qualified_inference")
 
     def test_psychology_adaptation_prompt_cannot_strengthen_canonical_uncertainty(self):
@@ -466,11 +469,9 @@ class GeminiWorkflowTests(unittest.TestCase):
             "pipeline_id": "psychology", "canonical_content": self.canonical_response("psychology"),
             "selected_archetype": {}, "destination": {}, "canonical_hash": "fixture",
         })
-        self.assertIn("never make an observation's possible explanation sound like an", prompt)
-        self.assertIn("Do not turn a possibility\ninto a certainty", prompt)
-        self.assertIn("select one alternative as the real reason", prompt)
-        self.assertIn("do not\nintroduce population frequency", prompt)
-        self.assertIn("preserve that exact scope in\nevery public field", prompt)
+        for phrase in ('supported observation', 'credible alternatives', 'hidden motives',
+                       'population frequencies', 'single scenario'):
+            self.assertIn(phrase, prompt)
 
     def test_gemini_adaptation_creates_independent_validated_packages(self):
         with WorkflowStore(self.path) as store:

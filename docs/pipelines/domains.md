@@ -30,8 +30,9 @@ changes, mechanisms, practical use and limitations; Psychology emphasizes
 observations, possible mechanisms and alternative explanations.
 
 Generation receives frozen evidence and has no browsing/tool-use ability.
-Sources must not be invented. Hypothetical examples and qualified inferences
-must be distinguishable from source-bound facts. Commercial promises,
+Sources must not be invented. Hypothetical examples, qualified inferences and unverified English model knowledge
+must be distinguishable from source-bound facts. Every public semantic string
+is registered under the [canonical claim contract](../specs/content-production.md#canonical-generation). Commercial promises,
 sponsorship claims and affiliate links need explicit support and disclosure.
 
 These are prompt and human-review criteria. Current validators check closed
@@ -65,7 +66,7 @@ interpretation is true. `observed_behavior` states the supported observation;
 `qualification` states the boundary. The common claim envelope records a
 directly supported observation as `source_bound_fact`, an unestablished
 interpretation as `qualified_inference`, and an invented illustration as
-`generated_example`. No additional schema field is needed: human review still
+`generated_example`. The common claim registry covers every semantic leaf; human review still
 assesses whether public prose preserves those distinctions.
 
 An isolated everyday observation is not population evidence. It must remain
@@ -77,7 +78,7 @@ No slide count, caption, geometry or account belongs in a domain payload.
 [Content production](../specs/content-production.md) owns that envelope;
 [platform outputs](../specs/content-production.md#instagram-package-contract) owns adaptation.
 
-All three domains reach Gemini Instagram review assets: English keeps six slides;
+All three domains reach Gemini Instagram review assets: English supports 4–6 content slides;
 AI/Tech and Psychology support 4–14. English
 retains its expression teaching profile; AI/Tech uses technology editorial art
 direction with visible limitations; Psychology uses calm behavioral education

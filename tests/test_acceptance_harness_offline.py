@@ -286,7 +286,7 @@ def test_run_workspace_and_schema_are_isolated(tmp_path):
     assert database.exists()
     import sqlite3
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
     assert not (tmp_path / "development.db").exists()
 
 

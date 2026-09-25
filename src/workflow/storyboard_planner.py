@@ -28,7 +28,7 @@ def validate_board_geometry(board):
 
 def slide_bounds(domain):
     if domain == 'english':
-        return 6, 6
+        return 4, 6
     if domain in {'ai_tech', 'psychology'}:
         return 4, 14
     raise ValueError('unsupported storyboard domain')

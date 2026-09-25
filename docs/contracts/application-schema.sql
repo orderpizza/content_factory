@@ -531,7 +531,7 @@ CREATE TABLE editorial_plans (
     brief_revision_id INTEGER NOT NULL REFERENCES brief_revisions(revision_id),
     pipeline_id TEXT NOT NULL CHECK(pipeline_id IN ('english','ai_tech','psychology')),
     lane TEXT NOT NULL CHECK(lane IN ('trend','evergreen','series','experiment')),
-    schema_version TEXT NOT NULL CHECK(schema_version='editorial_plan_v1'),
+    schema_version TEXT NOT NULL CHECK(schema_version='editorial_plan_v2'),
     planner_version TEXT NOT NULL,
     input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64),
     plan_json TEXT NOT NULL CHECK(json_valid(plan_json)),
@@ -707,6 +707,10 @@ CREATE TABLE post_records (
     CHECK(policy_snapshot_json IS NULL OR json_valid(policy_snapshot_json)), external_post_id TEXT, published_at TEXT, publication_unknown_at TEXT);
 
 CREATE TABLE model_invocations (
+    request_json TEXT CHECK(request_json IS NULL OR json_valid(request_json)),
+    prompt_text TEXT, prompt_sha256 TEXT CHECK(prompt_sha256 IS NULL OR length(prompt_sha256)=64),
+    trace_json TEXT CHECK(trace_json IS NULL OR json_valid(trace_json)),
+    raw_response_text TEXT, response_json TEXT CHECK(response_json IS NULL OR json_valid(response_json)),
     claim_version INTEGER NOT NULL DEFAULT 0,
     model_invocation_id INTEGER PRIMARY KEY AUTOINCREMENT, phase TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
     attempt_ordinal INTEGER NOT NULL, request_version TEXT NOT NULL, prompt_version TEXT NOT NULL, schema_version TEXT NOT NULL,
@@ -1098,7 +1102,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 15;
+PRAGMA user_version = 16;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)
@@ -1156,3 +1160,11 @@ WHEN NOT EXISTS (SELECT 1 FROM storyboard_plans s WHERE s.storyboard_plan_id=NEW
 BEGIN SELECT RAISE(ABORT,'render storyboard lineage mismatch'); END;
 CREATE TRIGGER render_storyboard_immutable BEFORE UPDATE OF storyboard_plan_id ON render_runs
 BEGIN SELECT RAISE(ABORT,'immutable render storyboard'); END;
+
+CREATE TRIGGER model_prompt_trace_immutable BEFORE UPDATE OF request_json,prompt_text,prompt_sha256,trace_json ON model_invocations
+WHEN OLD.prompt_text IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'invocation prompt trace is immutable'); END;
+
+CREATE TRIGGER model_response_trace_immutable BEFORE UPDATE OF raw_response_text,response_json ON model_invocations
+WHEN OLD.outcome != 'started'
+BEGIN SELECT RAISE(ABORT, 'completed invocation response is immutable'); END;

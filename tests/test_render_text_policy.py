@@ -140,7 +140,8 @@ def workflow_fixture():
 def prepare_dense_english(store, f, forced=None):
     prepare_domain(store,f,'english')
     response = _fixture_adaptation('english',6,'english_fidelity_6_v1')
-    assert GeminiAdaptationWorker(store,FakeGeminiClient(response)).run_once() is not None
+    from acceptance.adapters.pipeline import _persist_frozen_render_fixture
+    assert _persist_frozen_render_fixture(store, response) is not None
     before = dict(store.connection.execute('SELECT * FROM content_packages').fetchone())
     assert StoryboardPlanner(store,calibration_capacities=forced).run_once() is not None
     assert dict(store.connection.execute('SELECT * FROM content_packages').fetchone()) == before

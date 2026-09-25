@@ -115,7 +115,7 @@ class DeliveryFixture:
             (route_id, revision_id, '4'*64, moment),
         ).lastrowid
         editorial_id = store.connection.execute(
-            "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,'english','evergreen','editorial_plan_v1','fixture',?,'{}',?)",
+            "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,'english','evergreen','editorial_plan_v2','fixture',?,'{}',?)",
             (editorial_run,route_id,revision_id,'4'*64,moment),
         ).lastrowid
         job_id = store.connection.execute(
@@ -127,7 +127,7 @@ class DeliveryFixture:
             "INSERT INTO generation_runs(content_job_id,run_number,status,attempt_limit,created_at,completed_at) "
             "VALUES (?,1,'succeeded',1,?,?)", (job_id, moment, moment),
         ).lastrowid
-        canonical_value = {"hook": "A useful lesson", "claims": []}
+        canonical_value = {"hook": "A useful lesson", "claims": [], "domain_payload": {"target": "break the ice", "usage_notes": ["At a meeting", "In a group", "In a quiet room"]}}
         canonical_id = store.connection.execute(
             "INSERT INTO canonical_contents(content_job_id,generation_run_id,canonical_identity,"
             "canonical_json,canonical_hash,schema_version,created_at) VALUES (?,?,?,?,?,'fixture',?)",

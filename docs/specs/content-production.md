@@ -1,210 +1,172 @@
 # Content Production
 
-**Owner:** Canonical generation and per-destination adaptation.
-**Implementation:** `src/workflow/gemini_generation.py`,
-`src/workflow/gemini_adaptation.py`, and finalization in `src/workflow/store.py`.
-This document describes the Gemini workers. Default deterministic workers produce
-non-deliverable fixtures; [runtime](runtime.md#workflow-composition) selects the mode.
+**Owner:** Canonical generation, per-destination adaptation and semantic QA.
+**Implementation:** `gemini_generation.py`, `content_contract.py`,
+`gemini_adaptation.py`, and transactional finalization in `store.py`.
+Default deterministic workers remain non-deliverable fixtures.
 
 ## Persisted flow
 
 ```text
 Determination → EditorialPlanRun → immutable EditorialPlan + ContentJob + GenerationRun
-  → CanonicalContent + frozen OutputRequests + VisualPlanRuns
-  → deterministic VisualPlanner → immutable VisualRecipe + AdaptationRun
-  → one ContentPackage + StoryboardPlanRun per successful output
-  → deterministic pagination → immutable StoryboardPlan + RenderRun
-  → deterministic PromptCompiler → renderer → assets + ReviewRequest
+→ CanonicalContent + OutputRequests + VisualPlanRuns
+→ deterministic VisualPlanner → immutable VisualRecipe + AdaptationRun
+→ resolved content contract → Adaptation + deterministic semantic QA
+→ immutable ContentPackage + StoryboardPlanRun
+→ deterministic render pagination → StoryboardPlan + RenderRun
+→ PromptCompiler → Gemini boards → assets + ReviewRequest
 ```
 
-Each handoff is an atomic, fenced SQLite transaction. Workers never invoke the
-next worker. Canonical content, job recipes, output plans and packages are
-immutable. The [data model](data-model.md) owns identities and constraints;
-[visual rendering](visual-rendering.md) owns asset production.
+Workers exchange SQLite records, never direct calls. Each handoff is atomic and
+fenced. [Data model](data-model.md) owns lineage;
+[visual rendering](visual-rendering.md) owns archetypes, boards and assets.
+
+## Prompt composition and authority
+
+`prompt_policy.py` composes a stage task, shared input-authority rules, only the
+relevant domain policy, and a minimal immutable request. The canonical domain
+remit owner is `catalog.py`. Intake needs no domain catalog; Determination uses
+its frozen catalog. Planning receives one domain's strategy/qualification rules
+and bounded treatment history. Generation receives only the selected treatment,
+brief intent/constraints and evidence, not losing candidates, selection dimensions,
+route rationale, history or output bindings. Adaptation receives canonical content,
+one resolved content contract and its destination, not a serialized visual recipe.
+The full decision history remains persisted for humans.
+
+Human messages establish requested subjects and constraints. They do not establish
+unstated facts about those subjects. System configuration supplies policy, not
+factual evidence. Planning supplies strategic obligations, not factual answers.
+No stage performs external research. Text prompts are instructions; schemas and
+local validators are the enforcement boundary.
 
 ## Canonical generation
 
-A job references its immutable EditorialPlan and freezes the brief, selected
-domain/angle, source context and at most one
-Instagram binding. Generation makes one Gemini drafting call for
-the claimed run. The plan is a writing constraint: preserve its selected angle,
-reader promise, must-cover points and qualifications; do not select a new strategy.
-The request recipe is `content_job_recipe_v3`; the generation prompt is
-`workflow_gemini_generation_prompt_v5`. Its closed `canonical_content_v2` schema contains:
+`workflow_gemini_generation_prompt_v6` returns `canonical_content_v3`. The job
+recipe remains `content_job_recipe_v3`. The closed schema contains hook, context,
+2–8 key points, 0–8 examples, takeaway, optional CTA, up to 30 claims, and one
+matching domain payload. It contains no platform copy, hashtags or visual design.
 
-- hook, context, 2–8 key points, 0–8 examples, takeaway and optional CTA;
-- up to 30 claims, each with a unique ID, text, kind, evidence reference IDs
-  and qualification;
-- the matching domain payload defined by `DOMAIN_FIELDS`.
+Every non-null semantic string, including every domain-payload leaf, must exactly
+match text in the claims registry. Repeated text may reuse a registry entry.
+This deliberately avoids an unenforced parallel factual prose channel. The
+validator rejects missing registration, foreign references and invalid classes.
+It cannot determine whether a model assigned a truthful class or whether a
+paraphrase in subsequent adaptation is semantically faithful.
 
-Claim kinds are `source_bound_fact`, `qualified_inference` and
-`generated_example`. References must belong to the frozen job; a source-bound
-fact requires at least one. Canonical content contains no account-specific
-caption, layout, renderer selection or hashtags.
+| Claim kind | Authority and enforcement |
+| --- | --- |
+| `source_bound_fact` | Requires allowed evidence references and a literal excerpt present in a cited source record. A topic-only message cannot support an unrelated assertion. Quotation membership is not independent fact verification. |
+| `model_general_knowledge` | Standard English teaching knowledge only; no evidence references. Unverified model knowledge, not a fact supplied by the human. Origin/cultural assertions still require evidence by domain policy. |
+| `qualified_inference` | Cautious interpretation with an honest qualification; cited references must belong to supplied evidence. Uncertainty must remain visible in public prose. |
+| `generated_example` | Invented illustration, no evidence references. Common `examples` entries require this class. |
+| `editorial_framing` | Nonfactual invitation/question in hook or CTA only, no evidence references; rejected in other semantic fields. Factual assertions must not be mislabeled as framing. |
 
-Validation enforces structure, cardinality and reference membership. It does
-**not** prove that evidence supports a claim, that an example is natural, or
-that a domain's editorial rules are satisfied. There is no approved teaching
-reference catalog, autonomous research or second semantic-validation model call.
-[Domain policy](../pipelines/domains.md) guides prompts and human review.
-For AI/Tech, source titles, identifiers, brief targets and planner proposals are
-not evidence of unstated product details; generation must keep title-only
-evidence to the stated announcement and explicit unknowns.
+Evidence IDs come only from actual human message records, Detection observations
+and supplied `reference_id` records containing text. Arbitrary job, thread or
+candidate IDs do not establish evidence. Literal source text is not independently
+verified, and quotation alone cannot establish the truth of a source's claim.
+[Domain policy](../pipelines/domains.md) supplies epistemic review criteria.
+AI/Tech cannot use model priors for current product facts. Psychology preserves
+observations, qualified possibilities and alternatives; its mechanism remains
+nullable when evidence establishes none.
 
-Psychology uses the existing `observed_behavior`, `possible_mechanism`,
-`alternative_explanations`, `qualification`, and common claim fields rather
-than a new schema field. A directly supported observation is source-bound when
-it has frozen evidence; an explanation that is not established is a
-`qualified_inference` with visible uncertainty; an invented situation is a
-`generated_example`. `possible_mechanism` is nullable: when the frozen material
-does not establish an explanation, the canonical must use null rather than fill
-the field with a plausible mechanism. The generation prompt requires the same distinction in
-public prose, not only metadata: it must not infer private motives, mechanisms,
-or causal explanations from behavior, and must retain credible alternatives
-where uncertainty matters. A single-scenario input is not population evidence:
-generation and adaptation must not turn it into a common/frequent/general rule,
-or add observed details. This remains a prompt and human-review boundary;
-the structural validator cannot prove semantic entailment.
+Generation success commits canonical content and output/visual-planning work
+atomically. Failure creates no partial fan-out. Human revisions create new jobs;
+canonical reuse across revisions is not implemented.
 
-Successful generation commits one canonical result per job, all frozen
-OutputRequests and their initial pending VisualPlanRuns together. Failure does
-not create partial fan-out. There is no capacity-slot allocator or
-cross-revision canonical reuse.
+## Resolved content capacity and English content pagination
 
-## Output adaptation — `output_adaptation_v3`
+`content_contract.py` owns `resolved_content_contract_v1`. Before Adaptation,
+the caller resolves platform character bounds, the selected archetype's copy
+capacities and English line grammar into one model-facing contract. It records
+roles/purposes, title/body budgets, line bounds, target-expression positions and
+dialogue requirements. Obsolete overlapping guidance is not sent alongside it.
+Local validation enforces those same capacities without truncation.
 
-An adaptation reads one canonical object, frozen destination and committed visual
-recipe. It receives the selected archetype's complete slide grammar, composition
-and capacities. The selection is immutable; adaptation writes exact copy and
-metadata for that grammar, preserving every claim and qualification. It cannot
-select an archetype, theme, font or color, fetch evidence, change the angle or emit
-image-generation instructions. The caller stamps the selected archetype into the
-package; it is not a model-generated field.
+English has three registered semantic sequences, applicable to all three English
+archetypes. Count is deterministic from canonical content, never freely chosen by
+Adaptation or the image model:
 
-The first model call returns body and metadata together:
+| Count | Sequence |
+| --- | --- |
+| 4 | Hero expression, meaning, short dialogue, takeaway |
+| 5 | Hero expression, meaning, two examples, short dialogue, takeaway |
+| 6 | Hero expression, meaning, use contexts, two examples, short dialogue, takeaway |
 
-- In preview mode, invalid output fails the run without a metadata repair call.
-- In the preserved inactive delivery mode, a valid adapted body is checkpointed with its hash.
-  If only metadata validation fails, one metadata-only repair call is permitted
-  for that claim. A persisted body can be used on an explicitly recoverable run;
-  it is not redrafted. Invocation identity and cost-uncertainty guards still apply.
-- Invalid body, failed repair, or unsafe replay fails visibly. There is no
-  unbounded drafting/repair loop.
+Three or more usage notes select six units; otherwise two or more canonical
+examples select five; otherwise four. An explicit human `content_slide_count`
+constraint (four/five/six slides) is preserved by Intake and stamped into canonical
+metadata by the caller; it fixes the bounded count. Readability is enforced by
+per-position capacity. If the selected count cannot preserve the content, adaptation
+fails for narrower planning rather than silently padding, truncating or increasing
+count. This is a conservative deterministic count heuristic, not semantic entailment.
 
-A metadata failure does not discard or regenerate canonical content. Canonical
-content commits before adaptation begins. Failure on one output does not rerun
-generation.
+The accepted six-position teaching grammar remains available: hook ≤5 title words
+and ≤20 body words; meaning ≤60 body words over 1–5 lines (first ≤35 words,
+subsequent ≤18); use contexts 3–4 lines of ≤14 words; examples two lines of ≤22;
+dialogue 3–4 turns of ≤16; takeaway 2–3 lines of ≤16. Scene archetypes retain
+stricter capacities. Titles have at most two lines; other English titles ≤12 words.
+English titles/bodies are at most 120/600 characters. The resolved contract selects
+the applicable positions; removing a use-context/example position also selects
+the matching local overlay and visual direction, rather than shifting labels.
 
-Success atomically persists one ContentPackage per OutputRequest, completes the
-adaptation and creates StoryboardPlanRun referencing the immutable package. SQL
-lineage constraints prevent borrowing another output's recipe. Synthetic packages
-remain non-deliverable. All supported domain formats use
-[Gemini rendering](visual-rendering.md#gemini-designer-review-rendering).
+AI/Tech and Psychology remain bounded at 4–14 units, normally 4–8, with hook first,
+takeaway last and at least one explanation and example inside. Their resolved
+role capacities are titles ≤80 characters/10 words/two lines, bodies ≤280
+characters/30 words/three lines/16 words per line. Qualifications cannot be removed
+to fit. Existing substantive AI explanation and Psychology takeaway checks remain.
+
+Content pagination freezes semantic units. The separate `render_text_policy.py`
+then packs those units into image calls without changing any text, count or order.
+Every final slide remains 1080×1350, 4:5. Render budgets are provisional calibration
+values, not proven provider limits; their versions and thresholds are unchanged.
 
 ## Instagram package contract
 
-The only active platform is Instagram, using `instagram_static_carousel_v2`.
-Every current domain has one destination binding. Adaptation consumes immutable
-canonical content for that frozen destination, preserving angle, claims,
-qualifications and meaning. It never writes assets or posting authorization.
+`workflow_gemini_adaptation_prompt_v12` produces `output_adaptation_v4` for
+`instagram_static_carousel_v2`. The caller stamps the archetype, resolved content
+contract and semantic-QA result into the immutable package. Adaptation owns copy
+and metadata; it cannot choose design, produce assets or authorize delivery.
 
-`workflow.gemini_adaptation.adaptation_schema` owns exact fields. A package has
-ordered visual units beginning with hook and ending with takeaway, caption,
-optional CTA, private tags, hashtags, alt text, claim mappings and bounded semantic
-visual cues. Every English archetype requires six units with roles
-hook, explanation, explanation, example, example, takeaway.
+Every canonical claim must map into caption and/or slide copy. Section labels
+belong to deterministic chrome; new English slide titles must add lesson-specific
+information. Known redundant labels fail validation. This reduces actual render
+text naturally; measurements are never adjusted to simulate savings.
 
-Local limits: title 120 characters, body 600, caption summary 1100, total caption
-1500; CTA at most 12 words/120 characters or null; 2–6 unique private tags, at most
-8 unique lowercase ASCII hashtags, alt text at most 1000 characters. Every
-canonical claim must be mapped into copy or units. The active Gemini review
-workflow additionally applies the English expression archetype's position-specific
-title, word-count and line-count limits during adaptation, plus the selected
-archetype capacities. English scene archetypes retain their tighter position limits.
+Caption summary ≤1100 characters; complete caption ≤1500. CTA is null or ≤12
+words/120 characters. Private tags: 2–6 unique strings, ≤80 characters each.
+Hashtags: at most eight unique lowercase ASCII tags. Alt text ≤1000 characters.
+`visual_cues` remains a closed list: slide ordinal, mapped subject claim ID,
+semantic emphasis and 0–4 participants. No free-form image/style prompts occur.
 
-`output_adaptation_v3` is closed and uses domain-specific cardinality. English
-remains exactly six units. AI/Tech and Psychology allow 4–14 units, normally 4–8:
-exactly one hook first, one takeaway last, interior roles only explanation/example,
-and at least one of each interior role. Their six archetypes retain role-specific
-composition guidance without prescribing fixed positions. Adaptation prompt
-`workflow_gemini_adaptation_prompt_v11` instructs expansion instead of dense text;
-over-capacity responses fail and require narrower adaptation/planning, never truncation.
+Preview mode fails invalid output without a repair call. Preserved inactive delivery
+mode checkpoints valid body copy and permits one metadata-only repair. Its prompt
+is `workflow_gemini_adaptation_metadata_retry_v2`; it receives only the checkpointed
+body. Repair never rewrites body text or canonical content. Metadata failure does
+not regenerate canonical content or sibling outputs.
 
-`visual_explainers.py` validates dynamic-domain titles at 80 characters/10 words/
-2 nonempty lines and bodies at 280 characters/30 words/3 nonempty lines/16 words
-per line. Every dynamic archetype and prompt uses these same accepted bounds. AI/Tech requires substantive
-explanation copy and Psychology a substantive final takeaway (at least 20 body
-characters). These are deterministic capacity checks, not proof that a caveat is
-meaningful. Psychology adaptation must not strengthen an uncertain explanation
-into a motive, mechanism, cause, or diagnosis, or silently select one retained
-alternative. Every canonical claim must still be mapped; body checkpoints apply
-the same rules. Prompts require visible AI/Tech limitations, availability scope and
-as-of context; Psychology preserves observation versus inference, alternative
-explanations and takeaway qualification. Human review assesses semantic fidelity.
+## Pre-render semantic QA
 
+`pre_render_semantic_qa_v1` reuses capacity/archetype validation, then checks planned
+count/roles, target expression in hero and dialogue text, alternating distinct
+speakers, claim coverage and directly detectable polarity reversals of mapped
+claim text. The package carries the result. Finalization recomputes it from frozen
+canonical content and the recipe; the renderer rechecks it before any image call.
+A forged/stale result cannot authorize rendering.
 
-English keeps its teaching grammar: hook title/body at most 5/20 words; meaning
-body at most 60 words over five nonempty lines (first line 35 words, later lines
-18); 3–4 use-case lines of at most 14 words; two example lines of at most 22;
-3–4 dialogue turns of at most 16; 2–3 takeaway lines of at most 16. Non-hook
-titles are at most 12 words; all titles have at most two nonempty lines. Selected
-scene capacities are tighter where declared in the archetype. No qualification
-is removed automatically when these limits fail.
+These deterministic checks do not grade dialogue naturalness, arbitrary logical
+contradictions, factual truth, or paraphrase entailment. No paid QA model, OCR grader
+or research subsystem is added. Human review remains necessary. The controlled
+acceptance corpus replays already-authored copy as `frozen_acceptance_package_v1`,
+including its historical titles. This acceptance-only helper keeps core package,
+claim, archetype-capacity and render checks and is absent from production workers;
+it does not claim that old copy passed the new authoring QA.
 
-Prompt is authoring guidance; validator is policy. Schema character/list bounds
-mirror local limits where practical; local word/line checks remain authoritative.
-Content pagination is settled by these final units. The separate
-[render-text policy](visual-rendering.md#gemini-designer-review-rendering) can
-split a six-slide package into more image calls without rewriting any content.
+## Spending, traces and recovery
 
-### Text-stage string bounds
-
-Model output-token allowances protect against truncation and include thinking;
-they are not verbosity targets. [Configuration](configuration.md#model-admission)
-owns the unchanged 2K/4K/4K/6K/8K defaults and 10K text ceiling. The render-text
-policy does not change these allowances.
-
-The string audit preserves Intake's free-form constraints/source context,
-Determination rationale/fit/reason, and canonical context, qualifications and
-domain prose: arbitrary new renderer-driven character caps there could remove
-meaning. These fields remain candidates for independent text-stage calibration;
-they are not claimed to be locally bounded prose. Editorial Planning already
-bounds strings to 800 characters and uses closed list cardinalities. Generation
-retains its bounded lists/claims and now exposes its existing 120-character
-stable claim-ID rule in the schema. Adaptation exposes its existing title/body,
-caption-summary (1100), alt-text (1000) and private-tag (80) character limits to
-the schema. No prose is truncated to satisfy a schema.
-
-## Post-specific visual cues
-
-`visual_cues` replaces generic presentation intent. It is a closed list of zero
-to fourteen entries, at most one per slide; English still permits at most six. Each entry contains `slide` (1 through actual unit count),
-`subject_claim_id` (an existing canonical claim mapped to that slide),
-`semantic_emphasis` (situation, contrast, sequence, qualification or takeaway),
-and `participants_count` (0–4). There are no free-text subject/prompt/style fields.
-Use an empty list when a cue adds no value. The compiler uses these bounded
-references alongside exact slide copy; account/archetype configuration owns all
-art direction. Package and body checkpoint validation preserve all claim mappings.
-
-## Spending and recovery
-
-[Configuration](configuration.md#model-admission) owns model settings and phase
-allowances. [Reliability](reliability.md#gemini-accounting) owns reservation,
-settlement and uncertain-call behavior. Intake/Determination use the daily budget;
-generation and every adaptation/repair also share the original job's USD cap.
-
-A daily-budget deferral makes no provider call. A failed or uncertain invocation
-is not automatically rerun just because the worker polls again. Pending runs
-are claimed sequentially; schema states such as `waiting_capacity` are not
-evidence of an implemented capacity scheduler.
-
-## Revisions and limitations
-
-Human refinement creates a new immutable brief and decision. Scoped review
-feedback retains its output/domain scope and excludes unchanged sibling routes.
-It does not implement canonical reuse: a newly selected route creates a new job.
-Existing approved or in-flight siblings are not silently cancelled.
-
-Checks fence closed/cancelled threads at handoff boundaries, but the dashboard
-does not expose a general cancel-thread command. Exact delivery cancellation
-belongs to [posting](posting.md).
+[Configuration](configuration.md#model-admission) owns token assumptions and caps.
+[Reliability](reliability.md#gemini-accounting) owns the single reservation ledger,
+exact execution traces, settlement and uncertain outcomes. No second estimator is
+introduced. Text output defaults remain unchanged; the 10,000-token ceiling remains.
+A budget deferral makes no call. Failed or uncertain paid calls are not automatically
+replayed. Review-only operation and per-destination Post now ownership are unchanged.

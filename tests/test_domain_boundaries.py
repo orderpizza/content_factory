@@ -53,7 +53,6 @@ EXPRESSION_UNITS = [
 def domain_response(fixture, domain):
     response = fixture.adaptation_response('instagram', claim_id=f'{domain}.example.1')
     if domain == 'english':
-        response['visual_units'] = deepcopy(EXPRESSION_UNITS)
         return response
     copy = {
         'ai_tech': [
@@ -132,11 +131,11 @@ class DomainBoundaryTests(unittest.TestCase):
                         json_client = FakeGeminiClient(response)
                         self.assertIsNotNone(GeminiAdaptationWorker(store, json_client).run_once())
                         if domain == 'english':
-                            self.assertIn('exactly six visual units in this order', json_client.calls[0]['prompt'])
-                            self.assertIn('short dialogue', json_client.calls[0]['prompt'])
-                            self.assertIn('never return a two-turn dialogue', json_client.calls[0]['prompt'])
+                            self.assertEqual(json_client.calls[0]['schema']['properties']['visual_units']['minItems'], 6)
+                            self.assertIn('dialogue', json_client.calls[0]['prompt'])
+                            self.assertIn('content_contract', json_client.calls[0]['prompt'])
                         else:
-                            self.assertIn('4–14 concise visual units', json_client.calls[0]['prompt'])
+                            self.assertEqual(json_client.calls[0]['schema']['properties']['visual_units']['maxItems'], 14)
                             self.assertIn('qualification' if domain == 'psychology' else 'limitations', json_client.calls[0]['prompt'])
                         self._render_and_check(store, fixture, domain, origin)
 
@@ -174,7 +173,7 @@ class DomainBoundaryTests(unittest.TestCase):
         manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
         self.assertEqual(manifest['pipeline_id'], domain)
         self.assertEqual(manifest['archetype_id'], selected['archetype_id'])
-        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v5')
+        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v6')
         self.assertEqual(manifest['overlay']['brand_text'], 'o2_english' if domain == 'english' else None)
         self.assertEqual(manifest['boards'][0]['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
         self.assertEqual(len(list(artifact_root.rglob('raw-storyboard*.*'))), 1)

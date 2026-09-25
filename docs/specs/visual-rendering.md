@@ -34,7 +34,7 @@ platform against its configured domain binding; profile IDs are design identitie
 not substitute account names. Only English has the accepted `o2_english` footer.
 Archetypes specify eligibility, semantic selection traits, art direction, negative
 constraints, role-specific compositions, visual modes and copy capacities. English keeps
-six ordered positions; dynamic domains use these compositions by role.
+six teaching positions with registered four-, five- and six-unit subsequences; other domains use these compositions by role.
 There is no theme/font/component combination registry.
 
 The current registry `ACCOUNT_PROFILES` is keyed by domain because the active
@@ -48,10 +48,10 @@ until multiple-account visual operation is needed. No account key is invented
 from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
 not the complete three-archetype set.
 
-Infrastructure is independently versioned: `gemini_storyboard_prompt_v5` identifies
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v6` identifies
 the deterministic compiler, `image_storyboard_paginated_v3` identifies technical output
 geometry, and overlay IDs identify local chrome. Neither
-`gemini_storyboard_prompt_v5` nor `image_storyboard_paginated_v3` is a visual template.
+`gemini_storyboard_prompt_v6` nor `image_storyboard_paginated_v3` is a visual template.
 The former is compiler infrastructure; the latter is the technical renderer
 contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
@@ -103,7 +103,7 @@ contains index, rows, columns, capacity, inclusive slide range, explicit slide
 indices, `provider_aspect_ratio`, `slide_aspect_ratio`, `final_width`,
 `final_height` and split strategy. There is no ambiguous `aspect_ratio` field.
 
-Content pagination belongs to adaptation: English has six ordered units;
+Content pagination is resolved before adaptation: English has 4–6 ordered units;
 AI/Tech and Psychology have 4–14 (normally 4–8). Copy capacities and role grammar
 belong to [content production](content-production.md). Render pagination groups
 those immutable units into calls; it never changes the ContentPackage, claims,
@@ -207,12 +207,16 @@ capacities use the shared equal-grid/center-fit contract. Compatibility is in
 prompt compilation and splitting, not a second planner or renderer.
 
 All boards of a multi-board carousel receive the same frozen account identity,
-archetype/version, art direction, negative constraints and carousel visual
-contract. Only their assigned slides and claim-referenced cues appear in their
-prompts, with exact copy last. No reference-image chaining is implemented.
+art direction, negative constraints and carousel visual contract. Generic compiler
+branches now share one geometry/identity path for every capacity. Only assigned
+slides and translated semantic cues (emphasis/participant count) appear, with exact
+copy last. Internal claim IDs, capacity serialization, account IDs and profile
+fingerprints are excluded. The accepted six-panel breakdown branch retains its
+exact historical prompt bytes, including its optional cue representation. No reference-image chaining is implemented.
 
 Pillow adds transparent local chrome after splitting. English retains labels,
-`o2_english` branding and seeded five-phrase CTA rotation. Dynamic domains use the
+`o2_english` branding and seeded CTA rotation. Four/five-slide content selects the
+matching semantic header positions; six-slide overlay pixels remain unchanged. Dynamic domains use the
 actual unit role for header labels (domain hook, EXPLAINED, EXAMPLE, TAKEAWAY),
 no footer brand, and global slide counters. The curated eight-phrase CTA pool is
 sampled without replacement initially; longer carousels may reuse phrases without

@@ -32,22 +32,30 @@ than silently truncating. A previous brief is provided to Gemini, and trend
 refinement includes the original Detection evidence without recursively nesting
 earlier conversations.
 
-Gemini Intake is route-neutral. It cannot select a domain, platform, account,
+Intake uses `workflow_gemini_intake_prompt_v3` and
+`workflow_gemini_intake_result_v2`. It records supplied intent without choosing a treatment. It cannot select a domain, platform, account,
 format or generate content. Returned `open_questions` persist the first focused
 question and finish the request as `needs_clarification`, with no revision.
 A human reply creates another request. Otherwise Intake validates and commits
-all brief fields:
+all brief fields (sparse intent is valid):
 
 | Field | Meaning |
 | --- | --- |
-| `editorial_goal`, `topic` | What to explain and why |
+| `editorial_goal`, `topic` | Explicit goal or null, and normalized subject |
 | `coverage_kind`, `canonical_target` | Stable editorial subject |
 | `revision_scope` | Scope of the requested revision |
-| `audience`, `desired_outcome` | Who benefits and what they should learn/do |
+| `audience`, `desired_outcome` | Exact supplied wording or null when unknown |
 | `constraints` | Structured editorial constraints |
 | `source_context` | Route-neutral context summary |
 | `open_questions` | Empty on a completed brief |
 
+The caller stamps `field_authority`: explicit human intent, unknown values,
+normalized subject identity, system-default coverage category and model summary
+remain distinguishable. Unsupported optional intent is normalized to null and
+unsupported constraint values are removed by exact source-wording checks.
+New human coverage_kind defaults to `subject`; refinements preserve the existing
+identity. Explicit bounded slide requests use `constraints.content_slide_count`.
+No question is forced merely because a topic is short. Summaries are not evidence.
 The brief and source snapshot are immutable. Refinement creates a numbered child
 revision; old decisions and jobs remain intact. Refinement cannot silently
 change coverage identity. A materially different subject needs a new thread.
@@ -66,7 +74,7 @@ evaluations. Automatic cross-thread semantic coverage reuse is not implemented.
 ## Frozen catalog
 
 Setup registers three domains before any handoff. The shared catalog reader
-provides each domain's remit, enabled/generation-ready state and eligible output
+provides each domain's human name, purpose, scope, exclusions, enabled/generation-ready state and eligible output
 bindings. Development bindings are synthetic Instagram fixtures, not verified
 social accounts. The preserved inactive delivery catalog checks readiness from persisted facts.
 
@@ -83,7 +91,9 @@ against current capabilities.
 
 ## Determination
 
-Gemini evaluates `english`, `ai_tech` and `psychology` independently. Selected
+Gemini evaluates every entry in the frozen `DOMAIN_CATALOG` independently.
+The prompt and response cardinality/IDs derive from that catalog, not a separate
+list in generic prose. Active domain registration still contains the three current domains. Selected
 domains must offer substantively distinct reader value; skipping is normal.
 Disabled/unready domains and outputs cannot be selected.
 
@@ -97,7 +107,7 @@ Determination decides domain eligibility, not a strategic angle. Outputs must
 match ready entries from the frozen catalog, exactly one Instagram binding for
 each selected route. Its structured result is
 `workflow_gemini_determination_result_v2`, with `determination_policy_v2` and
-`workflow_gemini_determination_prompt_v3`.
+`workflow_gemini_determination_prompt_v4`.
 
 - `accepted`: at least one selected route.
 - `blocked`: no selection and at least one operationally blocked route.
@@ -110,8 +120,8 @@ No output binding means no selected route.
 
 ## Editorial Planning
 
-`src/workflow/editorial_planning.py` owns the closed `editorial_plan_v1`
-contract, `editorial_input_v1` input and `editorial_planner_v1` model prompt.
+`src/workflow/editorial_planning.py` owns the closed `editorial_plan_v2`
+contract, `editorial_input_v1` input and `editorial_planner_v2` model prompt.
 Determination asks whether to cover a brief; Editorial Planning chooses the
 story treatment; canonical generation writes it. Visual planning remains downstream.
 
@@ -126,7 +136,7 @@ are allowed only for experiments. No scheduling or feedback machinery is compose
 Each plan has 2–4 unique candidate IDs/angles and one selected candidate ID.
 Candidates contain domain strategy, reader promise, relevance, 1–8 must-cover points,
 evidence references/requirements and qualification requirements. Plan-level fields
-include domain, lane, audience intent, why-now, selection rationale and structured
+include domain, lane, audience intent, nullable evergreen why-now, selection rationale and structured
 reasoning for domain fit, usefulness, evidence strength, timeliness, novelty and
 explanatory potential. The selected candidate owns the selected angle/promise/points;
 these are not duplicated as independently editable fields.
@@ -137,7 +147,15 @@ ordered by plan ID descending, are frozen at Determination handoff, with IDs,
 input fingerprints, lanes, angles, strategies and promises. This includes planned
 content even before generation. One destination per domain makes this history
 appropriate to the active system. Simultaneous pending plans cannot see each other's
-future choices. No vectors or unbounded queries are used.
+future choices. No vectors or unbounded queries are used. Each candidate supplies bounded
+0–4 relevance and evidence scores. Selection maximizes three times relevance plus
+evidence minus treatment recency penalty (two for a matching most-recent-three
+plan, otherwise one per match, capped at two). Candidate order breaks ties.
+The validator enforces selection; relevance can outweigh repetition. The prompt
+requires comparative novelty reasoning. This is a bounded diversification policy,
+not an objective evaluation of model-assigned relevance. Planning obligations
+request what to explain without embedding unsupported answers. Evidence requirements
+are actual support conditions and may be empty; evergreen why-now may be null.
 
 Inputs retain frozen brief constraints and source conversation, source fingerprint,
 as-of UTC timestamp, Detection evidence and representative-selection counts.
@@ -164,7 +182,7 @@ Planning consumes the daily budget before a job exists and ignores storage admis
 A live fenced claim atomically commits plan, ContentJob and pending GenerationRun.
 Failure, cancellation or stale finalization creates no partial downstream work.
 SQL uniqueness prevents duplicate jobs, and external invocation history prevents
-blind replay after expiry. Fresh schema-15 databases are required; no migration
+blind replay after expiry. Fresh schema-16 databases are required; no migration
 or reset is performed. [Data model](data-model.md) owns SQL lineage.
 
 ## Runtime and review

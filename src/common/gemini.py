@@ -92,11 +92,13 @@ class VertexGeminiClient:
         self.max_output_tokens = max_output_tokens
         self.thinking_level = thinking_level
         self.last_usage: GeminiUsage | None = None
+        self.last_raw_response: str | None = None
         if not self.project:
             raise GeminiConfigurationError("GOOGLE_CLOUD_PROJECT must be configured for Vertex Gemini")
 
     def generate_json(self, prompt: str, schema: dict[str, Any], *, temperature: float = 0.2) -> dict[str, Any]:
         self.last_usage = None
+        self.last_raw_response = None
         try:
             from google import genai
             from google.genai import types
@@ -144,6 +146,7 @@ class VertexGeminiClient:
                 total_tokens=int(getattr(usage, "total_token_count", 0) or 0),
                 model=self.model,
             )
+        self.last_raw_response = response.text
         candidates = getattr(response, "candidates", None) or []
         if candidates:
             reason = getattr(candidates[0], "finish_reason", None)

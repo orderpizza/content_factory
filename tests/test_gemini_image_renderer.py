@@ -265,7 +265,6 @@ class ImageWorkflowTests(unittest.TestCase):
     def prepare(self, store):
         self.fixture.prepare_english_canonical(store)
         response = self.fixture.adaptation_response('instagram')
-        response['visual_units'] = deepcopy(EXPRESSION_UNITS)
         self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
         self.assertIsNone(VisualPlanner(store).run_once())
         StoryboardPlanner(store).run_once()
@@ -282,7 +281,7 @@ class ImageWorkflowTests(unittest.TestCase):
             review = worker.run_once()
             self.assertIsNotNone(review, getattr(worker, 'last_operation', None))
             self.assertEqual(len(client.calls), 1)
-            self.assertIn('single 3×2 storyboard', client.calls[0])
+            self.assertIn('3 columns and 2 rows', client.calls[0])
             assets = list(store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal'))
             self.assertEqual([asset['ordinal'] for asset in assets], list(range(1, 7)))
             for ordinal, asset in enumerate(assets, 1):
@@ -295,7 +294,7 @@ class ImageWorkflowTests(unittest.TestCase):
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
-            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v5')
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v6')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))

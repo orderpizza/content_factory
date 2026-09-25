@@ -181,6 +181,7 @@ def _bounded_ai_plan(snapshot: dict[str, Any]) -> dict[str, Any]:
         {
             "candidate_id": "confirmed-update", "angle": "What the dated Enterprise assistant announcement confirms and leaves open.",
             "angle_type": "what_changed", "reader_promise": "Separate confirmed access and feature facts from the details evaluators cannot yet infer.",
+            "relevance_score": 4, "evidence_score": 4,
             "relevance": "AI tool evaluators need a bounded view of an announced Enterprise assistant.",
             "must_cover_points": ["September 20 announcement", "October 2026 Enterprise-plan availability", "centralized administrative controls", "Acme Data Workspace integration", "unstated pricing, certification, geography, benchmarks, rollout, deployment, and comparison details"],
             "evidence_reference_ids": [reference], "evidence_requirements": ["Use only stated announcement facts and identify the named omissions."],
@@ -189,6 +190,7 @@ def _bounded_ai_plan(snapshot: dict[str, Any]) -> dict[str, Any]:
         {
             "candidate_id": "evaluation-boundary", "angle": "What an evaluator can confirm now versus what remains unavailable.",
             "angle_type": "limitations", "reader_promise": "Give evaluators a source-bound checklist without treating omissions as product claims.",
+            "relevance_score": 3, "evidence_score": 4,
             "relevance": "The announced availability and controls are useful only with clear limits on unknown details.",
             "must_cover_points": ["dated source", "Enterprise-plan scope", "confirmed controls and integration", "all named unknown categories"],
             "evidence_reference_ids": [reference], "evidence_requirements": ["Do not infer an omitted category from the product name or plan."],
@@ -235,7 +237,7 @@ def _fixture_canonical(pipeline_id: str) -> dict[str, Any]:
             "qualification": "This is a general interpretation, not a diagnosis.",
         },
     }
-    return {
+    content = {
         "hook": f"A useful {pipeline_id} angle",
         "context": "A practical, carefully qualified explanation.",
         "key_points": ["Start with the audience need.", "Use a concrete example."],
@@ -251,6 +253,13 @@ def _fixture_canonical(pipeline_id: str) -> dict[str, Any]:
         }],
         "domain_payload": payloads[pipeline_id],
     }
+
+    from workflow.gemini_generation import semantic_values
+    for path, text in semantic_values(content):
+        content['claims'].append(dict(claim_id='fixture.semantic.' + str(len(content['claims'])),
+            text=text, claim_kind='generated_example', evidence_reference_ids=[],
+            qualification='Invented acceptance fixture; not source evidence.'))
+    return content
 
 
 def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
@@ -373,6 +382,29 @@ def _fixture_adaptation(pipeline_id: str, total_slides: int, fixture_id: str | N
     }
 
 
+def _persist_frozen_render_fixture(store, response):
+    """Replay authored calibration copy, not a new Adaptation model response.
+
+    Keep the controlled title/body bytes (including historical section titles).
+    Shape, claim mapping, archetype capacity, lineage and render gates still apply.
+    This helper is only imported by acceptance/offline tests, never a runtime CLI.
+    """
+    from workflow.gemini_adaptation import _validate_package
+    run = store.claim('adaptation_runs', 'adaptation_run_id', 'acceptance-frozen-copy')
+    row = store.connection.execute(
+        'SELECT o.*,c.canonical_json,j.pipeline_id,v.recipe_json FROM output_requests o '
+        'JOIN canonical_contents c USING(canonical_content_id) JOIN content_jobs j USING(content_job_id) '
+        'JOIN visual_recipes v USING(output_request_id) WHERE o.output_request_id=?',
+        (run['output_request_id'],)).fetchone()
+    canonical = json.loads(row['canonical_json'])
+    response = {**response, 'public_text_claim_ids': [c['claim_id'] for c in canonical['claims']]}
+    package = _validate_package(response, canonical, platform=row['platform'], account=row['account'],
+        content_format=row['content_format'], pipeline_id=row['pipeline_id'])
+    package.update(schema_version='frozen_acceptance_package_v1',
+                   archetype_id=json.loads(row['recipe_json'])['archetype_id'])
+    return store.create_package(run, package)
+
+
 def _seed_render_fixture(store: WorkflowStore, case: StageCase) -> None:
     """Create a fixed package through production handoffs, then leave planning pending."""
     try:
@@ -399,8 +431,7 @@ def _seed_render_fixture(store: WorkflowStore, case: StageCase) -> None:
         raise ValueError("render fixture did not create canonical content")
     if VisualPlanner(store, instance_id="acceptance-render-visual").run_once() is None:
         raise ValueError("render fixture did not create a visual recipe")
-    if GeminiAdaptationWorker(store, _FrozenFixtureClient(_fixture_adaptation(pipeline_id, total_slides, case.case.input["fixture_id"])),
-                              instance_id="acceptance-render-adaptation").run_once() is None:
+    if _persist_frozen_render_fixture(store, _fixture_adaptation(pipeline_id, total_slides, case.case.input["fixture_id"])) is None:
         raise ValueError("render fixture did not create a ContentPackage")
 
 

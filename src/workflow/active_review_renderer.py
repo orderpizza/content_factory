@@ -64,6 +64,18 @@ class ActiveReviewRenderer:
         from .active_visual_profiles import ARCHETYPES, validate_archetype_units
         from .storyboard_planner import validate_plan
         validate_archetype_units(package['visual_units'], recipe['archetype_id'])
+        if package.get('schema_version') == 'output_adaptation_v4':
+            from .content_contract import resolve_content_contract, semantic_qa
+            canonical_row = self.store.connection.execute(
+                'SELECT c.canonical_json FROM content_packages p JOIN output_requests o USING(output_request_id) '
+                'JOIN canonical_contents c USING(canonical_content_id) WHERE p.content_package_id=?',
+                (run['content_package_id'],)).fetchone()
+            canonical = json.loads(canonical_row[0])
+            contract = resolve_content_contract(canonical, recipe['archetype_id'])
+            public_ids = [m['claim_id'] for m in package['claim_mappings'] if 'public_text' in m['placements']]
+            qa = semantic_qa(package['visual_units'], canonical, contract, package['public_text'], public_ids)
+            if package.get('content_contract') != contract or package.get('semantic_qa') != qa:
+                raise ValueError('pre-render semantic evidence mismatch')
         plan_row = self.store.connection.execute('SELECT * FROM storyboard_plans WHERE storyboard_plan_id=? AND content_package_id=?',
             (run['storyboard_plan_id'], run['content_package_id'])).fetchone()
         if plan_row is None:

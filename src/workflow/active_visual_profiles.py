@@ -9,7 +9,7 @@ from .visual_art_direction import (
     EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
-PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v5"
+PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v6"
 RENDERER_CONTRACT_ID = "image_storyboard_paginated_v3"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
 DEFAULT_ARCHETYPE_BY_DOMAIN = {
@@ -22,25 +22,6 @@ EXPLAINER_ROLES = ("hook", "explanation", "explanation", "example", "explanation
 EXPRESSION_LABELS = ("ENGLISH EXPRESSIONS", "MEANING", "WHEN TO USE IT", "EXAMPLE", "IN A CONVERSATION", "KEY TAKEAWAY")
 
 
-EXPRESSION_ADAPTATION_GUIDANCE = """English expression Instagram grammar overrides the
-dynamic unit range. Return exactly six visual units in this order:
-1. hook: a title of at most 5 words and a body of at most 20 words.
-2. meaning / definition: first body line at most 35 words; every later line at
-most 18 words. At most 60 body words over at most 5 nonempty lines.
-3. when to use it / use cases: exactly 3-4 body lines, each at most 14 words.
-4. examples: exactly 2 body lines, each at most 22 words.
-5. short dialogue: exactly 3-4 body lines, each at most 16 words. Each line is
-one speaker turn, formatted like `A: ...` or `B: ...`; never return a two-turn dialogue.
-For example: `A: ...\nB: ...\nA: ...`.
-6. takeaway / reminder: exactly 2-3 body lines, each at most 16 words.
-Use roles hook, explanation, explanation, example, example, takeaway in that
-same order. All titles except the hook: at most 12 words over at most 2 nonempty
-lines. Titles: at most 120 characters; bodies: at most 600 characters. Preserve the target expression, meaning, usage and claim mappings,
-but write compact slide-ready copy rather than paragraphs. Check every position
-and line limit before returning JSON.
-"""
-
-
 def _lines(value: str) -> list[str]:
     return [line.strip(" •-\t") for line in value.splitlines() if line.strip(" •-\t")]
 
@@ -50,34 +31,25 @@ def _word_count(value: str) -> int:
 
 
 def validate_expression_units(units: list[Mapping[str, Any]]) -> None:
-    """Validate the accepted English six-slide capacity contract."""
-    if [unit.get("role") for unit in units] != list(EXPRESSION_ROLES):
-        raise ValueError("expression breakdown requires its registered six-slide role sequence")
-    hook, meaning, checklist, examples, dialogue, takeaway = units
-    for unit in units:
-        if (len(unit["title"]) > 120 or len(unit["body"]) > 600
-            or _word_count(unit["title"]) > 12 or len(_lines(unit["title"])) > 2):
-            raise ValueError("expression title/body exceeds readable capacity")
-    if _word_count(str(hook["title"])) > 5 or _word_count(str(hook["body"])) > 20:
-        raise ValueError("expression hook exceeds its readable content capacity")
-    meaning_lines = _lines(str(meaning["body"]))
-    if (not 1 <= len(meaning_lines) <= 5 or _word_count(meaning["body"]) > 60
-        or _word_count(meaning_lines[0]) > 35 or any(_word_count(item) > 18 for item in meaning_lines[1:])):
-        raise ValueError("expression definition exceeds its readable content capacity")
-    checklist_lines = _lines(str(checklist["body"]))
-    if not 3 <= len(checklist_lines) <= 4 or any(_word_count(item) > 14 for item in checklist_lines):
-        raise ValueError("expression checklist must contain three or four concise rows")
-    example_lines = _lines(str(examples["body"]))
-    if len(example_lines) != 2 or any(_word_count(item) > 22 for item in example_lines):
-        raise ValueError("expression examples require exactly two concise primary examples")
-    dialogue_lines = _lines(str(dialogue["body"]))
-    if (not 3 <= len(dialogue_lines) <= 4
-        or any(_word_count(item) > 16 or not re.fullmatch(r"[^:]{1,40}:\s*\S.*", item)
-               for item in dialogue_lines)):
-        raise ValueError("expression dialogue requires three or four concise turns")
-    takeaway_lines = _lines(str(takeaway["body"]))
-    if not 2 <= len(takeaway_lines) <= 3 or any(_word_count(item) > 16 for item in takeaway_lines):
-        raise ValueError("expression takeaway requires two or three concise recap points")
+    """Validate registered English subsequences of the accepted teaching grammar."""
+    from .content_contract import english_positions
+    positions = english_positions(len(units))
+    if [u.get('role') for u in units] != [EXPRESSION_ROLES[i] for i in positions]:
+        raise ValueError('expression requires its registered content role sequence')
+    for unit, position in zip(units, positions):
+        if (len(unit['title']) > 120 or len(unit['body']) > 600
+            or _word_count(unit['title']) > (5 if position == 0 else 12)
+            or len(_lines(unit['title'])) > 2):
+            raise ValueError('expression title/body exceeds readable capacity')
+        lines = _lines(unit['body'])
+        low, high, words, first, later = (
+            (1, 5, 20, 20, 20), (1, 5, 60, 35, 18), (3, 4, 56, 14, 14),
+            (2, 2, 44, 22, 22), (3, 4, 64, 16, 16), (2, 3, 48, 16, 16))[position]
+        if (not low <= len(lines) <= high or _word_count(unit['body']) > words
+            or _word_count(lines[0]) > first or any(_word_count(line) > later for line in lines[1:])):
+            raise ValueError('expression copy exceeds its readable content capacity')
+        if position == 4 and any(not re.fullmatch(r"[^:]{1,40}:\s*\S.*", line) for line in lines):
+            raise ValueError('expression dialogue requires three or four concise turns')
 
 
 @dataclass(frozen=True)
@@ -239,9 +211,10 @@ ARCHETYPES = {a.archetype_id: a for a in (
 )}
 
 
-def grammar_for_unit(archetype, unit, index):
+def grammar_for_unit(archetype, unit, index, total=6):
     if archetype.domain == 'english':
-        return archetype.slides[index]
+        from .content_contract import english_positions
+        return archetype.slides[english_positions(total)[index]]
     if index < len(archetype.slides) and archetype.slides[index].role == unit['role']:
         return archetype.slides[index]
     candidates = [s for s in archetype.slides if s.role == unit['role']]
@@ -267,10 +240,8 @@ def validate_archetype_units(units, archetype_id):
     if not isinstance(units, list)  or any(not isinstance(u, Mapping) for u in units):
         raise ValueError('archetype requires bounded visual units')
     validate_domain_units(units, a.domain, strict_english=True)
-    if a.domain == 'english' and [u.get('role') for u in units] != [s.role for s in a.slides]:
-        raise ValueError('archetype requires its six-slide role sequence')
     for index, unit in enumerate(units):
-        slide = grammar_for_unit(a, unit, index)
+        slide = grammar_for_unit(a, unit, index, len(units))
         for field, words, chars in (('title', slide.title_words, slide.title_characters),
                                     ('body', slide.body_words, slide.body_characters)):
             if len(unit[field].split()) > words or len(unit[field]) > chars:
@@ -326,5 +297,6 @@ def validate_recipe_roles(recipe, roles):
         from .visual_explainers import validate_dynamic_roles
         validate_dynamic_roles(roles)
         return
-    if roles != [s.role for s in a.slides]:
+    from .content_contract import english_positions
+    if roles != [a.slides[i].role for i in english_positions(len(roles))]:
         raise ValueError('visual recipe package roles do not match archetype')

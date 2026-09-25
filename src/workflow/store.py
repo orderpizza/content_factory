@@ -16,7 +16,7 @@ from common.operation_log import human_command, emit
 from common.gemini import estimated_cost_usd
 from common.timestamps import parse_timestamp, serialize_timestamp, utc_now
 from .model_budget import ModelBudgetExceeded
-from .catalog import DOMAIN_REMITS, WORKFLOW_PIPELINES
+from .catalog import WORKFLOW_PIPELINES, domain_context
 
 from database.current import SchemaError, connect, validate_database
 
@@ -346,7 +346,7 @@ class WorkflowStore:
                 return int(prior["pipeline_capability_id"])
             cur = self.connection.execute(
                 "INSERT INTO pipeline_capabilities(pipeline_id,pipeline_version,enabled,remit_json,generation_ready,configuration_release_id,created_at) VALUES (?, 'domain_pipeline_catalog_v1', ?, ?, ?, ?, ?)",
-                (pipeline_id, int(enabled), canonical({"development_fixture": True, "description": DOMAIN_REMITS[pipeline_id]}), int(generation_ready), active[0], moment),
+                (pipeline_id, int(enabled), canonical({"development_fixture": True, **domain_context(pipeline_id)}), int(generation_ready), active[0], moment),
             )
             capability_id = int(cur.lastrowid)
             for output in outputs:
@@ -623,7 +623,7 @@ class WorkflowStore:
                     "INSERT INTO pipeline_capabilities(pipeline_id,pipeline_version,enabled,remit_json,"
                     "generation_ready,configuration_release_id,created_at) "
                     "VALUES (?,'domain_pipeline_catalog_production_v1',1,?,1,?,?)",
-                    (pipeline, canonical({"production": True}), release_id, moment),
+                    (pipeline, canonical({"production": True, **domain_context(pipeline)}), release_id, moment),
                 ).lastrowid)
             seen: set[tuple[str, str]] = set()
             for binding in bindings:
@@ -918,12 +918,12 @@ class WorkflowStore:
             invocation = self.connection.execute(
                 "INSERT INTO model_invocations("
                 "phase,entity_type,entity_id,attempt_ordinal,request_version,prompt_version,"
-                "schema_version,request_hash,model_id,outcome,started_at,claim_version"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "schema_version,request_hash,model_id,outcome,started_at,claim_version,request_json"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     phase, entity_type, entity_id, ordinal, request_version,
                     prompt_version, schema_version, digest(request_value), model_id,
-                    "blocked" if blocked_reason else "started", moment, row["claim_version"],
+                    "blocked" if blocked_reason else "started", moment, row["claim_version"], canonical(request_value),
                 ),
             )
             invocation_id = int(invocation.lastrowid)
@@ -969,6 +969,25 @@ class WorkflowStore:
             return None if found is None else int(found[0])
         return None
 
+    def record_model_request(self, invocation_id, prompt, schema, configuration):
+        """Freeze exact execution input before the provider call; never diagnostic logs."""
+        with self.transaction():
+            changed = self.connection.execute(
+                "UPDATE model_invocations SET prompt_text=?,prompt_sha256=?,trace_json=? "
+                "WHERE model_invocation_id=? AND outcome='started' AND prompt_text IS NULL",
+                (prompt, sha256(prompt.encode()).hexdigest(), canonical({
+                    'version': 'invocation_trace_v1', 'response_schema': schema,
+                    'generation_configuration': configuration}), invocation_id))
+            if changed.rowcount != 1:
+                raise RuntimeError('cannot replace an invocation prompt trace')
+
+    def record_model_response(self, invocation_id, raw_text, parsed):
+        with self.transaction():
+            self.connection.execute(
+                "UPDATE model_invocations SET raw_response_text=?,response_json=? "
+                "WHERE model_invocation_id=? AND outcome='started'",
+                (raw_text, None if parsed is None else canonical(parsed), invocation_id))
+
     def finish_model_invocation(
         self,
         invocation_id: int,
@@ -979,7 +998,7 @@ class WorkflowStore:
         error: str | None = None,
         budget_policy: Any | None = None,
     ) -> None:
-        """Settle safe response metadata without retaining prompts or raw responses."""
+        """Settle usage and validation outcome; exact execution traces remain in SQLite."""
         policy = budget_policy or self.model_budget_policy
         if outcome not in {"succeeded", "transport_failed", "invalid_output", "parse_failed", "schema_failed", "blocked"}:
             raise ValueError("invalid terminal model invocation outcome")
@@ -998,11 +1017,11 @@ class WorkflowStore:
         with self.transaction():
             result = self.connection.execute(
                 "UPDATE model_invocations SET outcome=?,model_id=COALESCE(?,model_id),"
-                "response_hash=?,input_tokens=?,output_tokens=?,total_tokens=?,"
+                "response_hash=?,response_json=COALESCE(?,response_json),input_tokens=?,output_tokens=?,total_tokens=?,"
                 "estimated_cost_micro_usd=?,safe_error=?,completed_at=? "
                 "WHERE model_invocation_id=? AND outcome='started'",
                 (
-                    outcome, model_id, response_hash, input_tokens, output_tokens,
+                    outcome, model_id, response_hash, None if response_value is None else canonical(response_value), input_tokens, output_tokens,
                     total_tokens, estimated_cost_micro_usd,
                     None if error is None else safe_diagnostic(error), now(), invocation_id,
                 ),
@@ -1105,11 +1124,11 @@ class WorkflowStore:
         with self.transaction():
             if self._cancel_if_closed("editorial_plan_runs", run, moment):
                 return None
-            plan = {**value, "schema_version": "editorial_plan_v1", "planner_version": planner_version,
+            plan = {**value, "schema_version": "editorial_plan_v2", "planner_version": planner_version,
                     "brief_revision_id": run["revision_id"], "determination_route_id": run["determination_route_id"],
                     "input_fingerprint": run["input_fingerprint"], "history": snapshot["history"]}
             plan_id = int(self.connection.execute(
-                "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,?,?,'editorial_plan_v1',?,?,?,?)",
+                "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,?,?,'editorial_plan_v2',?,?,?,?)",
                 (run["editorial_plan_run_id"],run["determination_route_id"],run["revision_id"],run["pipeline_id"],value["lane"],planner_version,run["input_fingerprint"],canonical(plan),moment),
             ).lastrowid)
             selected = next(c for c in value["candidates"] if c["candidate_id"] == value["selected_candidate_id"])
@@ -1165,6 +1184,13 @@ class WorkflowStore:
             validate_archetype_units(package["visual_units"], recipe["archetype_id"])
             canonical_content = json.loads(self.connection.execute("SELECT canonical_json FROM canonical_contents WHERE canonical_content_id=?",
                 (output["canonical_content_id"],)).fetchone()[0])
+            if package.get('schema_version') == 'output_adaptation_v4':
+                from .content_contract import resolve_content_contract, semantic_qa
+                contract = resolve_content_contract(canonical_content, recipe['archetype_id'])
+                public_ids = [m['claim_id'] for m in package['claim_mappings'] if 'public_text' in m['placements']]
+                qa = semantic_qa(package['visual_units'], canonical_content, contract, package['public_text'], public_ids)
+                if package.get('content_contract') != contract or package.get('semantic_qa') != qa:
+                    raise ValueError('package semantic QA evidence does not match the frozen inputs')
             cues = validate_cues(package.get("visual_cues"), {c['claim_id'] for c in canonical_content.get('claims', [])}, package["visual_units"])
             package_id = int(self.connection.execute(
                 "INSERT INTO content_packages(output_request_id,adaptation_run_id,visual_recipe_id,package_json,content_hash,visual_cues_json,created_at) VALUES (?,?,?,?,?,?,?)",

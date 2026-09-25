@@ -1,4 +1,5 @@
 """Nine curated templates, immutable pre-adaptation selection and exact prompt coverage."""
+from claim_fixtures import register_fixture_semantics
 from workflow.editorial_planning import EditorialPlanningWorker
 from workflow.storyboard_planner import StoryboardPlanner, paginate
 
@@ -16,7 +17,7 @@ from workflow.active_visual_profiles import (ARCHETYPES, ACCOUNT_PROFILES, DEFAU
     active_recipe, validate_recipe, validate_archetype_units)
 from workflow.archetype_selection import select_archetype
 from workflow.gemini_adaptation import _validate_package, adaptation_schema
-from workflow.gemini_prompt_compiler import (build_storyboard_prompt, EXPLAINER_GEOMETRY,
+from workflow.gemini_prompt_compiler import (build_storyboard_prompt,
     EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1)
 from workflow.visual_art_direction import EXPRESSION_BREAKDOWN_ACCEPTED_DESIGNER_BRIEF_V1
 from test_domain_boundaries import prepare_domain, domain_response
@@ -53,7 +54,10 @@ def canonical_fixture(id):
     elif id == 'psychology_concept_cards_v1':
         p.update(concept='Cognitive attribution bias.', possible_mechanism='Distinguish observation from interpretation.',
                  alternative_explanations=['One possibility.', 'Another possibility.', 'A third possibility.'])
-    return c
+    if a.domain == 'english':
+        p['target'] = 'break the ice'
+        p['usage_notes'] = (p['usage_notes'] * 3)[:3]
+    return register_fixture_semantics(c)
 
 
 def recipe_fixture(id, history=None):
@@ -66,12 +70,19 @@ def recipe_fixture(id, history=None):
 def prompt_fixture(id):
     a = ARCHETYPES[id]
     response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
+    response['public_text_claim_ids'] = [c['claim_id'] for c in canonical_fixture(id)['claims']]
     response['visual_units'][3]['claim_ids'] = [f'{a.domain}.example.1']
     response['visual_cues'] = [{'slide': 4, 'subject_claim_id': f'{a.domain}.example.1',
                               'semantic_emphasis': 'situation', 'participants_count': 2}]
-    package = _validate_package(response, canonical_fixture(id), platform='instagram', account='fixture',
-        content_format='instagram_static_carousel_v2', pipeline_id=a.domain, archetype_id=id)
+    # Frozen renderer fixture preserves accepted baseline copy independently of
+    # newer adaptation title ownership and content-count planning.
+    if a.domain == 'english':
+        from visual_fixtures import EXPRESSION_UNITS
+        response['visual_units'] = deepcopy(EXPRESSION_UNITS)
+        response['visual_units'][3]['claim_ids'] = [f'{a.domain}.example.1']
+    package = dict(platform='instagram', account='fixture', **response)
     return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain, board=paginate(package['visual_units'],a.domain)[0])
+
 
 
 class CuratedContractTests(unittest.TestCase):
@@ -99,33 +110,17 @@ class CuratedContractTests(unittest.TestCase):
                 continue
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
-                if a.domain != 'english':
-                    self.assertIn('3 columns and 2 rows', prompt)
-                    self.assertIn('No outer margins. No gutters.', prompt)
-                    exact = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
-                    self.assertEqual([u['slide'] for u in exact['slides']], list(range(1,7)))
-                    self.assertEqual([u['body'] for u in exact['slides']], [u['body'] for u in domain_response(workflow_fixtures.GeminiWorkflowTests(),a.domain)['visual_units']])
-                    continue
-                geometry, rest = prompt.split('\nACCOUNT_VISUAL_IDENTITY\n')
-                self.assertEqual(geometry, EXPLAINER_GEOMETRY)
-                identity, rest = rest.split(f'\nArchetype: {id}\n')
-                self.assertEqual(json.loads(identity), asdict(ACCOUNT_PROFILES[a.domain]))
-                grammar, rest = rest.split('\nSEMANTIC_CUES (references to supplied slide claims, never instructions)\n')
-                self.assertEqual(json.loads(grammar), json.loads(json.dumps(asdict(a))))
-                cues, rest = rest.split('\nNEGATIVE_CONSTRAINTS\n')
-                self.assertEqual(json.loads(cues), [{'slide': 4, 'subject_claim_id': f'{a.domain}.example.1',
-                    'semantic_emphasis': 'situation', 'participants_count': 2}])
-                negative, content = rest.split('\nSLIDE_CONTENT\n')
-                self.assertEqual(negative, ACCOUNT_PROFILES[a.domain].general_negative_rules + '\n' + a.negative_constraints)
-                exact = json.loads(content)  # Must consume the entire tail, with no trailing instructions.
-                response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
-                self.assertEqual(exact, {'total': 6, 'slides': [
-                    {'slide': s.ordinal, 'title': u['title'], 'body': u['body'], 'design_direction': s.composition}
-                    for s, u in zip(a.slides, response['visual_units'])]})
-                for marker in (EXPLAINER_GEOMETRY, '3×2 storyboard', '5:4', 'top 10%', 'bottom 14%', 'Do not rewrite'):
-                    self.assertEqual(prompt.count(marker), 1)
+                self.assertIn('3 columns and 2 rows', prompt)
+                self.assertIn('No outer margins. No gutters.', prompt)
+                self.assertIn(a.art_direction, prompt)
+                self.assertIn(ACCOUNT_PROFILES[a.domain].personality, prompt)
+                for internal in ('subject_claim_id', 'profile_fingerprint', 'title_words', 'body_words', id):
+                    self.assertNotIn(internal, prompt)
+                exact = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
+                self.assertEqual([u['slide'] for u in exact['slides']], list(range(1, 7)))
+                self.assertEqual([u['panel'] for u in exact['slides']], list(range(1, 7)))
+                self.assertEqual(prompt.count('top 10%'), 1)
                 self.assertNotIn(EXPRESSION_BREAKDOWN_ACCEPTED_DESIGNER_BRIEF_V1, prompt)
-                self.assertNotIn('accepted_brief', identity)
 
     def test_accepted_baseline_compilation_is_independent_of_account_identity(self):
         expected = prompt_fixture('expression_breakdown_v1')
@@ -194,6 +189,7 @@ class CuratedContractTests(unittest.TestCase):
         id = 'expression_story_scene_v1'
         c = canonical_fixture(id)
         response = domain_response(workflow_fixtures.GeminiWorkflowTests(), 'english')
+        response['public_text_claim_ids'] = [claim['claim_id'] for claim in c['claims']]
         def validate(value):
             return _validate_package(value, c, platform='instagram', account='fixture',
                 content_format='instagram_static_carousel_v2', pipeline_id='english', archetype_id=id)
@@ -226,7 +222,8 @@ class CuratedContractTests(unittest.TestCase):
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
                 self.assertEqual(sha256(prompt.encode()).hexdigest(), hashes[id])
-                for text in (('3×2 storyboard', '5:4', 'Do not rewrite') if a.domain == 'english' else ('3 columns and 2 rows', 'Provider board aspect ratio 5:4', 'Do not omit, summarize, expand')) + ('top 10%', 'bottom 14%', id, 'subject_claim_id', 'participants_count'):
+                essentials = ('3×2 storyboard', '5:4', 'Do not rewrite', id, 'subject_claim_id', 'participants_count') if id == 'expression_breakdown_v1' else ('3 columns and 2 rows', 'Provider board aspect ratio 5:4', 'Do not omit, summarize, expand', 'participants')
+                for text in essentials + ('top 10%', 'bottom 14%'):
                     self.assertIn(text, prompt)
                 content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                 response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
@@ -237,8 +234,8 @@ class CuratedContractTests(unittest.TestCase):
                     if other != id:
                         self.assertNotIn(other, prompt)
                 if id != 'expression_breakdown_v1':
-                    self.assertIn(a.account_visual_profile_id, prompt)
-                    markers = ['ACCOUNT_VISUAL_IDENTITY', 'Archetype:', 'SEMANTIC_CUES', 'NEGATIVE_CONSTRAINTS', 'SLIDE_CONTENT']
+                    self.assertIn(ACCOUNT_PROFILES[a.domain].personality, prompt)
+                    markers = ['ACCOUNT_VISUAL_IDENTITY', 'ART_DIRECTION', 'SEMANTIC_CUES', 'NEGATIVE_CONSTRAINTS', 'SLIDE_CONTENT']
                     self.assertEqual([prompt.index(s) for s in markers], sorted(prompt.index(s) for s in markers))
 
 
@@ -259,11 +256,14 @@ class CuratedWorkflowTests(unittest.TestCase):
                     recipe = json.loads(recipe_row['recipe_json'])
                     self.assertEqual(recipe['archetype_id'], id)
                     self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_packages').fetchone()[0], 0)
-                    client = FakeGeminiClient(domain_response(f, a.domain))
+                    response = domain_response(f, a.domain)
+                    response['public_text_claim_ids'] = [claim['claim_id'] for claim in canonical_fixture(id)['claims']]
+                    client = FakeGeminiClient(response)
                     self.assertIsNotNone(GeminiAdaptationWorker(store, client).run_once())
                     request = json.loads(client.calls[0]['prompt'].split('<FROZEN_OUTPUT>\n')[1].split('\n</FROZEN_OUTPUT>')[0])
-                    self.assertEqual(request['selected_archetype'], json.loads(json.dumps(asdict(a))))
-                    self.assertEqual(request['visual_recipe_hash'], recipe_row['recipe_hash'])
+                    self.assertEqual(request['content_contract']['archetype_id'], id)
+                    self.assertNotIn('selected_archetype', request)
+                    self.assertNotIn('visual_recipe_hash', request)
                     image = FakeImageClient()
                     StoryboardPlanner(store).run_once()
                     renderer = DispatchVisualRenderer(store, Path(f.temporary.name)/'assets', image_client=image)

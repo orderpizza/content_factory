@@ -132,3 +132,11 @@ Catalog activation, retrying uncertain paid operations, reopening closed threads
 and process start/stop are not dashboard commands. Use the documented explicit
 operator entrypoints. The dashboard retains evidence, not a hidden worker
 control channel.
+
+## Model evidence
+
+Planning activity exposes execution-time prompt/request/schema/response traces and
+reservation-versus-actual costs. Job details expose the existing ledger's aggregate
+and invocation costs; image manifests retain per-board and carousel costs. Missing
+settlement is unknown, not zero. [Reliability](reliability.md#execution-traces-and-cost-inspection)
+owns these read-only projections; the dashboard invokes no models.

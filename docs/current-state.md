@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **15**, defined by
+The current schema is **16**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -20,8 +20,8 @@ and deterministic scoring. Human Intake can clarify before freezing a brief.
 `--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
 the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, deterministic visual planning,
-archetype-aware Instagram adaptation and Gemini review rendering. English retains
-six-slide review carousels; AI/Tech and Psychology produce 4–14 slides. All domains
+archetype-aware Instagram adaptation and Gemini review rendering. English supports
+deterministically planned 4–6-slide review carousels; AI/Tech and Psychology produce 4–14 slides. All domains
 use persisted text-aware render pagination independently of content pagination,
 with sequential Gemini
 board calls with explicit supported provider ratios, equal-grid splitting (or the
@@ -275,6 +275,8 @@ Maintenance does not prune backups unless `--prune-backups` is supplied.
 | `src/workflow/catalog.py` | Three editorial remits and catalog read model |
 | `src/workflow/gemini_intake.py`, `gemini_determination.py` | Intake and domain eligibility |
 | `src/workflow/editorial_planning.py` | Closed editorial strategy, immutable plans and bounded history |
+| `src/workflow/content_contract.py` | Resolved copy capacity, bounded English content count and deterministic semantic QA |
+| `src/workflow/model_trace.py` | Execution-time request capture and existing-ledger cost projections |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
 | `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Curated account identities/archetypes and deterministic planning evidence |
 | `src/workflow/storyboard_planner.py`, `render_text_policy.py` | Immutable text-aware render pagination, measurements and provisional capacity budgets |
