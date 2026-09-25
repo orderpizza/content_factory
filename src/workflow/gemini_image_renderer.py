@@ -8,6 +8,7 @@ from io import BytesIO
 import json
 import logging
 import os
+from time import perf_counter
 from random import Random
 from statistics import median
 
@@ -395,7 +396,7 @@ def apply_overlays(slide: Image.Image, ordinal: int, total: int, *, cta_phrase: 
 
 
 class GeminiImageRenderer(ActiveReviewRenderer):
-    """Generate and split one active-domain Gemini storyboard."""
+    """Generate persisted boards and assemble one complete ordered review."""
     engine = "gemini_storyboard_designer_v1"
 
     def __init__(self, store, artifact_root, *, client=None, budget_policy=None):
@@ -412,89 +413,7 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
             "WHERE p.content_package_id=?", (run["content_package_id"],),
         ).fetchone()["pipeline_id"]
-        if pipeline_id != 'english':
-            return self._render_boards(run, package, spec, recipe, temporary, pipeline_id)
-        prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id)
-        profile = OVERLAY_PROFILES[pipeline_id]
-        if self.client is None:
-            self.budget_policy = self.budget_policy or ModelBudgetPolicy.from_environment(
-                configured_image_model(), image=True,
-            )
-            self.client = VertexGeminiImageClient(
-                max_output_tokens=self.budget_policy.phase_limits["image_rendering"][1],
-            )
-        if self.budget_policy is not None and self.budget_policy.model_id != self.client.model:
-            raise ValueError("image budget policy does not match the configured model")
-        invocation = self.store.begin_model_invocation(
-            phase="image_rendering", table="render_runs", key="render_run_id", row=run,
-            request_version="image_storyboard_request_v1", prompt_version=PROMPT_COMPILER_VERSION,
-            schema_version="image_storyboard_3x2_v1", request_value={"prompt": prompt},
-            model_id=self.client.model, budget_policy=self.budget_policy,
-        )
-        try:
-            generated = self.client.generate_image(prompt)
-        except Exception:
-            self.store.finish_model_invocation(
-                invocation, outcome="transport_failed", usage=self.client.last_usage,
-                error="storyboard generation failed", budget_policy=self.budget_policy,
-            )
-            raise
-        try:
-            if not isinstance(generated, GeneratedImage):
-                raise ValueError("image client did not preserve storyboard media metadata")
-            data = generated.data
-            split = split_storyboard_with_metadata(data)
-            slides = split.slides
-            raw = temporary / f"raw-storyboard{generated.extension}"
-            raw.write_bytes(data)
-            assets, provenance = [], []
-            cta_phrases = footer_cta_phrases(int(run["render_run_id"]), len(slides), pipeline_id=pipeline_id)
-            for ordinal, slide in enumerate(slides, 1):
-                path = temporary / f"unit-{ordinal:02d}.png"
-                apply_overlays(slide, ordinal, len(slides), cta_phrase=cta_phrases[ordinal - 1], pipeline_id=pipeline_id).save(
-                    path, format="PNG", optimize=False,
-                )
-                asset = _asset(path, "preview_png", ordinal, 1080, 1350)
-                assets.append(asset)
-                provenance.append({
-                    "ordinal": ordinal, "board_index": 1, "model_invocation_id": invocation,
-                    "source_cell": {"row": (ordinal - 1) // STORYBOARD_COLUMNS + 1,
-                                    "column": (ordinal - 1) % STORYBOARD_COLUMNS + 1},
-                    "source_rectangle": split.metadata["source_rectangles"][ordinal - 1],
-                    "footer_cta": cta_phrases[ordinal - 1],
-                    "final": {"filename": path.name, "sha256": asset["sha256"]},
-                })
-        except Exception:
-            self.store.finish_model_invocation(
-                invocation, outcome="invalid_output", usage=self.client.last_usage,
-                error="storyboard processing failed", budget_policy=self.budget_policy,
-            )
-            raise
-        self.store.finish_model_invocation(
-            invocation, outcome="succeeded", usage=self.client.last_usage,
-            response_value={"sha256": sha256(data).hexdigest()}, budget_policy=self.budget_policy,
-        )
-        return assets, {
-            "model_id": self.client.model, "prompt_version": PROMPT_COMPILER_VERSION,
-            "pipeline_id": pipeline_id, "archetype_id": recipe["archetype_id"],
-            "overlay_version": profile["overlay_version"],
-            "overlay": {"background": "transparent", "brand_text": profile["brand"], "labels": list(profile["labels"]),
-                        "cta_namespace": profile["cta_namespace"],
-                        "footer_cta_phrases": cta_phrases},
-            "archetype_version": recipe["archetype_version"],
-            "account_visual_profile_id": recipe["account_visual_profile_id"],
-            "prompt_compiler_version": recipe["prompt_compiler_version"],
-            "renderer_contract_id": recipe["renderer_contract_id"],
-            "overlay_profile_id": recipe["overlay_profile_id"],
-            "selection": recipe["selection"],
-            "storyboard": {**spec["storyboard_plan"]["boards"][0], "columns": STORYBOARD_COLUMNS, "rows": STORYBOARD_ROWS,
-                           "prompt_sha256": sha256(prompt.encode()).hexdigest(),
-                           "raw": {"filename": raw.name, "mime_type": generated.mime_type,
-                                   "extension": generated.extension, "bytes": len(data),
-                                   "sha256": sha256(data).hexdigest()},
-                           "split": split.metadata},
-            "slides": provenance,
-        }
+        return self._render_boards(run, package, spec, recipe, temporary, pipeline_id)
 
     def _render_boards(self, run, package, spec, recipe, temporary, pipeline_id):
         plan = spec['storyboard_plan']
@@ -509,19 +428,23 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board)
             invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
                 key='render_run_id', row=run, request_version='image_storyboard_request_v2',
-                prompt_version=PROMPT_COMPILER_VERSION, schema_version='image_storyboard_paginated_v2',
+                prompt_version=PROMPT_COMPILER_VERSION, schema_version=recipe['renderer_contract_id'],
                 request_value={'prompt': prompt, 'board': board}, model_id=self.client.model,
                 budget_policy=self.budget_policy, board_index=board['board_index'])
+            started = perf_counter()
             try:
                 generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
             except Exception:
                 self.store.finish_model_invocation(invocation, outcome='transport_failed', usage=self.client.last_usage,
                     error='storyboard generation failed', budget_policy=self.budget_policy)
                 raise
+            provider_latency_ms = round((perf_counter() - started) * 1000)
             try:
                 if not isinstance(generated, GeneratedImage):
                     raise ValueError('image client did not preserve media metadata')
-                split = split_equal_grid(generated.data, board)
+                split = (split_storyboard_with_metadata(generated.data)
+                         if board['split_strategy'] == 'english_accepted_v1'
+                         else split_equal_grid(generated.data, board))
                 raw = temporary / f"raw-storyboard-{board['board_index']:02d}{generated.extension}"
                 raw.write_bytes(generated.data)
                 for cell, (ordinal, slide) in enumerate(zip(board['slide_indices'], split.slides)):
@@ -534,7 +457,7 @@ class GeminiImageRenderer(ActiveReviewRenderer):
                         source_cell=dict(row=cell // board['cols'] + 1, column=cell % board['cols'] + 1),
                         source_rectangle=split.metadata['source_rectangles'][cell], footer_cta=ctas[ordinal-1],
                         final=dict(filename=path.name, sha256=asset['sha256'])))
-                boards.append(dict(**board, model_invocation_id=invocation, prompt_sha256=sha256(prompt.encode()).hexdigest(),
+                boards.append(dict(**board, provider_latency_ms=provider_latency_ms, model_invocation_id=invocation, prompt_sha256=sha256(prompt.encode()).hexdigest(),
                     raw=dict(filename=raw.name, mime_type=generated.mime_type, extension=generated.extension,
                              bytes=len(generated.data), sha256=sha256(generated.data).hexdigest()), split=split.metadata))
             except Exception:
@@ -549,7 +472,9 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             renderer_contract_id=recipe['renderer_contract_id'], overlay_profile_id=recipe['overlay_profile_id'],
             selection=recipe['selection'], boards=boards, slides=provenance,
             overlay_version=OVERLAY_PROFILES[pipeline_id]['overlay_version'],
-            overlay=dict(background='transparent', brand_text=None, footer_cta_phrases=ctas))
+            overlay=dict(background='transparent', brand_text=OVERLAY_PROFILES[pipeline_id]['brand'],
+                         labels=list(OVERLAY_PROFILES[pipeline_id]['labels']),
+                         cta_namespace=OVERLAY_PROFILES[pipeline_id]['cta_namespace'], footer_cta_phrases=ctas))
 
 
 class DispatchVisualRenderer(ActiveReviewRenderer):

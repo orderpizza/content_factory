@@ -55,8 +55,9 @@ override are present, the smaller applies. `LIVE_TEST_MAX_CALLS`,
 `LIVE_TEST_MAX_IMAGE_CALLS`, and `LIVE_TEST_MAX_CASES` can constrain the run;
 the corresponding CLI values can only make those limits stricter. A case is
 admitted only if its whole declared call/image/cost envelope fits before it
-starts. Cost envelopes use configured current Gemini prices and phase token
-ceilings. The production `ModelBudgetPolicy` and SQLite invocation/reservation
+starts. Cost envelopes use configured current Gemini prices, input-token reservation
+assumptions and provider output caps. Input reservations are not enforced token
+maxima; reported actual cost can exceed the estimate. The production `ModelBudgetPolicy` and SQLite invocation/reservation
 ledger still gate and account for each actual call.
 
 Configure local Vertex ADC, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`,
@@ -101,18 +102,61 @@ before starting each case; a completed case can consume fewer boards.
 
 ```sh
 CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
-LIVE_TEST_MAX_IMAGE_CALLS=7 \
+LIVE_TEST_MAX_IMAGE_CALLS=40 \
 .venv/bin/python -m acceptance.runners.matrix --live-gemini --profile visual --max-usd 5.00
 ```
 
-`visual` covers the permanent board and review-render contract: 1×1, 2×1, 2×2,
-3×2, 4+1, 6+6+2, English adaptive splitting, and complete ReviewRequest
-journeys. `journey` selects just the three complete Human/Frozen-Detection
+`visual` covers automatic text-aware board planning, English adaptive splitting
+and complete ReviewRequest journeys. Its current sparse fixed fixtures select
+6, 1+4 and 4+4+6; partitions are text-dependent. The `fidelity` profile below
+also exercises 2×1 boards and singleton sequencing. `journey` selects just the three complete Human/Frozen-Detection
 integrations.
+
+## Controlled text-fidelity experiment
+
+`render_fidelity.json` defines the same frozen six-slide English sample under
+four forced strategies: `6`, `4+2`, `2+2+2`, `1+1+1+1+1+1`. Copy is frozen in
+`fixtures/english_fidelity_6_v1.json` (the retained Pass 2 English slide text,
+with fixture-local claim IDs); fixture setup and archetype selection are identical
+for every variant. No text-stage call is made. The ordinary automatic policy
+splits this 160-word sample; forcing the dense six-panel variant is deliberate
+calibration evidence, not production admission. Plans record forced mode,
+policy versions, limits, metrics and violations. Adaptation and model budget
+gates still apply. Normal workflow entrypoints cannot select a forced strategy.
+
+Recommended first comparison: one attempt of all four variants, exactly 12 image
+calls, same configured model, 2K size and prices. First inspect a free dry-run:
+
+```sh
+.venv/bin/python -m acceptance.runners.matrix --profile fidelity --dry-run --max-usd 5.00
+```
+
+Only after explicit live authorization and choosing a USD ceiling sufficient for
+the displayed reservations, use this opt-in command (the 5 USD ceiling is an
+operator example, not a price claim):
+
+```sh
+CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
+.venv/bin/python -m acceptance.runners.matrix --profile fidelity --live-gemini \
+  --repeat 1 --max-image-calls 12 --max-calls 12 --max-usd 5.00
+```
+
+Inspect all final slides and raw boards side by side. `fidelity-review.json`
+contains the identical package hash, expected titles/bodies and blank human
+assessment fields for exact text, altered/missing words, invented text, visual
+quality, cropping/resolution and cross-board consistency. Fill these after review;
+null means unassessed, never pass. `board-validation.json` provides raw dimensions,
+source resolution per panel, text-load evidence and provider latency. Manifests
+link cells to invocations; per-attempt SQLite preserves token/cost ledgers and
+`costs.json` summarizes call counts/cost. Compare the package hashes before
+interpreting results. No OCR or LLM judge is claimed, no reference-image chaining
+is used, and posting remains disabled. Repeat the identical comparison later to
+assess variability before recalibrating the centralized policy and its version.
 
 Profiles use scenario metadata: `smoke` is the cheapest sanity path, `stage`
 selects isolated stages, `regression` selects representative text chains,
-`visual` selects review-render regression, `journey` selects full integrations,
+`visual` selects review-render regression, `fidelity` selects the controlled copy
+comparison, `journey` selects full integrations,
 and `full` is the broad/expensive matrix. The committed scenarios include clear,
 incomplete, and ambiguous Intake inputs; Determination; Editorial Planning;
 English and frozen Detection chains; bounded AI evidence; and source-scope

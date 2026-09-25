@@ -144,11 +144,11 @@ def test_visual_contract_scenarios_extend_the_production_chain_and_reserve_dynam
     detection = cases["journey_detection_ai_review"]
     psychology = cases["journey_human_psychology_review"]
     assert english.end_stage == detection.end_stage == psychology.end_stage == "image_rendering"
-    assert english.live_budget["image_calls"] == 1
-    assert detection.live_budget["image_calls"] == psychology.live_budget["image_calls"] == 3
+    assert english.live_budget["image_calls"] == 6
+    assert detection.live_budget["image_calls"] == psychology.live_budget["image_calls"] == 14
     assert detection.source_kind == "detection_fixture"
-    fixed_five = cases["visual_ai_grid_4_plus_1"]
-    fixed_fourteen = cases["visual_psychology_grid_6_plus_6_plus_2"]
+    fixed_five = cases["visual_ai_grid_1_plus_4"]
+    fixed_fourteen = cases["visual_psychology_grid_4_plus_4_plus_6"]
     fixed_english = cases["visual_english_adaptive_grid_6"]
     assert fixed_five.source_kind == fixed_fourteen.source_kind == "render_fixture"
     assert fixed_five.start_stage == fixed_fourteen.start_stage == "storyboard_planning"
@@ -158,8 +158,8 @@ def test_visual_contract_scenarios_extend_the_production_chain_and_reserve_dynam
     assert (fixed_english.start_stage, fixed_english.end_stage) == ("storyboard_planning", "image_rendering")
     assert fixed_english.live_budget["image_calls"] == 1
     assert {case.case_id for case in cases.values() if "visual" in case.profiles} == {
-        "visual_english_adaptive_grid_6", "visual_ai_grid_4_plus_1",
-        "visual_psychology_grid_6_plus_6_plus_2", "journey_human_english_review",
+        "visual_english_adaptive_grid_6", "visual_ai_grid_1_plus_4",
+        "visual_psychology_grid_4_plus_4_plus_6", "journey_human_english_review",
         "journey_detection_ai_review", "journey_human_psychology_review",
     }
     assert {case.case_id for case in cases.values() if "journey" in case.profiles} == {
@@ -223,7 +223,7 @@ def test_duplicate_case_ids_rejected(tmp_path):
 def test_profiles_filter_by_metadata_and_unknown_profile_cli_rejected():
     cases = discover_cases(FIXTURES)
     assert [c.case_id for c in cases if "smoke" in c.profiles] == ["english_icebreaker"]
-    assert PROFILES == frozenset({"smoke", "stage", "regression", "visual", "journey", "full"})
+    assert PROFILES == frozenset({"smoke", "stage", "regression", "visual", "fidelity", "journey", "full"})
     assert not any("pass" in case.case_id or "pass" in profile
                    for case in cases for profile in case.profiles)
     assert not (ROOT / "acceptance" / "cases").exists()
@@ -286,7 +286,7 @@ def test_run_workspace_and_schema_are_isolated(tmp_path):
     assert database.exists()
     import sqlite3
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
     assert not (tmp_path / "development.db").exists()
 
 
@@ -403,3 +403,65 @@ def test_live_environment_or_cli_alone_cannot_reach_provider(tmp_path, monkeypat
         with pytest.raises(AcceptanceError):
             matrix.run_matrix(**common, cli_live=cli, environment=enabled)
     assert calls == []
+
+
+def test_fidelity_profile_is_closed_same_package_comparison(tmp_path, monkeypatch):
+    from acceptance.adapters import pipeline
+    from workflow import WorkflowStore
+    from workflow.storyboard_planner import make_plan
+    from test_storyboard_pagination import PlannedClient
+    from acceptance.evaluators.pipeline import evaluate_pipeline
+    cases = [c for c in discover_cases(FIXTURES) if 'fidelity' in c.profiles]
+    assert [c.input['render_strategy'] for c in cases] == ['6','4+2','2+2+2','1+1+1+1+1+1']
+    assert sum(c.live_budget['image_calls'] for c in cases) == 12
+    auth = authorize_live(cli_live=True,environment={'CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS':'1'})
+    # Both SDK entry points are replaced; this integration cannot spend credits.
+    def no_text(*a,**kw): raise AssertionError('frozen comparison must make no text calls')
+    monkeypatch.setattr(pipeline,'VertexGeminiClient',no_text)
+    hashes=[]; recipes=[]
+    for case in cases:
+        forced=[int(c) for c in case.input['render_strategy'].split('+')]
+        units=pipeline._fixture_adaptation('english',6,'english_fidelity_6_v1')['visual_units']
+        fake=PlannedClient(make_plan(units,'english',calibration_capacities=forced)['boards'])
+        # Harness image pricing is deliberately the same model identity as the fake.
+        policy=ModelBudgetPolicy.from_environment(fake.model, {
+            **environment(), 'GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD':'2',
+            'GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD':'8'},image=True)
+        monkeypatch.setattr(pipeline,'VertexGeminiImageClient',lambda **kw:fake)
+        directory=tmp_path/case.case_id; directory.mkdir()
+        stage_case=StageCase(case,1,case.case_id)
+        result=pipeline.execute_case(stage_case,directory/'test.db',auth,text_policy(),policy,directory)
+        assert result.status == Status.PASS
+        assert result.calls == result.image_calls == len(forced)
+        assert evaluate_pipeline(stage_case,result).status == Status.WARN
+        with WorkflowStore(directory/'test.db') as store:
+            hashes.append(store.connection.execute('SELECT content_hash FROM content_packages').fetchone()[0])
+            recipes.append(store.connection.execute('SELECT recipe_hash FROM visual_recipes').fetchone()[0])
+        rubric=json.loads((directory/'fidelity-review.json').read_text())
+        assert rubric['package_sha256'] == hashes[-1]
+        assert rubric['render_strategy'] == case.input['render_strategy']
+        assert (directory/'board-validation.json').exists()
+    assert len(set(hashes)) == len(set(recipes)) == 1
+
+
+@pytest.mark.parametrize('mutation', ['strategy','fixture','budget','source'])
+def test_forced_fidelity_definitions_cannot_expand_accepted_scope(mutation):
+    raw=json.loads((FIXTURES/'render_fidelity.json').read_text())['cases'][0]
+    if mutation=='strategy':raw['input']['render_strategy']='3+3'
+    if mutation=='fixture':raw['input']['fixture_id']='unregistered'
+    if mutation=='budget':raw['live_budget']={'image_calls':2,'calls_by_stage':{'image_rendering':2}}
+    if mutation=='source':raw['source_kind']='human'
+    with pytest.raises(AcceptanceError):validate_case(raw)
+
+
+def test_fidelity_dry_run_never_constructs_clients(tmp_path,monkeypatch):
+    from acceptance.adapters import pipeline
+    monkeypatch.setattr(matrix,'_policies',lambda *a:(text_policy(),image_policy()))
+    def forbidden(*a,**kw):raise AssertionError('dry-run reached provider')
+    monkeypatch.setattr(pipeline,'VertexGeminiClient',forbidden)
+    monkeypatch.setattr(pipeline,'VertexGeminiImageClient',forbidden)
+    output,info=matrix.run_matrix(profile='fidelity',dry_run=True,cli_live=False,repeat=1,
+        limits={'max_usd':'5','max_calls':12,'max_image_calls':12,'max_cases':4},
+        environment={},case_directory=FIXTURES,output_root=tmp_path)
+    plan=json.loads((output/'plan.json').read_text())
+    assert sum(p['max_image_calls'] for p in plan['planned'])==12

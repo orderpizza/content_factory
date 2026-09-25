@@ -2,7 +2,7 @@
 
 ## System state
 
-The current schema is **14**, defined by
+The current schema is **15**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
@@ -20,9 +20,12 @@ and deterministic scoring. Human Intake can clarify before freezing a brief.
 `--gemini --planning-only` stops at pending GenerationRuns. Without review-preview,
 the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, deterministic visual planning,
-archetype-aware Instagram adaptation and Gemini review rendering. English retains six-slide review carousels. AI/Tech and Psychology produce 4–14
-slides through persisted deterministic storyboard pagination, sequential Gemini
-board calls with explicit supported provider ratios, equal-grid splitting and
+archetype-aware Instagram adaptation and Gemini review rendering. English retains
+six-slide review carousels; AI/Tech and Psychology produce 4–14 slides. All domains
+use persisted text-aware render pagination independently of content pagination,
+with sequential Gemini
+board calls with explicit supported provider ratios, equal-grid splitting (or the
+accepted adaptive split for a six-panel English board) and
 proportional center-fit normalization into uniformly 4:5, 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
 and Psychology explainers remain safe baselines. Canonical semantics and bounded
 recent-use penalties choose the immutable recipe before adaptation. One deterministic
@@ -150,12 +153,14 @@ Dry-run does not require live opt-in. Real calls require both
 explicit finite acceptance USD ceiling; normal CI never invokes the text or
 image clients.
 
-The permanent `visual` acceptance profile covers live 1×1, 2×1, 2×2 and 3×2
-boards, including 4+1 and 6+6+2 multi-board sequencing, English adaptive split
-fallback, local overlays and ReviewRequest creation. Gemini-rendered visual text
-remains a human-review gate; provider reliability, posting and Psychology
-editorial quality are separate concerns. See the [historical visual acceptance
-report](acceptance/history/pass3/visual-acceptance.md); posting remains disabled.
+The permanent `visual` acceptance profile covers board/review mechanics. The
+`fidelity` profile compares the same frozen six-slide English package under
+6, 4+2, 2+2+2 and six singleton calls. Text budgets are provisional; these forced
+experiments record policy violations for calibration. No paid fidelity experiment
+has been run for this implementation. See [runner operation](../acceptance/README.md)
+for dry-run and explicitly opt-in live commands. The [historical visual acceptance
+report](acceptance/history/pass3/visual-acceptance.md) remains unchanged evidence.
+Gemini-rendered text still requires human review; posting remains disabled.
 
 The former Psychology hardening and spot-check matrices are retained as
 historical Pass 2 evidence rather than active acceptance profiles. They do not
@@ -272,7 +277,7 @@ Maintenance does not prune backups unless `--prune-backups` is supplied.
 | `src/workflow/editorial_planning.py` | Closed editorial strategy, immutable plans and bounded history |
 | `src/workflow/gemini_generation.py`, `gemini_adaptation.py` | Canonical content and Instagram copy |
 | `src/workflow/active_visual_profiles.py`, `visual_planner.py` | Curated account identities/archetypes and deterministic planning evidence |
-| `src/workflow/storyboard_planner.py` | Immutable deterministic board pagination and worker handoff |
+| `src/workflow/storyboard_planner.py`, `render_text_policy.py` | Immutable text-aware render pagination, measurements and provisional capacity budgets |
 | `src/workflow/gemini_prompt_compiler.py` | Deterministic storyboard prompt compilation |
 | `src/workflow/active_review_renderer.py`, `gemini_image_renderer.py` | Atomic review assets, Gemini storyboards and shared local processing |
 | `archive/deterministic_visual_library/` | Reference-only former generic visual library; never imported or run |

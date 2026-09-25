@@ -1,4 +1,4 @@
-"""Static local review gallery for isolated Pass 3 acceptance artifacts."""
+"""Static local review gallery for isolated visual acceptance artifacts."""
 from __future__ import annotations
 
 from html import escape
@@ -26,7 +26,7 @@ def write_gallery(run_root: Path, results: list[dict[str, Any]]) -> Path:
                 if path:
                     slides.append(f'<img loading="lazy" src="{escape(_relative(path, run_root))}" alt="Slide {slide.get("ordinal")}">')
         boards = []
-        for board in manifest.get("boards", [manifest.get("storyboard")]):
+        for board in manifest.get("boards", []):
             if not board:
                 continue
             raw = board.get("raw", {}).get("filename")
@@ -40,7 +40,7 @@ def write_gallery(run_root: Path, results: list[dict[str, Any]]) -> Path:
                 " · ".join(boards), "".join(slides)))
     body = "\n".join(cards) or "<p>No completed image-rendering cases in this run.</p>"
     target = run_root / "gallery.html"
-    target.write_text("""<!doctype html><meta charset=\"utf-8\"><title>Pass 3 visual acceptance</title>
+    target.write_text("""<!doctype html><meta charset=\"utf-8\"><title>Visual acceptance</title>
 <style>body{font-family:system-ui;margin:2rem;background:#f5f5f2;color:#162126}article{background:white;padding:1rem;margin:1rem 0;border-radius:10px}.slides{display:flex;gap:12px;overflow:auto}.slides img{width:216px;height:270px;object-fit:cover;border:1px solid #ddd}a{color:#135a8a}</style>
-<h1>Pass 3 visual acceptance</h1><p>Local review evidence. Raw boards are original provider artifacts; slides are final overlaid PNGs.</p>""" + body)
+<h1>Visual acceptance</h1><p>Local review evidence. Raw boards are original provider artifacts; slides are final overlaid PNGs.</p>""" + body)
     return target

@@ -164,7 +164,7 @@ Planning consumes the daily budget before a job exists and ignores storage admis
 A live fenced claim atomically commits plan, ContentJob and pending GenerationRun.
 Failure, cancellation or stale finalization creates no partial downstream work.
 SQL uniqueness prevents duplicate jobs, and external invocation history prevents
-blind replay after expiry. Fresh schema-14 databases are required; no migration
+blind replay after expiry. Fresh schema-15 databases are required; no migration
 or reset is performed. [Data model](data-model.md) owns SQL lineage.
 
 ## Runtime and review

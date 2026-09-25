@@ -4,12 +4,13 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
+import re
 from .visual_art_direction import (
     EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
-PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v4"
-RENDERER_CONTRACT_ID = "image_storyboard_paginated_v2"
+PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v5"
+RENDERER_CONTRACT_ID = "image_storyboard_paginated_v3"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
 DEFAULT_ARCHETYPE_BY_DOMAIN = {
     "english": "expression_breakdown_v1",
@@ -22,10 +23,10 @@ EXPRESSION_LABELS = ("ENGLISH EXPRESSIONS", "MEANING", "WHEN TO USE IT", "EXAMPL
 
 
 EXPRESSION_ADAPTATION_GUIDANCE = """English expression Instagram grammar overrides the
-generic 5-8 unit range. Return exactly six visual units in this order:
+dynamic unit range. Return exactly six visual units in this order:
 1. hook: a title of at most 5 words and a body of at most 20 words.
 2. meaning / definition: first body line at most 35 words; every later line at
-most 18 words.
+most 18 words. At most 60 body words over at most 5 nonempty lines.
 3. when to use it / use cases: exactly 3-4 body lines, each at most 14 words.
 4. examples: exactly 2 body lines, each at most 22 words.
 5. short dialogue: exactly 3-4 body lines, each at most 16 words. Each line is
@@ -33,7 +34,8 @@ one speaker turn, formatted like `A: ...` or `B: ...`; never return a two-turn d
 For example: `A: ...\nB: ...\nA: ...`.
 6. takeaway / reminder: exactly 2-3 body lines, each at most 16 words.
 Use roles hook, explanation, explanation, example, example, takeaway in that
-same order. Preserve the target expression, meaning, usage and claim mappings,
+same order. All titles except the hook: at most 12 words over at most 2 nonempty
+lines. Titles: at most 120 characters; bodies: at most 600 characters. Preserve the target expression, meaning, usage and claim mappings,
 but write compact slide-ready copy rather than paragraphs. Check every position
 and line limit before returning JSON.
 """
@@ -52,10 +54,15 @@ def validate_expression_units(units: list[Mapping[str, Any]]) -> None:
     if [unit.get("role") for unit in units] != list(EXPRESSION_ROLES):
         raise ValueError("expression breakdown requires its registered six-slide role sequence")
     hook, meaning, checklist, examples, dialogue, takeaway = units
+    for unit in units:
+        if (len(unit["title"]) > 120 or len(unit["body"]) > 600
+            or _word_count(unit["title"]) > 12 or len(_lines(unit["title"])) > 2):
+            raise ValueError("expression title/body exceeds readable capacity")
     if _word_count(str(hook["title"])) > 5 or _word_count(str(hook["body"])) > 20:
         raise ValueError("expression hook exceeds its readable content capacity")
     meaning_lines = _lines(str(meaning["body"]))
-    if not meaning_lines or _word_count(meaning_lines[0]) > 35 or any(_word_count(item) > 18 for item in meaning_lines[1:]):
+    if (not 1 <= len(meaning_lines) <= 5 or _word_count(meaning["body"]) > 60
+        or _word_count(meaning_lines[0]) > 35 or any(_word_count(item) > 18 for item in meaning_lines[1:])):
         raise ValueError("expression definition exceeds its readable content capacity")
     checklist_lines = _lines(str(checklist["body"]))
     if not 3 <= len(checklist_lines) <= 4 or any(_word_count(item) > 14 for item in checklist_lines):
@@ -64,7 +71,9 @@ def validate_expression_units(units: list[Mapping[str, Any]]) -> None:
     if len(example_lines) != 2 or any(_word_count(item) > 22 for item in example_lines):
         raise ValueError("expression examples require exactly two concise primary examples")
     dialogue_lines = _lines(str(dialogue["body"]))
-    if not 3 <= len(dialogue_lines) <= 4 or any(_word_count(item) > 16 for item in dialogue_lines):
+    if (not 3 <= len(dialogue_lines) <= 4
+        or any(_word_count(item) > 16 or not re.fullmatch(r"[^:]{1,40}:\s*\S.*", item)
+               for item in dialogue_lines)):
         raise ValueError("expression dialogue requires three or four concise turns")
     takeaway_lines = _lines(str(takeaway["body"]))
     if not 2 <= len(takeaway_lines) <= 3 or any(_word_count(item) > 16 for item in takeaway_lines):
@@ -172,17 +181,11 @@ def _archetype(id, domain, traits, direction, compositions, modes, *, compact=Fa
                 (12, 56 if compact else 64, 3, 4, 14 if compact else 16),
                 (12, 42 if compact else 48, 2, 3, 14 if compact else 16),
             )[i-1]
-            if id == 'expression_breakdown_v1':
-                title = 5 if i == 1 else 120
-                if i == 2:
-                    body, high = 600, 600
-                if i == 1:
-                    high = 600
             slides.append(SlideGrammar(i, role, purpose, composition, mode, title, body,
                                       120, 600, low, high, line))
         else:
-            slides.append(SlideGrammar(i, role, purpose, composition, mode, 10 if compact else 12,
-                                      42 if compact else 45, body_characters=280, line_words=18))
+            slides.append(SlideGrammar(i, role, purpose, composition, mode, 10,
+                                      30, body_characters=280, max_lines=3, line_words=16))
     return Archetype(id, 1, domain, ACCOUNT_PROFILES[domain].id, tuple(traits), direction,
                      negative, tuple(slides))
 

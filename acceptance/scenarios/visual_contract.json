@@ -15,9 +15,9 @@
       "end_stage": "image_rendering"
     },
     {
-      "case_id": "visual_ai_grid_4_plus_1",
+      "case_id": "visual_ai_grid_1_plus_4",
       "schema_version": 2,
-      "description": "Frozen five-slide AI/Tech package proves deterministic 2×2 plus 1×1 board processing.",
+      "description": "Frozen five-slide AI/Tech package proves text-aware 1×1 plus 2×2 board processing.",
       "source_kind": "render_fixture",
       "input": {"fixture_id": "ai_tech_grid_5_v1"},
       "expectations": {"carousel": {"min_slides": 5, "max_slides": 5}},
@@ -29,9 +29,9 @@
       "end_stage": "image_rendering"
     },
     {
-      "case_id": "visual_psychology_grid_6_plus_6_plus_2",
+      "case_id": "visual_psychology_grid_4_plus_4_plus_6",
       "schema_version": 2,
-      "description": "Frozen fourteen-slide Psychology package proves deterministic multi-board 3×2 and 2×1 processing.",
+      "description": "Frozen fourteen-slide Psychology package proves text-aware multi-board 2×2 and 3×2 processing.",
       "source_kind": "render_fixture",
       "input": {"fixture_id": "psychology_grid_14_v1"},
       "expectations": {"carousel": {"min_slides": 14, "max_slides": 14}},
@@ -52,7 +52,7 @@
       "conservation": [{"kind": "exact_identifier", "value": "break the ice"}],
       "tags": ["journey", "human", "english", "grid_3x2"],
       "profiles": ["visual", "journey", "full"],
-      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 1}, "image_calls": 1},
+      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 6}, "image_calls": 6},
       "start_stage": "intake",
       "end_stage": "image_rendering"
     },
@@ -69,7 +69,7 @@
       "conservation": [{"kind": "evidence_reference", "value": "fixture:visual:acme:1"}, {"kind": "scope", "value": "not stated"}],
       "tags": ["journey", "detection", "ai_tech", "dynamic"],
       "profiles": ["visual", "journey", "full"],
-      "live_budget": {"calls_by_stage": {"determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
+      "live_budget": {"calls_by_stage": {"determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 14}, "image_calls": 14},
       "start_stage": "determination",
       "end_stage": "image_rendering"
     },
@@ -83,7 +83,7 @@
       "conservation": [{"kind": "qualification", "value": "possible"}, {"kind": "epistemic_strength", "value": "may simply need time"}],
       "tags": ["journey", "human", "psychology", "dynamic"],
       "profiles": ["visual", "journey", "full"],
-      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 3}, "image_calls": 3},
+      "live_budget": {"calls_by_stage": {"intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1, "image_rendering": 14}, "image_calls": 14},
       "start_stage": "intake",
       "end_stage": "image_rendering"
     }

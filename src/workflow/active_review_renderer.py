@@ -70,7 +70,7 @@ class ActiveReviewRenderer:
             raise ValueError('render requires committed storyboard plan')
         spec['storyboard_plan'] = validate_plan(dict(schema_version=plan_row['schema_version'],
             planner_version=plan_row['planner_version'], total_slides=plan_row['total_slides'],
-            boards=json.loads(plan_row['boards_json'])), len(package['visual_units']), ARCHETYPES[recipe['archetype_id']].domain)
+            boards=json.loads(plan_row['boards_json'])), package['visual_units'], ARCHETYPES[recipe['archetype_id']].domain)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         final_directory = self.artifact_root / f"render-{run['render_run_id']}"
         if final_directory.exists():
@@ -93,7 +93,7 @@ class ActiveReviewRenderer:
             for asset in assets:
                 asset["path"] = str(final_directory / Path(asset["path"]).name)
             manifest = {
-                "schema_version": "render_manifest_v1", "renderer": self.engine,
+                "schema_version": "render_manifest_v2", "renderer": self.engine,
                 "profile_id": spec["profile_id"],
                 "visual_recipe_hash": sha256(package_row["recipe_json"].encode("utf-8")).hexdigest(),
                 "visual_profile_fingerprint": recipe["profile_fingerprint"],

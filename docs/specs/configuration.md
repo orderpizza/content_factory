@@ -73,7 +73,7 @@ same daily/job ledger. Prices are operator input, not inferred defaults.
 | `GEMINI_DAILY_WARNING_USD`, `GEMINI_DAILY_HARD_LIMIT_USD`, `GEMINI_JOB_HARD_LIMIT_USD` | Owner spending limits |
 | `GEMINI_IMAGE_MODEL`, `GEMINI_IMAGE_SIZE` | Storyboard model and supported request size; defaults retain 2K |
 | `GEMINI_IMAGE_INPUT_COST_PER_MILLION_USD`, `GEMINI_IMAGE_OUTPUT_COST_PER_MILLION_USD` | Image-model accounting prices |
-| `GEMINI_IMAGE_RENDERING_MAX_INPUT_TOKENS`, `GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` | Image reservation/response bounds, default 8000/8000 |
+| `GEMINI_IMAGE_RENDERING_RESERVED_INPUT_TOKENS`, `GEMINI_IMAGE_RENDERING_MAX_OUTPUT_TOKENS` | Image input reservation / provider output cap, default 8000/8000 |
 
 Live acceptance has a separate campaign envelope, owned by
 [`acceptance/README.md`](../../acceptance/README.md). Its optional environment
@@ -84,16 +84,33 @@ limits. The `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` setting is only one
 half of a separate acceptance double opt-in; `--live-gemini` is also required.
 Neither setting changes production worker composition.
 
-Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
+Optional `GEMINI_{PHASE}_RESERVED_INPUT_TOKENS` and
 `GEMINI_{PHASE}_MAX_OUTPUT_TOKENS` override these phase defaults:
 
-| PHASE | Input | Output |
+| PHASE | Reserved input tokens | Provider output cap |
 | --- | --- | --- |
 | INTAKE | 8000 | 2000 |
 | DETERMINATION | 12000 | 4000 |
 | EDITORIAL_PLANNING | 12000 | 4000 |
 | GENERATION | 12000 | 6000 |
 | ADAPTATION | 12000 | 8000 |
+
+`GEMINI_{PHASE}_RESERVED_INPUT_TOKENS` reserves a priced input amount; it is
+not a provider input cap. Legacy `GEMINI_{PHASE}_MAX_INPUT_TOKENS` variables,
+including the image phase, remain compatible aliases. The preferred reserved
+name wins if both are set. `ModelBudgetPolicy.reservation_estimate` names this
+semantics explicitly. The existing ledger `max_input_tokens` column retains the
+reserved amount; `worst_case_micro_usd` is an estimate under that assumption,
+not a guaranteed maximum bill. No exact local provider-compatible tokenizer is
+configured, and no remote count-tokens preflight is added. Actual usage can
+exceed the input reservation; it is settled in full and affects subsequent
+admission. The 32,000 serialized request-character guard is separate from token
+counting and does not cover the entire compiled text prompt/schema.
+
+Render-text thresholds are a separate versioned local policy, documented in
+[visual rendering](visual-rendering.md#gemini-designer-review-rendering). They
+measure supplied image text; they are neither model tokens nor adaptation copy
+capacity and have no environment override.
 
 All text-stage output overrides must be positive integers no greater than the
 code-owned `MAX_TEXT_OUTPUT_TOKENS` ceiling of 10,000. This is an architectural

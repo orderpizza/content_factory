@@ -94,7 +94,7 @@ class FakeImageClient:
         if self.error:
             raise self.error
         data = storyboard_image() if self.data is None else self.data
-        if aspect_ratio and data in (storyboard_image(), storyboard_image('JPEG')):
+        if aspect_ratio and aspect_ratio != '5:4' and data in (storyboard_image(), storyboard_image('JPEG')):
             a, b = map(int, aspect_ratio.split(':'))
             with Image.open(BytesIO(data)) as source:
                 stream = BytesIO()
@@ -295,19 +295,19 @@ class ImageWorkflowTests(unittest.TestCase):
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
-            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v4')
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v5')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))
             self.assertTrue(all(slide['footer_cta'] for slide in manifest['slides'][:5]))
             self.assertIsNone(manifest['slides'][5]['footer_cta'])
-            self.assertEqual(manifest['storyboard']['columns'], 3)
-            self.assertEqual(manifest['storyboard']['rows'], 2)
-            self.assertTrue(manifest['storyboard']['split']['fallback_used'])
-            raw = self.artifacts / 'render-1' / manifest['storyboard']['raw']['filename']
+            self.assertEqual(manifest['boards'][0]['cols'], 3)
+            self.assertEqual(manifest['boards'][0]['rows'], 2)
+            self.assertTrue(manifest['boards'][0]['split']['fallback_used'])
+            raw = self.artifacts / 'render-1' / manifest['boards'][0]['raw']['filename']
             self.assertEqual(raw.read_bytes(), storyboard_image())
-            self.assertEqual(raw.name, 'raw-storyboard.png')
-            self.assertEqual(manifest['storyboard']['raw']['mime_type'], 'image/png')
+            self.assertEqual(raw.name, 'raw-storyboard-01.png')
+            self.assertEqual(manifest['boards'][0]['raw']['mime_type'], 'image/png')
             self.assertNotIn(str(raw), [asset['local_path'] for asset in assets])
             self.assertEqual([slide['source_cell'] for slide in manifest['slides']], [
                 {'row': 1, 'column': 1}, {'row': 1, 'column': 2}, {'row': 1, 'column': 3},
@@ -328,10 +328,10 @@ class ImageWorkflowTests(unittest.TestCase):
             )
             self.assertIsNotNone(worker.run_once(), getattr(worker, 'last_operation', None))
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
-            raw = self.artifacts / 'render-1' / manifest['storyboard']['raw']['filename']
-            self.assertEqual(raw.name, 'raw-storyboard.jpg')
+            raw = self.artifacts / 'render-1' / manifest['boards'][0]['raw']['filename']
+            self.assertEqual(raw.name, 'raw-storyboard-01.jpg')
             self.assertEqual(raw.read_bytes(), storyboard_image('JPEG'))
-            self.assertEqual(manifest['storyboard']['raw']['mime_type'], 'image/jpeg')
+            self.assertEqual(manifest['boards'][0]['raw']['mime_type'], 'image/jpeg')
 
     def test_image_defaults_use_configured_model_and_2k_storyboard(self):
         with patch.dict('os.environ', {}, clear=True):
@@ -402,7 +402,7 @@ class ImageWorkflowTests(unittest.TestCase):
             self.prepare(store)
             run = store.claim('render_runs', 'render_run_id', 'interrupted')
             store.begin_model_invocation(phase='image_rendering', table='render_runs', key='render_run_id', row=run,
-                request_version='test', prompt_version='test', schema_version='test', request_value={}, model_id='fake')
+                request_version='test', prompt_version='test', schema_version='test', request_value={'board':json.loads(store.connection.execute('SELECT boards_json FROM storyboard_plans').fetchone()[0])[0]}, model_id='fake', board_index=1)
             store.connection.execute("UPDATE render_runs SET lease_expires_at='2000-01-01T00:00:00'")
             store.connection.commit()
             client = FakeImageClient()

@@ -67,7 +67,11 @@ def estimated_cost_usd(usage: GeminiUsage) -> float | None:
 
 
 class VertexGeminiClient:
-    """Generate validated JSON without leaking Vertex SDK calls across modules."""
+    """Generate JSON without leaking Vertex SDK calls across modules.
+
+    Only max_output_tokens is a provider cap. Input reservations belong to the
+    ledger, not this transport; no count-tokens preflight request is performed.
+    """
 
     def __init__(
         self,

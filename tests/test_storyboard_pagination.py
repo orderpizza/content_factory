@@ -48,28 +48,36 @@ class PlannedClient(FakeImageClient):
         return GeneratedImage(board_bytes(board), 'image/png')
 
 
+def sparse_units(total):
+    return [dict(title='Title', body='Body') for _ in range(total)]
+
+
+def persisted_boards(store):
+    return json.loads(store.connection.execute('SELECT boards_json FROM storyboard_plans').fetchone()[0])
+
+
 class PaginationTests(unittest.TestCase):
     def test_closed_packing_and_order(self):
         for count, expected in [(4,[4]), (6,[6]), (8,[4,4]), (10,[6,4]), (12,[6,6]), (14,[6,6,2])]:
             for domain in ('ai_tech', 'psychology'):
-                boards = paginate(count, domain)
+                boards = paginate(sparse_units(count), domain)
                 self.assertEqual([b['capacity'] for b in boards], expected)
                 self.assertEqual([i for b in boards for i in b['slide_indices']], list(range(1,count+1)))
                 for b in boards:
                     self.assertEqual(b['capacity'], b['cols'] * b['rows'])
         for count in range(4,15):
-            self.assertEqual(sum(b['capacity'] for b in paginate(count,'ai_tech')),count)
-        self.assertEqual(len(paginate(6,'english')),1)
+            self.assertEqual(sum(b['capacity'] for b in paginate(sparse_units(count),'ai_tech')),count)
+        self.assertEqual(len(paginate(sparse_units(6),'english')),1)
         for domain in ('english','ai_tech','psychology'):
             for count in (0,3,15,True,6.0):
                 with self.assertRaises(ValueError): paginate(count,domain)
-        with self.assertRaises(ValueError): paginate(8,'english')
-        value = make_plan(8,'ai_tech'); value['boards'][0]['cols']=3
-        with self.assertRaises(ValueError): validate_plan(value,8,'ai_tech')
+        with self.assertRaises(ValueError): paginate(sparse_units(8),'english')
+        value = make_plan(sparse_units(8),'ai_tech'); value['boards'][0]['cols']=3
+        with self.assertRaises(ValueError): validate_plan(value,sparse_units(8),'ai_tech')
 
     def test_equal_split_geometry_and_pixels(self):
         for total in (5,8,10,14):
-            for board in paginate(total,'ai_tech'):
+            for board in paginate(sparse_units(total),'ai_tech'):
                 split = split_equal_grid(board_bytes(board),board)
                 self.assertEqual(len(split.slides),board['capacity'])
                 for ordinal, slide in zip(board['slide_indices'],split.slides):
@@ -82,7 +90,7 @@ class PaginationTests(unittest.TestCase):
         seen = set()
         for domain in ('ai_tech','psychology'):
             for count in range(4,15):
-                boards=paginate(count,domain)
+                boards=paginate(sparse_units(count),domain)
                 self.assertEqual(sum(b['capacity'] for b in boards),count)
                 self.assertEqual([i for b in boards for i in b['slide_indices']],list(range(1,count+1)))
                 for board in boards:
@@ -93,7 +101,7 @@ class PaginationTests(unittest.TestCase):
                     self.assertEqual((board['slide_aspect_ratio'],board['final_width'],board['final_height']),('4:5',1080,1350))
                     self.assertEqual(board['split_strategy'],'equal_grid_then_fit_4x5_v1')
         self.assertEqual(seen,set(expected))
-        english=paginate(6,'english')[0]
+        english=paginate(sparse_units(6),'english')[0]
         self.assertEqual(english['provider_aspect_ratio'],'5:4')
         self.assertEqual(english['split_strategy'],'english_accepted_v1')
 
@@ -105,12 +113,12 @@ class PaginationTests(unittest.TestCase):
                 with self.assertRaises(ValueError): client.generate_image('test',aspect_ratio=ratio)
                 provider.assert_not_called()
         with patch.dict('workflow.storyboard_planner.PROVIDER_ASPECT_RATIOS',{6:'6:5'}):
-            with self.assertRaises(ValueError): make_plan(6,'ai_tech')
-        plan=make_plan(6,'ai_tech'); plan['boards'][0]['provider_aspect_ratio']='6:5'
-        with self.assertRaises(ValueError): validate_plan(plan,6,'ai_tech')
+            with self.assertRaises(ValueError): make_plan(sparse_units(6),'ai_tech')
+        plan=make_plan(sparse_units(6),'ai_tech'); plan['boards'][0]['provider_aspect_ratio']='6:5'
+        with self.assertRaises(ValueError): validate_plan(plan,sparse_units(6),'ai_tech')
 
     def test_provider_pixel_rounding_is_tolerated_but_wrong_shapes_are_not(self):
-        board=paginate(6,'ai_tech')[0]
+        board=paginate(sparse_units(6),'ai_tech')[0]
         def png(width,height):
             stream=BytesIO(); Image.new('RGB',(width,height)).save(stream,format='PNG'); return stream.getvalue()
         # Divisible 3×2 grid, slightly different from nominal 5:4 and exact 4:5 cells.
@@ -123,7 +131,7 @@ class PaginationTests(unittest.TestCase):
 
     def test_center_fit_crops_each_cell_without_geometric_stretch(self):
         for count in (6,14):
-            board=paginate(count,'ai_tech')[-1]  # 3×2 and 2×1 have non-4:5 raw cells.
+            board=paginate(sparse_units(count),'ai_tech')[-1]  # 3×2 and 2×1 have non-4:5 raw cells.
             with Image.open(BytesIO(board_bytes(board))) as original:
                 raw=original.copy()
             cw,ch=raw.width//board['cols'],raw.height//board['rows']
@@ -161,7 +169,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         return response
 
     def test_fresh_database_acceptance_english_six_ai_eight_psychology_fourteen(self):
-        for domain,count,capacities in [('english',6,[6]),('ai_tech',8,[4,4]),('ai_tech',10,[6,4]),('psychology',14,[6,6,2])]:
+        for domain,count,capacities in [('english',6,[6]),('ai_tech',8,[4,4]),('ai_tech',10,[6,4]),('psychology',14,[6,4,4])]:
             with self.subTest(domain=domain):
                 f=self.fixture()
                 with WorkflowStore(f.path) as store:
@@ -242,7 +250,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         f=self.fixture()
         with WorkflowStore(f.path) as store:
             self.prepare(store,f,'psychology',14); StoryboardPlanner(store).run_once()
-            client=PlannedClient(paginate(14,'psychology'),fail_at=2)
+            client=PlannedClient(persisted_boards(store),fail_at=2)
             worker=DispatchVisualRenderer(store,Path(f.temporary.name)/'assets',image_client=client)
             self.assertIsNone(worker.run_once()); self.assertIsNone(worker.run_once())
             self.assertEqual(len(client.calls),2)
@@ -285,7 +293,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         with WorkflowStore(f.path) as store:
             self.prepare(store,f,'ai_tech',8); StoryboardPlanner(store).run_once()
             run=store.claim('render_runs','render_run_id','test')
-            boards=paginate(8,'ai_tech')
+            boards=persisted_boards(store)
             def begin(index):
                 return store.begin_model_invocation(phase='image_rendering',table='render_runs',key='render_run_id',row=run,
                     request_version='test',prompt_version='test',schema_version='test',model_id='fake',
@@ -306,7 +314,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         f=self.fixture()
         with WorkflowStore(f.path) as store:
             self.prepare(store,f,'ai_tech',8); StoryboardPlanner(store).run_once()
-            client=PlannedClient(paginate(8,'ai_tech'))
+            client=PlannedClient(persisted_boards(store))
             worker=DispatchVisualRenderer(store,Path(f.temporary.name)/'assets',image_client=client)
             worker.image_renderer.budget_policy=replace(image_fixtures.ImageWorkflowTests.image_policy(self),daily_hard_micro_usd=260000)
             self.assertIsNone(worker.run_once())
@@ -322,7 +330,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
         f=self.fixture()
         with WorkflowStore(f.path) as store:
             self.prepare(store,f,'ai_tech',8); StoryboardPlanner(store).run_once()
-            client=PlannedClient(paginate(8,'ai_tech'))
+            client=PlannedClient(persisted_boards(store))
             worker=DispatchVisualRenderer(store,Path(f.temporary.name)/'assets',image_client=client)
             policy=image_fixtures.ImageWorkflowTests.image_policy(self)
             worker.image_renderer.budget_policy=replace(policy,daily_hard_micro_usd=100)

@@ -1,0 +1,52 @@
+{
+  "visual_units": [
+    {
+      "body": "Stepping into a new office feels cold. Learn how to warm up your professional relationships instantly.",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "hook",
+      "title": "Break the Ice"
+    },
+    {
+      "body": "To break the ice means to relieve tension or start a conversation when meeting people for the first time.\nIt helps overcome initial awkwardness in professional settings.",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "explanation",
+      "title": "What Does It Mean?"
+    },
+    {
+      "body": "Use it during your first meeting with new coworkers.\nPerfect for starting project kickoff sessions or workshops.\nGreat for networking events and team-building environments.",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "explanation",
+      "title": "When to Use It"
+    },
+    {
+      "body": "I decided to break the ice at the morning meeting by asking about weekend activities.\nTo break the ice with my new desk mate, I introduced myself immediately.",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "example",
+      "title": "Real-Life Examples"
+    },
+    {
+      "body": "A: Everyone looks so quiet and nervous before this big meeting.\nB: Let me tell a quick joke to break the ice.\nA: That really helped establish a comfortable working relationship!",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "example",
+      "title": "In Conversation"
+    },
+    {
+      "body": "Mastering this idiom helps you confidently initiate conversations.\nIt reduces social awkwardness and builds better team dynamics.",
+      "claim_ids": [
+        "english.example.1"
+      ],
+      "role": "takeaway",
+      "title": "Key Takeaway"
+    }
+  ]
+}

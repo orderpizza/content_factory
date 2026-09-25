@@ -48,10 +48,10 @@ until multiple-account visual operation is needed. No account key is invented
 from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
 not the complete three-archetype set.
 
-Infrastructure is independently versioned: `gemini_storyboard_prompt_v4` identifies
-the deterministic compiler, `image_storyboard_paginated_v2` identifies technical output
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v5` identifies
+the deterministic compiler, `image_storyboard_paginated_v3` identifies technical output
 geometry, and overlay IDs identify local chrome. Neither
-`gemini_storyboard_prompt_v4` nor `image_storyboard_paginated_v2` is a visual template.
+`gemini_storyboard_prompt_v5` nor `image_storyboard_paginated_v3` is a visual template.
 The former is compiler infrastructure; the latter is the technical renderer
 contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
@@ -95,7 +95,7 @@ paid image generation. No automatic visual fallback exists.
 
 ## Gemini designer review rendering
 
-`storyboard_plan_v2` is an immutable persisted boundary after adaptation. A
+`storyboard_plan_v3` is an immutable persisted boundary after adaptation. A
 StoryboardPlanRun claims a ContentPackage; its fenced transaction commits the plan
 and one RenderRun. The plan freezes package/output/recipe lineage, total slide count,
 planner version and ordered boards. No provider chooses pagination. Each board
@@ -103,13 +103,58 @@ contains index, rows, columns, capacity, inclusive slide range, explicit slide
 indices, `provider_aspect_ratio`, `slide_aspect_ratio`, `final_width`,
 `final_height` and split strategy. There is no ambiguous `aspect_ratio` field.
 
-All three English archetypes remain exactly six slides on one 3×2 board. All
-six AI/Tech and Psychology archetypes allow 4–14 slides (normally 4–8); adaptation
-capacity and role grammar are owned by [content production](content-production.md).
-The finite board family is 3×2, 2×2, 2×1, 1×1 (columns × rows), capacities
-6, 4, 2, 1. `balanced_eight_largest_first_v1` minimizes board count, then uses
-larger capacities first, except total eight uses the explicit balanced 4+4 rule.
-Examples: 4→4, 6→6, 8→4+4, 10→6+4, 12→6+6, 14→6+6+2. Slide order never changes.
+Content pagination belongs to adaptation: English has six ordered units;
+AI/Tech and Psychology have 4–14 (normally 4–8). Copy capacities and role grammar
+belong to [content production](content-production.md). Render pagination groups
+those immutable units into calls; it never changes the ContentPackage, claims,
+slide count or order. Six English slides can use 6, 4+2, 2+4, 2+2+2 or singleton
+boards. Gemini selects neither capacities, grids, ratios nor split strategy.
+
+`render_text_policy.py` owns `rendered_text_load_v1` and the separate
+`render_text_calibration_v1` policy. Measurement counts exact final title/body
+Unicode code points including whitespace, whitespace-separated words, nonempty
+logical lines and nonempty title/body regions. It performs no normalization or
+layout inference. It excludes locally rendered overlays, caption, cues and art
+direction. Each slide records title/body characters and words, title/body lines,
+total characters/words/lines/regions, and longest-line characters/words. Each
+candidate board aggregates count, characters, words, lines and regions, plus
+maximum slide characters/words/lines. Logical lines are not predicted visual wraps.
+
+The provisional calibration defaults are centralized in that module:
+
+| Board capacity | Board words / characters / lines | Per-slide words / characters / lines |
+| --- | --- | --- |
+| 1 | 80 / 720 / 7 | 80 / 720 / 7 |
+| 2 | 110 / 1000 / 14 | 80 / 720 / 7 |
+| 4 | 100 / 720 / 22 | 40 / 360 / 6 |
+| 6 | 110 / 800 / 26 | 35 / 240 / 5 |
+
+Each slide allows two text regions; board regions are twice capacity. These are
+**calibration defaults, not proven Gemini limits**. Sparse accepted fixtures have
+roughly 80–110 total words; the retained denser English sample has 160 words,
+including a 33-word dialogue slide. The policy keeps sparse six-panel calls
+possible while exercising splitting for denser copy. Larger per-slide allowances
+on two-panel/singleton calls preserve legitimate dialogue, examples and
+qualification without deleting words. They do not relax adaptation copy policy.
+
+`text_load_contiguous_v1` exhaustively searches the small contiguous partition
+space (at most 14 slides) using capacities 6, 4, 2, 1. It rejects candidates that
+exceed any per-slide or aggregate budget, minimizes call count, then minimizes
+the maximum board density. Density is the maximum of aggregate word/character
+utilization and each slide's word/character utilization. Fractions compare
+exactly; ties prefer lexicographically larger capacity sequences. Line and region
+counts are hard gates, not density terms. No remaining-slide greedy exception or
+special eight-slide rule exists. If even singleton boards cannot fit, planning
+fails before image calls; copy is never truncated or silently reauthored.
+
+Each selected board persists measurements, measurement/policy versions, exact
+budget snapshot, rational density and planning mode inside immutable `boards_json`.
+The complete plan is also in `render_manifest_v2` and acceptance artifacts.
+Changing measurement or thresholds requires a new version; old evidence is not
+reinterpreted. Explicit acceptance-only forced partitions persist
+`forced_fidelity_experiment_v1` and every budget violation. They can compare an
+over-budget strategy but do not bypass adaptation, geometry, ledger or review
+gates. Normal workers always use automatic packing.
 
 Provider board shape and final slide shape are separate contracts. The planner
 uses this closed mapping (columns × rows), never a ratio derived from final cells:
@@ -138,7 +183,7 @@ text is serialized last; the model must not omit, summarize or paraphrase it.
 
 The image adapter requests the planned provider ratio and configured image size
 (default 2K), one call per board with SDK retries disabled and no references.
-The dynamic path accepts one PNG/JPEG, at most 40 MB / 40 million pixels, at least
+The shared equal-grid path accepts one PNG/JPEG, at most 40 MB / 40 million pixels, at least
 200×250 pixels per raw cell, and dimensions exactly divisible by columns/rows.
 The returned width/height ratio may differ by at most **2% relative** from the
 requested provider ratio to accommodate pixel rounding. Materially wrong ratios,
@@ -151,14 +196,20 @@ of stretching a non-4:5 cell. There is no margin inference or fallback. Raw cell
 are not required to be 4:5; only final slides are. Content near edges can be cropped,
 so model composition and final visual/text quality still require human review.
 
-English is an explicit preservation exception: all three English archetypes retain
-their existing 5:4 raw-board request and adaptive margin/gutter processing, with the
-recorded equal-grid fallback. Their persisted plan records the 3×2 grid, provider ratio 5:4 and final slide
-ratio 4:5 / 1080×1350. `english_accepted_v1` retains the accepted transport and
-splitting. In particular `expression_breakdown_v1` uses
+English uses the same persisted multi-board execution and manifest as other
+domains. A selected six-panel English board alone retains `english_accepted_v1`:
+5:4 request, accepted adaptive margin/gutter detection and recorded equal-grid
+fallback. `expression_breakdown_v1` still uses
 `_build_accepted_expression_breakdown_prompt` and
-`EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1`; its full prompt and overlay pixel
-hashes remain unchanged. This exception preserves the accepted English baseline.
+`EXPRESSION_BREAKDOWN_ACCEPTED_PROMPT_PREFIX_V1` for that board; its accepted
+single-board prompt and overlay pixel hashes are unchanged. Other English board
+capacities use the shared equal-grid/center-fit contract. Compatibility is in
+prompt compilation and splitting, not a second planner or renderer.
+
+All boards of a multi-board carousel receive the same frozen account identity,
+archetype/version, art direction, negative constraints and carousel visual
+contract. Only their assigned slides and claim-referenced cues appear in their
+prompts, with exact copy last. No reference-image chaining is implemented.
 
 Pillow adds transparent local chrome after splitting. English retains labels,
 `o2_english` branding and seeded five-phrase CTA rotation. Dynamic domains use the
@@ -181,7 +232,7 @@ The renderer reads the committed plan before calling the compiler. Raw PNG/JPEG
 boards retain their provider bytes and file types. Manifest provenance links every
 final ordinal to its board, cell, source rectangle, invocation, filename and hash;
 board records include grid/capacity, provider ratio, final slide ratio/dimensions,
-split strategy, prompt hash, raw hash/size/media, raw dimensions and source rectangles.
+split strategy, text-load/policy evidence, prompt hash, raw hash/size/media, raw dimensions, source rectangles and provider-call latency in milliseconds.
 Split metadata names `ImageOps.fit`, Lanczos, center `(0.5, 0.5)` and final dimensions;
 source rectangles describe the equal-grid cells before normalization. The
 manifest also freezes StoryboardPlan ID/content, recipe/profile identity, compiler,

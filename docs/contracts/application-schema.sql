@@ -647,8 +647,8 @@ CREATE TABLE storyboard_plans (
     content_package_id INTEGER NOT NULL UNIQUE REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     output_request_id INTEGER NOT NULL UNIQUE REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
-    schema_version TEXT NOT NULL CHECK(schema_version='storyboard_plan_v2'),
-    planner_version TEXT NOT NULL CHECK(planner_version='balanced_eight_largest_first_v1'),
+    schema_version TEXT NOT NULL CHECK(schema_version='storyboard_plan_v3'),
+    planner_version TEXT NOT NULL CHECK(planner_version='text_load_contiguous_v1'),
     total_slides INTEGER NOT NULL CHECK(total_slides BETWEEN 4 AND 14),
     boards_json TEXT NOT NULL CHECK(json_valid(boards_json) AND json_type(boards_json)='array'),
     created_at TEXT NOT NULL
@@ -1098,7 +1098,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 14;
+PRAGMA user_version = 15;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)

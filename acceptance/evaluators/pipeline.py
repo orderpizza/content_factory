@@ -118,7 +118,7 @@ def evaluate_pipeline(case: StageCase, execution: Any) -> StageEvaluation:
             findings.append(_finding(case, "image_rendering", Status.FAIL, Category.CONTRACT, "review_render_incomplete", "Image rendering did not create a persisted complete ReviewRequest."))
         else:
             plan = manifest.get("storyboard_plan", {})
-            boards = manifest.get("boards", [manifest.get("storyboard")])
+            boards = manifest.get("boards", [])
             slides = manifest.get("slides", [])
             expected_ordinals = list(range(1, int(plan.get("total_slides", 0)) + 1))
             if [slide.get("ordinal") for slide in slides] != expected_ordinals:

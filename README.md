@@ -11,9 +11,9 @@ Sources / Human ideas → Detection / Intake → Determination
 → Canonical generation → Visual planning → Instagram adaptation → Gemini rendering → Review
 ```
 
-English produces exactly six 1080×1350 Instagram review PNGs from one Gemini 3×2
-storyboard. AI/Tech and Psychology produce 4–14 slides with deterministic
-pagination across 1×1, 2×1, 2×2, and 3×2 boards; each domain has three curated
+English produces exactly six Instagram review PNGs; AI/Tech and Psychology
+produce 4–14. Deterministic text-load planning groups these unchanged slides
+into 1×1, 2×1, 2×2, and 3×2 Gemini boards, potentially several calls per carousel; each domain has three curated
 archetypes. Shared local processing makes every final slide 4:5 (1080×1350).
 See the [visual rendering contract](docs/specs/visual-rendering.md) for the
 profiles, board mapping, split behavior, and review requirements. The dashboard

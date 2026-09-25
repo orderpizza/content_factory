@@ -21,7 +21,7 @@ from .active_visual_profiles import (EXPRESSION_ADAPTATION_GUIDANCE, archetype_c
 from .visual_cues import VISUAL_CUES_SCHEMA, validate_cues
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v10"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v11"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v1"
 ADAPTATION_SCHEMA_VERSION = "output_adaptation_v3"
 SUPPORTED_FORMATS = {
@@ -29,8 +29,8 @@ SUPPORTED_FORMATS = {
 }
 
 
-def _string() -> dict[str, Any]:
-    return {"type": "string", "minLength": 1}
+def _string(maximum=None) -> dict[str, Any]:
+    return {"type": "string", "minLength": 1, **({"maxLength": maximum} if maximum else {})}
 
 
 _UNIT_SCHEMA = {
@@ -42,10 +42,10 @@ _UNIT_SCHEMA = {
             "type": "string",
             "enum": ["hook", "explanation", "example", "takeaway"],
         },
-        "title": _string(),
-        "body": _string(),
+        "title": _string(120),
+        "body": _string(600),
         "claim_ids": {
-            "type": "array", "maxItems": 12, "items": _string(),
+            "type": "array", "maxItems": 30, "items": _string(120),
         },
     },
 }
@@ -58,23 +58,28 @@ def adaptation_schema(platform: str, content_format: str, pipeline_id: str = "en
     cues_schema = deepcopy(VISUAL_CUES_SCHEMA)
     cues_schema['maxItems'] = maximum
     cues_schema['items']['properties']['slide']['maximum'] = maximum
+    unit_schema = deepcopy(_UNIT_SCHEMA)
+    unit_schema['properties']['title']['maxLength'] = 120 if pipeline_id == 'english' else 80
+    unit_schema['properties']['body']['maxLength'] = 600 if pipeline_id == 'english' else 280
+    unit_schema['properties']['title']['description'] = 'English hook: 5 words; other English titles: 12; AI/Tech and Psychology: 10. At most 2 nonempty lines.'
+    unit_schema['properties']['body']['description'] = 'Follow the frozen English position grammar; AI/Tech and Psychology: at most 30 words, 3 nonempty lines, 16 words per line.'
     common = {
         "private_tags": {
-            "type": "array", "minItems": 2, "maxItems": 6, "items": _string(),
+            "type": "array", "minItems": 2, "maxItems": 6, "items": _string(80),
         },
         "hashtags": {
             "type": "array", "maxItems": 8,
-            "items": _string(),
+            "items": {**_string(49), "pattern": r"^#[a-z0-9_]{1,48}$"},
         },
-        "alt_text": _string(),
+        "alt_text": _string(1000),
         "public_text_claim_ids": {
-            "type": "array", "maxItems": 30, "items": _string(),
+            "type": "array", "maxItems": 30, "items": _string(120),
         },
     }
     properties = {
         **common,
         "visual_cues": cues_schema,
-        "caption_summary": _string(),
+        "caption_summary": _string(1100),
         "cta": {"anyOf": [
             {**_string(), "maxLength": 120,
              "pattern": r"^\S+(?:\s+\S+){0,11}$",
@@ -83,7 +88,7 @@ def adaptation_schema(platform: str, content_format: str, pipeline_id: str = "en
         ]},
         "visual_units": {
             "type": "array", "minItems": minimum, "maxItems": maximum,
-            "items": _UNIT_SCHEMA,
+            "items": unit_schema,
         },
     }
     required = [
@@ -313,10 +318,10 @@ def metadata_schema(platform: str) -> dict[str, Any]:
         "additionalProperties": False,
         "properties": {
             "private_tags": {"type": "array", "minItems": 2, "maxItems": 6,
-                             "items": _string()},
+                             "items": _string(80)},
             "hashtags": {"type": "array", "maxItems": 8,
-                         "items": _string()},
-            "alt_text": _string(),
+                         "items": {**_string(49), "pattern": r"^#[a-z0-9_]{1,48}$"}},
+            "alt_text": _string(1000),
         },
     }
 
@@ -575,8 +580,7 @@ or claim mapping to fit.
 
 For AI/Tech and Psychology explainers, use no more than 30 words over no more
 than three lines in every slide body; each line must have no more than 16 words.
-Keep each title to at most 10 words. These tighter authoring limits leave room
-inside the hard local readability limits, not suggestions: shorten or split
+Keep each title to at most 10 words. These are hard local copy limits: shorten or split
 copy before returning it. Before returning, verify every
 hashtag is unique, lowercase ASCII, begins with #, and contains only lowercase
 letters, digits, or underscores.

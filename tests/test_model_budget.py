@@ -40,7 +40,7 @@ class ModelBudgetTests(unittest.TestCase):
             "GEMINI_JOB_HARD_LIMIT_USD": "2",
         }
         policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
-        self.assertEqual(policy.worst_case("generation"), (12_000, 6_000, 24_000))
+        self.assertEqual(policy.reservation_estimate("generation"), (12_000, 6_000, 24_000))
 
     def test_text_stage_defaults_remain_calibrated_and_within_global_ceiling(self):
         self.assertEqual(
@@ -73,7 +73,7 @@ class ModelBudgetTests(unittest.TestCase):
         }
         policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
         self.assertEqual(policy.phase_limits["generation"], (12_000, MAX_TEXT_OUTPUT_TOKENS))
-        self.assertEqual(policy.worst_case("generation")[1], MAX_TEXT_OUTPUT_TOKENS)
+        self.assertEqual(policy.reservation_estimate("generation")[1], MAX_TEXT_OUTPUT_TOKENS)
 
     def test_reservation_uses_configured_stage_allowance_not_global_ceiling(self):
         environment = {
@@ -85,7 +85,7 @@ class ModelBudgetTests(unittest.TestCase):
             "GEMINI_GENERATION_MAX_OUTPUT_TOKENS": "7000",
         }
         policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
-        self.assertEqual(policy.worst_case("generation"), (12_000, 7_000, 26_000))
+        self.assertEqual(policy.reservation_estimate("generation"), (12_000, 7_000, 26_000))
 
     def test_text_stage_output_limit_over_global_ceiling_is_rejected_before_client_use(self):
         environment = {
@@ -147,6 +147,32 @@ class ModelBudgetTests(unittest.TestCase):
                 "WHERE model_invocation_id=?", (invocation,),
             ).fetchone()
             self.assertEqual((settled["status"], settled["settled_micro_usd"]), ("settled", 20))
+
+    def test_reserved_input_preferred_name_and_legacy_alias(self):
+        env = {"GEMINI_INPUT_COST_PER_MILLION_USD": "1", "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+               "GEMINI_DAILY_WARNING_USD": "5", "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+               "GEMINI_JOB_HARD_LIMIT_USD": "2", "GEMINI_INTAKE_MAX_INPUT_TOKENS": "123"}
+        old = ModelBudgetPolicy.from_environment("fixture-model", env)
+        preferred = ModelBudgetPolicy.from_environment("fixture-model", {
+            **env, "GEMINI_INTAKE_RESERVED_INPUT_TOKENS": "456"})
+        self.assertEqual(old.reservation_estimate("intake")[0],123)
+        self.assertEqual(preferred.reservation_estimate("intake")[0],456)
+        with self.assertRaises(ValueError):
+            ModelBudgetPolicy.from_environment("fixture-model", {**env, "GEMINI_INTAKE_RESERVED_INPUT_TOKENS":"0"})
+
+    def test_actual_input_over_reservation_is_accounted_in_full(self):
+        policy = ModelBudgetPolicy("fixture-model",Decimal("1"),Decimal("2"),500_000,1_000_000,
+                                  1_000_000,{"intake":(1,50)})
+        with WorkflowStore(self.path,model_budget_policy=policy) as store:
+            store.create_human_idea("A complete idea.",command_id="input-reservation")
+            claim=store.claim("intake_requests","intake_request_id","test")
+            invocation=store.begin_model_invocation(phase="intake",table="intake_requests",key="intake_request_id",
+                row=claim,request_version="fixture",prompt_version="fixture",schema_version="fixture",
+                request_value={"copy":"Many words do not represent an exact tokenizer count."},model_id="fixture-model")
+            store.finish_model_invocation(invocation,outcome="succeeded",
+                usage=SimpleNamespace(input_tokens=200,output_tokens=5,total_tokens=205,model="fixture-model"))
+            row=store.connection.execute("SELECT max_input_tokens,worst_case_micro_usd,settled_micro_usd FROM gemini_budget_reservations").fetchone()
+            self.assertEqual(tuple(row),(1,101,210))
 
     def test_daily_model_budget_refusal_is_audited_and_deferred_without_a_call(self):
         policy = ModelBudgetPolicy(

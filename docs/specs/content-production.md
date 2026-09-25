@@ -120,19 +120,19 @@ Local limits: title 120 characters, body 600, caption summary 1100, total captio
 canonical claim must be mapped into copy or units. The active Gemini review
 workflow additionally applies the English expression archetype's position-specific
 title, word-count and line-count limits during adaptation, plus the selected
-archetype capacities. Scene/product/process archetypes use tighter copy limits.
+archetype capacities. English scene archetypes retain their tighter position limits.
 
 `output_adaptation_v3` is closed and uses domain-specific cardinality. English
 remains exactly six units. AI/Tech and Psychology allow 4–14 units, normally 4–8:
 exactly one hook first, one takeaway last, interior roles only explanation/example,
 and at least one of each interior role. Their six archetypes retain role-specific
 composition guidance without prescribing fixed positions. Adaptation prompt
-`workflow_gemini_adaptation_prompt_v10` instructs expansion instead of dense text;
+`workflow_gemini_adaptation_prompt_v11` instructs expansion instead of dense text;
 over-capacity responses fail and require narrower adaptation/planning, never truncation.
 
-`visual_explainers.py` validates dynamic-domain titles at 80 characters/12 words/
-2 lines and bodies at 280 characters/45 words/5 lines/18 words per line. Selected
-compact archetypes retain their stricter word limits. AI/Tech requires substantive
+`visual_explainers.py` validates dynamic-domain titles at 80 characters/10 words/
+2 nonempty lines and bodies at 280 characters/30 words/3 nonempty lines/16 words
+per line. Every dynamic archetype and prompt uses these same accepted bounds. AI/Tech requires substantive
 explanation copy and Psychology a substantive final takeaway (at least 20 body
 characters). These are deterministic capacity checks, not proof that a caveat is
 meaningful. Psychology adaptation must not strengthen an uncertain explanation
@@ -142,6 +142,38 @@ the same rules. Prompts require visible AI/Tech limitations, availability scope 
 as-of context; Psychology preserves observation versus inference, alternative
 explanations and takeaway qualification. Human review assesses semantic fidelity.
 
+
+English keeps its teaching grammar: hook title/body at most 5/20 words; meaning
+body at most 60 words over five nonempty lines (first line 35 words, later lines
+18); 3–4 use-case lines of at most 14 words; two example lines of at most 22;
+3–4 dialogue turns of at most 16; 2–3 takeaway lines of at most 16. Non-hook
+titles are at most 12 words; all titles have at most two nonempty lines. Selected
+scene capacities are tighter where declared in the archetype. No qualification
+is removed automatically when these limits fail.
+
+Prompt is authoring guidance; validator is policy. Schema character/list bounds
+mirror local limits where practical; local word/line checks remain authoritative.
+Content pagination is settled by these final units. The separate
+[render-text policy](visual-rendering.md#gemini-designer-review-rendering) can
+split a six-slide package into more image calls without rewriting any content.
+
+### Text-stage string bounds
+
+Model output-token allowances protect against truncation and include thinking;
+they are not verbosity targets. [Configuration](configuration.md#model-admission)
+owns the unchanged 2K/4K/4K/6K/8K defaults and 10K text ceiling. The render-text
+policy does not change these allowances.
+
+The string audit preserves Intake's free-form constraints/source context,
+Determination rationale/fit/reason, and canonical context, qualifications and
+domain prose: arbitrary new renderer-driven character caps there could remove
+meaning. These fields remain candidates for independent text-stage calibration;
+they are not claimed to be locally bounded prose. Editorial Planning already
+bounds strings to 800 characters and uses closed list cardinalities. Generation
+retains its bounded lists/claims and now exposes its existing 120-character
+stable claim-ID rule in the schema. Adaptation exposes its existing title/body,
+caption-summary (1100), alt-text (1000) and private-tag (80) character limits to
+the schema. No prose is truncated to satisfy a schema.
 
 ## Post-specific visual cues
 

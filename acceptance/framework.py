@@ -40,7 +40,7 @@ class Category(str, Enum):
 STAGES = frozenset({"intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering"})
 TEXT_STAGES = ("intake", "determination", "editorial_planning", "generation", "adaptation")
 CHAIN_STAGES = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
-PROFILES = frozenset({"smoke", "stage", "regression", "visual", "journey", "full"})
+PROFILES = frozenset({"smoke", "stage", "regression", "visual", "fidelity", "journey", "full"})
 SOURCE_KINDS = frozenset({"human", "detection_fixture", "stage_fixture", "render_fixture"})
 _ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _CASE_KEYS_V1 = {"case_id", "schema_version", "description", "source_kind", "input", "expectations", "tags", "profiles", "live_budget", "stage"}
@@ -128,6 +128,12 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
         {"fixture_id"} if value["source_kind"] in {"stage_fixture", "render_fixture"} else
         {"frozen_brief", "source_evidence"}
     )
+    strategy = value['input'].get('render_strategy')
+    if value['source_kind'] == 'render_fixture' and 'render_strategy' in value['input']:
+        input_keys = input_keys | {'render_strategy'}
+        if (value['input'].get('fixture_id') != 'english_fidelity_6_v1'
+            or strategy not in ('6', '4+2', '2+2+2', '1+1+1+1+1+1')):
+            raise AcceptanceError(f'{path}.input.render_strategy requires the fixed six-slide fidelity fixture')
     if set(value["input"]) != input_keys:
         raise AcceptanceError(f"{path}.input does not match source_kind")
     if value["source_kind"] == "human":
@@ -211,6 +217,8 @@ def validate_case(value: Any, *, path: str = "case") -> Case:
     if sum(calls.values()) < 1 or any(stage not in STAGES for stage in calls):
         raise AcceptanceError(f"{path}.live_budget must declare provider calls")
     image_calls = budget["image_calls"]
+    if strategy is not None and image_calls != len(strategy.split('+')):
+        raise AcceptanceError(f'{path}.render_strategy must match the image-call budget')
     if type(image_calls) is not int or image_calls < 0 or image_calls != calls.get("image_rendering", 0):
         raise AcceptanceError(f"{path}.live_budget.image_calls is invalid")
     required_live = [stage for stage in CHAIN_STAGES[CHAIN_STAGES.index(start_stage):CHAIN_STAGES.index(end_stage) + 1]
@@ -376,7 +384,7 @@ def configured_worst_case(case: Case, text_policy: Any, image_policy: Any | None
         policy = image_policy if stage == "image_rendering" else text_policy
         if policy is None: raise AcceptanceError("image pricing is required for a case with image calls")
         phase = "image_rendering" if stage == "image_rendering" else stage
-        _, _, worst = policy.worst_case(phase)
+        _, _, worst = policy.reservation_estimate(phase)
         calls += count; cost += count * worst
     images = case.live_budget["image_calls"]
     return calls, images, cost

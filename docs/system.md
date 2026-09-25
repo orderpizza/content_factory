@@ -39,7 +39,9 @@ before Instagram adaptation. Account identity, archetype, compiler, technical
 renderer contract and overlays are separate contracts; only an archetype is a
 visual template. A persisted StoryboardPlan determines boards, provider aspect
 ratios and splitting/normalization separately from the fixed final slide profile.
-Every final Instagram slide is 4:5 at 1080×1350. English keeps six
+Content pagination freezes units in the package; render pagination packs them by
+versioned deterministic text-load budgets. Six English slides may use multiple
+image calls. Every final Instagram slide is 4:5 at 1080×1350. English keeps six
 review PNGs; AI/Tech and Psychology produce 4–14 ordered review PNGs. The accepted English baseline prompt and overlays are preserved.
 Unsupported combinations stop explicitly with no HTML fallback. The former
 deterministic visual library remains archived and inactive. See

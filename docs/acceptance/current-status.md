@@ -11,6 +11,20 @@ authorization and a finite budget as documented by the runner.
   shapes, including deterministic splitting and normalization.
 - The review flow reaches a persisted `ReviewRequest` with exact final slides.
 
+## Current offline fidelity controls
+
+Content pagination and render pagination are separate. The shared text-aware
+planner persists deterministic slide/board measurements and provisional capacity
+budgets for every domain, including English multi-board rendering. Offline tests
+cover packing, assigned-copy prompts, immutable packages, ordering, raw provenance,
+overlays, budget refusal and the accepted English six-panel compatibility path.
+The new thresholds and multi-board visual continuity have not been live validated.
+
+The permanent `fidelity` profile compares one identical English package under
+6, 4+2, 2+2+2 and six singleton calls. [Runner operation](../../acceptance/README.md#controlled-text-fidelity-experiment)
+owns the exact opt-in experiment and human rubric. Pass 2/3 evidence remains
+historical; it does not prove this policy's typography benefit.
+
 ## Known debt and deferred work
 
 - Gemini visual typography fidelity remains a human-review limitation.

@@ -1,0 +1,136 @@
+{
+  "cases": [
+    {
+      "schema_version": 2,
+      "case_id": "fidelity_english_6",
+      "description": "Same frozen six-slide English copy and visual selection, forced 6 render strategy; human fidelity comparison.",
+      "source_kind": "render_fixture",
+      "input": {
+        "fixture_id": "english_fidelity_6_v1",
+        "render_strategy": "6"
+      },
+      "expectations": {
+        "carousel": {
+          "min_slides": 6,
+          "max_slides": 6
+        }
+      },
+      "conservation": [],
+      "tags": [
+        "fidelity",
+        "english",
+        "forced_calibration"
+      ],
+      "profiles": [
+        "fidelity"
+      ],
+      "live_budget": {
+        "calls_by_stage": {
+          "image_rendering": 1
+        },
+        "image_calls": 1
+      },
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
+      "schema_version": 2,
+      "case_id": "fidelity_english_4_2",
+      "description": "Same frozen six-slide English copy and visual selection, forced 4+2 render strategy; human fidelity comparison.",
+      "source_kind": "render_fixture",
+      "input": {
+        "fixture_id": "english_fidelity_6_v1",
+        "render_strategy": "4+2"
+      },
+      "expectations": {
+        "carousel": {
+          "min_slides": 6,
+          "max_slides": 6
+        }
+      },
+      "conservation": [],
+      "tags": [
+        "fidelity",
+        "english",
+        "forced_calibration"
+      ],
+      "profiles": [
+        "fidelity"
+      ],
+      "live_budget": {
+        "calls_by_stage": {
+          "image_rendering": 2
+        },
+        "image_calls": 2
+      },
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
+      "schema_version": 2,
+      "case_id": "fidelity_english_2_2_2",
+      "description": "Same frozen six-slide English copy and visual selection, forced 2+2+2 render strategy; human fidelity comparison.",
+      "source_kind": "render_fixture",
+      "input": {
+        "fixture_id": "english_fidelity_6_v1",
+        "render_strategy": "2+2+2"
+      },
+      "expectations": {
+        "carousel": {
+          "min_slides": 6,
+          "max_slides": 6
+        }
+      },
+      "conservation": [],
+      "tags": [
+        "fidelity",
+        "english",
+        "forced_calibration"
+      ],
+      "profiles": [
+        "fidelity"
+      ],
+      "live_budget": {
+        "calls_by_stage": {
+          "image_rendering": 3
+        },
+        "image_calls": 3
+      },
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    },
+    {
+      "schema_version": 2,
+      "case_id": "fidelity_english_1_1_1_1_1_1",
+      "description": "Same frozen six-slide English copy and visual selection, forced 1+1+1+1+1+1 render strategy; human fidelity comparison.",
+      "source_kind": "render_fixture",
+      "input": {
+        "fixture_id": "english_fidelity_6_v1",
+        "render_strategy": "1+1+1+1+1+1"
+      },
+      "expectations": {
+        "carousel": {
+          "min_slides": 6,
+          "max_slides": 6
+        }
+      },
+      "conservation": [],
+      "tags": [
+        "fidelity",
+        "english",
+        "forced_calibration"
+      ],
+      "profiles": [
+        "fidelity"
+      ],
+      "live_budget": {
+        "calls_by_stage": {
+          "image_rendering": 6
+        },
+        "image_calls": 6
+      },
+      "start_stage": "storyboard_planning",
+      "end_stage": "image_rendering"
+    }
+  ]
+}

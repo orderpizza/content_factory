@@ -62,6 +62,7 @@ class ModelBudgetPolicy:
     daily_warning_micro_usd: int
     daily_hard_micro_usd: int
     job_hard_micro_usd: int
+    # Each pair is (reserved input tokens, enforced provider output cap).
     phase_limits: Mapping[str, tuple[int, int]]
 
     @classmethod
@@ -79,26 +80,27 @@ class ModelBudgetPolicy:
             raise ModelBudgetConfigurationError("Gemini daily warning cannot exceed the hard limit")
         limits: dict[str, tuple[int, int]] = {}
         for phase, defaults in DEFAULT_PHASE_LIMITS.items():
-            input_limit = int(values.get(
-                f"GEMINI_{phase.upper()}_MAX_INPUT_TOKENS", str(defaults[0])
+            reserved_input = int(values.get(
+                f"GEMINI_{phase.upper()}_RESERVED_INPUT_TOKENS",
+                values.get(f"GEMINI_{phase.upper()}_MAX_INPUT_TOKENS", str(defaults[0]))
             ))
             output_limit = int(values.get(
                 f"GEMINI_{phase.upper()}_MAX_OUTPUT_TOKENS", str(defaults[1])
             ))
-            if input_limit < 1 or output_limit < 1:
-                raise ModelBudgetConfigurationError(f"Gemini {phase} token maxima must be positive")
+            if reserved_input < 1 or output_limit < 1:
+                raise ModelBudgetConfigurationError(f"Gemini {phase} input reservation and output cap must be positive")
             if phase in TEXT_PHASES and output_limit > MAX_TEXT_OUTPUT_TOKENS:
                 raise ModelBudgetConfigurationError(
                     f"Gemini {phase} max output tokens cannot exceed "
                     f"{MAX_TEXT_OUTPUT_TOKENS:,}"
                 )
-            limits[phase] = (input_limit, output_limit)
+            limits[phase] = (reserved_input, output_limit)
         return cls(model_id, input_rate, output_rate, warning, hard, job, limits)
 
     @property
     def fingerprint(self) -> str:
         value = {
-            "policy": "gemini_budget_v1",
+            "policy": "gemini_budget_reservation_v2",
             "model_id": self.model_id,
             "input_usd_per_million": str(self.input_usd_per_million),
             "output_usd_per_million": str(self.output_usd_per_million),
@@ -110,7 +112,12 @@ class ModelBudgetPolicy:
         encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
         return sha256(encoded).hexdigest()
 
-    def worst_case(self, phase: str) -> tuple[int, int, int]:
+    def reservation_estimate(self, phase: str) -> tuple[int, int, int]:
+        """Reserve estimated input plus capped output, not a guaranteed cost ceiling.
+
+        No local provider-compatible tokenizer or remote preflight is used. The
+        legacy ledger max_input_tokens column stores this reservation assumption.
+        """
         try:
             input_tokens, output_tokens = self.phase_limits[phase]
         except KeyError as error:

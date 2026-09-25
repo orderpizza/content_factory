@@ -312,12 +312,13 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
 
 RENDER_FIXTURES = {
     "english_grid_6_v1": ("english", 6),
+    "english_fidelity_6_v1": ("english", 6),
     "ai_tech_grid_5_v1": ("ai_tech", 5),
     "psychology_grid_14_v1": ("psychology", 14),
 }
 
 
-def _fixture_adaptation(pipeline_id: str, total_slides: int) -> dict[str, Any]:
+def _fixture_adaptation(pipeline_id: str, total_slides: int, fixture_id: str | None = None) -> dict[str, Any]:
     claim_id = f"{pipeline_id}.example.1"
     if pipeline_id == "english":
         # This is intentionally a complete, capacity-valid English package.
@@ -337,6 +338,8 @@ def _fixture_adaptation(pipeline_id: str, total_slides: int) -> dict[str, Any]:
             {"role": "takeaway", "title": "Remember",
              "body": "Use it for a new start.\nKeep the tone friendly.", "claim_ids": [claim_id]},
         ]
+        if fixture_id == 'english_fidelity_6_v1':
+            units = json.loads((Path(__file__).resolve().parents[1] / 'fixtures' / 'english_fidelity_6_v1.json').read_text())['visual_units']
         return {
             "caption_summary": "A compact English expression fixture for review-render acceptance.",
             "cta": "Review each expression panel.",
@@ -396,7 +399,7 @@ def _seed_render_fixture(store: WorkflowStore, case: StageCase) -> None:
         raise ValueError("render fixture did not create canonical content")
     if VisualPlanner(store, instance_id="acceptance-render-visual").run_once() is None:
         raise ValueError("render fixture did not create a visual recipe")
-    if GeminiAdaptationWorker(store, _FrozenFixtureClient(_fixture_adaptation(pipeline_id, total_slides)),
+    if GeminiAdaptationWorker(store, _FrozenFixtureClient(_fixture_adaptation(pipeline_id, total_slides, case.case.input["fixture_id"])),
                               instance_id="acceptance-render-adaptation").run_once() is None:
         raise ValueError("render fixture did not create a ContentPackage")
 
@@ -492,9 +495,19 @@ def _write_render_inputs(store: WorkflowStore, artifact_root: Path) -> None:
     package, recipe = json.loads(row["package_json"]), json.loads(row["recipe_json"])
     artifact_root.mkdir(parents=True, exist_ok=True)
     (artifact_root / "storyboard_plan.json").write_text(json.dumps({"storyboard_plan_id": row["storyboard_plan_id"], **plan}, ensure_ascii=False, indent=2) + "\n")
+    from hashlib import sha256
+    (artifact_root / 'fidelity-review.json').write_text(json.dumps({
+        'schema_version': 'render_fidelity_review_v1', 'package_sha256': sha256(row['package_json'].encode()).hexdigest(),
+        'render_strategy': '+'.join(str(b['capacity']) for b in plan['boards']),
+        'text_policy_version': plan['boards'][0]['text_policy_version'],
+        'visual_quality': None, 'cross_board_consistency': None, 'reviewer_notes': None,
+        'slides': [dict(ordinal=i, expected_title=u['title'], expected_body=u['body'],
+                        exact_text=None, altered_words=None, missing_words=None, invented_text=None,
+                        visual_quality=None, crop_or_resolution_issue=None)
+                   for i, u in enumerate(package['visual_units'], 1)]}, ensure_ascii=False, indent=2) + '\n')
     for board in plan["boards"]:
         prompt = build_storyboard_prompt(package, recipe, pipeline_id=row["pipeline_id"],
-                                         board=None if row["pipeline_id"] == "english" else board)
+                                         board=board)
         (artifact_root / f"prompt-board-{board['board_index']:02d}.txt").write_text(prompt + "\n")
 
 
@@ -505,7 +518,7 @@ def _write_render_outputs(output: dict[str, Any], artifact_root: Path) -> None:
         return
     (artifact_root / "render-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     validations = []
-    for board in manifest.get("boards", [manifest.get("storyboard")]):
+    for board in manifest["boards"]:
         if not board:
             continue
         raw, split = board.get("raw", {}), board.get("split", {})
@@ -513,7 +526,12 @@ def _write_render_outputs(output: dict[str, Any], artifact_root: Path) -> None:
                             "capacity": board.get("capacity"), "provider_aspect_ratio": board.get("provider_aspect_ratio"),
                             "raw": raw, "raw_dimensions": split.get("raw_dimensions"),
                             "source_rectangles": split.get("source_rectangles"), "split_strategy": split.get("method"),
-                            "normalization": split.get("normalization")})
+                            "normalization": split.get("normalization"),
+                            "text_load": board['text_load'], "slide_text_load": board['slide_text_load'],
+                            "text_policy_version": board['text_policy_version'],
+                            "budget_violations": board['budget_violations'],
+                            "provider_latency_ms": board.get('provider_latency_ms'),
+                            "source_panel_dimensions": [[r[2]-r[0], r[3]-r[1]] for r in split.get('source_rectangles', [])]})
     (artifact_root / "board-validation.json").write_text(json.dumps({"boards": validations}, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -542,6 +560,9 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
         def render():
             if image_policy is None or artifact_root is None:
                 raise ValueError("image rendering requires an image budget policy and an artifact workspace")
+            planned = store.connection.execute('SELECT boards_json FROM storyboard_plans ORDER BY storyboard_plan_id DESC LIMIT 1').fetchone()
+            if planned is None or len(json.loads(planned[0])) > case.live_budget['image_calls']:
+                raise ValueError('selected render plan exceeds the admitted acceptance image-call envelope')
             _write_render_inputs(store, artifact_root)
             image_client = VertexGeminiImageClient(max_output_tokens=image_policy.phase_limits["image_rendering"][1])
             return DispatchVisualRenderer(store, artifact_root, image_client=image_client,
@@ -554,7 +575,9 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
             "generation": lambda: GeminiPipelineRunner(store, _client(text_policy, "generation"), instance_id=f"acceptance-generation-{stage_case.attempt}").run_once(),
             "visual_selection": lambda: VisualPlanner(store, instance_id=f"acceptance-visual-{stage_case.attempt}").run_once(),
             "adaptation": lambda: GeminiAdaptationWorker(store, _client(text_policy, "adaptation"), instance_id=f"acceptance-adaptation-{stage_case.attempt}", strict_english_capacity=True).run_once(),
-            "storyboard_planning": lambda: StoryboardPlanner(store, instance_id=f"acceptance-storyboard-{stage_case.attempt}").run_once(),
+            "storyboard_planning": lambda: StoryboardPlanner(store, instance_id=f"acceptance-storyboard-{stage_case.attempt}",
+                calibration_capacities=([int(c) for c in case.input['render_strategy'].split('+')]
+                                        if case.input.get('render_strategy') else None)).run_once(),
             "image_rendering": render,
         }
         for stage in active:

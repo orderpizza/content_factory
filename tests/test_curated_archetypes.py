@@ -71,7 +71,7 @@ def prompt_fixture(id):
                               'semantic_emphasis': 'situation', 'participants_count': 2}]
     package = _validate_package(response, canonical_fixture(id), platform='instagram', account='fixture',
         content_format='instagram_static_carousel_v2', pipeline_id=a.domain, archetype_id=id)
-    return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain, board=paginate(6,a.domain)[0])
+    return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain, board=paginate(package['visual_units'],a.domain)[0])
 
 
 class CuratedContractTests(unittest.TestCase):
@@ -271,7 +271,7 @@ class CuratedWorkflowTests(unittest.TestCase):
                     self.assertIsNotNone(renderer.run_once())
                     self.assertEqual(len(image.calls), 1)
                     package = json.loads(store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
-                    self.assertEqual(image.calls[0], build_storyboard_prompt(package, recipe, pipeline_id=a.domain, board=paginate(6,a.domain)[0]))
+                    self.assertEqual(image.calls[0], build_storyboard_prompt(package, recipe, pipeline_id=a.domain, board=paginate(package['visual_units'],a.domain)[0]))
                     manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
                     for key in ('archetype_id', 'archetype_version', 'account_visual_profile_id', 'prompt_compiler_version', 'renderer_contract_id', 'overlay_profile_id', 'selection'):
                         self.assertEqual(manifest[key], recipe[key])

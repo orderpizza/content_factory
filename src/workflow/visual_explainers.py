@@ -26,8 +26,8 @@ that makes an unobserved motive, mechanism, or cause sound established. Avoid
 diagnosis, asserted private motives, unsupported population generalizations, and
 medical advice.
 """
-EXPLAINER_CAPACITY_GUIDANCE = """Titles: at most 80 characters, 12 words, 2 lines.
-Bodies: at most 280 characters, 45 words, 5 lines, 18 words per line.
+EXPLAINER_CAPACITY_GUIDANCE = """Titles: at most 80 characters, 10 words, 2 lines.
+Bodies: at most 280 characters, 30 words, 3 lines, 16 words per line.
 Keep takeaway qualification and caveats substantive. Do not drop claim mappings.
 """
 
@@ -45,12 +45,12 @@ def _validate_units(units, domain):
         raise ValueError(f"{domain} requires its bounded dynamic role sequence")
     validate_dynamic_roles([u.get("role") for u in units])
     for ordinal, unit in enumerate(units, 1):
-        for field, characters, words in (("title", 80, 12), ("body", 280, 45)):
+        for field, characters, words in (("title", 80, 10), ("body", 280, 30)):
             value = unit.get(field)
             if (not isinstance(value, str) or not value.strip() or len(value) > characters
                     or len(value.split()) > words
-                    or len([line for line in value.splitlines() if line.strip()]) > (2 if field == "title" else 5)
-                    or (field == "body" and any(len(line.split()) > 18 for line in value.splitlines()))):
+                    or len([line for line in value.splitlines() if line.strip()]) > (2 if field == "title" else 3)
+                    or (field == "body" and any(len(line.split()) > 16 for line in value.splitlines()))):
                 raise ValueError(f"{domain} slide {ordinal} {field} exceeds readable capacity")
 
 

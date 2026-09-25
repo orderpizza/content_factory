@@ -93,13 +93,13 @@ def main():
             errors.append(f"Operator entrypoint is not documented: {script.name}")
     settings = (ROOT/"docs/specs/configuration.md").read_text()
     for key in re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M):
-        if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|EDITORIAL_PLANNING|GENERATION|ADAPTATION)_MAX_(INPUT|OUTPUT)_TOKENS", key):
+        if key not in settings and not re.fullmatch(r"GEMINI_(INTAKE|DETERMINATION|EDITORIAL_PLANNING|GENERATION|ADAPTATION)_(RESERVED_INPUT|MAX_OUTPUT)_TOKENS", key):
             errors.append(f"Undocumented environment variable: {key}")
     inventory = set(re.findall(r"^(?:# )?([A-Z][A-Z0-9_]+)=", (ROOT/".env.example").read_text(), re.M))
     # Literal environment reads plus the existing bounded model-budget expansion.
     from workflow.model_budget import DEFAULT_PHASE_LIMITS
-    used = {f"GEMINI_{phase.upper()}_MAX_{direction}_TOKENS"
-            for phase in DEFAULT_PHASE_LIMITS for direction in ("INPUT", "OUTPUT")}
+    used = {f"GEMINI_{phase.upper()}_{kind}_TOKENS"
+            for phase in DEFAULT_PHASE_LIMITS for kind in ("RESERVED_INPUT", "MAX_OUTPUT")}
     used |= {f"{prefix}_{direction}_COST_PER_MILLION_USD"
              for prefix in ("GEMINI", "GEMINI_IMAGE") for direction in ("INPUT", "OUTPUT")}
     for source in [*(ROOT/"src").rglob("*.py"), *(ROOT/"scripts").glob("*.py"), *(ROOT/"acceptance").rglob("*.py")]:

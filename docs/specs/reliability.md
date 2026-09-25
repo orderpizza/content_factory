@@ -42,11 +42,11 @@ and per-phase token allowances. Every real Gemini runner mode uses this policy;
 direct test workers use fakes.
 
 Before a call, `begin_model_invocation` checks the live claim, input size and
-invocation identity. It records a started invocation and reserves worst-case
-micro-USD from configured phase maxima and prices:
+invocation identity. It records a started invocation and reserves estimated
+micro-USD from the input reservation amount, output cap and prices:
 
 ```text
-ceil(max_input_tokens × input_USD_per_million
+ceil(reserved_input_tokens × input_USD_per_million
    + max_output_tokens × output_USD_per_million)
 ```
 
@@ -74,9 +74,14 @@ An interrupted or timed-out request remains uncertain in the invocation ledger;
 workers do not convert that uncertainty into an automatic paid retry.
 
 The local input guard is 32,000 serialized request characters, not exact input
-tokenization. Output allowance is sent to the client. Configured input-token
-maxima are reservation assumptions, not a separately implemented tokenizer or
-provider count-tokens check.
+tokenization. Output allowance is sent to the client. `GEMINI_*_RESERVED_INPUT_TOKENS` is a reservation assumption, with backward
+compatible `MAX_INPUT_TOKENS` aliases. `reservation_estimate` is not a guaranteed
+cost ceiling: actual provider input can exceed the reserved amount and settles
+in full. No provider-compatible local tokenizer is configured; adding a remote
+count-tokens request would add preflight dependency/latency, so none is made.
+The request-character guard covers the frozen request value, not the whole
+compiled prompt/schema. The ledger retains its legacy column names
+`max_input_tokens` and `worst_case_micro_usd` with these explicit meanings.
 
 The client projects array cardinality limits into wire-schema descriptions for
 Vertex while retaining types, required fields and closed objects. Local worker

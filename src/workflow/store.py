@@ -871,19 +871,18 @@ class WorkflowStore:
                     "SELECT * FROM model_invocations WHERE entity_type='render_run' "
                     "AND entity_id=? AND outcome!='blocked' ORDER BY model_invocation_id", (entity_id,),
                 ).fetchall()
-                if board_index is not None:
-                    plan_row = self.connection.execute('SELECT boards_json FROM storyboard_plans WHERE storyboard_plan_id=?',
-                        (row['storyboard_plan_id'],)).fetchone()
-                    boards = json.loads(plan_row[0])
-                    if (type(board_index) is not int or not 1 <= board_index <= len(boards)
-                        or request_value.get('board') != boards[board_index - 1]
-                        or len(history) != board_index - 1
-                        or any(h['outcome'] != 'succeeded' or h['attempt_ordinal'] != i
-                               or h['claim_version'] != row['claim_version'] for i, h in enumerate(history, 1))):
-                        raise RuntimeError('board invocation must follow the committed plan in one claim')
-                    ordinal = board_index
-                elif history:
-                    raise RuntimeError("image render has external history; create fresh manual work")
+                if board_index is None:
+                    raise RuntimeError("image invocation requires a committed board index")
+                plan_row = self.connection.execute('SELECT boards_json FROM storyboard_plans WHERE storyboard_plan_id=?',
+                    (row['storyboard_plan_id'],)).fetchone()
+                boards = json.loads(plan_row[0])
+                if (type(board_index) is not int or not 1 <= board_index <= len(boards)
+                    or request_value.get('board') != boards[board_index - 1]
+                    or len(history) != board_index - 1
+                    or any(h['outcome'] != 'succeeded' or h['attempt_ordinal'] != i
+                           or h['claim_version'] != row['claim_version'] for i, h in enumerate(history, 1))):
+                    raise RuntimeError('board invocation must follow the committed plan in one claim')
+                ordinal = board_index
             existing = self.connection.execute(
                 "SELECT model_invocation_id FROM model_invocations "
                 "WHERE phase=? AND entity_type=? AND entity_id=? AND attempt_ordinal=? "
@@ -895,7 +894,7 @@ class WorkflowStore:
             job_id = self._model_job_id(table, row)
             budget = None
             if policy is not None:
-                input_max, output_max, worst_case = policy.worst_case(phase)
+                reserved_input, output_max, worst_case = policy.reservation_estimate(phase)
                 accounting_day = moment[:10]
                 daily_used = int(self.connection.execute(
                     "SELECT COALESCE(SUM(CASE WHEN status='settled' THEN settled_micro_usd "
@@ -915,7 +914,7 @@ class WorkflowStore:
                     blocked_reason = "daily Gemini hard limit would be exceeded"
                 elif job_id is not None and job_used + worst_case > policy.job_hard_micro_usd:
                     blocked_reason = "ContentJob Gemini hard limit would be exceeded"
-                budget = (accounting_day, input_max, output_max, worst_case, job_id)
+                budget = (accounting_day, reserved_input, output_max, worst_case, job_id)
             invocation = self.connection.execute(
                 "INSERT INTO model_invocations("
                 "phase,entity_type,entity_id,attempt_ordinal,request_version,prompt_version,"
@@ -934,14 +933,14 @@ class WorkflowStore:
                     (blocked_reason, moment, invocation_id),
                 )
             elif budget is not None:
-                accounting_day, input_max, output_max, worst_case, job_id = budget
+                accounting_day, reserved_input, output_max, worst_case, job_id = budget
                 self.connection.execute(
                     "INSERT INTO gemini_budget_reservations(accounting_day,model_invocation_id,claim_type,"
                     "claim_id,worst_case_micro_usd,status,created_at,content_job_id,phase,price_snapshot_hash,"
                     "max_input_tokens,max_output_tokens,daily_limit_micro_usd,daily_warning_micro_usd,"
                     "job_limit_micro_usd) VALUES (?,?,?,?,?,'reserved',?,?,?,?,?,?,?,?,?)",
                     (accounting_day, invocation_id, entity_type, entity_id, worst_case, moment,
-                     job_id, phase, policy.fingerprint, input_max, output_max,
+                     job_id, phase, policy.fingerprint, reserved_input, output_max,
                      policy.daily_hard_micro_usd,
                      policy.daily_warning_micro_usd,
                      policy.job_hard_micro_usd),
@@ -1175,7 +1174,7 @@ class WorkflowStore:
             self._finish_claim("adaptation_runs", "adaptation_run_id", run, "succeeded", moment, None)
             return package_id
 
-    def create_storyboard_plan(self, run):
+    def create_storyboard_plan(self, run, *, calibration_capacities=None):
         from .storyboard_planner import make_plan
         from .active_visual_profiles import validate_archetype_units
         moment = now()
@@ -1188,7 +1187,7 @@ class WorkflowStore:
                 'WHERE p.content_package_id=?', (run['content_package_id'],)).fetchone()
             package = json.loads(row['package_json'])
             validate_archetype_units(package['visual_units'], package['archetype_id'])
-            plan = make_plan(len(package['visual_units']), row['pipeline_id'])
+            plan = make_plan(package['visual_units'], row['pipeline_id'], calibration_capacities=calibration_capacities)
             plan_id = self.connection.execute(
                 'INSERT INTO storyboard_plans(storyboard_plan_run_id,content_package_id,output_request_id,'
                 'visual_recipe_id,schema_version,planner_version,total_slides,boards_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)',

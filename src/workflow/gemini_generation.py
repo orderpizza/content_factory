@@ -99,7 +99,7 @@ def generation_schema(pipeline_id: str) -> dict[str, Any]:
                     ],
                     "additionalProperties": False,
                     "properties": {
-                        "claim_id": _string(),
+                        "claim_id": {**_string(), "maxLength": 120, "pattern": r"^[A-Za-z0-9._:-]{1,120}$"},
                         "text": _string(),
                         "claim_kind": {"type": "string", "enum": list(CLAIM_KINDS)},
                         "evidence_reference_ids": _string_list(minimum=0, maximum=12),

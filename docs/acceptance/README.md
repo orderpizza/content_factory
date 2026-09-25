@@ -116,3 +116,13 @@ Research findings, statistics, factual scientific claims and named-study
 conclusions still need appropriate evidence handling. This does not weaken
 AI/Tech’s source-bound behavior and is not a schema/prompt redesign in this
 closeout.
+
+## Render-text calibration
+
+Deterministic tests enforce copy limits, versioned text measurements, contiguous
+packing, exact assigned-copy compilation and complete multi-board review assets.
+Live calibration compares the same frozen package under controlled forced board
+strategies. The [runner's fidelity profile](../../acceptance/README.md#controlled-text-fidelity-experiment)
+owns definitions, authorization, evidence and the human review rubric. Thresholds
+remain provisional until live comparison; fewer boards or successful geometry
+alone cannot establish text fidelity or cross-board visual consistency.

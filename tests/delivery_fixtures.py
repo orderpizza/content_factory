@@ -181,7 +181,7 @@ class DeliveryFixture:
             (output_id, adaptation_id, recipe_id, canonical(package), digest(package), canonical(cues), moment),
         ).lastrowid
         from workflow.storyboard_planner import make_plan
-        plan = make_plan(6, 'english')
+        plan = make_plan(units, 'english')
         storyboard_run = store.connection.execute("INSERT INTO storyboard_plan_runs(content_package_id,status,attempt_limit,created_at) VALUES (?,'succeeded',1,?)", (package_id, moment)).lastrowid
         storyboard_id = store.connection.execute("INSERT INTO storyboard_plans(storyboard_plan_run_id,content_package_id,output_request_id,visual_recipe_id,schema_version,planner_version,total_slides,boards_json,created_at) VALUES (?,?,?,?,?,?,6,?,?)", (storyboard_run, package_id, output_id, recipe_id, plan['schema_version'], plan['planner_version'], canonical(plan['boards']), moment)).lastrowid
         render_id = store.connection.execute(
