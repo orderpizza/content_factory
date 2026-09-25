@@ -32,8 +32,8 @@ than silently truncating. A previous brief is provided to Gemini, and trend
 refinement includes the original Detection evidence without recursively nesting
 earlier conversations.
 
-Intake uses `workflow_gemini_intake_prompt_v3` and
-`workflow_gemini_intake_result_v2`. It records supplied intent without choosing a treatment. It cannot select a domain, platform, account,
+Intake uses `workflow_gemini_intake_prompt_v4` and
+`workflow_gemini_intake_result_v3`. It records supplied intent without choosing a treatment. It cannot select a domain, platform, account,
 format or generate content. Returned `open_questions` persist the first focused
 question and finish the request as `needs_clarification`, with no revision.
 A human reply creates another request. Otherwise Intake validates and commits
@@ -52,9 +52,19 @@ all brief fields (sparse intent is valid):
 The caller stamps `field_authority`: explicit human intent, unknown values,
 normalized subject identity, system-default coverage category and model summary
 remain distinguishable. Unsupported optional intent is normalized to null and
-unsupported constraint values are removed by exact source-wording checks.
+unsupported freeform constraint values are removed by exact source-wording checks.
+`human_constraints.py` owns `human_constraints_v1`: ordered human messages are
+replayed independently of model output. Digit and English number words with
+space/hyphen slide forms produce integer `content_slide_count`; `only`, include
+and exclude domain forms produce typed `included_domains`/`excluded_domains`.
+Platform, carousel and explicit language forms are typed too. Latest scalar wins;
+`only` replaces the included set, include/exclude removes opposite membership.
+Raw wording and message IDs remain in `constraint_provenance`. Model omission or
+conflicting typed output cannot erase a recognized human constraint. Other prose
+remains available as intent; the extractor is deliberately bounded, not an NLU model.
 New human coverage_kind defaults to `subject`; refinements preserve the existing
-identity. Explicit bounded slide requests use `constraints.content_slide_count`.
+identity. A named English expression/idiom learning subject is recorded separately
+as requested subject scope, not invented audience or factual evidence.
 No question is forced merely because a topic is short. Summaries are not evidence.
 The brief and source snapshot are immutable. Refinement creates a numbered child
 revision; old decisions and jobs remain intact. Refinement cannot silently
@@ -94,7 +104,11 @@ against current capabilities.
 Gemini evaluates every entry in the frozen `DOMAIN_CATALOG` independently.
 The prompt and response cardinality/IDs derive from that catalog, not a separate
 list in generic prose. Active domain registration still contains the three current domains. Selected
-domains must offer substantively distinct reader value; skipping is normal.
+domains must offer direct value for the requested editorial treatment. Semantic
+adjacency alone is insufficient: an English expression about emotion does not
+create a Psychology route. Explicit included/excluded domains take precedence;
+deterministic normalization removes out-of-scope selections while preserving the
+raw model response in its invocation trace. Skipping is normal.
 Disabled/unready domains and outputs cannot be selected.
 
 Response schema and semantic validation are owned by
@@ -106,8 +120,8 @@ Each route has a registered `pipeline_id`, `disposition` (`selected`,
 Determination decides domain eligibility, not a strategic angle. Outputs must
 match ready entries from the frozen catalog, exactly one Instagram binding for
 each selected route. Its structured result is
-`workflow_gemini_determination_result_v2`, with `determination_policy_v2` and
-`workflow_gemini_determination_prompt_v4`.
+`workflow_gemini_determination_result_v2`, with `determination_policy_v3` and
+`workflow_gemini_determination_prompt_v5`.
 
 - `accepted`: at least one selected route.
 - `blocked`: no selection and at least one operationally blocked route.
@@ -120,8 +134,9 @@ No output binding means no selected route.
 
 ## Editorial Planning
 
-`src/workflow/editorial_planning.py` owns the closed `editorial_plan_v2`
-contract, `editorial_input_v1` input and `editorial_planner_v2` model prompt.
+`src/workflow/editorial_planning.py` owns the closed `editorial_plan_v3`
+contract, `editorial_input_v1` input, `editorial_proposal_v1` model response and
+`editorial_planner_v3` model prompt.
 Determination asks whether to cover a brief; Editorial Planning chooses the
 story treatment; canonical generation writes it. Visual planning remains downstream.
 
@@ -147,9 +162,14 @@ ordered by plan ID descending, are frozen at Determination handoff, with IDs,
 input fingerprints, lanes, angles, strategies and promises. This includes planned
 content even before generation. One destination per domain makes this history
 appropriate to the active system. Simultaneous pending plans cannot see each other's
-future choices. No vectors or unbounded queries are used. Each candidate supplies bounded
-0–4 relevance and evidence scores. Selection maximizes three times relevance plus
-evidence minus treatment recency penalty (two for a matching most-recent-three
+future choices. No vectors or unbounded queries are used. Gemini proposes semantic
+candidates and 0–4 relevance scores. Python assigns ordered candidate IDs, attaches
+the domain qualification policy, and scores supplied evidence as the number of
+cited frozen non-message references, capped at four. Human topic messages score
+zero; permitted English model knowledge and invented example capability remain
+separate from supplied evidence and are not source credit. This counts available
+source records, not corroboration, truth or entailment. Python selects the maximum
+of three times relevance plus supplied evidence score minus treatment recency penalty (two for a matching most-recent-three
 plan, otherwise one per match, capped at two). Candidate order breaks ties.
 The validator enforces selection; relevance can outweigh repetition. The prompt
 requires comparative novelty reasoning. This is a bounded diversification policy,
@@ -182,7 +202,7 @@ Planning consumes the daily budget before a job exists and ignores storage admis
 A live fenced claim atomically commits plan, ContentJob and pending GenerationRun.
 Failure, cancellation or stale finalization creates no partial downstream work.
 SQL uniqueness prevents duplicate jobs, and external invocation history prevents
-blind replay after expiry. Fresh schema-16 databases are required; no migration
+blind replay after expiry. Fresh schema-17 databases are required; no migration
 or reset is performed. [Data model](data-model.md) owns SQL lineage.
 
 ## Runtime and review
@@ -193,7 +213,8 @@ The default non-Gemini policies are deterministic fixtures.
 
 Each Gemini call has a bounded phase allowance and invocation ledger entry;
 configured prices and daily/job limits are required by the real runner.
-Unknown or failed paid invocations are not automatically replayed. Polling
+Unknown paid invocations are not automatically replayed. Only explicit retryable
+text-provider responses use bounded durable retries; schema/semantic failures stop. Polling
 reports clarification, failure and retry-wait states distinctly from idle.
 The dashboard displays conversation, brief, all routes, angles, jobs and model
 usage. Humans judge editorial quality; structural validity does not prove it.

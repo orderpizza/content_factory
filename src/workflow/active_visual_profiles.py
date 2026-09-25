@@ -247,7 +247,7 @@ def validate_archetype_units(units, archetype_id):
             if len(unit[field].split()) > words or len(unit[field]) > chars:
                 raise ValueError(f'archetype slide {slide.ordinal} {field} exceeds capacity')
         lines = _lines(unit['body'])
-        if not slide.min_lines <= len(lines) <= slide.max_lines or any(len(s.split()) > slide.line_words for s in lines):
+        if not slide.min_lines <= len(lines) <= slide.max_lines or any(len(s.split()) > (18 if a.domain == 'english' and slide.ordinal == 2 and i > 0 else slide.line_words) for i, s in enumerate(lines)):
             raise ValueError(f'archetype slide {slide.ordinal} exceeds line capacity')
 
 

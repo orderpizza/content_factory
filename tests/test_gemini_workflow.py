@@ -1,7 +1,7 @@
 """Offline boundary tests for opt-in Gemini Intake and Determination."""
 
 from __future__ import annotations
-from claim_fixtures import register_fixture_semantics
+from claim_fixtures import register_fixture_semantics, line_response
 from workflow.editorial_planning import EditorialPlanningWorker
 from common.gemini import GeminiUsage, VertexGeminiClient, _vertex_response_schema
 from copy import deepcopy
@@ -184,12 +184,13 @@ class GeminiWorkflowTests(unittest.TestCase):
             "visual_cues": [],
         }
         if platform == "instagram":
-            return {
+            for unit in units: unit["claim_ids"] = [claim_id]
+            return line_response({
                 **common,
                 "caption_summary": "Learn the meaning, nuance, and use of this expression.",
                 "cta": "Save this for your next meeting.",
                 "visual_units": units,
-            }
+            })
         raise ValueError("unsupported platform")
 
     def prepare_english_canonical(self, store: WorkflowStore, *, command_id: str = "production") -> int:
@@ -230,7 +231,7 @@ class GeminiWorkflowTests(unittest.TestCase):
                 "SELECT brief_json FROM brief_revisions WHERE revision_id=?", (revision_id,)
             ).fetchone()
             frozen = json.loads(revision["brief_json"])
-            self.assertEqual(set(BRIEF_FIELDS) | {"field_authority"}, set(frozen))
+            self.assertEqual(set(BRIEF_FIELDS) | {"field_authority", "constraint_provenance", "requested_subject_domains"}, set(frozen))
             self.assertEqual(frozen["canonical_target"], "break the ice")
             self.assertIs(client.calls[0]["schema"], INTAKE_SCHEMA)
             self.assertIn("Do not choose a subject-area pipeline", client.calls[0]["prompt"])
@@ -450,6 +451,7 @@ class GeminiWorkflowTests(unittest.TestCase):
              "claim_kind": "generated_example", "evidence_reference_ids": [],
              "qualification": "Illustrative example, not evidence about a person."},
         ]
+        response["claims"].extend(self.canonical_response("psychology")["claims"])
         for temptation in temptations:
             with self.subTest(temptation=temptation):
                 prompt = _generation_prompt({
@@ -705,7 +707,7 @@ class GeminiWorkflowTests(unittest.TestCase):
         self.assertIn("at most 30 items", wire["properties"]["claims"]["description"])
         named_like_keyword = {"type": "object", "properties": {"maxItems": {"type": "integer"}}}
         self.assertEqual(_vertex_response_schema(named_like_keyword), named_like_keyword)
-        value = {"hook": "hook", "context": "context", "takeaway": "takeaway",
+        value = {"hook": {"claim_id": "hook"}, "context": {"claim_id": "context"}, "takeaway": {"claim_id": "takeaway"},
                  "key_points": ["point"] * 9, "examples": [], "claims": [], "domain_payload": {}}
         with self.assertRaisesRegex(ValueError, "key_points"):
             _validate_content(value, "english", set())

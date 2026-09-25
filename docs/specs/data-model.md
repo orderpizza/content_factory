@@ -111,7 +111,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 16. All workers open and validate databases through
+authoritative schema, at version 17. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates

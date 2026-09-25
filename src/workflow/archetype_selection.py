@@ -26,6 +26,8 @@ def _has(value, pattern):
 
 
 def semantic_signals(canonical, domain):
+    from .gemini_generation import resolved_content
+    canonical = resolved_content(canonical)
     p = canonical.get('domain_payload', {})
     examples = canonical.get('examples', [])
     points = canonical.get('key_points', [])
@@ -67,6 +69,9 @@ def _winner(candidates, domain):
 
 
 def select_archetype(canonical, domain, history):
+    from .content_contract import resolve_content_contract
+    if canonical.get('requested_slide_count') is not None:
+        resolve_content_contract(canonical, DEFAULT_ARCHETYPE_BY_DOMAIN[domain])
     signals = semantic_signals(canonical, domain)
     counts = Counter(h['archetype_id'] for h in history)
     candidates = []

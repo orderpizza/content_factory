@@ -164,6 +164,7 @@ def test_visual_contract_scenarios_extend_the_production_chain_and_reserve_dynam
     }
     assert {case.case_id for case in cases.values() if "journey" in case.profiles} == {
         "journey_human_english_review", "journey_detection_ai_review", "journey_human_psychology_review",
+        "human_expression_sparse", "human_expression_six",
     }
 
 
@@ -286,7 +287,7 @@ def test_run_workspace_and_schema_are_isolated(tmp_path):
     assert database.exists()
     import sqlite3
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
     assert not (tmp_path / "development.db").exists()
 
 

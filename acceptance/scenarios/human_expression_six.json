@@ -1,0 +1,52 @@
+{
+  "case_id": "human_expression_six",
+  "schema_version": 2,
+  "description": "Natural English expression idea through review, with explicit count.",
+  "source_kind": "human",
+  "input": {
+    "idea": "English expression 'Cat got your tongue?' Make it a six-slide lesson."
+  },
+  "expectations": {
+    "determination": {
+      "required_selected": [
+        "english"
+      ],
+      "forbidden_selected": [
+        "psychology",
+        "ai_tech"
+      ]
+    },
+    "adaptation": {
+      "min_slides": 6,
+      "max_slides": 6
+    }
+  },
+  "conservation": [
+    {
+      "kind": "exact_identifier",
+      "value": "Cat got your tongue?"
+    }
+  ],
+  "tags": [
+    "human",
+    "english",
+    "stabilization"
+  ],
+  "profiles": [
+    "journey",
+    "full"
+  ],
+  "live_budget": {
+    "calls_by_stage": {
+      "intake": 1,
+      "determination": 1,
+      "editorial_planning": 1,
+      "generation": 1,
+      "adaptation": 1,
+      "image_rendering": 6
+    },
+    "image_calls": 6
+  },
+  "start_stage": "intake",
+  "end_stage": "image_rendering"
+}

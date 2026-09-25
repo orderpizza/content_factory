@@ -115,7 +115,7 @@ class DeliveryFixture:
             (route_id, revision_id, '4'*64, moment),
         ).lastrowid
         editorial_id = store.connection.execute(
-            "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,'english','evergreen','editorial_plan_v2','fixture',?,'{}',?)",
+            "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,'english','evergreen','editorial_plan_v3','fixture',?,'{}',?)",
             (editorial_run,route_id,revision_id,'4'*64,moment),
         ).lastrowid
         job_id = store.connection.execute(

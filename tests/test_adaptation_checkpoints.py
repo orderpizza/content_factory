@@ -42,6 +42,8 @@ class AdaptationCheckpointTests(delivery_fixtures.DeliveryFixture, unittest.Test
             "private_tags": ["education", "language"], "hashtags": [],
             "alt_text": "A lesson card explaining how to ease an awkward first meeting.",
         }
+        from claim_fixtures import line_response
+        line_response(first)
         client = FakeGeminiClient([first, metadata])
         with WorkflowStore(self.path, catalog_kind="production") as store:
             self.configure(store, platforms=("instagram",))

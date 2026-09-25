@@ -181,7 +181,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
                     self.assertEqual([b['capacity'] for b in boards],capacities)
                     self.assertRegex(row['created_at'],r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$')
                     package=json.loads(store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
-                    self.assertEqual(package['visual_units'],response['visual_units'])
+                    self.assertEqual([{k:v for k,v in u.items() if k != 'body'} for u in package['visual_units']],response['visual_units'])
                     recipe=json.loads(store.connection.execute('SELECT recipe_json FROM visual_recipes').fetchone()[0])
                     client=FakeImageClient() if domain=='english' else PlannedClient(boards)
                     worker=DispatchVisualRenderer(store,Path(f.temporary.name)/'assets',image_client=client)
@@ -208,7 +208,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
                         self.assertNotIn('Each panel is a separate 4:5 Instagram slide',prompt)
                         exact=json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                         self.assertEqual([u['slide'] for u in exact['slides']],board['slide_indices'])
-                        self.assertEqual([u['body'] for u in exact['slides']], [response['visual_units'][i-1]['body'] for i in board['slide_indices']])
+                        self.assertEqual([u['body'] for u in exact['slides']], ['\n'.join(response['visual_units'][i-1]['body_lines']) for i in board['slide_indices']])
                         self.assertEqual(prompt,build_storyboard_prompt(package,recipe,pipeline_id=domain,board=board))
                     if domain!='english':
                         for expected, actual in zip(boards, manifest['boards']):

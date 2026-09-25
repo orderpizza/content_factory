@@ -38,7 +38,7 @@ class PlanningFlowTests(unittest.TestCase):
 
     def test_fresh_setup_has_current_schema_catalog_and_no_external_work(self):
         with WorkflowStore(self.path) as store:
-            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 16)
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0], 17)
             self.assertEqual(len(store.catalog()), 3)
             self.assertTrue(all(len(c['outputs'])==1 and c['remit']['purpose'] for c in store.catalog()))
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_threads').fetchone()[0], 0)
@@ -101,7 +101,7 @@ class PlanningFlowTests(unittest.TestCase):
             plan['lane'] = 'trend'
             plan['why_now'] = 'Frozen sources record this product announcement at the Detection handoff.'
             plan['candidates'][0]['evidence_reference_ids'] = planning_input['allowed_evidence_reference_ids'][:1]
-            self.assertIsNotNone(GeminiEditorialPlanningWorker(store, FakeGeminiClient(plan)).run_once())
+            self.assertIsNotNone(GeminiEditorialPlanningWorker(store, FakeGeminiClient(__import__('claim_fixtures').proposal_response(plan))).run_once())
             self.assertEqual(store.connection.execute('SELECT lane FROM editorial_plans').fetchone()[0], 'trend')
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0],1)
             row = store.connection.execute('SELECT * FROM content_threads').fetchone()

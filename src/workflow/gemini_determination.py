@@ -15,7 +15,7 @@ from .workers import local_operation
 from .planning_context import model_context
 
 
-DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v4"
+DETERMINATION_PROMPT_VERSION = "workflow_gemini_determination_prompt_v5"
 DETERMINATION_SCHEMA_VERSION = "workflow_gemini_determination_result_v2"
 OUTPUT_FIELDS = (
     "output_binding_id", "platform", "account", "content_format",
@@ -119,7 +119,7 @@ class GeminiDeterminationWorker:
             table="determination_requests",
             key="determination_request_id",
             row=request,
-            request_version=str(snapshot.get("routing_policy_version", "determination_policy_v2")),
+            request_version=str(snapshot.get("routing_policy_version", "determination_policy_v3")),
             prompt_version=DETERMINATION_PROMPT_VERSION,
             schema_version=DETERMINATION_SCHEMA_VERSION,
             request_value=model_input,
@@ -140,7 +140,7 @@ class GeminiDeterminationWorker:
             raise
 
         try:
-            decision = _validate_decision(response, snapshot["catalog"])
+            decision = _validate_decision(response, snapshot["catalog"], snapshot["brief"])
         except Exception as error:
             self.store.finish_model_invocation(
                 invocation_id,
@@ -161,7 +161,7 @@ class GeminiDeterminationWorker:
         return self.store.record_decision(request, decision)
 
 
-def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
+def _validate_decision(value: Any, catalog: Any, brief=None) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("Gemini Determination response must be an object")
     if not isinstance(catalog, list):
@@ -253,6 +253,15 @@ def _validate_decision(value: Any, catalog: Any) -> dict[str, Any]:
         raise ValueError("blocked outcome requires at least one blocked route")
     if value["outcome"] == "not_recommended" and blocked_count:
         raise ValueError("not_recommended outcome cannot contain blocked routes")
+    if brief is not None:
+        from .human_constraints import editorial_scope
+        included, excluded = editorial_scope(brief)
+        for route in normalized_routes:
+            if route['pipeline_id'] in excluded or (included and route['pipeline_id'] not in included):
+                route.update(disposition='skipped', outputs=[], fit='Outside requested editorial scope',
+                             reason='Human subject treatment and explicit domain constraints take precedence over semantic adjacency.')
+        dispositions = {r['disposition'] for r in normalized_routes}
+        value = {**value, 'outcome': 'accepted' if 'selected' in dispositions else 'blocked' if 'blocked' in dispositions else 'not_recommended'}
     return {
         "outcome": value["outcome"],
         "opportunity_value": value["opportunity_value"].strip(),
@@ -271,7 +280,12 @@ Evaluate every domain in DOMAIN_CATALOG independently and return one assessment
 per entry. A domain is an editorial remit; its outputs are configured destinations.
 Select only enabled, generation-ready domains with ready outputs, copying the
 selected output objects exactly. Skip weak fits and domains outside explicit human
-scope. Selected domains must each offer distinct reader value. Missing audience or
+scope. Route by requested editorial intention, not semantic adjacency. An English
+expression lesson is English learning even if its words mention emotions or technology.
+Select another domain only for direct reader value in the requested treatment or
+explicit intent. A question about why people behave a certain way can fit Psychology.
+Explicit included_domains and excluded_domains are authoritative. Selected domains
+must each offer distinct reader value. Missing audience or
 treatment is not a reason to manufacture intent. Do not choose the treatment,
 write content or decide visual presentation; later stages own those decisions.
 """, value, label='FROZEN_INPUT')

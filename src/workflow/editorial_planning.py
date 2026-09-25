@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model
 from .store import canonical, digest, now
@@ -9,8 +10,9 @@ from .workers import local_operation
 from .planning_context import model_context
 from .gemini_generation import _source_reference_ids
 
-SCHEMA_VERSION = 'editorial_plan_v2'
-PLANNER_VERSION = 'editorial_planner_v2'
+SCHEMA_VERSION = 'editorial_plan_v3'
+PLANNER_VERSION = 'editorial_planner_v3'
+PROPOSAL_VERSION = 'editorial_proposal_v1'
 STRATEGIES = {
     'english': ('meaning_explanation', 'real_life_usage', 'contrast_misuse', 'scenario_teaching', 'common_misunderstanding', 'pragmatic_nuance'),
     'ai_tech': ('what_changed', 'why_it_matters', 'how_it_works', 'practical_use', 'limitations', 'comparison', 'misconception'),
@@ -56,6 +58,30 @@ PLAN_SCHEMA = obj({
     'experiment_key': {'anyOf': [string(), {'type': 'null'}]},
     'experiment_intention': {'anyOf': [string(), {'type': 'null'}]},
 })
+
+
+PROPOSAL_SCHEMA = deepcopy(PLAN_SCHEMA)
+for field in ('selected_candidate_id', 'selection_rationale'):
+    PROPOSAL_SCHEMA['properties'].pop(field)
+    PROPOSAL_SCHEMA['required'].remove(field)
+for field in ('candidate_id', 'evidence_score', 'qualification_requirements'):
+    PROPOSAL_SCHEMA['properties']['candidates']['items']['properties'].pop(field)
+    PROPOSAL_SCHEMA['properties']['candidates']['items']['required'].remove(field)
+
+
+def finalize_proposal(value, snapshot):
+    """Attach known policy and compute scores/IDs once, before persistence."""
+    result = deepcopy(value)
+    evidence = set(snapshot.get('allowed_evidence_reference_ids', []))
+    for index, candidate in enumerate(result['candidates'], 1):
+        candidate['candidate_id'] = f'candidate:{index}'
+        # Message references establish requested subject, not source support.
+        refs = set(candidate['evidence_reference_ids']) & evidence
+        candidate['evidence_score'] = min(4, len([r for r in refs if not r.startswith('message:')]))
+        candidate['qualification_requirements'] = list(QUALIFICATIONS[snapshot['domain']])
+    result['selected_candidate_id'] = select_candidate(result['candidates'], snapshot.get('history', []))
+    result['selection_rationale'] = 'Deterministic 3 × relevance + supplied source support − bounded treatment recency; proposal order breaks ties.'
+    return result
 
 
 def validate_shape(value, schema):
@@ -189,7 +215,8 @@ class EditorialPlanningWorker:
 
     @local_operation('editorial_plan_runs', 'editorial_plan_run_id')
     def _process(self, run):
-        return self.store.complete_editorial_plan(run, fixture_plan(json.loads(run['input_snapshot_json'])), planner_version='editorial_fixture_v1')
+        snapshot = json.loads(run['input_snapshot_json'])
+        return self.store.complete_editorial_plan(run, finalize_proposal(fixture_plan(snapshot), snapshot), planner_version='editorial_fixture_v2')
 
 
 class GeminiEditorialPlanningWorker(EditorialPlanningWorker):
@@ -207,17 +234,19 @@ class GeminiEditorialPlanningWorker(EditorialPlanningWorker):
         invocation = self.store.begin_model_invocation(
             phase='editorial_planning', table='editorial_plan_runs', key='editorial_plan_run_id', row=run,
             request_version='editorial_input_v1', prompt_version=PLANNER_VERSION,
-            schema_version=SCHEMA_VERSION, request_value=planning_input(snapshot), model_id=str(getattr(self.client, 'model', 'gemini')))
+            schema_version=PROPOSAL_VERSION, request_value=planning_input(snapshot), model_id=str(getattr(self.client, 'model', 'gemini')))
         response = None
         try:
-            response = generate_json(self.store, invocation, self.client, planning_prompt(snapshot), PLAN_SCHEMA, temperature=0.2)
-            validate_plan(response, snapshot)
+            response = generate_json(self.store, invocation, self.client, planning_prompt(snapshot), PROPOSAL_SCHEMA, temperature=0.2)
+            validate_shape(response, PROPOSAL_SCHEMA)
+            plan = finalize_proposal(response, snapshot)
+            validate_plan(plan, snapshot)
         except Exception as error:
             self.store.finish_model_invocation(invocation, outcome='schema_failed' if response is not None else 'transport_failed',
                                                usage=getattr(self.client, 'last_usage', None), error=str(error), response_value=response)
             raise
         self.store.finish_model_invocation(invocation, outcome='succeeded', usage=getattr(self.client, 'last_usage', None), response_value=response)
-        return self.store.complete_editorial_plan(run, response, planner_version=PLANNER_VERSION)
+        return self.store.complete_editorial_plan(run, plan, planner_version=PLANNER_VERSION)
 
 
 def treatment_penalty(strategy, history):
@@ -249,12 +278,11 @@ origin stories or an inferred audience. Generation may use domain-permitted know
 with honest authority; supplied topic text is not evidence for that knowledge.
 
 Supplied evidence identifiers must be copied exactly, never synthesized.
-Score each candidate's relevance_score and evidence_score from 0 (none) to 4 (strong).
-Select the maximum of 3*relevance_score + evidence_score - treatment_penalties[angle_type],
-using candidate order to break ties. Explain novelty comparatively against
-recent_treatments, naming repeated treatments and why relevance outweighs repetition
-when needed. Do not force an irrelevant novel treatment. The validator enforces
-this bounded recency policy. Required qualification codes apply to every candidate.
+Score relevance_score from 0 to 4 for the requested treatment. Python assigns IDs,
+source-evidence scores, required qualifications and the winner. Do not compute or
+return a winner. Model knowledge and invented examples are not supplied source evidence.
+Explain novelty comparatively in selection_dimensions; avoid irrelevant novelty.
+Domain-permitted knowledge remains available at generation independently of source support.
 Evergreen why_now may be null; never manufacture urgency. Trend requires actual
 dated evidence; series means intentional recurrence; experiment needs an explicit
 editorial test intention. Do not research or choose a platform, visuals or copy.

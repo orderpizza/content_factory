@@ -15,6 +15,13 @@ class GeminiConfigurationError(RuntimeError):
 TEXT_REQUEST_TIMEOUT_MS = 60_000
 
 
+def retryable_provider_error(error):
+    """Only completed, explicit provider rejections; never ambiguous local timeouts."""
+    code = getattr(error, 'code', None)
+    if callable(code): code = code()
+    return type(code) is int and code in {429, 500, 502, 503, 504}
+
+
 def configured_model() -> str:
     """Return the configured model name."""
     return os.getenv("GEMINI_MODEL") or os.getenv("VERTEX_AI_MODEL") or "gemini-2.5-flash"
@@ -29,7 +36,7 @@ def _vertex_response_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        if key in {"minItems", "maxItems"}:
+        if key in {"minItems", "maxItems"} and not schema.get("description", "").startswith("Visible body lines"):
             continue
         if key in {"properties", "$defs", "definitions"} and isinstance(value, dict):
             result[key] = {name: _vertex_response_schema(child) for name, child in value.items()}

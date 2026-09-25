@@ -86,11 +86,11 @@ class PromptContractTests(unittest.TestCase):
         for field in ('context', 'takeaway', 'hook'):
             c = self.canonical()
             c[field] = 'An unregistered factual assertion.'
-            with self.assertRaisesRegex(ValueError, 'not registered'):
+            with self.assertRaisesRegex(ValueError, 'claim reference|not registered'):
                 _validate_content(c, 'english', set())
         c = self.canonical()
         c['domain_payload']['nuance'] = 'An unregistered nuance.'
-        with self.assertRaisesRegex(ValueError, 'not registered'):
+        with self.assertRaisesRegex(ValueError, 'claim reference|not registered'):
             _validate_content(c, 'english', set())
         c = self.canonical()
         c['claims'][0].update(claim_kind='model_general_knowledge', evidence_reference_ids=['message:1'])
@@ -125,7 +125,9 @@ class PromptContractTests(unittest.TestCase):
 
     def test_hero_dialogue_chrome_and_polarity_fail_before_render(self):
         c = self.canonical()
-        units = self.response(c, 4)['visual_units']
+        from workflow.gemini_adaptation import _visual_unit
+        units = [_visual_unit(u, {v['claim_id'] for v in c['claims']}) for u in self.response(c, 4)['visual_units']]
+        for u in units: u.pop('body_lines')
         contract = resolve_content_contract(c, 'expression_story_scene_v1')
         ids = [claim['claim_id'] for claim in c['claims']]
         for defect in ('hero', 'dialogue', 'chrome', 'contradiction'):
@@ -179,7 +181,7 @@ class PromptContractTests(unittest.TestCase):
                     self.assertIsNotNone(renderer.run_once(), renderer.image_renderer.last_operation)
                     self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM render_assets').fetchone()[0], count)
                     package = json.loads(store.connection.execute('SELECT package_json FROM content_packages').fetchone()[0])
-                    self.assertEqual(package['visual_units'], response['visual_units'])
+                    self.assertEqual([{k:v for k,v in u.items() if k != 'body'} for u in package['visual_units']], response['visual_units'])
                     rows = store.connection.execute("SELECT * FROM model_invocations WHERE phase='image_rendering'").fetchall()
                     for row, call in zip(rows, client.calls):
                         self.assertEqual(row['prompt_text'], call)

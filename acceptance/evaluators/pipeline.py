@@ -108,8 +108,9 @@ def evaluate_pipeline(case: StageCase, execution: Any) -> StageEvaluation:
             findings.append(_finding(case, "adaptation", Status.FAIL, Category.CONTRACT, "visual_roles", "Adaptation visual-unit roles differ from the declared contract."))
         canonical_ids = {claim["claim_id"] for claim in canonical.get("claims", [])} if canonical else set()
         mapped_ids = {mapping["claim_id"] for mapping in package.get("claim_mappings", [])}
-        if canonical_ids and canonical_ids != mapped_ids:
-            findings.append(_finding(case, "adaptation", Status.FAIL, Category.LINEAGE, "claim_lineage_incomplete", "Public package does not map every upstream canonical claim."))
+        required_ids = set((canonical or {}).get("required_public_claim_ids", []))
+        if not mapped_ids <= canonical_ids or not required_ids <= mapped_ids:
+            findings.append(_finding(case, "adaptation", Status.FAIL, Category.LINEAGE, "claim_lineage_incomplete", "Public package has unknown mappings or omits required teaching claims."))
     rendered = output.get("image_rendering")
     if rendered:
         manifest = rendered.get("manifest")

@@ -14,8 +14,8 @@ from .workers import local_operation
 from .planning_context import model_context
 
 
-INTAKE_PROMPT_VERSION = "workflow_gemini_intake_prompt_v3"
-INTAKE_SCHEMA_VERSION = "workflow_gemini_intake_result_v2"
+INTAKE_PROMPT_VERSION = "workflow_gemini_intake_prompt_v4"
+INTAKE_SCHEMA_VERSION = "workflow_gemini_intake_result_v3"
 BRIEF_FIELDS = (
     "editorial_goal",
     "topic",
@@ -200,7 +200,17 @@ def _validate_intake_response(value: Any, snapshot=None) -> tuple[dict[str, Any]
             if isinstance(value, dict):
                 return all(explicit(v) for v in value.values())
             return False
-        brief['constraints'] = {k: v for k, v in brief['constraints'].items() if explicit(v)}
+        from .human_constraints import extract_constraints, TYPED_KEYS, VERSION
+        typed, provenance = extract_constraints(snapshot['conversation'].get('messages', []))
+        brief['constraints'] = {k: v for k, v in brief['constraints'].items() if k not in TYPED_KEYS and explicit(v)}
+        brief['constraints'].update(typed)
+        brief['constraint_provenance'] = {'version': VERSION, 'events': provenance}
+        from .human_constraints import editorial_scope
+        requested, _ = editorial_scope({'topic': source})
+        brief['requested_subject_domains'] = sorted(requested)
+        # This invariant also catches accidental later normalizer changes.
+        if any(brief['constraints'].get(k) != v for k, v in typed.items()):
+            raise ValueError('recognized explicit human constraint disappeared')
     brief['field_authority'] = authority
     return brief, None
 
@@ -216,8 +226,8 @@ Preserve previous coverage_kind/canonical_target on refinements.
 For editorial_goal, audience and desired_outcome, copy explicit request wording
 or return null. Do not infer a learner audience, historical-origin goal or strategy.
 constraints contains explicit human restrictions only, copied in the human's exact wording.
-For an explicit four/five/six-slide request, preserve the phrase (for example
-'four slides') in constraints.content_slide_count; otherwise omit that key. source_context summarizes
+The caller extracts typed slide counts, domain scope and output constraints directly
+from human messages. Do not copy those typed fields. source_context summarizes
 what was supplied, not facts inferred about the subject. Sparse ideas are valid.
 Ask an open_question only when ambiguity prevents identifying the requested
 subject or respecting a material constraint, not merely because intent is sparse.

@@ -58,7 +58,9 @@ admitted only if its whole declared call/image/cost envelope fits before it
 starts. Cost envelopes use configured current Gemini prices, input-token reservation
 assumptions and provider output caps. Input reservations are not enforced token
 maxima; reported actual cost can exceed the estimate. The production `ModelBudgetPolicy` and SQLite invocation/reservation
-ledger still gate and account for each actual call.
+ledger still gate and account for each actual call. Acceptance totals retain an
+uncertain invocation’s full reserved amount when usage is absent; they must not
+report that call as zero cost.
 
 Configure local Vertex ADC, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`,
 text/image model IDs, and the same current `GEMINI_*_COST_PER_MILLION_USD`,
@@ -109,8 +111,8 @@ LIVE_TEST_MAX_IMAGE_CALLS=40 \
 `visual` covers automatic text-aware board planning, English adaptive splitting
 and complete ReviewRequest journeys. Its current sparse fixed fixtures select
 6, 1+4 and 4+4+6; partitions are text-dependent. The `fidelity` profile below
-also exercises 2×1 boards and singleton sequencing. `journey` selects just the three complete Human/Frozen-Detection
-integrations.
+also exercises 2×1 boards and singleton sequencing. `journey` selects complete Human/Frozen-Detection integrations, including sparse
+English expression and natural explicit-six-slide cases.
 
 ## Controlled text-fidelity experiment
 

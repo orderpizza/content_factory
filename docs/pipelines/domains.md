@@ -31,8 +31,7 @@ observations, possible mechanisms and alternative explanations.
 
 Generation receives frozen evidence and has no browsing/tool-use ability.
 Sources must not be invented. Hypothetical examples, qualified inferences and unverified English model knowledge
-must be distinguishable from source-bound facts. Every public semantic string
-is registered under the [canonical claim contract](../specs/content-production.md#canonical-generation). Commercial promises,
+must be distinguishable from source-bound facts. Every substantive semantic slot references a claim under the [canonical claim contract](../specs/content-production.md#canonical-generation). Commercial promises,
 sponsorship claims and affiliate links need explicit support and disclosure.
 
 These are prompt and human-review criteria. Current validators check closed
@@ -49,8 +48,9 @@ quality or complete domain safety.
 
 ## Current domain payloads
 
-All listed fields are required. Scalar values are nonempty strings; list fields
-contain 1–12 nonempty strings. Exact JSON shapes are in `DOMAIN_FIELDS`, not a
+All listed fields are required. Substantive scalar values are claim-reference
+objects; list fields contain 1–12 references. English target/target_kind are identity
+strings. Psychology possible_mechanism is nullable. Exact JSON shapes are in `DOMAIN_FIELDS`, not a
 separate teaching-reference schema.
 
 | Domain | Scalar fields | List fields |
@@ -66,7 +66,7 @@ interpretation is true. `observed_behavior` states the supported observation;
 `qualification` states the boundary. The common claim envelope records a
 directly supported observation as `source_bound_fact`, an unestablished
 interpretation as `qualified_inference`, and an invented illustration as
-`generated_example`. The common claim registry covers every semantic leaf; human review still
+`generated_example`. The common claim registry backs substantive semantic fields; human review still
 assesses whether public prose preserves those distinctions.
 
 An isolated everyday observation is not population evidence. It must remain

@@ -73,7 +73,9 @@ worker from creating children.
 
 Local work without external-call history can be recovered under attempt limits.
 An existing model invocation prevents blind automatic replay after lease loss.
-Budget deferrals persist retry-wait state without a model call. Finalization
+Explicit terminal retryable text-provider responses can use the next bounded
+claim attempt; [reliability](reliability.md#gemini-accounting) owns the status/delay
+policy. Budget deferrals persist retry-wait state without a model call. Finalization
 checks thread cancellation/closure before inserting downstream output.
 
 A human refinement creates a new immutable brief and request; it does not

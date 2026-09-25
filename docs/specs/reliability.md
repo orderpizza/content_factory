@@ -69,9 +69,22 @@ failures retain their invocation outcome and usage when available. A lost/starte
 call is not assumed free and cannot be blindly repeated. There is no operator
 accounting-recovery command.
 
-Text requests use one provider attempt and a finite 60-second transport timeout.
-An interrupted or timed-out request remains uncertain in the invocation ledger;
-workers do not convert that uncertainty into an automatic paid retry.
+Text requests use one SDK attempt and a finite **locally configured** 60-second
+HTTP timeout (`TEXT_REQUEST_TIMEOUT_MS`). It remains unchanged: the failed trace
+alone cannot distinguish a provider deadline from the local transport deadline or
+justify increasing latency and lease exposure. Gemini 3 text clients retain LOW
+thinking and their configured output budgets.
+
+An explicit terminal provider HTTP 429, 500, 502, 503 or 504 response may schedule
+the next existing durable text attempt, with 15-second exponential delay capped
+at 120 seconds and the record's attempt limit (normally two or three). Each retry
+has its own fenced claim, exact invocation trace and budget reservation. Missing
+usage retains the prior uncertain reservation; it is never treated as free.
+Schema, parse, semantic and deterministic contract failures do not trigger this
+retry. Local timeouts, disconnected/unknown transport outcomes, lease loss and
+image calls remain terminal without automatic paid replay. No completed text
+handoff is repeated. Budget deferral and the inactive metadata-only repair retain
+their separate existing semantics.
 
 The local input guard is 32,000 serialized request characters, not exact input
 tokenization. Output allowance is sent to the client. `GEMINI_*_RESERVED_INPUT_TOKENS` is a reservation assumption, with backward
@@ -83,8 +96,8 @@ The request-character guard covers the frozen request value, not the whole
 compiled prompt/schema. The ledger retains its legacy column names
 `max_input_tokens` and `worst_case_micro_usd` with these explicit meanings.
 
-The client projects array cardinality limits into wire-schema descriptions for
-Vertex while retaining types, required fields and closed objects. Local worker
+The client retains small body-line cardinalities and projects other array
+cardinality limits into wire-schema descriptions for Vertex while retaining types, required fields and closed objects. Local worker
 validators enforce the original bounds before persistence. This is not a paid
 retry or permission to persist invalid output.
 

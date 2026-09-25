@@ -1,3 +1,4 @@
+from claim_fixtures import proposal_response
 """Offline strategy boundary contracts and fenced handoffs."""
 import json
 import sqlite3
@@ -11,7 +12,7 @@ from workflow.development import prepare_development_database
 from workflow import WorkflowStore, GeminiDeterminationWorker, GeminiIntakeWorker, GeminiPipelineRunner
 from workflow.editorial_planning import (
     EditorialPlanningWorker, GeminiEditorialPlanningWorker, fixture_plan, validate_plan,
-    QUALIFICATIONS, PLAN_SCHEMA, planning_prompt,
+    QUALIFICATIONS, PLAN_SCHEMA, PROPOSAL_SCHEMA, planning_prompt,
 )
 from workflow.gemini_generation import _source_reference_ids
 from dashboard.planning import render_threads
@@ -72,7 +73,7 @@ class EditorialPlanningTests(unittest.TestCase):
                 before = self.count('content_jobs')
                 snapshot = json.loads(run['input_snapshot_json'])
                 self.assertIn('three practical mistakes', snapshot['brief']['constraints']['editorial_intention'])
-                client = FakeGeminiClient(fixture_plan(snapshot))
+                client = FakeGeminiClient(proposal_response(fixture_plan(snapshot)))
                 plan_id = GeminiEditorialPlanningWorker(self.store, client).run_once()
                 self.assertIsNotNone(plan_id)
                 self.assertEqual(self.count('content_jobs'), before + 1)
@@ -83,7 +84,7 @@ class EditorialPlanningTests(unittest.TestCase):
                 self.assertEqual(plan['brief_revision_id'], run['revision_id'])
                 self.assertEqual(plan['input_fingerprint'], run['input_fingerprint'])
                 self.assertRegex(plan['created_at'], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$')
-                self.assertIs(client.calls[0]['schema'], PLAN_SCHEMA)
+                self.assertIs(client.calls[0]['schema'], PROPOSAL_SCHEMA)
                 generator = FakeGeminiClient(fixtures.GeminiWorkflowTests.canonical_response(domain))
                 self.assertIsNotNone(GeminiPipelineRunner(self.store, generator).run_once())
                 self.assertIn('selected_treatment', generator.calls[0]['prompt'])
@@ -235,7 +236,7 @@ class EditorialPlanningTests(unittest.TestCase):
         self.store.model_budget_policy = None
         run = self.pending('ai_tech')
         self.store.model_budget_policy = ModelBudgetPolicy('fake', Decimal('1'), Decimal('2'), 500000, 1000000, 1000, {'editorial_planning': (100, 50)})
-        client = FakeGeminiClient(fixture_plan(json.loads(run['input_snapshot_json'])))
+        client = FakeGeminiClient(proposal_response(fixture_plan(json.loads(run['input_snapshot_json']))))
         self.assertIsNotNone(GeminiEditorialPlanningWorker(self.store, client).run_once())
         reservation = self.store.connection.execute("SELECT status,content_job_id FROM gemini_budget_reservations WHERE phase='editorial_planning'").fetchone()
         self.assertEqual(reservation['status'], 'settled')

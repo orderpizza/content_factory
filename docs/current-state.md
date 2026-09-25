@@ -2,13 +2,16 @@
 
 ## System state
 
-The current schema is **16**, defined by
+The current schema is **17**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
 The inactive production configuration contract is `production_configuration_v2`;
 [configuration](specs/configuration.md#preserved-production-configuration) owns
-its visual-approval semantics. No existing database is upgraded automatically.
+its visual-approval semantics. No existing database is upgraded automatically. Schema 17 separates canonical
+claim references and structured Adaptation lines from earlier contracts. Existing
+schema-16 databases remain intact and must be opened by their matching code;
+this release requires fresh setup, with no incidental migration.
 All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
 Automatic Detection and human ideas both feed three-domain Determination:
@@ -32,7 +35,11 @@ recent-use penalties choose the immutable recipe before adaptation. One determin
 prompt compiler guides the shared image renderer. See the
 [archetype catalog and contracts](specs/visual-rendering.md).
 Unsupported domain/archetype combinations block explicitly; invalid package
-shapes fail before the image call. No HTML fallback is active.
+shapes fail before the image call. No HTML fallback is active. Explicit human slide/domain constraints are extracted
+locally, Editorial Planning IDs/scoring/qualification attachment are deterministic,
+and Adaptation selects required teaching claims into explicit body-line arrays.
+Only explicit retryable text-provider responses can retry within durable attempt
+limits; contract failures stop without repeated paid calls.
 
 The dashboard exposes Raw Feed Items, Clusters, committed Opportunities, ideas,
 Determination routes, editorial plans and failures, jobs, adaptation/storyboard/render progress and exact review slides.

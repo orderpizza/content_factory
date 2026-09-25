@@ -42,8 +42,15 @@ def local_operation(table: str, key: str):
                 error_code = type(error).__name__
                 # Exception bodies may contain operator text or secrets.
                 reason = "input_too_large" if isinstance(error, ValueError) and str(error).startswith("input_too_large:") else f"local operation failed ({type(error).__name__})"
+                if hasattr(error, 'diagnostic'):
+                    reason = json.dumps(error.diagnostic, sort_keys=True)
                 try:
-                    self.store.fail_claim(table, key, row, reason)
+                    from common.gemini import retryable_provider_error
+                    text_tables = {'intake_requests', 'determination_requests', 'editorial_plan_runs', 'generation_runs', 'adaptation_runs'}
+                    if table in text_tables and retryable_provider_error(error):
+                        self.store.retry_text_transport(table, key, row, error.code)
+                    else:
+                        self.store.fail_claim(table, key, row, reason)
                 except RuntimeError:
                     # A stale owner must neither finalize nor overwrite its successor.
                     pass

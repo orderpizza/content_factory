@@ -531,7 +531,7 @@ CREATE TABLE editorial_plans (
     brief_revision_id INTEGER NOT NULL REFERENCES brief_revisions(revision_id),
     pipeline_id TEXT NOT NULL CHECK(pipeline_id IN ('english','ai_tech','psychology')),
     lane TEXT NOT NULL CHECK(lane IN ('trend','evergreen','series','experiment')),
-    schema_version TEXT NOT NULL CHECK(schema_version='editorial_plan_v2'),
+    schema_version TEXT NOT NULL CHECK(schema_version='editorial_plan_v3'),
     planner_version TEXT NOT NULL,
     input_fingerprint TEXT NOT NULL CHECK(length(input_fingerprint)=64),
     plan_json TEXT NOT NULL CHECK(json_valid(plan_json)),
@@ -1102,7 +1102,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 16;
+PRAGMA user_version = 17;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)

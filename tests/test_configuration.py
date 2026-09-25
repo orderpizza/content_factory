@@ -41,7 +41,7 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
         initialize_database(path)
         connection = connect(path, read_only=True)
         try:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 16)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 17)
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden(id INTEGER)")
         finally:
@@ -342,7 +342,7 @@ class SchemaAndEnvironmentTests(unittest.TestCase):
         connection = connect(self.database_path)
         try:
             connection.execute(
-                "UPDATE schema_migrations SET checksum=? WHERE version=16", ("0" * 64,)
+                "UPDATE schema_migrations SET checksum=? WHERE version=17", ("0" * 64,)
             )
             connection.commit()
             with self.assertRaises(SchemaError):

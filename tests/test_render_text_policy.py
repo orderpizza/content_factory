@@ -117,15 +117,15 @@ def test_copy_prompt_policy_edges_and_schema_bounds(domain):
         return _validated_body_checkpoint(value,f.canonical_response(domain),platform='instagram',pipeline_id=domain)
     for field,copy in [('title',' '.join(['x']*11)),('body',' '.join(['x']*17)),
                        ('body','one\ntwo\nthree\nfour'),('body',' '.join(['x']*16)+'\n'+' '.join(['x']*15))]:
-        invalid = deepcopy(response); invalid['visual_units'][1][field] = copy
+        invalid = deepcopy(response); invalid['visual_units'][1]['body_lines' if field == 'body' else field] = copy.splitlines() if field == 'body' else copy
         with pytest.raises(ValueError): check(invalid)
     response['visual_units'][1]['title'] = ' '.join(['t']*10)
-    response['visual_units'][1]['body'] = ' '.join(['w']*15)+'\n'+' '.join(['w']*15)
+    response['visual_units'][1]['body_lines'] = [' '.join(['w']*15), ' '.join(['w']*15)]
     check(response)
-    for id in (f'{domain}_explainer_v1',): validate_archetype_units(response['visual_units'],id)
+    for id in (f'{domain}_explainer_v1',): validate_archetype_units([{**u,'body':'\n'.join(u['body_lines'])} for u in response['visual_units']],id)
     schema = adaptation_schema('instagram','instagram_static_carousel_v2',domain)['properties']
     assert schema['visual_units']['items']['properties']['title']['maxLength'] == 80
-    assert schema['visual_units']['items']['properties']['body']['maxLength'] == 280
+    assert schema['visual_units']['items']['properties']['body_lines']['items']['maxLength'] == 280
     assert schema['alt_text']['maxLength'] == 1000
     assert schema['caption_summary']['maxLength'] == 1100
 

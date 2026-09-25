@@ -20,9 +20,9 @@ from .content_contract import resolve_content_contract, semantic_qa
 from .visual_cues import VISUAL_CUES_SCHEMA, validate_cues
 
 
-ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v12"
+ADAPTATION_PROMPT_VERSION = "workflow_gemini_adaptation_prompt_v13"
 METADATA_RETRY_PROMPT_VERSION = "workflow_gemini_adaptation_metadata_retry_v2"
-ADAPTATION_SCHEMA_VERSION = "output_adaptation_v4"
+ADAPTATION_SCHEMA_VERSION = "output_adaptation_v5"
 SUPPORTED_FORMATS = {
     ("instagram", "instagram_static_carousel_v2"),
 }
@@ -34,7 +34,7 @@ def _string(maximum=None) -> dict[str, Any]:
 
 _UNIT_SCHEMA = {
     "type": "object",
-    "required": ["role", "title", "body", "claim_ids"],
+    "required": ["role", "title", "body_lines", "claim_ids"],
     "additionalProperties": False,
     "properties": {
         "role": {
@@ -42,7 +42,9 @@ _UNIT_SCHEMA = {
             "enum": ["hook", "explanation", "example", "takeaway"],
         },
         "title": _string(120),
-        "body": _string(600),
+        "body_lines": {'type': 'array', 'minItems': 1, 'maxItems': 5,
+                       'description': 'Visible body lines: one entry per line, no embedded newlines.',
+                       'items': _string(600)},
         "claim_ids": {
             "type": "array", "maxItems": 30, "items": _string(120),
         },
@@ -59,9 +61,9 @@ def adaptation_schema(platform: str, content_format: str, pipeline_id: str = "en
     cues_schema['items']['properties']['slide']['maximum'] = maximum
     unit_schema = deepcopy(_UNIT_SCHEMA)
     unit_schema['properties']['title']['maxLength'] = 120 if pipeline_id == 'english' else 80
-    unit_schema['properties']['body']['maxLength'] = 600 if pipeline_id == 'english' else 280
+    unit_schema['properties']['body_lines']['items']['maxLength'] = 600 if pipeline_id == 'english' else 280
     unit_schema['properties']['title']['description'] = 'Use the resolved content contract title capacity.'
-    unit_schema['properties']['body']['description'] = 'Use the resolved content contract body capacity.'
+    unit_schema['properties']['body_lines']['description'] += ' Follow the resolved per-slide line counts and word limits.'
     common = {
         "private_tags": {
             "type": "array", "minItems": 2, "maxItems": 6, "items": _string(80),
@@ -360,8 +362,9 @@ def _validated_body_checkpoint(
         claim for unit in body["visual_units"]
         for claim in unit["claim_ids"]
     }
-    if mapped != allowed:
-        raise ValueError("checkpointed body must map every canonical claim")
+    if not set(canonical.get("required_public_claim_ids", [])) <= mapped:
+        raise ValueError("checkpointed body omits required public teaching claims")
+    body["visual_units"] = [{k: v for k, v in unit.items() if k != "body"} for unit in units]
     return body
 
 
@@ -408,6 +411,10 @@ def _validate_package(
     if None in canonical_claim_ids or len(canonical_claim_ids) != len(canonical_claims):
         raise ValueError("canonical claim identities are invalid")
     public_claims = _claim_ids(value["public_text_claim_ids"], canonical_claim_ids)
+    if canonical_claim_ids and not public_claims:
+        raise ValueError('public caption and alt-text assertions require canonical claim mappings')
+    if isinstance(canonical.get('hook'), Mapping):
+        public_claims.add(canonical['hook']['claim_id'])
 
     from .storyboard_planner import slide_bounds
     units = _visual_units(value["visual_units"], canonical_claim_ids, *slide_bounds(pipeline_id or canonical.get("pipeline_id", "english")))
@@ -422,7 +429,8 @@ def _validate_package(
         if len(cta.split()) > 12:
             raise ValueError("Instagram CTA exceeds the 12-word local bound")
     summary = _bounded_text(value["caption_summary"], "caption_summary", 1, 1100)
-    pieces = [canonical["hook"], summary]
+    from .gemini_generation import resolved_content
+    pieces = [resolved_content(canonical)['hook'], summary]
     if cta:
         pieces.append(cta)
     if hashtags:
@@ -433,8 +441,8 @@ def _validate_package(
     mapped = public_claims | {
         claim_id for unit in units for claim_id in unit["claim_ids"]
     }
-    if mapped != canonical_claim_ids:
-        raise ValueError("every canonical claim must be mapped exactly within the package")
+    if not set(canonical.get("required_public_claim_ids", [])) <= mapped:
+        raise ValueError("package omits required public teaching claims")
     claim_mappings = [
         {
             "claim_id": claim_id,
@@ -444,7 +452,7 @@ def _validate_package(
                    if claim_id in unit["claim_ids"]]
             ),
         }
-        for claim_id in sorted(canonical_claim_ids)
+        for claim_id in sorted(mapped)
     ]
     visual_cues = validate_cues(value["visual_cues"], canonical_claim_ids, units)
     package = {
@@ -518,15 +526,25 @@ def _visual_units(value: Any, allowed_claims: set[str], minimum: int, maximum: i
 
 
 def _visual_unit(value: Any, allowed_claims: set[str]) -> dict[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != {"role", "title", "body", "claim_ids"}:
+    if not isinstance(value, Mapping) or set(value) != {"role", "title", "body_lines", "claim_ids"}:
         raise ValueError("visual unit has an invalid closed shape")
     role = value["role"]
     if role not in {"hook", "explanation", "example", "takeaway"}:
         raise ValueError("visual unit role is invalid")
+    lines = value['body_lines']
+    if not isinstance(lines, list) or not 1 <= len(lines) <= 5:
+        raise ValueError('body_lines must contain 1–5 explicit lines')
+    lines = [_bounded_text(line, f'body_lines[{i}]', 1, 600) for i, line in enumerate(lines)]
+    if any('\n' in line or '\r' in line for line in lines):
+        raise ValueError('body_lines entries must not contain embedded line breaks')
+    claims = sorted(_claim_ids(value['claim_ids'], allowed_claims))
+    if allowed_claims and not claims:
+        raise ValueError('public slide assertions require canonical claim mappings')
     return {
         "role": role,
         "title": _bounded_text(value["title"], "visual title", 1, 120),
-        "body": _bounded_text(value["body"], "visual body", 1, 600),
+        "body_lines": lines,
+        "body": _bounded_text("\n".join(lines), "visual body", 1, 600),
         "claim_ids": sorted(_claim_ids(value["claim_ids"], allowed_claims)),
     }
 
@@ -541,7 +559,17 @@ Follow its planned count or bounded role range exactly.
 Do not reconcile other capacity policies, choose a design, or write image prompts.
 Hero and dialogue positions must include the target expression when required.
 Section labels belong to local chrome: titles must add lesson-specific information.
-Map every canonical claim into slide claim_ids and/or public_text_claim_ids.
+Use body_lines arrays: each entry is ONE visible line. Never embed newlines in an entry.
+The resolved slides specify min_lines, max_lines, first_line_words and later_line_words.
+Examples requiring two lines need two separate example entries. Dialogue needs three
+or four alternating "A: ...", "B: ..." turns. Takeaways need two or three concise lines.
+Lesson-specific titles can be "A teasing question", "Silence after a question" or
+"Keep the tone friendly"; do not repeat generic labels such as "What Does It Mean?",
+"Example Usage", "In a Conversation" or "Key Takeaway".
+Map every public factual assertion to canonical claims using each slide's claim_ids
+and public_text_claim_ids (covering caption, CTA and alt text). Choose the smallest
+subset fulfilling required_public_claim_ids and the treatment. Supporting claims
+may remain unused. Do not add facts. Copy qualifications at the point of use.
 Keep uncertainty visible at the point of use. Check dialogue speaker logic and
 that examples actually illustrate the taught meaning before returning.
 visual_cues may be empty; otherwise each references a claim already on that slide,

@@ -80,6 +80,8 @@ def prompt_fixture(id):
         from visual_fixtures import EXPRESSION_UNITS
         response['visual_units'] = deepcopy(EXPRESSION_UNITS)
         response['visual_units'][3]['claim_ids'] = [f'{a.domain}.example.1']
+    for u in response['visual_units']:
+        if 'body_lines' in u: u['body'] = '\n'.join(u.pop('body_lines'))
     package = dict(platform='instagram', account='fixture', **response)
     return build_storyboard_prompt(package, recipe_fixture(id), pipeline_id=a.domain, board=paginate(package['visual_units'],a.domain)[0])
 
@@ -199,17 +201,18 @@ class CuratedContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate({**response, field: 'invented'})
         over = deepcopy(response)
-        over['visual_units'][0]['body'] = 'word ' * 19
+        over['visual_units'][0]['body_lines'] = [' '.join(['word'] * 19)]
         with self.assertRaises(ValueError):
             validate(over)
-        validate_archetype_units(over['visual_units'], 'expression_breakdown_v1')
+        flat = [{**u, 'body': '\n'.join(u['body_lines'])} for u in over['visual_units']]
+        validate_archetype_units(flat, 'expression_breakdown_v1')
         with self.assertRaises(ValueError):
-            validate({**response, 'public_text_claim_ids': []})
+            validate({**response, 'public_text_claim_ids': ['unknown']})
         cue = {'slide': 4, 'subject_claim_id': 'english.example.1', 'semantic_emphasis': 'situation', 'participants_count': 2}
         response['visual_units'][3]['claim_ids'] = ['english.example.1']
         validate({**response, 'visual_cues': [cue]})
         invalids = [{**cue, 'prompt': 'Use a blue theme'}, {**cue, 'subject_claim_id': 'unknown'},
-                    {**cue, 'semantic_emphasis': 'blue'}, {**cue, 'slide': 2},
+                    {**cue, 'semantic_emphasis': 'blue'}, {**cue, 'slide': 0},
                     {**cue, 'participants_count': 5}, {**cue, 'slide': True}]
         for bad in invalids:
             with self.subTest(cue=bad), self.assertRaises(ValueError):
@@ -227,7 +230,7 @@ class CuratedContractTests(unittest.TestCase):
                     self.assertIn(text, prompt)
                 content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])
                 response = domain_response(workflow_fixtures.GeminiWorkflowTests(), a.domain)
-                self.assertEqual([s['body'] for s in content['slides']], [s['body'] for s in response['visual_units']])
+                self.assertEqual([s['body'] for s in content['slides']], ['\n'.join(s['body_lines']) for s in response['visual_units']])
                 for slide in a.slides:
                     self.assertIn(slide.composition, prompt)
                 for other in ARCHETYPES:

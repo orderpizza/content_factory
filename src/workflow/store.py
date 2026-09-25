@@ -740,7 +740,7 @@ class WorkflowStore:
                     "domain_pipeline_catalog_production_v1"
                     if self.catalog_kind == "production" else "domain_pipeline_catalog_v1"
                 ),
-                "routing_policy_version":"determination_policy_v2",
+                "routing_policy_version":"determination_policy_v3",
             }
             self.connection.execute("INSERT INTO determination_requests(revision_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,?,'pending',3,?)", (revision_id,canonical(snapshot_value),digest(snapshot_value),moment))
             self._finish_claim("intake_requests", "intake_request_id", request, "completed", moment, None)
@@ -768,6 +768,28 @@ class WorkflowStore:
     def fail_claim(self, table: str, key: str, row: Any, reason: str) -> None:
         with self.transaction():
             self._finish_claim(table,key,row,"failed",now(),safe_diagnostic(reason))
+
+    def retry_text_transport(self, table, key, row, code):
+        """Fence a new durable attempt only after a terminal transport failure.
+
+        Its reservation stays uncertain when no usage was returned. No successful
+        work or in-flight request is replayed; the next claim reserves anew.
+        """
+        if table not in {'intake_requests', 'determination_requests', 'editorial_plan_runs', 'generation_runs', 'adaptation_runs'} or CLAIM_KEYS.get(table) != key:
+            raise ValueError('unsupported text retry boundary')
+        with self.transaction():
+            invocation = self.connection.execute(
+                "SELECT outcome FROM model_invocations WHERE entity_id=? AND entity_type=? AND claim_version=? ORDER BY model_invocation_id DESC LIMIT 1",
+                (row[key], key.removesuffix('_id'), row['claim_version'])).fetchone()
+            if invocation is None or invocation['outcome'] != 'transport_failed':
+                raise RuntimeError('retry requires a completed transport failure in this claim')
+            moment = now()
+            status = 'retry_wait' if row['attempt_count'] < row['attempt_limit'] else 'failed'
+            self._finish_claim(table, key, row, status, moment, f'retryable_provider_status:{code}')
+            if status == 'retry_wait':
+                delay = min(120, 15 * 2 ** (row['attempt_count'] - 1))
+                self.connection.execute(f"UPDATE {table} SET completed_at=NULL,next_attempt_at=? WHERE {key}=?",
+                    (serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=delay)), row[key]))
 
     def block_render(self, run: Any, reason: str) -> None:
         """Finish an expected capability stop without an error or paid retry."""
@@ -1094,7 +1116,7 @@ class WorkflowStore:
                 return int(existing[0])
             request_snapshot = json.loads(request["input_snapshot_json"])
             revision = self.connection.execute("SELECT r.*,t.coverage_identity FROM brief_revisions r JOIN content_threads t ON t.thread_id=r.thread_id WHERE r.revision_id=?", (request["revision_id"],)).fetchone()
-            cur = self.connection.execute("INSERT INTO determination_decisions(determination_request_id,outcome,opportunity_value,rationale,warnings_json,coverage_identity,catalog_fingerprint,readiness_fingerprint,routing_policy_version,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (request["determination_request_id"],decision["outcome"],decision["opportunity_value"],decision["rationale"],canonical(decision.get("warnings",[])),revision["coverage_identity"],digest(decision["catalog"]),digest(decision["catalog"]),"determination_policy_v2",moment))
+            cur = self.connection.execute("INSERT INTO determination_decisions(determination_request_id,outcome,opportunity_value,rationale,warnings_json,coverage_identity,catalog_fingerprint,readiness_fingerprint,routing_policy_version,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (request["determination_request_id"],decision["outcome"],decision["opportunity_value"],decision["rationale"],canonical(decision.get("warnings",[])),revision["coverage_identity"],digest(decision["catalog"]),digest(decision["catalog"]),"determination_policy_v3",moment))
             decision_id=int(cur.lastrowid)
             for route in routes:
                 route_cur=self.connection.execute("INSERT INTO determination_routes(determination_decision_id,pipeline_id,disposition,fit,reason,evidence_json,output_assessments_json,created_at) VALUES (?,?,?,?,?,?,?,?)", (decision_id,route["pipeline_id"],route["disposition"],route["fit"],route["reason"],canonical(route.get("evidence",[])),canonical(route.get("outputs",[])),moment))
@@ -1109,7 +1131,7 @@ class WorkflowStore:
             return decision_id
 
     def complete_editorial_plan(self, run: Any, value: dict[str, Any], *, planner_version: str) -> int | None:
-        from .editorial_planning import validate_plan
+        from .editorial_planning import validate_plan, finalize_proposal
         persisted = self.connection.execute("SELECT * FROM editorial_plan_runs WHERE editorial_plan_run_id=?", (run["editorial_plan_run_id"],)).fetchone()
         for field in ("determination_route_id", "revision_id", "pipeline_id", "input_snapshot_json", "input_fingerprint"):
             if persisted is None or persisted[field] != run[field]:
@@ -1119,16 +1141,17 @@ class WorkflowStore:
             raise ValueError("editorial input fingerprint/lineage mismatch")
         if not isinstance(planner_version, str) or not planner_version.strip():
             raise ValueError("planner version is required")
+        value = finalize_proposal(value, snapshot)
         validate_plan(value, snapshot)
         moment = now()
         with self.transaction():
             if self._cancel_if_closed("editorial_plan_runs", run, moment):
                 return None
-            plan = {**value, "schema_version": "editorial_plan_v2", "planner_version": planner_version,
+            plan = {**value, "schema_version": "editorial_plan_v3", "planner_version": planner_version,
                     "brief_revision_id": run["revision_id"], "determination_route_id": run["determination_route_id"],
                     "input_fingerprint": run["input_fingerprint"], "history": snapshot["history"]}
             plan_id = int(self.connection.execute(
-                "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,?,?,'editorial_plan_v2',?,?,?,?)",
+                "INSERT INTO editorial_plans(editorial_plan_run_id,determination_route_id,brief_revision_id,pipeline_id,lane,schema_version,planner_version,input_fingerprint,plan_json,created_at) VALUES (?,?,?,?,?,'editorial_plan_v3',?,?,?,?)",
                 (run["editorial_plan_run_id"],run["determination_route_id"],run["revision_id"],run["pipeline_id"],value["lane"],planner_version,run["input_fingerprint"],canonical(plan),moment),
             ).lastrowid)
             selected = next(c for c in value["candidates"] if c["candidate_id"] == value["selected_candidate_id"])
@@ -1184,7 +1207,7 @@ class WorkflowStore:
             validate_archetype_units(package["visual_units"], recipe["archetype_id"])
             canonical_content = json.loads(self.connection.execute("SELECT canonical_json FROM canonical_contents WHERE canonical_content_id=?",
                 (output["canonical_content_id"],)).fetchone()[0])
-            if package.get('schema_version') == 'output_adaptation_v4':
+            if package.get('schema_version') == 'output_adaptation_v5':
                 from .content_contract import resolve_content_contract, semantic_qa
                 contract = resolve_content_contract(canonical_content, recipe['archetype_id'])
                 public_ids = [m['claim_id'] for m in package['claim_mappings'] if 'public_text' in m['placements']]

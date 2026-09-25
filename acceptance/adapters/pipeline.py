@@ -57,7 +57,7 @@ def _seed_detection_input(store: WorkflowStore, brief: dict[str, Any], evidence:
             (thread_id, canonical(brief), canonical(source_context), moment),
         )
         snapshot = {"brief": brief, "source_context": source_context, "catalog": store.catalog(),
-                    "catalog_version": "domain_pipeline_catalog_v1", "routing_policy_version": "determination_policy_v2"}
+                    "catalog_version": "domain_pipeline_catalog_v1", "routing_policy_version": "determination_policy_v3"}
         store.connection.execute(
             "INSERT INTO determination_requests(revision_id,input_snapshot_json,input_fingerprint,status,attempt_limit,created_at) VALUES (?,?,?,'pending',3,?)",
             (int(revision.lastrowid), canonical(snapshot), digest(snapshot), moment),
@@ -255,10 +255,15 @@ def _fixture_canonical(pipeline_id: str) -> dict[str, Any]:
     }
 
     from workflow.gemini_generation import semantic_values
-    for path, text in semantic_values(content):
-        content['claims'].append(dict(claim_id='fixture.semantic.' + str(len(content['claims'])),
+    for path, text in list(semantic_values(content)):
+        claim_id = 'fixture.semantic.' + str(len(content['claims']))
+        content['claims'].append(dict(claim_id=claim_id,
             text=text, claim_kind='generated_example', evidence_reference_ids=[],
             qualification='Invented acceptance fixture; not source evidence.'))
+        parts = path.split('.')
+        parent = content
+        for key in parts[:-1]: parent = parent[int(key)] if isinstance(parent, list) else parent[key]
+        parent[int(parts[-1]) if isinstance(parent, list) else parts[-1]] = {'claim_id': claim_id}
     return content
 
 
@@ -398,8 +403,10 @@ def _persist_frozen_render_fixture(store, response):
         (run['output_request_id'],)).fetchone()
     canonical = json.loads(row['canonical_json'])
     response = {**response, 'public_text_claim_ids': [c['claim_id'] for c in canonical['claims']]}
+    response = {**response, 'visual_units': [{**{k:v for k,v in u.items() if k != 'body'}, 'body_lines': u['body'].splitlines()} for u in response['visual_units']]}
     package = _validate_package(response, canonical, platform=row['platform'], account=row['account'],
         content_format=row['content_format'], pipeline_id=row['pipeline_id'])
+    for unit in package['visual_units']: unit.pop('body_lines')
     package.update(schema_version='frozen_acceptance_package_v1',
                    archetype_id=json.loads(row['recipe_json'])['archetype_id'])
     return store.create_package(run, package)
@@ -440,12 +447,15 @@ def _ledger(store: WorkflowStore, phases: list[str]) -> tuple[int, int, str | No
         return 0, 0, None, 0
     placeholders = ",".join("?" for _ in phases)
     rows = store.connection.execute(
-        f"SELECT model_invocation_id,phase,model_id,outcome,estimated_cost_micro_usd FROM model_invocations WHERE phase IN ({placeholders}) ORDER BY model_invocation_id",
+        f"SELECT i.model_invocation_id,i.phase,i.model_id,i.outcome,"
+        "COALESCE(r.settled_micro_usd,r.worst_case_micro_usd,i.estimated_cost_micro_usd,0) accounted_micro_usd "
+        "FROM model_invocations i LEFT JOIN gemini_budget_reservations r USING(model_invocation_id) "
+        f"WHERE i.phase IN ({placeholders}) ORDER BY i.model_invocation_id",
         phases,
     ).fetchall()
     calls = sum(row["outcome"] != "blocked" for row in rows)
     image_calls = sum(row["phase"] == "image_rendering" and row["outcome"] != "blocked" for row in rows)
-    cost = sum(int(row["estimated_cost_micro_usd"] or 0) for row in rows)
+    cost = sum(int(row["accounted_micro_usd"]) for row in rows)
     model = None if not rows else rows[-1]["model_id"]
     return calls, image_calls, model, cost
 

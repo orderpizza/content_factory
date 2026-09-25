@@ -41,15 +41,19 @@ local validators are the enforcement boundary.
 
 ## Canonical generation
 
-`workflow_gemini_generation_prompt_v6` returns `canonical_content_v3`. The job
+`workflow_gemini_generation_prompt_v7` returns `canonical_content_v4`. The job
 recipe remains `content_job_recipe_v3`. The closed schema contains hook, context,
 2–8 key points, 0–8 examples, takeaway, optional CTA, up to 30 claims, and one
 matching domain payload. It contains no platform copy, hashtags or visual design.
 
-Every non-null semantic string, including every domain-payload leaf, must exactly
-match text in the claims registry. Repeated text may reuse a registry entry.
-This deliberately avoids an unenforced parallel factual prose channel. The
-validator rejects missing registration, foreign references and invalid classes.
+Substantive semantic fields contain `{"claim_id": "c1"}` references; lists contain
+reference objects. Claim text lives once in the registry. English `target` and
+`target_kind` remain ordinary identity metadata. `target_provenance` links exact
+requested wording to supplied message/source records independently of claims about
+meaning or register, which normally use `model_general_knowledge`. Structural
+classification such as `idiom` does not require an artificial factual claim.
+Consumers use a read-only resolved-text projection; persisted canonical content
+retains references. The validator rejects missing IDs, foreign evidence and invalid classes.
 It cannot determine whether a model assigned a truthful class or whether a
 paraphrase in subsequent adaptation is semantically faithful.
 
@@ -70,13 +74,19 @@ AI/Tech cannot use model priors for current product facts. Psychology preserves
 observations, qualified possibilities and alternatives; its mechanism remains
 nullable when evidence establishes none.
 
+The caller derives `required_public_claim_ids` from key points (the selected
+treatment's must-cover teaching obligations) and takeaway, plus English meaning
+and nuance, AI/Tech availability and limitations, or Psychology qualification and
+alternatives. Other claims support the lesson without forcing public repetition.
+Generation's semantic assignment of obligations still needs human assessment.
+
 Generation success commits canonical content and output/visual-planning work
 atomically. Failure creates no partial fan-out. Human revisions create new jobs;
 canonical reuse across revisions is not implemented.
 
 ## Resolved content capacity and English content pagination
 
-`content_contract.py` owns `resolved_content_contract_v1`. Before Adaptation,
+`content_contract.py` owns `resolved_content_contract_v2`. Before Adaptation,
 the caller resolves platform character bounds, the selected archetype's copy
 capacities and English line grammar into one model-facing contract. It records
 roles/purposes, title/body budgets, line bounds, target-expression positions and
@@ -95,8 +105,11 @@ Adaptation or the image model:
 
 Three or more usage notes select six units; otherwise two or more canonical
 examples select five; otherwise four. An explicit human `content_slide_count`
-constraint (four/five/six slides) is preserved by Intake and stamped into canonical
-metadata by the caller; it fixes the bounded count. Readability is enforced by
+typed integer constraint is preserved by Intake and stamped into canonical
+metadata by the caller; it fixes the bounded count. All three current English
+archetypes support the registered 4–6 sequences. Requested counts outside the
+domain range fail during visual planning, before Adaptation. Explicit supported
+AI/Tech/Psychology counts also freeze their resolved count within 4–14. Readability is enforced by
 per-position capacity. If the selected count cannot preserve the content, adaptation
 fails for narrower planning rather than silently padding, truncating or increasing
 count. This is a conservative deterministic count heuristic, not semantic entailment.
@@ -123,12 +136,25 @@ values, not proven provider limits; their versions and thresholds are unchanged.
 
 ## Instagram package contract
 
-`workflow_gemini_adaptation_prompt_v12` produces `output_adaptation_v4` for
+`workflow_gemini_adaptation_prompt_v13` produces `output_adaptation_v5` for
 `instagram_static_carousel_v2`. The caller stamps the archetype, resolved content
 contract and semantic-QA result into the immutable package. Adaptation owns copy
 and metadata; it cannot choose design, produce assets or authorize delivery.
 
-Every canonical claim must map into caption and/or slide copy. Section labels
+Each model visual unit contains `role`, `title`, `body_lines` and `claim_ids`.
+Body entries are nonempty single lines, with no embedded line breaks. Local
+validation enforces the resolved line count, total and per-line word limits,
+characters and alternating speaker turns. The package also freezes deterministic
+`body = "\n".join(body_lines)` for existing renderer consumers; QA checks equality.
+Small body-array bounds remain in the provider schema. Other array bounds remain
+model descriptions plus strict local checks to avoid Vertex grammar expansion.
+Capacity failures persist JSON diagnostics in invocation `safe_error`, including
+slide, field (for example `body_lines[0]`), rule, actual and limit.
+
+Every public substantive assertion must map to canonical claims. All required
+public teaching claims must occur in slide or public-text mappings; unused optional
+claims are allowed and absent from package mappings. Mapping membership is checked,
+while general factual entailment remains a human-review responsibility. Section labels
 belong to deterministic chrome; new English slide titles must add lesson-specific
 information. Known redundant labels fail validation. This reduces actual render
 text naturally; measurements are never adjusted to simulate savings.
@@ -147,7 +173,7 @@ not regenerate canonical content or sibling outputs.
 
 ## Pre-render semantic QA
 
-`pre_render_semantic_qa_v1` reuses capacity/archetype validation, then checks planned
+`pre_render_semantic_qa_v2` reuses capacity/archetype validation, then checks planned
 count/roles, target expression in hero and dialogue text, alternating distinct
 speakers, claim coverage and directly detectable polarity reversals of mapped
 claim text. The package carries the result. Finalization recomputes it from frozen
@@ -168,5 +194,6 @@ it does not claim that old copy passed the new authoring QA.
 [Reliability](reliability.md#gemini-accounting) owns the single reservation ledger,
 exact execution traces, settlement and uncertain outcomes. No second estimator is
 introduced. Text output defaults remain unchanged; the 10,000-token ceiling remains.
-A budget deferral makes no call. Failed or uncertain paid calls are not automatically
-replayed. Review-only operation and per-destination Post now ownership are unchanged.
+A budget deferral makes no call. Only explicitly retryable terminal text-provider
+responses receive bounded durable retries; schema failures and uncertain calls do not.
+The [reliability policy](reliability.md#gemini-accounting) owns these distinctions. Review-only operation and per-destination Post now ownership are unchanged.

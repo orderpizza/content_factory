@@ -24,7 +24,7 @@ def _render_spec(package: Any) -> dict[str, Any]:
     if not isinstance(units, list) or not 4 <= len(units) <= 14:
         raise ValueError("active Gemini review requires 4–14 bounded visual units")
     for unit in units:
-        if not isinstance(unit, dict) or set(unit) != {"role", "title", "body", "claim_ids"}:
+        if not isinstance(unit, dict) or set(unit) != ({"role", "title", "body", "body_lines", "claim_ids"} if package.get("schema_version") == "output_adaptation_v5" else {"role", "title", "body", "claim_ids"}):
             raise ValueError("visual unit has an invalid shape")
         if unit["role"] not in {"hook", "explanation", "example", "takeaway"}:
             raise ValueError("visual unit role is unsupported")
@@ -64,7 +64,7 @@ class ActiveReviewRenderer:
         from .active_visual_profiles import ARCHETYPES, validate_archetype_units
         from .storyboard_planner import validate_plan
         validate_archetype_units(package['visual_units'], recipe['archetype_id'])
-        if package.get('schema_version') == 'output_adaptation_v4':
+        if package.get('schema_version') == 'output_adaptation_v5':
             from .content_contract import resolve_content_contract, semantic_qa
             canonical_row = self.store.connection.execute(
                 'SELECT c.canonical_json FROM content_packages p JOIN output_requests o USING(output_request_id) '

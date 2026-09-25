@@ -326,7 +326,7 @@ class DetectionScout:
             "source_context": source_snapshot,
             "catalog": self._workflow_catalog(),
             "catalog_version": "domain_pipeline_catalog_v1",
-            "routing_policy_version": "determination_policy_v2",
+            "routing_policy_version": "determination_policy_v3",
         }
         self.store.connection.execute(
             "INSERT INTO determination_requests "

@@ -73,12 +73,13 @@ def domain_response(fixture, domain):
         ],
     }[domain]
     response['visual_units'] = [
-        {'role': role, 'title': title, 'body': body,
-         'claim_ids': [f'{domain}.example.1'] if role == 'example' else []}
+        {'role': role, 'title': title, 'body': body if len(body.split()) <= 16 else ' '.join(body.split()[:12]) + '\n' + ' '.join(body.split()[12:]),
+         'claim_ids': [f'{domain}.example.1']}
         for role, (title, body) in zip(EXPLAINER_ROLES, copy)
     ]
     response['hashtags'] = []
-    return response
+    from claim_fixtures import line_response
+    return line_response(response)
 
 
 def prepare_domain(store, fixture, domain, origin='human', canonical_content=None):

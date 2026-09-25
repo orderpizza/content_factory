@@ -14,8 +14,8 @@ from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
 
 
-GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v6"
-GENERATION_SCHEMA_VERSION = "canonical_content_v3"
+GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v7"
+GENERATION_SCHEMA_VERSION = "canonical_content_v4"
 CLAIM_KINDS = ("source_bound_fact", "qualified_inference", "generated_example", "model_general_knowledge", "editorial_framing")
 
 
@@ -64,16 +64,28 @@ DOMAIN_FIELDS: dict[str, dict[str, str]] = {
 }
 
 
+IDENTITY_FIELDS = {'english': {'target', 'target_kind'}, 'ai_tech': set(), 'psychology': set()}
+
+
+def claim_reference():
+    return {'type': 'object', 'required': ['claim_id'], 'additionalProperties': False,
+            'properties': {'claim_id': _string()}}
+
+
+def reference_list(minimum=1, maximum=12):
+    return {'type': 'array', 'minItems': minimum, 'maxItems': maximum, 'items': claim_reference()}
+
+
 def generation_schema(pipeline_id: str) -> dict[str, Any]:
     """Return the closed response schema for one frozen domain pipeline."""
     if pipeline_id not in DOMAIN_FIELDS:
         raise ValueError(f"unsupported workflow pipeline: {pipeline_id}")
     domain_fields = DOMAIN_FIELDS[pipeline_id]
     domain_properties = {
-        field: (_string() if kind == "string" else
-                {"anyOf": [_string(), {"type": "null"}]} if kind == "nullable_string" else
-                _string_list())
-        for field, kind in domain_fields.items()
+        field: (_string() if field in IDENTITY_FIELDS[pipeline_id] else
+                claim_reference() if kind == 'string' else
+                {'anyOf': [claim_reference(), {'type': 'null'}]} if kind == 'nullable_string' else
+                reference_list()) for field, kind in domain_fields.items()
     }
     return {
         "type": "object",
@@ -83,12 +95,12 @@ def generation_schema(pipeline_id: str) -> dict[str, Any]:
         ],
         "additionalProperties": False,
         "properties": {
-            "hook": _string(),
-            "context": _string(),
-            "key_points": _string_list(minimum=2, maximum=8),
-            "examples": _string_list(minimum=0, maximum=8),
-            "takeaway": _string(),
-            "cta": {"anyOf": [_string(), {"type": "null"}]},
+            "hook": claim_reference(),
+            "context": claim_reference(),
+            "key_points": reference_list(2, 8),
+            "examples": reference_list(0, 8),
+            "takeaway": claim_reference(),
+            "cta": {"anyOf": [claim_reference(), {"type": "null"}]},
             "claims": {
                 "type": "array",
                 "maxItems": 30,
@@ -217,12 +229,19 @@ class GeminiPipelineRunner:
             "pipeline_id": pipeline_id,
             **content,
         }
+        requested = recipe['brief'].get('constraints', {}).get('content_slide_count')
+        if requested is not None:
+            if type(requested) is not int:
+                raise ValueError('content_slide_count must be a typed integer')
+            canonical['requested_slide_count'] = requested
+        canonical['required_public_claim_ids'] = required_public_claims(content, pipeline_id)
         if pipeline_id == 'english':
-            count_text = recipe['brief'].get('constraints', {}).get('content_slide_count', '')
-            count = re.fullmatch(r'(4|5|6|four|five|six) slides', str(count_text).casefold().strip())
-            if count:
-                raw = count[1]
-                canonical['requested_slide_count'] = int(raw) if raw.isdigit() else {'four': 4, 'five': 5, 'six': 6}[raw]
+            target = content['domain_payload']['target']
+            references = [ref for ref, text in source_evidence(recipe['source_context']).items() if target in text]
+            canonical['target_provenance'] = {
+                'authority': 'human_explicit' if references and all(ref.startswith('message:') for ref in references) else 'supplied_subject' if references else 'normalized_subject',
+                'evidence_reference_ids': references,
+            }
         return self.store.create_canonical(run, canonical)
 
 
@@ -237,13 +256,13 @@ def _validate_content(
         raise ValueError("canonical response has missing or unknown fields")
     normalized: dict[str, Any] = {}
     for field in ("hook", "context", "takeaway"):
-        normalized[field] = _nonempty(value[field], field)
+        normalized[field] = _reference(value[field], field)
     cta = value.get("cta")
     if cta is not None:
-        cta = _nonempty(cta, "cta")
+        cta = _reference(cta, "cta")
     normalized["cta"] = cta
-    normalized["key_points"] = _validated_strings(value["key_points"], "key_points", 2, 8)
-    normalized["examples"] = _validated_strings(value["examples"], "examples", 0, 8)
+    normalized["key_points"] = _references(value["key_points"], "key_points", 2, 8)
+    normalized["examples"] = _references(value["examples"], "examples", 0, 8)
 
     claims = value["claims"]
     if not isinstance(claims, list) or len(claims) > 30:
@@ -294,13 +313,13 @@ def _validate_content(
     normalized_payload = {}
     for field, kind in field_kinds.items():
         normalized_payload[field] = (
-            _nonempty(payload[field], field) if kind == "string" else
-            (None if payload[field] is None else _nonempty(payload[field], field))
-            if kind == "nullable_string" else
-            _validated_strings(payload[field], field, 1, 12)
+            _nonempty(payload[field], field) if field in IDENTITY_FIELDS[pipeline_id] else
+            _reference(payload[field], field) if kind == 'string' else
+            (None if payload[field] is None else _reference(payload[field], field)) if kind == 'nullable_string' else
+            _references(payload[field], field, 1, 12)
         )
     normalized["domain_payload"] = normalized_payload
-    validate_semantic_registry(normalized)
+    validate_semantic_registry(normalized, pipeline_id)
     return normalized
 
 
@@ -344,11 +363,27 @@ def _source_reference_ids(source_context: Mapping[str, Any]) -> list[str]:
     return sorted(source_evidence(source_context))
 
 
+def _reference(value, field):
+    if not isinstance(value, Mapping) or set(value) != {'claim_id'}:
+        raise ValueError(f'{field} must be a canonical claim reference')
+    return {'claim_id': _nonempty(value['claim_id'], field)}
+
+
+def _references(value, field, minimum, maximum):
+    if not isinstance(value, list) or not minimum <= len(value) <= maximum:
+        raise ValueError(f'{field} reference list outside bounds')
+    return [_reference(v, field) for v in value]
+
+
 def semantic_values(content):
-    """Enumerate every public semantic leaf; identity fields are included as well."""
+    """Enumerate substantive semantic slots, excluding structural identity."""
     def leaves(value, path):
-        if isinstance(value, dict):
+        if isinstance(value, dict) and set(value) == {'claim_id'}:
+            yield path, value
+        elif isinstance(value, dict):
             for key, child in value.items():
+                if path == 'domain_payload' and key in {'target', 'target_kind'}:
+                    continue
                 yield from leaves(child, path + '.' + key)
         elif isinstance(value, list):
             for index, child in enumerate(value):
@@ -359,16 +394,47 @@ def semantic_values(content):
         yield from leaves(content.get(field), field)
 
 
-def validate_semantic_registry(content):
-    by_text = {claim['text']: claim for claim in content['claims']}
-    for path, text in semantic_values(content):
-        if text not in by_text:
-            raise ValueError(f'canonical semantic text is not registered as a claim: {path}')
-        kind = by_text[text]['claim_kind']
+def validate_semantic_registry(content, pipeline_id=None):
+    by_id = {claim['claim_id']: claim for claim in content['claims']}
+    for path, ref in semantic_values(content):
+        _reference(ref, path)
+        if ref['claim_id'] not in by_id:
+            raise ValueError(f'canonical semantic reference is not registered: {path}')
+        kind = by_id[ref['claim_id']]['claim_kind']
         if kind == 'editorial_framing' and path not in {'hook', 'cta'}:
             raise ValueError('editorial framing is allowed only in hook and CTA')
         if path.startswith('examples.') and kind != 'generated_example':
             raise ValueError('teaching examples must identify invented example authority')
+
+
+def resolved_content(content):
+    """Read-only projection of v4 references for semantic selection and rendering."""
+    if content.get('schema_version') == 'canonical_content_v3':
+        raise ValueError('legacy canonical contract requires a fresh database')
+    by_id = {c['claim_id']: c['text'] for c in content.get('claims', [])}
+    def resolve(value):
+        if isinstance(value, dict):
+            if set(value) == {'claim_id'}:
+                if value['claim_id'] not in by_id: raise ValueError('unknown canonical claim reference')
+                return by_id[value['claim_id']]
+            return {k: resolve(v) for k, v in value.items()}
+        if isinstance(value, list): return [resolve(v) for v in value]
+        return value
+    return resolve(content)
+
+
+def required_public_claims(content, domain):
+    # Key points execute the selected treatment's must-cover obligations. Details
+    # outside these fields support the lesson without forcing public repetition.
+    refs = content['key_points'] + [content['takeaway']]
+    payload = content['domain_payload']
+    fields = {'english': ['plain_meaning', 'nuance'],
+              'ai_tech': ['availability_scope', 'limitations'],
+              'psychology': ['qualification', 'alternative_explanations']}[domain]
+    for field in fields:
+        value = payload[field]
+        refs.extend(value if isinstance(value, list) else [value])
+    return sorted({v['claim_id'] for v in refs})
 
 
 def selected_treatment(plan):
@@ -384,10 +450,14 @@ selected_treatment fixes what to teach, not the factual answers. Execute its
 reader promise and coverage obligations; do not invent evidence to fulfill them.
 Do not choose a new strategy, publication destination, slide layout or hashtags.
 
-The claims registry owns ALL public semantics. Every string in hook, context,
-key_points, examples, takeaway, CTA and domain_payload must exactly equal one
-registered claim's text. Reuse an entry for repeated text. Null is allowed only
-where the schema permits it. Keep the registry within 30 entries.
+The claims registry owns substantive semantics. Semantic fields contain objects
+{"claim_id": "c1"} referencing that registry, not duplicated prose. Lists contain
+reference objects. Only English target and target_kind are identity metadata and
+remain ordinary strings; target_kind classifies the requested language item.
+The target preserves the human's requested expression, not evidence for its meaning.
+key_points are the minimal teaching claims that fulfill selected_treatment.must_cover_points;
+they and takeaway must survive publicly, along with domain qualification/meaning.
+Keep supporting details optional. Register at most 30 claims.
 source_bound_fact is a literal excerpt from cited supplied evidence, not a
 paraphrase or an inference. A source naming a topic cannot support other facts.
 qualified_inference is an explicitly cautious interpretation, with its uncertainty
