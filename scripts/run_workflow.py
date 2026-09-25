@@ -20,6 +20,7 @@ from common.environment import load_environment_file
 from common.gemini import GeminiConfigurationError, configured_model
 from common.timestamps import utc_now
 from database.current import SchemaError
+from database.paths import resolve_primary_database_argument
 from workflow import (
     DeterminationWorker,
     EditorialPlanningWorker, GeminiEditorialPlanningWorker,
@@ -117,7 +118,6 @@ def _run_pass(workers: tuple[object, ...]) -> None:
 def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")))
     parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
     parser.add_argument("--backups", default=os.getenv("CONTENT_FACTORY_BACKUP_ROOT"))
     parser.add_argument("-gemini", "--gemini", action="store_true", help="use Gemini for Intake and Determination only")
@@ -130,6 +130,7 @@ def main() -> None:
     parser.add_argument("--poll-interval", type=float, default=5.0, metavar="SECONDS")
     parser.add_argument("--planning-only", action="store_true", help="stop at ContentJobs; no generation, rendering or posting")
     args = parser.parse_args()
+    database = resolve_primary_database_argument(parser, ROOT / "data")
     from common.operation_log import configure_logging
     configure_logging('workflow')
     if not math.isfinite(args.poll_interval) or args.poll_interval <= 0:
@@ -140,7 +141,7 @@ def main() -> None:
         parser.error("--review-preview requires --gemini")
     try:
         budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
-        with WorkflowStore(args.database, model_budget_policy=budget_policy, enforce_storage=True) as store:
+        with WorkflowStore(database, model_budget_policy=budget_policy, enforce_storage=True) as store:
             configure_development_catalog(store)
             intake_worker = GeminiIntakeWorker(store) if args.gemini else IdeaIntakeWorker(store)
             determination_worker = (

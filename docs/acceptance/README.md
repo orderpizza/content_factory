@@ -40,7 +40,7 @@ production worker composition.
 | Concept | Location | What it contains | Git treatment |
 | --- | --- | --- | --- |
 | Offline deterministic tests | `tests/` | Fake/no-provider tests and deterministic contracts safe for normal CI | Tracked |
-| Live acceptance definitions | [`acceptance/`](../../acceptance/README.md) | Reusable cases, fixtures, evaluators, runner/profile definitions and schemas | Tracked |
+| Live acceptance definitions | [`acceptance/`](../../acceptance/README.md) | Reusable scenarios, fixtures, evaluators, runner/profile definitions and schemas | Tracked |
 | Live execution artifacts | `data/acceptance/` | Per-run SQLite databases, JSON results, allowed prompts, raw images, final slides and galleries | Ignored |
 
 Definitions are not results. A runtime artifact is evidence for one isolated
@@ -64,11 +64,12 @@ should retain the named plan, date and evidence reference, allow only supplied
 capabilities as source-bound facts, and reject invented pricing, certification
 or geography.
 
-Existing cases use the `smoke`, `stage`, `regression` and `full` profiles. The
-curated corpus prioritizes clear and incomplete human ideas, multi-domain
-eligibility, all three domains, frozen Detection, bounded and hypothetical AI,
-short/long carousels and representative archetypes. Retry/recovery joins this
-corpus after it exists in production; it is not simulated as a completed feature.
+Existing scenarios use the `smoke`, `stage`, `regression`, `visual`, `journey`,
+and `full` profiles. The curated corpus prioritizes clear and incomplete human
+ideas, multi-domain eligibility, all three domains, frozen Detection, bounded
+and hypothetical AI, short/long carousels and representative archetypes.
+Retry/recovery joins this corpus after it exists in production; it is not
+simulated as a completed feature.
 
 ### Metamorphic regression strategy
 
@@ -104,8 +105,8 @@ Transport uncertainty after a possibly accepted request remains more
 conservative than a clear rate limit. Error normalization and latency
 observability belong to that future reliability phase.
 
-The current Psychology hardening is deliberately conservative and remains in
-the running prompt/schema behavior. The future product policy permits plausible
+The historical Psychology hardening corpus is not an active regression profile
+or a statement of future product policy. The future product policy permits plausible
 interpretations, model-world-knowledge synthesis, possible explanations,
 behavioral hypotheses and generated examples without frozen source evidence,
 provided they are presented as interpretation/hypothesis rather than established

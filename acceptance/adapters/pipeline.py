@@ -82,7 +82,7 @@ class _FrozenFixtureClient:
         return deepcopy(self.response)
 
 
-PSYCHOLOGY_HARDENING_FIXTURES = {
+HISTORICAL_PSYCHOLOGY_FIXTURES = {
     "psychology_unfamiliar_group_v1": ("Hesitation in an unfamiliar group", "A person speaks less during their first meeting with an unfamiliar group."),
     "psychology_quiet_employee_v1": ("Quiet employee in a large meeting", "An employee contributes little during a large team meeting but participates actively in smaller discussions."),
     "psychology_delayed_response_v1": ("Delayed text response", "Someone regularly takes several hours to respond to messages."),
@@ -97,8 +97,8 @@ PSYCHOLOGY_HARDENING_FIXTURES = {
 
 
 def _fixture_brief(pipeline_id: str, fixture_id: str | None = None) -> dict[str, Any]:
-    if fixture_id in PSYCHOLOGY_HARDENING_FIXTURES:
-        target, observation = PSYCHOLOGY_HARDENING_FIXTURES[fixture_id]
+    if fixture_id in HISTORICAL_PSYCHOLOGY_FIXTURES:
+        target, observation = HISTORICAL_PSYCHOLOGY_FIXTURES[fixture_id]
         return {
             "editorial_goal": "Explain the stated observation without diagnosing a person or asserting an unobserved reason.",
             "topic": target,
@@ -107,7 +107,7 @@ def _fixture_brief(pipeline_id: str, fixture_id: str | None = None) -> dict[str,
             "revision_scope": "whole_brief",
             "audience": "people considering an everyday social or behavioral observation",
             "desired_outcome": "inform",
-            "constraints": {"stage_fixture": "psychology_epistemic_hardening_v1", "observation": observation},
+            "constraints": {"stage_fixture": "historical_psychology_fixture_v1", "observation": observation},
             "source_context": observation,
             "open_questions": [],
         }
@@ -266,7 +266,7 @@ def _seed_stage_fixture(store: WorkflowStore, case: StageCase) -> None:
         "ai_scope_v1": "ai_tech",
         "ai_bounded_evidence_v1": "ai_tech",
         "psychology_uncertainty_v1": "psychology",
-        **{fixture_id: "psychology" for fixture_id in PSYCHOLOGY_HARDENING_FIXTURES},
+        **{fixture_id: "psychology" for fixture_id in HISTORICAL_PSYCHOLOGY_FIXTURES},
     }
     try:
         pipeline_id = pipelines[fixture_id]

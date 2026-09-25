@@ -17,7 +17,11 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+from database.paths import resolve_primary_database_argument
+
 LABEL_PREFIX = "com.contentfactory.review"
+AGENT_NAMES = ("detection", "workflow", "dashboard", "storage", "backup")
 VENV_ROOT = Path(sys.executable).absolute().parent.parent
 VENV_SITE_PACKAGES = VENV_ROOT / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
 
@@ -62,7 +66,6 @@ def _agent(
 
 def build_agents(
     *,
-    database: Path,
     artifacts: Path,
     backups: Path,
     log_root: Path,
@@ -74,12 +77,11 @@ def build_agents(
     # Preserve the venv launcher path. Resolving it follows its Python-framework
     # symlink and silently drops the virtual environment's installed packages.
     python = str(Path(sys.executable).absolute())
-    common = ["--database", str(database)]
     return {
         "detection": _agent(
             name="detection",
             arguments=[
-                python, str(ROOT / "scripts" / "run_detection.py"), *common,
+                python, str(ROOT / "scripts" / "run_detection.py"),
                 "--poll", "--poll-interval", "30",
             ],
             log_root=log_root,
@@ -88,7 +90,7 @@ def build_agents(
         "workflow": _agent(
             name="workflow",
             arguments=[
-                python, str(ROOT / "scripts" / "run_workflow.py"), *common,
+                python, str(ROOT / "scripts" / "run_workflow.py"),
                 "--artifacts", str(artifacts), "--backups", str(backups),
                 "--gemini", "--review-preview", "--poll", "--poll-interval", "5",
             ],
@@ -98,7 +100,7 @@ def build_agents(
         "dashboard": _agent(
             name="dashboard",
             arguments=[
-                python, str(ROOT / "scripts" / "serve_dashboard.py"), *common,
+                python, str(ROOT / "scripts" / "serve_dashboard.py"),
                 "--artifacts", str(artifacts), "--host", "127.0.0.1", "--port", str(port),
             ],
             log_root=log_root,
@@ -107,7 +109,7 @@ def build_agents(
         "storage": _agent(
             name="storage",
             arguments=[
-                python, str(ROOT / "scripts" / "run_storage_monitor.py"), *common,
+                python, str(ROOT / "scripts" / "run_storage_monitor.py"),
                 "--artifacts", str(artifacts), "--backups", str(backups),
                 "--poll", "--poll-interval", "60",
             ],
@@ -117,7 +119,7 @@ def build_agents(
         "backup": _agent(
             name="backup",
             arguments=[
-                python, str(ROOT / "scripts" / "run_maintenance.py"), *common,
+                python, str(ROOT / "scripts" / "run_maintenance.py"),
                 "--artifacts", str(artifacts), "--backups", str(backups), "--restore-verify",
             ],
             log_root=log_root,
@@ -162,11 +164,35 @@ def load_agents(paths: list[Path]) -> None:
             raise RuntimeError(f"could not load {path.name}: {detail}")
 
 
+def baseline_paths(destination: Path) -> list[Path]:
+    """Return only the five LaunchAgent paths owned by this project."""
+    return [destination / f"{LABEL_PREFIX}.{name}.plist" for name in AGENT_NAMES]
+
+
+def stop_agents(destination: Path) -> None:
+    """Boot out only this baseline's services, tolerating already-stopped agents."""
+    domain = _domain()
+    for name, path in zip(AGENT_NAMES, baseline_paths(destination)):
+        command = (["launchctl", "bootout", domain, str(path)] if path.is_file()
+                   else ["launchctl", "bootout", f"{domain}/{LABEL_PREFIX}.{name}"])
+        subprocess.run(command, check=False, capture_output=True, text=True)
+
+
+def uninstall_agents(destination: Path) -> None:
+    """Stop and remove only this baseline's plist files."""
+    stop_agents(destination)
+    for path in baseline_paths(destination):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def status_agents() -> int:
     """Print the launchd status of all baseline labels; nonzero means one is absent."""
     domain = _domain()
     healthy = True
-    for name in ("detection", "workflow", "dashboard", "storage", "backup"):
+    for name in AGENT_NAMES:
         label = f"{LABEL_PREFIX}.{name}"
         result = subprocess.run(
             ["launchctl", "print", f"{domain}/{label}"],
@@ -184,7 +210,8 @@ def main() -> None:
     action.add_argument("--install", action="store_true", help="write and load the five review LaunchAgents")
     action.add_argument("--write-only", action="store_true", help="write the five plists without loading them")
     action.add_argument("--status", action="store_true", help="report whether every review LaunchAgent is loaded")
-    parser.add_argument("--database", help="existing current-schema database shared by every service")
+    action.add_argument("--stop", action="store_true", help="stop the five review LaunchAgents but retain their plists")
+    action.add_argument("--uninstall", action="store_true", help="stop the five review LaunchAgents and remove their plists")
     parser.add_argument("--artifacts", help="shared review-artifact directory")
     parser.add_argument("--backups", help="shared verified-backup directory")
     parser.add_argument("--log-root", default=str(ROOT / "data" / "logs" / "review-baseline"))
@@ -195,23 +222,31 @@ def main() -> None:
     args = parser.parse_args()
     if args.status:
         raise SystemExit(status_agents())
-    if not args.database or not args.artifacts or not args.backups:
-        parser.error("--database, --artifacts and --backups are required when writing agents")
+    destination = _absolute(args.launch_agent_dir)
+    if args.stop:
+        stop_agents(destination)
+        print("Review baseline stopped.")
+        return
+    if args.uninstall:
+        uninstall_agents(destination)
+        print("Review baseline uninstalled.")
+        return
+    if not args.artifacts or not args.backups:
+        parser.error("--artifacts and --backups are required when writing agents")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     if not 0 <= args.backup_hour <= 23 or not 0 <= args.backup_minute <= 59:
         parser.error("backup hour/minute must be a valid local clock time")
-    database, artifacts, backups, log_root = (
-        _absolute(args.database), _absolute(args.artifacts), _absolute(args.backups), _absolute(args.log_root)
+    resolve_primary_database_argument(parser, ROOT / "data")
+    artifacts, backups, log_root = (
+        _absolute(args.artifacts), _absolute(args.backups), _absolute(args.log_root)
     )
-    if not database.is_file():
-        parser.error(f"database must already exist; setup is explicit: {database}")
     log_root.mkdir(parents=True, exist_ok=True)
     agents = build_agents(
-        database=database, artifacts=artifacts, backups=backups, log_root=log_root,
+        artifacts=artifacts, backups=backups, log_root=log_root,
         port=args.port, backup_hour=args.backup_hour, backup_minute=args.backup_minute,
     )
-    paths = write_agents(agents, _absolute(args.launch_agent_dir))
+    paths = write_agents(agents, destination)
     if args.install:
         try:
             load_agents(paths)

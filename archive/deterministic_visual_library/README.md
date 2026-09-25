@@ -1,7 +1,8 @@
 # Archived deterministic visual library
 
 This directory preserves the former HTML/Playwright visual library, its assets,
-gallery script and historical tests as future reference material.
+gallery script and historical tests as inactive reference material. It is
+separate from acceptance history and is a candidate for eventual deletion.
 
 It is not a Python package or an executable subsystem. Active workers, tests and
 operator scripts must not import it, select its archetypes, render with it, or use

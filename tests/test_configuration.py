@@ -79,10 +79,13 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
                 module = runpy.run_path(str(ROOT / "scripts" / name), run_name="import_check")
                 worker_store = MagicMock()
                 def load(_path):
-                    os.environ["CONTENT_FACTORY_DB_PATH"] = str(self.path)
                     os.environ["CONTENT_FACTORY_ARTIFACT_ROOT"] = str(Path(self.temporary.name) / "configured")
+                def resolve(_parser, _directory, _override=None):
+                    self.assertEqual(os.environ["CONTENT_FACTORY_ARTIFACT_ROOT"], str(Path(self.temporary.name) / "configured"))
+                    return self.path
                 with patch.dict(module["main"].__globals__, {
                     "load_environment_file": load, "WorkflowStore": worker_store,
+                    "resolve_primary_database_argument": resolve,
                 }), patch("sys.argv", [name, *arguments]), patch("builtins.print"):
                     if name == "run_workflow.py":
                         factories = {key: MagicMock() for key in (
@@ -95,13 +98,12 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
                         factories["DispatchVisualRenderer"].assert_not_called()
                     else:
                         module["main"]()
-                self.assertEqual(worker_store.call_args.args[0], str(self.path))
+                self.assertEqual(Path(worker_store.call_args.args[0]).resolve(), self.path.resolve())
 
     def test_review_baseline_plists_have_one_shared_runtime_and_safe_roles(self):
         module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
         root = Path(self.temporary.name)
         agents = module["build_agents"](
-            database=root / "current.db",
             artifacts=root / "artifacts",
             backups=root / "backups",
             log_root=root / "logs",
@@ -110,10 +112,7 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
             backup_minute=15,
         )
         self.assertEqual(set(agents), {"detection", "workflow", "dashboard", "storage", "backup"})
-        self.assertEqual(
-            {agent["ProgramArguments"][agent["ProgramArguments"].index("--database") + 1] for agent in agents.values()},
-            {str(root / "current.db")},
-        )
+        self.assertTrue(all("--database" not in agent["ProgramArguments"] for agent in agents.values()))
         self.assertTrue(all(agent["WorkingDirectory"] == str(ROOT) for agent in agents.values()))
         self.assertTrue(all(agent["EnvironmentVariables"]["CONTENT_FACTORY_LOG_ROOT"] == str(root / "logs") for agent in agents.values()))
         self.assertTrue(all(str(ROOT / "src") in agent["EnvironmentVariables"]["PYTHONPATH"] for agent in agents.values()))
@@ -133,7 +132,6 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
         module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
         destination = Path(self.temporary.name) / "LaunchAgents"
         agents = module["build_agents"](
-            database=self.path,
             artifacts=Path(self.temporary.name) / "artifacts",
             backups=Path(self.temporary.name) / "backups",
             log_root=Path(self.temporary.name) / "logs",
@@ -149,6 +147,37 @@ class DatabaseAndEntrypointTests(unittest.TestCase):
         self.assertEqual(payload["Label"], "com.contentfactory.review.workflow")
         self.assertTrue(payload["KeepAlive"])
 
+    def test_review_baseline_stop_targets_only_owned_agents_and_is_idempotent(self):
+        module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
+        destination = Path(self.temporary.name) / "LaunchAgents"
+        destination.mkdir()
+        for path in module["baseline_paths"](destination):
+            path.touch()
+        with patch.object(module["subprocess"], "run") as run:
+            module["stop_agents"](destination)
+            module["stop_agents"](destination)
+        self.assertEqual(run.call_count, 10)
+        commands = [call.args[0] for call in run.call_args_list]
+        expected = {str(path) for path in module["baseline_paths"](destination)}
+        self.assertEqual({command[-1] for command in commands}, expected)
+        self.assertTrue(all(command[:3] == ["launchctl", "bootout", module["_domain"]()] for command in commands))
+
+    def test_review_baseline_uninstall_stops_and_removes_only_owned_plists(self):
+        module = runpy.run_path(str(ROOT / "scripts" / "install_review_baseline.py"))
+        destination = Path(self.temporary.name) / "LaunchAgents"
+        destination.mkdir()
+        owned = module["baseline_paths"](destination)
+        for path in owned:
+            path.touch()
+        unrelated = destination / "com.example.unrelated.plist"
+        unrelated.touch()
+        with patch.object(module["subprocess"], "run") as run:
+            module["uninstall_agents"](destination)
+            module["uninstall_agents"](destination)
+        self.assertEqual(run.call_count, 10)
+        self.assertFalse(any(path.exists() for path in owned))
+        self.assertTrue(unrelated.exists())
+
 
 class DatabaseInitializationTests(unittest.TestCase):
     def setUp(self):
@@ -160,18 +189,25 @@ class DatabaseInitializationTests(unittest.TestCase):
         with DetectionStore(self.path) as store:
             store.apply_manifest(self.manifest)
 
-    def test_normalized_setup_cli_creates_only_a_new_database(self):
-        path = self.path.parent / "new-cli-experiment.db"
-        command = [sys.executable, str(ROOT / "scripts/setup_development.py"), "--database", str(path)]
-        created = subprocess.run(command, capture_output=True, text=True)
-        self.assertEqual(created.returncode, 0, created.stderr)
-        with DetectionStore(path) as store:
-            self.assertEqual(json.loads(store.active_release()["manifest_json"])["schema_version"], 4)
-        before = path.read_bytes()
-        refused = subprocess.run(command, capture_output=True, text=True)
-        self.assertNotEqual(refused.returncode, 0)
-        self.assertIn("already exists", refused.stderr)
-        self.assertEqual(before, path.read_bytes())
+    def test_setup_cli_does_not_ask_for_a_database_name(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/setup_development.py"), "--help"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--database", result.stdout)
+
+    def test_primary_database_selection_uses_newest_timestamp_not_mtime(self):
+        from database.paths import latest_primary_database_path
+        directory = Path(self.temporary.name) / "primary"
+        directory.mkdir()
+        older = directory / "db_20260924010203.db"
+        newer = directory / "db_20260925010203.db"
+        ignored = directory / "db_20260926010203.sqlite"
+        for path in (older, newer, ignored):
+            path.touch()
+        older.touch()
+        self.assertEqual(latest_primary_database_path(directory), newer.resolve())
 
     def test_http_snapshot_validation_does_not_scan_foreign_keys(self):
         with DetectionStore(self.path, read_only=True) as store:
@@ -239,17 +275,18 @@ class ActiveRuntimeTests(unittest.TestCase):
             self.assertNotIn(name, workflow.__all__)
             self.assertFalse(hasattr(workflow, name))
 
-    def test_setup_uses_environment_database_without_overwriting_existing_file(self):
-        import os
+    def test_setup_generates_timestamped_databases_without_overwriting_existing_files(self):
         main = runpy.run_path(str(ROOT / "scripts/setup_development.py"))["main"]
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "configured.db"
-            with patch.dict(os.environ, {"CONTENT_FACTORY_DB_PATH": str(path)}), patch.dict(main.__globals__, {"load_environment_file": lambda path: None}), patch("sys.argv", ["setup_development.py"]):
+            data_directory = Path(directory) / "data"
+            with patch.dict(main.__globals__, {"DATA_DIRECTORY": data_directory, "load_environment_file": lambda path: None}), patch("sys.argv", ["setup_development.py"]):
                 main()
-                before = path.read_bytes()
-                with self.assertRaises(SystemExit):
-                    main()
-                self.assertEqual(path.read_bytes(), before)
+                first = next(data_directory.glob("db_*.db"))
+                self.assertRegex(first.name, r"^db_\d{14}\.db$")
+                before = first.read_bytes()
+                main()
+                self.assertEqual(first.read_bytes(), before)
+                self.assertEqual(len(list(data_directory.glob("db_*.db"))), 2)
 
 
 MANIFEST = ROOT / "config" / "releases" / "detection.json"

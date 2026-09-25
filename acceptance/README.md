@@ -1,17 +1,21 @@
 # Live acceptance runner
 
-This directory holds opt-in live acceptance tooling, versioned input cases and
+This directory holds opt-in live acceptance tooling, versioned reusable scenarios and
 stage/chain/full-journey evaluators. It is separate from production worker
 composition. Normal tests use fake providers and remain offline. The permanent
 architecture, regression philosophy and historical status are owned by
 [`docs/acceptance/`](../docs/acceptance/README.md); this document owns runner
 operation, profiles, authorization, budgets and artifacts.
 
+Reusable definitions are in `scenarios/`. Historical campaign
+evidence is deliberately outside this directory under
+[`docs/acceptance/history/`](../docs/acceptance/history/README.md).
+
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for
 a realistic input. A case is a golden input and a set of stable constraints;
 Gemini output is not a golden snapshot. Generated hooks, captions, and other
-stochastic text must not be checked by exact equality. Pass 2 evaluates
+stochastic text must not be checked by exact equality. The harness evaluates
 deterministic contracts, conservative conservation checks, and human-review
 findings; it does not claim semantic quality. There is no Gemini judge.
 
@@ -88,7 +92,7 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 Plan the visual profile without a provider call:
 
 ```sh
-.venv/bin/python -m acceptance.runners.matrix --profile pass3 --dry-run --max-usd 5.00
+.venv/bin/python -m acceptance.runners.matrix --profile visual --dry-run --max-usd 5.00
 ```
 
 Run it only after configuring the image model/pricing and deliberately choosing
@@ -98,26 +102,21 @@ before starting each case; a completed case can consume fewer boards.
 ```sh
 CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 LIVE_TEST_MAX_IMAGE_CALLS=7 \
-.venv/bin/python -m acceptance.runners.matrix --live-gemini --profile pass3 --max-usd 5.00
+.venv/bin/python -m acceptance.runners.matrix --live-gemini --profile visual --max-usd 5.00
 ```
 
-`pass3_boards` is the smaller deterministic-grid set: it creates frozen,
-production-shaped 5-slide and 14-slide packages through local fixture workers,
-then invokes only the production StoryboardPlanner, prompt compiler and image
-renderer. It guarantees 4+1 and 6+6+2 pagination without spending text calls.
-`pass3_closure` is the minimal English-adaptive plus 6+6+2 evidence set: four
-image calls at most, with no live text-stage calls.
-`pass3_journeys` contains the Human English, frozen Detection AI/Tech and Human
-Psychology integrations; the individual Detection/Psychology profiles support a
-focused continuation after a separately recorded provider failure.
+`visual` covers the permanent board and review-render contract: 1×1, 2×1, 2×2,
+3×2, 4+1, 6+6+2, English adaptive splitting, and complete ReviewRequest
+journeys. `journey` selects just the three complete Human/Frozen-Detection
+integrations.
 
-Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
-individual stage examples, `regression` is a curated representative set, and
-`psychology_hardening` is the focused Psychology Generation/Adaptation campaign;
-`psychology_spotcheck` is its smaller high-risk subset; `full` is reserved for
-the broad/expensive matrix. The committed matrix includes the Intake edge-case
-catalogue and representative human and frozen Detection chains; operators
-choose profiles and explicit ceilings deliberately.
+Profiles use scenario metadata: `smoke` is the cheapest sanity path, `stage`
+selects isolated stages, `regression` selects representative text chains,
+`visual` selects review-render regression, `journey` selects full integrations,
+and `full` is the broad/expensive matrix. The committed scenarios include clear,
+incomplete, and ambiguous Intake inputs; Determination; Editorial Planning;
+English and frozen Detection chains; bounded AI evidence; and source-scope
+preservation. Operators choose profiles and explicit ceilings deliberately.
 
 Every run writes under `data/acceptance/<run-id>/` by default. It includes
 `run.json`, `plan.json`, `summary.md`, `costs.json`, `stability.json`, and one
@@ -143,7 +142,7 @@ skip reason used when the complete case envelope cannot fit. Repetition keeps
 each attempt separate; later stability analysis must not average individual
 failures away.
 
-## Cases and evaluators
+## Scenarios and evaluators
 
 Cases use closed JSON schemas. Version 1 remains readable for legacy fixtures.
 Version 2 explicitly adds `start_stage`, `end_stage`, stage expectations and

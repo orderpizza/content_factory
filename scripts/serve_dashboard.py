@@ -20,6 +20,7 @@ from common.environment import load_environment_file
 from common.operation_log import configure_logging, emit, refusal_code
 from common.timestamps import utc_now
 from database.current import SchemaError, connect, validate_database
+from database.paths import resolve_primary_database_argument
 from dashboard import render_detection_dashboard, render_workflow_trace
 from dashboard.refresh import AUTO_REFRESH_CSP
 from dashboard.evidence import render_candidate, render_evaluation, render_queue_status
@@ -31,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    database_path = str(ROOT / "data" / "development.db")
+    database_path = ""
     artifact_root = (ROOT / "data" / "artifacts").resolve()
     csrf_token = secrets.token_urlsafe(32)
 
@@ -118,7 +119,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "<!doctype html><meta charset='utf-8'><title>Setup required</title>"
                 "<h1>Detection dashboard setup required</h1>"
                 f"<p>{escape(str(error))}</p>"
-                "<p>Run <code>.venv/bin/python scripts/setup_development.py --database &lt;path&gt;</code> explicitly.</p>"
+                "<p>Run <code>.venv/bin/python scripts/setup_development.py</code> explicitly.</p>"
             ).encode("utf-8")
             status = 503
         self.send_response(status)
@@ -309,16 +310,13 @@ def main():
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--database",
-        default=os.getenv("CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")),
-    )
-    parser.add_argument(
         "--artifacts",
         default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")),
     )
     parser.add_argument("--host", default=os.getenv("CONTENT_FACTORY_DASHBOARD_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("CONTENT_FACTORY_DASHBOARD_PORT", "8787")))
     args = parser.parse_args()
+    database = resolve_primary_database_argument(parser, ROOT / "data")
     configure_logging('dashboard')
     host = args.host
     port = args.port
@@ -328,7 +326,7 @@ def main():
         raise SystemExit("Dashboard port must be between 1 and 65535")
     class LoopbackServer(ThreadingHTTPServer):
         address_family = socket.AF_INET6 if host == "::1" else socket.AF_INET
-    DashboardHandler.database_path = str(Path(args.database).resolve())
+    DashboardHandler.database_path = str(database)
     DashboardHandler.artifact_root = Path(args.artifacts).resolve()
     server = LoopbackServer((host, port), DashboardHandler)
     print(f"Dashboard: http://{'[' + host + ']' if ':' in host else host}:{port}")

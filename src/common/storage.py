@@ -27,7 +27,7 @@ def storage_status(connection, *, at=None):
 def storage_recovery(status):
     if status['reason'] in {'missing_sample', 'stale_sample', 'invalid_sample_time'}:
         return ('Storage sample is missing, stale or clock-invalid; this does not mean the disk is full. '
-                'Run .venv/bin/python scripts/run_storage_monitor.py --database <the dashboard database> '
+                'Run .venv/bin/python scripts/run_storage_monitor.py '
                 '--poll to refresh observability. Planning remains available. '
                 'Check system UTC time if the sample remains clock-invalid.')
     return ('Measured disk pressure is advisory for planning. Investigate disk use without '

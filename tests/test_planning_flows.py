@@ -129,7 +129,7 @@ class PlanningFlowTests(unittest.TestCase):
         main = runpy.run_path(str(ROOT/'scripts/run_workflow.py'))['main']
         with WorkflowStore(self.path) as store:
             store.create_human_idea('Teach break the ice at business meetings',command_id='one-shot')
-        with patch('sys.argv',['run_workflow','--database',str(self.path),'--planning-only']), patch.dict(main.__globals__,{'load_environment_file':lambda _:None}), redirect_stdout(StringIO()):
+        with patch('sys.argv',['run_workflow','--planning-only']), patch.dict(main.__globals__,{'load_environment_file':lambda _:None, 'resolve_primary_database_argument':lambda _parser,_directory:self.path}), redirect_stdout(StringIO()):
             main()
         with WorkflowStore(self.path) as store:
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM content_jobs').fetchone()[0],1)

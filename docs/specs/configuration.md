@@ -118,7 +118,6 @@ uncertain usage and the limits of input-token estimates.
 
 | Variables | Meaning |
 | --- | --- |
-| `CONTENT_FACTORY_DB_PATH` | Shared database path |
 | `CONTENT_FACTORY_ARTIFACT_ROOT`, `CONTENT_FACTORY_BACKUP_ROOT` | Local assets and explicit maintenance backups |
 | `CONTENT_FACTORY_DASHBOARD_HOST`, `CONTENT_FACTORY_DASHBOARD_PORT` | Loopback server; defaults 127.0.0.1:8787 |
 | `CONTENT_FACTORY_FONT_PATH` | Optional font for transparent image overlays |

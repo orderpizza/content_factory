@@ -51,31 +51,34 @@ uv sync --frozen --extra dev
 Chromium supports browser tests. Copy
 `.env.example` to ignored `.env` if needed and configure values locally; process
 environment overrides the file. See [configuration](specs/configuration.md).
-Create a new database (choose another filename if this one exists):
+Create a new database using the [database filename convention](specs/data-model.md#schema-and-record-inventory):
+setup chooses `data/db_YYYYMMDDHHMMSS.db` automatically, with the creation time
+in UTC. It never overwrites an existing database and prints the path it created.
 
 ```sh
-.venv/bin/python scripts/setup_development.py --database data/baseline.db
+.venv/bin/python scripts/setup_development.py
 ```
 
 Setup registers all three domains with one synthetic Instagram binding each and
 an initial storage sample; it makes no provider call. `--download-model` explicitly
-provisions the pinned public MiniLM files if uncached. Set
-`CONTENT_FACTORY_DB_PATH=data/baseline.db` so every process uses the same database.
+provisions the pinned public MiniLM files if uncached. System entrypoints
+automatically select the matching database with the latest UTC timestamp in its
+filename. Start or restart processes after creating a database so they select it.
 
 ## Planning and review sessions
 
 Check local prerequisites without network calls:
 
 ```sh
-.venv/bin/python scripts/check_smoke_readiness.py --database data/baseline.db --mode planning
+.venv/bin/python scripts/check_smoke_readiness.py --mode planning
 ```
 
 For a review session, run each process in a separate terminal:
 
 ```sh
-.venv/bin/python scripts/run_detection.py --database data/baseline.db --poll
-.venv/bin/python scripts/run_workflow.py --database data/baseline.db --gemini --review-preview --poll
-.venv/bin/python scripts/serve_dashboard.py --database data/baseline.db
+.venv/bin/python scripts/run_detection.py --poll
+.venv/bin/python scripts/run_workflow.py --gemini --review-preview --poll
+.venv/bin/python scripts/serve_dashboard.py
 ```
 
 Open http://127.0.0.1:8787. Submit ideas, answer clarification in the same thread,
@@ -95,8 +98,8 @@ within one lexical cluster. Semantic links do not pool scoring credit.
 Human ideation is immediately available for every domain.
 
 ```sh
-.venv/bin/python scripts/create_local_idea.py "teach break the ice in business meetings" --database data/baseline.db
-.venv/bin/python scripts/create_local_idea.py "focus on intermediate learners" --thread-id 1 --row-version 2 --database data/baseline.db
+.venv/bin/python scripts/create_local_idea.py "teach break the ice in business meetings"
+.venv/bin/python scripts/create_local_idea.py "focus on intermediate learners" --thread-id 1 --row-version 2
 ```
 
 Use the actual thread ID and version. Refinement creates immutable new work.
@@ -115,17 +118,17 @@ Gemini credentials and budgets. Use a fresh database filename (setup refuses an
 existing path), so the workflow cannot consume unrelated pending work:
 
 ```sh
-.venv/bin/python scripts/setup_development.py --database data/pass3-review.db
-.venv/bin/python scripts/create_local_idea.py "English only: teach break the ice in a first meeting, using six slides: hook, meaning, use cases, examples, short dialogue, takeaway." --database data/pass3-review.db
-.venv/bin/python scripts/create_local_idea.py "AI/Tech only: explain a hypothetical AI workflow for drafting a neutral opening question for a meeting. No current product or availability claims. A human must review tone and accuracy." --database data/pass3-review.db
-.venv/bin/python scripts/create_local_idea.py "Psychology only: explain hesitation in an unfamiliar group as an observation. Social uncertainty is one possible explanation; people may simply need time. Offer an optional low-stakes question, without diagnosis or asserted motives." --database data/pass3-review.db
-.venv/bin/python scripts/run_workflow.py --database data/pass3-review.db --artifacts data/artifacts/pass3-review --gemini --review-preview --poll
+.venv/bin/python scripts/setup_development.py
+.venv/bin/python scripts/create_local_idea.py "English only: teach break the ice in a first meeting, using six slides: hook, meaning, use cases, examples, short dialogue, takeaway."
+.venv/bin/python scripts/create_local_idea.py "AI/Tech only: explain a hypothetical AI workflow for drafting a neutral opening question for a meeting. No current product or availability claims. A human must review tone and accuracy."
+.venv/bin/python scripts/create_local_idea.py "Psychology only: explain hesitation in an unfamiliar group as an observation. Social uncertainty is one possible explanation; people may simply need time. Offer an optional low-stakes question, without diagnosis or asserted motives."
+.venv/bin/python scripts/run_workflow.py --artifacts data/artifacts/acceptance-review --gemini --review-preview --poll
 ```
 
 In another terminal:
 
 ```sh
-.venv/bin/python scripts/serve_dashboard.py --database data/pass3-review.db --artifacts data/artifacts/pass3-review
+.venv/bin/python scripts/serve_dashboard.py --artifacts data/artifacts/acceptance-review
 ```
 
 Open http://127.0.0.1:8787, answer any Intake clarification and inspect the
@@ -147,21 +150,17 @@ Dry-run does not require live opt-in. Real calls require both
 explicit finite acceptance USD ceiling; normal CI never invokes the text or
 image clients.
 
-The accepted visual regression baseline covers live 1×1, 2×1, 2×2 and 3×2
+The permanent `visual` acceptance profile covers live 1×1, 2×1, 2×2 and 3×2
 boards, including 4+1 and 6+6+2 multi-board sequencing, English adaptive split
 fallback, local overlays and ReviewRequest creation. Gemini-rendered visual text
 remains a human-review gate; provider reliability, posting and Psychology
 editorial quality are separate concerns. See the [historical visual acceptance
 report](acceptance/history/pass3/visual-acceptance.md); posting remains disabled.
 
-The focused `psychology_hardening` profile runs ten isolated Psychology
-Generation observations and five Generation→Adaptation chains (15 generation
-and 5 adaptation calls when all cases are admitted). It is an opt-in, text-only
-semantic review set: deterministic checks cover contracts and lineage while
-human review assesses observation fidelity, uncertainty, alternatives, causal
-strength, diagnosis restraint, generalization, and whether adaptation increases
-certainty. It has zero image-call budget and does not reopen the broader matrix.
-`psychology_spotcheck` is the smaller high-risk subset for a post-change check.
+The former Psychology hardening and spot-check matrices are retained as
+historical Pass 2 evidence rather than active acceptance profiles. They do not
+define the current or future Psychology policy; see the [history retention
+policy](acceptance/history/README.md).
 
 ## Monitoring and maintenance
 
@@ -171,7 +170,7 @@ separate. The workflow refreshes advisory samples; an independent model-free
 monitor is also available:
 
 ```sh
-.venv/bin/python scripts/run_storage_monitor.py --database data/baseline.db --poll
+.venv/bin/python scripts/run_storage_monitor.py --poll
 ```
 
 The dashboard shows daily row/JSON growth and component sizes. Measurement never
@@ -186,7 +185,6 @@ review-only baseline with one shared set of absolute paths:
 
 ```sh
 .venv/bin/python scripts/install_review_baseline.py --install \
-  --database data/review-baseline.db \
   --artifacts data/artifacts/review-baseline \
   --backups data/backups/review-baseline
 ```
@@ -212,6 +210,32 @@ calling the baseline healthy after restart, run `--status`, open the loopback
 dashboard, and inspect the persisted worker heartbeats, storage sample and latest
 successful backup/restore-verification evidence.
 
+### Review baseline lifecycle
+
+Install (or reinstall) the five owned LaunchAgents with the `--install` command
+above. Inspect their load state with:
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --status
+```
+
+Stop only the active review-baseline services while retaining their plist files:
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --stop
+```
+
+Run the `--install` command again to restart/reinstall the baseline. To stop it
+and remove only its five plist files, use:
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --uninstall
+```
+
+Do not kill worker PIDs to stop the baseline: launchd `KeepAlive` restarts the
+continuously running services. `--stop` and `--uninstall` are idempotent and do
+not affect unrelated LaunchAgents.
+
 ## Operator entrypoints
 
 | Script in `scripts/` | Responsibility |
@@ -231,7 +255,7 @@ successful backup/restore-verification evidence.
 Explicit maintenance example:
 
 ```sh
-.venv/bin/python scripts/run_maintenance.py --database data/baseline.db --backups data/backups --restore-verify
+.venv/bin/python scripts/run_maintenance.py --backups data/backups --restore-verify
 ```
 
 Maintenance does not prune backups unless `--prune-backups` is supplied.

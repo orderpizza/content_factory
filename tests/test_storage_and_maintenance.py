@@ -147,7 +147,7 @@ class MaintenanceTimestampTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = prepare_development_database(Path(directory) / "maintenance.db")
             main = runpy.run_path(str(ROOT / "scripts/run_maintenance.py"))["main"]
-            with patch.dict(main.__globals__, {"load_environment_file": lambda path: None}), patch("sys.argv", ["run_maintenance.py", "--database", str(path), "--backups", directory]), patch.object(MaintenanceService, "acquire", return_value=False), patch.object(MaintenanceService, "backup") as backup:
+            with patch.dict(main.__globals__, {"load_environment_file": lambda path: None, "resolve_primary_database_argument": lambda _parser,_directory:path}), patch("sys.argv", ["run_maintenance.py", "--backups", directory]), patch.object(MaintenanceService, "acquire", return_value=False), patch.object(MaintenanceService, "backup") as backup:
                 main()
                 backup.assert_not_called()
             with WorkflowStore(path) as store:

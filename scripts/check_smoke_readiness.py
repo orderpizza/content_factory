@@ -11,14 +11,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from common.environment import load_environment_file
 from workflow.preflight import inspect_smoke_readiness
+from database.paths import resolve_primary_database_argument
 
 
 def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=os.getenv(
-        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")
-    ))
     parser.add_argument("--artifacts", default=os.getenv(
         "CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")
     ))
@@ -27,8 +25,9 @@ def main() -> None:
         help="planning checks local planning; preview checks Gemini/rendering",
     )
     args = parser.parse_args()
+    database = resolve_primary_database_argument(parser, ROOT / "data")
     report = inspect_smoke_readiness(
-        args.database, args.artifacts, mode=args.mode
+        database, args.artifacts, mode=args.mode
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     raise SystemExit(0 if report["status"] == "ready" else 2)

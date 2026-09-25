@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from common.environment import load_environment_file
 from common.timestamps import utc_now
 from database.current import SchemaError, validate_database
+from database.paths import resolve_primary_database_argument
 from workflow import WorkflowStore
 from workflow.maintenance import MaintenanceService, StorageMonitor
 
@@ -21,9 +22,6 @@ from workflow.maintenance import MaintenanceService, StorageMonitor
 def main() -> None:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--database", default=os.getenv(
-        "CONTENT_FACTORY_DB_PATH", str(ROOT / "data" / "development.db")
-    ))
     parser.add_argument("--artifacts", default=os.getenv(
         "CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")
     ))
@@ -31,10 +29,11 @@ def main() -> None:
     parser.add_argument("--restore-verify", action="store_true")
     parser.add_argument("--prune-backups", action="store_true")
     args = parser.parse_args()
+    database = resolve_primary_database_argument(parser, ROOT / "data")
     if not args.backups:
         parser.error("--backups or CONTENT_FACTORY_BACKUP_ROOT is required")
     try:
-        with WorkflowStore(args.database) as store:
+        with WorkflowStore(database) as store:
             validate_database(store.connection)
             store.heartbeat(
                 "maintenance", "maintenance-v1", "polling", "maintenance pass started"

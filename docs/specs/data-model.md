@@ -113,6 +113,20 @@ checksum must match the tracked contract. Initialization creates a fresh databas
 in WAL mode or validates an already-current database; it never resets or migrates
 an incompatible database. Development setup requires a new filename.
 
+Operator-managed primary databases use the filename
+`db_YYYYMMDDHHMMSS.db`. The 14-digit suffix is the UTC timestamp, at
+second precision, when the database is created. Setup generates this name; the
+same primary path is shared by system processes and a filename is never reused.
+This convention applies to development and review/runtime databases; isolated
+test and acceptance databases remain in their harness-owned temporary or per-run
+workspaces.
+
+`scripts/setup_development.py` creates the next primary database using the
+current UTC second and prints its path. System entrypoints select the root
+`data/db_*.db` file with the greatest valid timestamp in its name. They never
+create a database implicitly. A process that is already running keeps its
+selected database; restart it after creating a newer database to switch over.
+
 ### Record groups
 
 | Group | Tables |

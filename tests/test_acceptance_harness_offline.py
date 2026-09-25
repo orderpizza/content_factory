@@ -7,7 +7,7 @@ import pytest
 from acceptance.framework import (
     AcceptanceError, Category, Finding, RunWorkspace, StageCase, StageExecution,
     StageEvaluation, StageRegistry, Status, authorize_live, build_run_budget, discover_cases,
-    case_fits_remaining, evaluate_hard_invariants, initialize_acceptance_database, result_dict,
+    PROFILES, case_fits_remaining, evaluate_hard_invariants, initialize_acceptance_database, result_dict,
     LiveAuthorization, require_live_authorization, validate_case, write_json,
 )
 from acceptance.evaluators.pipeline import _contains_unqualified_term
@@ -16,7 +16,7 @@ from workflow.model_budget import ModelBudgetPolicy
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "acceptance" / "cases"
+FIXTURES = ROOT / "acceptance" / "scenarios"
 
 
 def environment():
@@ -41,7 +41,7 @@ def image_policy():
 
 
 def raw_case():
-    return json.loads((FIXTURES / "english_icebreaker.json").read_text())
+    return json.loads((FIXTURES / "smoke.json").read_text())
 
 
 @pytest.mark.parametrize("env,cli", [({}, False), ({}, True), ({"CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS": "1"}, False),
@@ -121,7 +121,7 @@ def test_v2_chain_case_requires_complete_live_envelope_and_is_explicitly_version
     assert chain.live_budget["calls_by_stage"] == {
         "intake": 1, "determination": 1, "editorial_planning": 1, "generation": 1, "adaptation": 1,
     }
-    raw = next(item for item in json.loads((FIXTURES / "pass2_text_matrix.json").read_text())["cases"]
+    raw = next(item for item in json.loads((FIXTURES / "text_regression.json").read_text())["cases"]
                if item["case_id"] == "chain_english_icebreaker")
     raw["live_budget"]["calls_by_stage"].pop("generation")
     with pytest.raises(AcceptanceError, match="every live chain stage"):
@@ -138,18 +138,18 @@ def test_v2_detection_case_has_frozen_input_and_no_image_envelope():
     assert case.live_budget["image_calls"] == 0
 
 
-def test_pass3_cases_extend_the_production_chain_and_reserve_dynamic_board_envelopes():
+def test_visual_contract_scenarios_extend_the_production_chain_and_reserve_dynamic_board_envelopes():
     cases = {case.case_id: case for case in discover_cases(FIXTURES)}
-    english = cases["pass3_human_english_review"]
-    detection = cases["pass3_detection_ai_review"]
-    psychology = cases["pass3_human_psychology_review"]
+    english = cases["journey_human_english_review"]
+    detection = cases["journey_detection_ai_review"]
+    psychology = cases["journey_human_psychology_review"]
     assert english.end_stage == detection.end_stage == psychology.end_stage == "image_rendering"
     assert english.live_budget["image_calls"] == 1
     assert detection.live_budget["image_calls"] == psychology.live_budget["image_calls"] == 3
     assert detection.source_kind == "detection_fixture"
-    fixed_five = cases["pass3_ai_grid_4_plus_1"]
-    fixed_fourteen = cases["pass3_psychology_grid_6_plus_6_plus_2"]
-    fixed_english = cases["pass3_english_adaptive_grid_6"]
+    fixed_five = cases["visual_ai_grid_4_plus_1"]
+    fixed_fourteen = cases["visual_psychology_grid_6_plus_6_plus_2"]
+    fixed_english = cases["visual_english_adaptive_grid_6"]
     assert fixed_five.source_kind == fixed_fourteen.source_kind == "render_fixture"
     assert fixed_five.start_stage == fixed_fourteen.start_stage == "storyboard_planning"
     assert fixed_five.live_budget["image_calls"] == 2
@@ -157,8 +157,13 @@ def test_pass3_cases_extend_the_production_chain_and_reserve_dynamic_board_envel
     assert fixed_english.source_kind == "render_fixture"
     assert (fixed_english.start_stage, fixed_english.end_stage) == ("storyboard_planning", "image_rendering")
     assert fixed_english.live_budget["image_calls"] == 1
-    assert {case.case_id for case in cases.values() if "pass3_closure" in case.profiles} == {
-        "pass3_english_adaptive_grid_6", "pass3_psychology_grid_6_plus_6_plus_2",
+    assert {case.case_id for case in cases.values() if "visual" in case.profiles} == {
+        "visual_english_adaptive_grid_6", "visual_ai_grid_4_plus_1",
+        "visual_psychology_grid_6_plus_6_plus_2", "journey_human_english_review",
+        "journey_detection_ai_review", "journey_human_psychology_review",
+    }
+    assert {case.case_id for case in cases.values() if "journey" in case.profiles} == {
+        "journey_human_english_review", "journey_detection_ai_review", "journey_human_psychology_review",
     }
 
 
@@ -218,6 +223,11 @@ def test_duplicate_case_ids_rejected(tmp_path):
 def test_profiles_filter_by_metadata_and_unknown_profile_cli_rejected():
     cases = discover_cases(FIXTURES)
     assert [c.case_id for c in cases if "smoke" in c.profiles] == ["english_icebreaker"]
+    assert PROFILES == frozenset({"smoke", "stage", "regression", "visual", "journey", "full"})
+    assert not any("pass" in case.case_id or "pass" in profile
+                   for case in cases for profile in case.profiles)
+    assert not (ROOT / "acceptance" / "cases").exists()
+    assert (ROOT / "docs" / "acceptance" / "history" / "pass2" / "cases" / "psychology_epistemic_hardening.json").is_file()
     with pytest.raises(SystemExit):
         matrix.main(["--profile", "unknown", "--dry-run"])
 
@@ -262,7 +272,7 @@ def test_stage_registry_routes_supported_stage_and_reports_unregistered_stage():
         StageExecution(Status.PASS, "intake", "fake", output={"ok": True})})
     supported = registry.execute(StageCase(case, 1, case.case_id), Path("unused.db"), None, None)
     assert supported.status == Status.PASS
-    other = validate_case(json.loads((FIXTURES / "detection_frozen_minimal.json").read_text()))
+    other = validate_case(json.loads((FIXTURES / "determination.json").read_text()))
     unsupported = registry.execute(StageCase(other, 1, other.case_id), Path("unused.db"), None, None)
     assert unsupported.status == Status.ERROR and "No live stage adapter" in unsupported.error
 
@@ -302,12 +312,12 @@ def test_normal_pytest_dry_run_cannot_make_real_provider_invocation_even_with_cr
     assert "Planned maximum spend" in (output / "summary.md").read_text()
 
 
-def test_pass3_dry_run_plans_image_envelopes_without_constructing_any_provider(tmp_path, monkeypatch):
+def test_visual_dry_run_plans_image_envelopes_without_constructing_any_provider(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(matrix, "_policies", lambda env, need_images: (text_policy(), image_policy()))
     from common import gemini_image
     monkeypatch.setattr(gemini_image, "VertexGeminiImageClient", lambda *args, **kwargs: calls.append((args, kwargs)))
-    output, info = matrix.run_matrix(profile="pass3", dry_run=True, cli_live=False, repeat=1,
+    output, info = matrix.run_matrix(profile="visual", dry_run=True, cli_live=False, repeat=1,
         limits={"max_usd": "5", "max_calls": None, "max_image_calls": None, "max_cases": None},
         environment={}, case_directory=FIXTURES, output_root=tmp_path / "acceptance")
     assert calls == [] and info["actual_calls"] == 0 and info["actual_image_calls"] == 0

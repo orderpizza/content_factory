@@ -123,12 +123,12 @@ class PlanningAdvisoryTests(unittest.TestCase):
                 submit(command_kind='continue_thread', command_id=value+'-web-reply', body='Dashboard refinement',
                        thread_id=row['thread_id'], row_version=row['row_version'])
                 GeminiIntakeWorker(store, FakeGeminiClient(brief())).run_once()
-                with patch.dict(main.__globals__, {'load_environment_file': lambda _: None, 'configure_logging': lambda _: None}), redirect_stdout(StringIO()):
-                    with patch('sys.argv', ['idea', 'CLI idea', '--database', str(path), '--command-id', value+'-cli']):
+                with patch.dict(main.__globals__, {'load_environment_file': lambda _: None, 'configure_logging': lambda _: None, 'resolve_primary_database_argument': lambda _parser,_directory:path}), redirect_stdout(StringIO()):
+                    with patch('sys.argv', ['idea', 'CLI idea', '--command-id', value+'-cli']):
                         main()
                     GeminiIntakeWorker(store, FakeGeminiClient({'open_questions': ['Which topic?']})).run_once()
                     row = store.connection.execute('SELECT * FROM content_threads ORDER BY thread_id DESC LIMIT 1').fetchone()
-                    with patch('sys.argv', ['idea', 'CLI refinement', '--database', str(path), '--command-id', value+'-cli-reply',
+                    with patch('sys.argv', ['idea', 'CLI refinement', '--command-id', value+'-cli-reply',
                                           '--thread-id', str(row['thread_id']), '--row-version', str(row['row_version'])]):
                         main()
                     GeminiIntakeWorker(store, FakeGeminiClient(brief())).run_once()

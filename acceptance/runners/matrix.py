@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from acceptance import FRAMEWORK_VERSION
 from acceptance.framework import (
-    AcceptanceError, Case, RunWorkspace, StageCase, StageExecution, Status,
+    AcceptanceError, Case, PROFILES, RunWorkspace, StageCase, StageExecution, Status,
     StageRegistry,
     authorize_live, build_run_budget, configured_worst_case, discover_cases,
     case_fits_remaining, Category, evaluate_hard_invariants, initialize_acceptance_database,
@@ -340,7 +340,7 @@ def _git_revision() -> str | None:
 def main(argv: list[str] | None = None) -> int:
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=sorted({"smoke", "stage", "regression", "pass3", "pass3_boards", "pass3_closure", "pass3_journeys", "pass3_detection_journey", "pass3_psychology_journey", "psychology_hardening", "psychology_spotcheck", "full"}), default="smoke")
+    parser.add_argument("--profile", choices=sorted(PROFILES), default="smoke")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--live-gemini", action="store_true")
     parser.add_argument("--max-usd")
@@ -348,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-image-calls", type=_integer)
     parser.add_argument("--max-cases", type=_integer)
     parser.add_argument("--repeat", type=_parse_repeat, default=1)
-    parser.add_argument("--cases", type=Path, default=ROOT / "acceptance" / "cases")
+    parser.add_argument("--cases", type=Path, default=ROOT / "acceptance" / "scenarios")
     parser.add_argument("--output-root", type=Path, default=ROOT / "data" / "acceptance")
     args = parser.parse_args(argv)
     if args.live_gemini and args.dry_run:

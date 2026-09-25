@@ -10,7 +10,10 @@ The [operations guide](../current-state.md) owns copyable session commands and
 the supported 24/7 review-only LaunchAgent composition.
 
 No process initializes or migrates the database implicitly. Incompatible schemas
-fail closed. Secret settings load once at startup; restart after changes.
+fail closed. Entrypoints select the primary database with the newest UTC timestamp
+in its filename at process startup. Restart a process after creating a newer
+database to switch it to that database. Secret settings load once at startup;
+restart after changes.
 
 ## Detection polling
 
@@ -90,8 +93,9 @@ planning verification. The supported continuous baseline runs exactly one
 Detection poller, one Gemini review workflow poller, one loopback dashboard and
 one independent storage monitor. A separately scheduled backup process runs an
 online backup plus restore verification. Launchd restarts the four continuous
-processes after exits; shared database/artifact/backup paths are command-line
-arguments, not inferred from process-local defaults.
+processes after exits. Each process selects the newest timestamped primary
+database at startup; artifact and backup paths remain explicit command-line
+arguments.
 
 ## Diagnostic logging
 
