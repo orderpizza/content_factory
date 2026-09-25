@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This review inspected 14 usable local attempts and 4 failures from the live Pass 2C/2D acceptance workspaces. It made no Gemini, image, Vertex, or judge-model calls. The small, source-preserving bundle is under `PASS2_REVIEW_SAMPLES/`.
+This review inspected 14 usable local attempts and 4 failures from the live Pass 2C/2D acceptance workspaces. It made no Gemini, image, Vertex, or judge-model calls. The small, source-preserving bundle is under `review-samples/`.
 
 The strongest evidence is the bounded Acme AI material. Two completed final full chains and one direct final Generation sample faithfully preserve `fixture:acme:1`, Enterprise-only October 2026 availability, the two announced capabilities, and unstated procurement facts. English Intake, routing, planning, and the one complete final chain are also broadly usable.
 

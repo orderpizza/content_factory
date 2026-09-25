@@ -69,6 +69,7 @@ storage admission; monitoring remains advisory there.
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
+| Live acceptance architecture and regression philosophy | [Acceptance](acceptance/README.md) |
 
 ### Required reading for a code change
 

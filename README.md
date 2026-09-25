@@ -24,5 +24,7 @@ inactive.
 
 Start with [operations](docs/current-state.md), [architecture and document
 ownership](docs/system.md), and [agent instructions](AGENTS.md).
+The permanent [live acceptance and regression architecture](docs/acceptance/README.md)
+keeps reusable definitions separate from ignored per-run evidence.
 `.env.example` is the canonical tracked inventory of operator settings; actual
 values belong in ignored `.env`. Planning-only mode stops at ContentJobs.

@@ -101,7 +101,14 @@ Human ideation is immediately available for every domain.
 
 Use the actual thread ID and version. Refinement creates immutable new work.
 
-## Optional live visual acceptance
+## Optional live acceptance and regression
+
+The permanent live acceptance/regression framework is opt-in, isolates each run
+from production development databases, and is never part of normal CI. Its
+definitions live in [`acceptance/`](../acceptance/README.md); runtime databases,
+results, raw boards and review slides live in ignored `data/acceptance/`.
+[`docs/acceptance/`](acceptance/README.md) owns its architecture, golden-scenario
+and invariant philosophy, current conclusions and historical reports.
 
 These commands are for owner-run paid acceptance only, after configuring local
 Gemini credentials and budgets. Use a fresh database filename (setup refuses an
@@ -129,26 +136,23 @@ Stop the workflow with Ctrl+C when finished. This flow does not publish.
 
 ## Opt-in Gemini acceptance harness
 
-The separate [`acceptance` framework](../acceptance/README.md) adds versioned
-stage and chain cases, dry-run planning, isolated run workspaces, production
-ledger evidence and machine-readable results. Pass 2 covers Intake,
-Determination, Editorial Planning, Canonical Generation, deterministic visual
-selection and Adaptation. The opt-in Pass 3 profile continues selected Human
-and frozen Detection journeys through deterministic StoryboardPlan, production
+The framework supports isolated stage, chain and full-journey runs, dry-run
+planning, production-ledger evidence and machine-readable results. It can carry
+selected Human and frozen Detection journeys through StoryboardPlan, production
 prompt compilation, Gemini image boards, split/overlay processing and a final
 ReviewRequest. It preserves raw boards and final slides in the isolated run,
-plus a local static gallery; its visual-quality decision remains human review.
+plus a local static gallery; visual quality remains a human-review decision.
 Dry-run does not require live opt-in. Real calls require both
 `CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1` and `--live-gemini`, plus an
-explicit finite acceptance USD ceiling. Pass 1 has a live human-Intake adapter;
-normal CI never invokes the text or image clients.
+explicit finite acceptance USD ceiling; normal CI never invokes the text or
+image clients.
 
-Pass 3 validates the visual-rendering contract with live 1×1, 2×1, 2×2 and
-3×2 boards, including 4+1 and 6+6+2 multi-board sequencing, English adaptive
-split fallback, local overlays and ReviewRequest creation. Gemini-rendered
-visual text remains a human-review gate; provider reliability, posting and
-Psychology editorial quality are separate concerns. See the repository-root
-`PASS3_VISUAL_ACCEPTANCE_REPORT.md`; posting remains disabled.
+The accepted visual regression baseline covers live 1×1, 2×1, 2×2 and 3×2
+boards, including 4+1 and 6+6+2 multi-board sequencing, English adaptive split
+fallback, local overlays and ReviewRequest creation. Gemini-rendered visual text
+remains a human-review gate; provider reliability, posting and Psychology
+editorial quality are separate concerns. See the [historical visual acceptance
+report](acceptance/history/pass3/visual-acceptance.md); posting remains disabled.
 
 The focused `psychology_hardening` profile runs ten isolated Psychology
 Generation observations and five Generation→Adaptation chains (15 generation

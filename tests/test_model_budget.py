@@ -9,7 +9,7 @@ from pathlib import Path
 from test_gemini_workflow import FakeGeminiClient
 from types import SimpleNamespace
 from workflow import GeminiIntakeWorker, ModelBudgetPolicy, WorkflowStore
-from workflow.model_budget import DEFAULT_PHASE_LIMITS
+from workflow.model_budget import DEFAULT_PHASE_LIMITS, MAX_TEXT_OUTPUT_TOKENS, TEXT_PHASES
 from workflow.store import now
 import tempfile
 import unittest
@@ -41,6 +41,79 @@ class ModelBudgetTests(unittest.TestCase):
         }
         policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
         self.assertEqual(policy.worst_case("generation"), (12_000, 6_000, 24_000))
+
+    def test_text_stage_defaults_remain_calibrated_and_within_global_ceiling(self):
+        self.assertEqual(
+            {phase: DEFAULT_PHASE_LIMITS[phase][1] for phase in TEXT_PHASES},
+            {
+                "intake": 2_000,
+                "determination": 4_000,
+                "editorial_planning": 4_000,
+                "generation": 6_000,
+                "adaptation": 8_000,
+            },
+        )
+        self.assertTrue(all(
+            1 <= DEFAULT_PHASE_LIMITS[phase][1] <= MAX_TEXT_OUTPUT_TOKENS
+            for phase in TEXT_PHASES
+        ))
+        self.assertTrue(all(
+            1 <= limits[1] <= MAX_TEXT_OUTPUT_TOKENS
+            for limits in DEFAULT_PHASE_LIMITS.values()
+        ))
+
+    def test_text_stage_output_limit_at_global_ceiling_is_admitted(self):
+        environment = {
+            "GEMINI_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+            "GEMINI_DAILY_WARNING_USD": "5",
+            "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+            "GEMINI_JOB_HARD_LIMIT_USD": "2",
+            "GEMINI_GENERATION_MAX_OUTPUT_TOKENS": str(MAX_TEXT_OUTPUT_TOKENS),
+        }
+        policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
+        self.assertEqual(policy.phase_limits["generation"], (12_000, MAX_TEXT_OUTPUT_TOKENS))
+        self.assertEqual(policy.worst_case("generation")[1], MAX_TEXT_OUTPUT_TOKENS)
+
+    def test_reservation_uses_configured_stage_allowance_not_global_ceiling(self):
+        environment = {
+            "GEMINI_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+            "GEMINI_DAILY_WARNING_USD": "5",
+            "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+            "GEMINI_JOB_HARD_LIMIT_USD": "2",
+            "GEMINI_GENERATION_MAX_OUTPUT_TOKENS": "7000",
+        }
+        policy = ModelBudgetPolicy.from_environment("fixture-model", environment)
+        self.assertEqual(policy.worst_case("generation"), (12_000, 7_000, 26_000))
+
+    def test_text_stage_output_limit_over_global_ceiling_is_rejected_before_client_use(self):
+        environment = {
+            "GEMINI_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+            "GEMINI_DAILY_WARNING_USD": "5",
+            "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+            "GEMINI_JOB_HARD_LIMIT_USD": "2",
+            "GEMINI_ADAPTATION_MAX_OUTPUT_TOKENS": str(MAX_TEXT_OUTPUT_TOKENS + 1),
+        }
+        client = FakeGeminiClient({})
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
+            ModelBudgetPolicy.from_environment("fixture-model", environment)
+        self.assertEqual(client.calls, [])
+
+    def test_nonpositive_text_stage_output_limits_remain_rejected(self):
+        base = {
+            "GEMINI_INPUT_COST_PER_MILLION_USD": "1",
+            "GEMINI_OUTPUT_COST_PER_MILLION_USD": "2",
+            "GEMINI_DAILY_WARNING_USD": "5",
+            "GEMINI_DAILY_HARD_LIMIT_USD": "10",
+            "GEMINI_JOB_HARD_LIMIT_USD": "2",
+        }
+        for value in ("0", "-1"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "must be positive"):
+                ModelBudgetPolicy.from_environment(
+                    "fixture-model", {**base, "GEMINI_INTAKE_MAX_OUTPUT_TOKENS": value}
+                )
 
     def test_model_budget_is_reserved_before_call_and_settled_from_usage(self):
         policy = ModelBudgetPolicy(

@@ -30,6 +30,12 @@ DEFAULT_PHASE_LIMITS = {
     "image_rendering": (8_000, 8_000),
 }
 
+# This is a system invariant, not a request to use 10,000 tokens by default.
+# Stage allowances remain calibrated reservation inputs; a future text stage may
+# opt into additional headroom only up to this ceiling.
+MAX_TEXT_OUTPUT_TOKENS = 10_000
+TEXT_PHASES = frozenset(DEFAULT_PHASE_LIMITS) - {"image_rendering"}
+
 
 def _decimal(name: str, environment: Mapping[str, str]) -> Decimal:
     raw = environment.get(name)
@@ -81,6 +87,11 @@ class ModelBudgetPolicy:
             ))
             if input_limit < 1 or output_limit < 1:
                 raise ModelBudgetConfigurationError(f"Gemini {phase} token maxima must be positive")
+            if phase in TEXT_PHASES and output_limit > MAX_TEXT_OUTPUT_TOKENS:
+                raise ModelBudgetConfigurationError(
+                    f"Gemini {phase} max output tokens cannot exceed "
+                    f"{MAX_TEXT_OUTPUT_TOKENS:,}"
+                )
             limits[phase] = (input_limit, output_limit)
         return cls(model_id, input_rate, output_rate, warning, hard, job, limits)
 

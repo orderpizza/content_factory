@@ -1,8 +1,11 @@
-# Gemini acceptance framework
+# Live acceptance runner
 
-This directory holds opt-in live acceptance tooling, versioned input cases,
-stage/chain evaluators, and run reports. It is separate from production worker
-composition. Normal tests use fake providers and remain offline.
+This directory holds opt-in live acceptance tooling, versioned input cases and
+stage/chain/full-journey evaluators. It is separate from production worker
+composition. Normal tests use fake providers and remain offline. The permanent
+architecture, regression philosophy and historical status are owned by
+[`docs/acceptance/`](../docs/acceptance/README.md); this document owns runner
+operation, profiles, authorization, budgets and artifacts.
 
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for
@@ -18,14 +21,13 @@ The harness is designed for three scopes:
 2. **Chain:** several live stages using each prior result as frozen input.
 3. **Full journey:** Human or Detection through review-ready assets.
 
-Pass 1 established the authorization, admission and isolated-workspace
-foundation. Pass 2 invokes the production Intake, Determination, Editorial
-Planning, Canonical Generation and Adaptation workers; chains also run the
-deterministic VisualPlanner between generation and adaptation. Pass 3 extends
-that same isolated journey through StoryboardPlan, production PromptCompiler,
-Vertex image rendering, deterministic split/overlay processing and the final
-ReviewRequest. It retains original raw boards and writes an independent
-`gallery.html` for human review; it does not add a model-based visual judge.
+The runner invokes production Intake, Determination, Editorial Planning,
+Canonical Generation and Adaptation workers; chains also run the deterministic
+VisualPlanner between generation and adaptation. Full journeys can continue
+through StoryboardPlan, production PromptCompiler, Vertex image rendering,
+deterministic split/overlay processing and the final ReviewRequest. It retains
+original raw boards and writes an independent `gallery.html` for human review;
+it does not add a model-based visual judge.
 
 For independent post-Determination diagnosis, a v2 case may use the
 `stage_fixture` source kind. It selects one named, frozen local fixture and
@@ -83,7 +85,7 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
 .venv/bin/python -m acceptance.runners.matrix --live-gemini --profile smoke --repeat 3 --max-usd 0.50
 ```
 
-Plan the finite Pass 3 campaign without a provider call:
+Plan the visual profile without a provider call:
 
 ```sh
 .venv/bin/python -m acceptance.runners.matrix --profile pass3 --dry-run --max-usd 5.00
@@ -112,10 +114,10 @@ focused continuation after a separately recorded provider failure.
 Profiles use case metadata: `smoke` is the cheapest sanity path, `stage` selects
 individual stage examples, `regression` is a curated representative set, and
 `psychology_hardening` is the focused Psychology Generation/Adaptation campaign;
-`psychology_spotcheck` is its smaller post-change high-risk subset;
-`full` is reserved for the broad/expensive matrix. The committed Pass 2 matrix
-includes the Intake edge-case catalogue and representative human and frozen
-Detection chains; operators choose profiles and explicit ceilings deliberately.
+`psychology_spotcheck` is its smaller high-risk subset; `full` is reserved for
+the broad/expensive matrix. The committed matrix includes the Intake edge-case
+catalogue and representative human and frozen Detection chains; operators
+choose profiles and explicit ceilings deliberately.
 
 Every run writes under `data/acceptance/<run-id>/` by default. It includes
 `run.json`, `plan.json`, `summary.md`, `costs.json`, `stability.json`, and one
@@ -143,7 +145,7 @@ failures away.
 
 ## Cases and evaluators
 
-Cases use closed JSON schemas. Version 1 remains readable for Pass 1 fixtures.
+Cases use closed JSON schemas. Version 1 remains readable for legacy fixtures.
 Version 2 explicitly adds `start_stage`, `end_stage`, stage expectations and
 conservation expectations; it does not overload the v1 `stage` field. A JSON
 file may contain one case or a `{ "cases": [...] }` matrix. Unknown versions,

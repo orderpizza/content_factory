@@ -95,6 +95,14 @@ Optional `GEMINI_{PHASE}_MAX_INPUT_TOKENS` and
 | GENERATION | 12000 | 6000 |
 | ADAPTATION | 12000 | 8000 |
 
+All text-stage output overrides must be positive integers no greater than the
+code-owned `MAX_TEXT_OUTPUT_TOKENS` ceiling of 10,000. This is an architectural
+invariant, not an environment setting or a default response size. An output
+allowance is a hard provider/budget cap; prompts and schemas determine the
+practical response length. The calibrated defaults above remain unchanged so
+worst-case reservations do not increase. Future text stages may request more
+headroom, up to this ceiling, when evidence supports it.
+
 For Gemini 3 text models, Intake, Determination, Editorial Planning, Generation and Adaptation set
 the provider thinking level to `LOW`; other text models receive no thinking-level
 setting. Thinking and JSON share the output allowance. Adaptation retains its 8000-token
