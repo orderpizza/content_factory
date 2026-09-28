@@ -571,6 +571,7 @@ def _write_render_outputs(output: dict[str, Any], artifact_root: Path) -> None:
                             "text_load": board['text_load'], "slide_text_load": board['slide_text_load'],
                             "text_policy_version": board['text_policy_version'],
                             "budget_violations": board['budget_violations'],
+                            "structural": board.get('structural'),
                             "provider_latency_ms": board.get('provider_latency_ms'),
                             "source_panel_dimensions": [[r[2]-r[0], r[3]-r[1]] for r in split.get('source_rectangles', [])]})
     (artifact_root / "board-validation.json").write_text(json.dumps({"boards": validations}, ensure_ascii=False, indent=2) + "\n")

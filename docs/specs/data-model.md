@@ -88,14 +88,16 @@ lineage and prevent changes to frozen visual inputs. The
 [visual rendering contract](visual-rendering.md) owns recipe fields and selection.
 `storyboard_plan_runs` uniquely references the package. `storyboard_plans` is
 immutable and uniquely binds run/package/output, recipe, versions, total and board
-JSON (`storyboard_plan_v3`). Each board explicitly freezes provider aspect ratio,
+JSON (`storyboard_plan_v4`). Each board explicitly freezes provider aspect ratio,
 final slide aspect ratio and dimensions, split/normalization strategy, versioned
 slide/board text metrics, capacity budget snapshot, density and planning mode;
 [visual rendering](visual-rendering.md) owns their closed mapping.
 `render_runs.storyboard_plan_id` is required and unique; SQL guards prevent
-lineage substitution. `model_invocations.claim_version` fences sequential boards
-within one render claim.
-`render_runs` and assets preserve actual local files;
+lineage substitution. `render_board_units` own logical planned/fallback boards,
+their parents and persisted status; `render_board_attempts` own up to three paid
+attempts, structural evidence and safe diagnostics; `render_units` own one final
+slide checkpoint and its successful attempt. `model_invocations.render_board_attempt_id`
+binds each paid image request to exactly one attempt. `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
 `post_requests`, `post_records`, `post_attempts` and publication resources
@@ -111,7 +113,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 17. All workers open and validate databases through
+authoritative schema, at version 18. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates
@@ -142,7 +144,7 @@ selected database; restart it after creating a newer database to switch over.
 | Shortlist | topic_snapshots, trend_candidates, candidate_observation_memberships |
 | Conversation | content_threads, thread_messages, intake_requests, brief_revisions, human_command_receipts |
 | Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, editorial_plan_runs, editorial_plans, content_jobs, generation_runs |
-| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, storyboard_plan_runs, storyboard_plans, render_runs, render_assets, review_requests |
+| Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, storyboard_plan_runs, storyboard_plans, render_runs, render_board_units, render_board_attempts, render_units, render_assets, review_requests |
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
 | Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
 | Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |

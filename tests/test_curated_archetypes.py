@@ -112,7 +112,7 @@ class CuratedContractTests(unittest.TestCase):
                 continue
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
-                self.assertIn('3 columns and 2 rows', prompt)
+                self.assertIn('COLUMNS = 3. ROWS = 2', prompt)
                 self.assertIn('No outer margins. No gutters.', prompt)
                 self.assertIn(a.art_direction, prompt)
                 self.assertIn(ACCOUNT_PROFILES[a.domain].personality, prompt)
@@ -225,7 +225,7 @@ class CuratedContractTests(unittest.TestCase):
             with self.subTest(id=id):
                 prompt = prompt_fixture(id)
                 self.assertEqual(sha256(prompt.encode()).hexdigest(), hashes[id])
-                essentials = ('3×2 storyboard', '5:4', 'Do not rewrite', id, 'subject_claim_id', 'participants_count') if id == 'expression_breakdown_v1' else ('3 columns and 2 rows', 'Provider board aspect ratio 5:4', 'Do not omit, summarize, expand', 'participants')
+                essentials = ('3×2 storyboard', '5:4', 'Do not rewrite', id, 'subject_claim_id', 'participants_count') if id == 'expression_breakdown_v1' else ('TOTAL FINAL SLIDE CELLS = 6', 'Provider board aspect ratio 5:4', 'Do not omit, summarize, expand', 'participants')
                 for text in essentials + ('top 10%', 'bottom 14%'):
                     self.assertIn(text, prompt)
                 content = json.loads(prompt.split('SLIDE_CONTENT\n')[1])

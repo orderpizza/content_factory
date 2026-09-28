@@ -174,11 +174,14 @@ class DomainBoundaryTests(unittest.TestCase):
         manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
         self.assertEqual(manifest['pipeline_id'], domain)
         self.assertEqual(manifest['archetype_id'], selected['archetype_id'])
-        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v6')
+        self.assertEqual(manifest['prompt_version'], 'gemini_storyboard_prompt_v7')
         self.assertEqual(manifest['overlay']['brand_text'], 'o2_english' if domain == 'english' else None)
         self.assertEqual(manifest['boards'][0]['prompt_sha256'], sha256(client.calls[0].encode()).hexdigest())
-        self.assertEqual(len(list(artifact_root.rglob('raw-storyboard*.*'))), 1)
-        raw_path = next(artifact_root.rglob('raw-storyboard*.*'))
+        # Durable restart checkpoints retain a working copy until the complete
+        # review commits; assert the promoted QA raw rather than counting both.
+        promoted_raw = list((artifact_root / 'render-1').glob('raw-storyboard*.*'))
+        self.assertEqual(len(promoted_raw), 1)
+        raw_path = promoted_raw[0]
         raw = raw_path.read_bytes()
         self.assertEqual(raw_path.suffix, '.png' if origin == 'human' else '.jpg')
         self.assertEqual(manifest['boards'][0]['raw']['mime_type'], client.mime_type)

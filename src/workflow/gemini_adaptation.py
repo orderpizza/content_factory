@@ -11,6 +11,7 @@ import unicodedata
 
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
+from common.failure_disposition import exception_diagnostic, invocation_outcome
 
 from .store import WorkflowStore
 from .workers import local_operation
@@ -206,12 +207,12 @@ class GeminiAdaptationWorker:
                 if str(getattr(self.client, "model", "")).startswith("gemini-3") else 0.3,
             )
         except Exception as error:
-            outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
+            outcome = invocation_outcome(error)
             self.store.finish_model_invocation(
                 invocation_id,
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
-                error=str(error),
+                error=json.dumps(exception_diagnostic('adaptation', error, int(run['attempt_count'])), sort_keys=True),
             )
             raise
 
@@ -299,10 +300,11 @@ class GeminiAdaptationWorker:
         except Exception as error:
             self.store.finish_model_invocation(
                 invocation_id,
-                outcome="schema_failed" if isinstance(error, ValueError) else "transport_failed",
+                outcome=("schema_failed" if "response" in locals() and isinstance(error, ValueError)
+                         else invocation_outcome(error)),
                 usage=getattr(self.client, "last_usage", None),
                 response_value=response if "response" in locals() else None,
-                error=str(error),
+                error=json.dumps(exception_diagnostic('adaptation_metadata', error, int(run['attempt_count'])), sort_keys=True),
             )
             raise
         self.store.finish_model_invocation(

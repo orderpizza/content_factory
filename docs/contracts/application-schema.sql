@@ -647,8 +647,8 @@ CREATE TABLE storyboard_plans (
     content_package_id INTEGER NOT NULL UNIQUE REFERENCES content_packages(content_package_id) ON DELETE RESTRICT,
     output_request_id INTEGER NOT NULL UNIQUE REFERENCES output_requests(output_request_id) ON DELETE RESTRICT,
     visual_recipe_id INTEGER NOT NULL REFERENCES visual_recipes(visual_recipe_id) ON DELETE RESTRICT,
-    schema_version TEXT NOT NULL CHECK(schema_version='storyboard_plan_v3'),
-    planner_version TEXT NOT NULL CHECK(planner_version='text_load_contiguous_v1'),
+    schema_version TEXT NOT NULL CHECK(schema_version='storyboard_plan_v4'),
+    planner_version TEXT NOT NULL CHECK(planner_version='text_load_contiguous_v2'),
     total_slides INTEGER NOT NULL CHECK(total_slides BETWEEN 4 AND 14),
     boards_json TEXT NOT NULL CHECK(json_valid(boards_json) AND json_type(boards_json)='array'),
     created_at TEXT NOT NULL
@@ -665,6 +665,49 @@ CREATE TABLE render_runs (
     attempt_count INTEGER NOT NULL DEFAULT 0, attempt_limit INTEGER NOT NULL, next_attempt_at TEXT,
     manifest_json TEXT CHECK(manifest_json IS NULL OR json_valid(manifest_json)), failure_reason TEXT, created_at TEXT NOT NULL, completed_at TEXT,
     UNIQUE(content_package_id,run_number), UNIQUE(visual_recipe_id)
+);
+
+-- A RenderRun is the carousel coordinator.  These records are the durable
+-- per-board/per-slide state machine: one logical board may have several paid
+-- attempts and may split into smaller child boards without replaying a
+-- completed neighboring board.
+CREATE TABLE render_board_units (
+    render_board_unit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    render_run_id INTEGER NOT NULL REFERENCES render_runs(render_run_id) ON DELETE RESTRICT,
+    parent_render_board_unit_id INTEGER REFERENCES render_board_units(render_board_unit_id) ON DELETE RESTRICT,
+    board_json TEXT NOT NULL CHECK(json_valid(board_json) AND json_type(board_json)='object'),
+    lineage_kind TEXT NOT NULL CHECK(lineage_kind IN ('planned','structural_retry','fallback_child')),
+    split_reason_json TEXT CHECK(split_reason_json IS NULL OR json_valid(split_reason_json)),
+    status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','split','failed','ambiguous')),
+    provider_attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(provider_attempt_count BETWEEN 0 AND 3),
+    created_at TEXT NOT NULL, completed_at TEXT,
+    UNIQUE(render_run_id, render_board_unit_id)
+);
+
+CREATE TABLE render_board_attempts (
+    render_board_attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    render_board_unit_id INTEGER NOT NULL REFERENCES render_board_units(render_board_unit_id) ON DELETE RESTRICT,
+    attempt_number INTEGER NOT NULL CHECK(attempt_number BETWEEN 1 AND 3),
+    attempt_kind TEXT NOT NULL CHECK(attempt_kind IN ('initial','structural_retry','provider_retry','fallback_child')),
+    status TEXT NOT NULL CHECK(status IN ('started','succeeded','provider_transient','provider_terminal','structural_failed','invalid_output','ambiguous','local_failed')),
+    model_invocation_id INTEGER UNIQUE,
+    structural_evidence_json TEXT CHECK(structural_evidence_json IS NULL OR json_valid(structural_evidence_json)),
+    result_json TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
+    safe_diagnostic_json TEXT CHECK(safe_diagnostic_json IS NULL OR json_valid(safe_diagnostic_json)),
+    created_at TEXT NOT NULL, completed_at TEXT,
+    UNIQUE(render_board_unit_id, attempt_number)
+);
+
+CREATE TABLE render_units (
+    render_unit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    render_run_id INTEGER NOT NULL REFERENCES render_runs(render_run_id) ON DELETE RESTRICT,
+    slide_ordinal INTEGER NOT NULL CHECK(slide_ordinal > 0),
+    planned_render_board_unit_id INTEGER NOT NULL REFERENCES render_board_units(render_board_unit_id) ON DELETE RESTRICT,
+    completed_render_board_attempt_id INTEGER REFERENCES render_board_attempts(render_board_attempt_id) ON DELETE RESTRICT,
+    status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')),
+    checkpoint_json TEXT CHECK(checkpoint_json IS NULL OR json_valid(checkpoint_json)),
+    created_at TEXT NOT NULL, completed_at TEXT,
+    UNIQUE(render_run_id, slide_ordinal)
 );
 
 CREATE TABLE render_assets (
@@ -712,11 +755,12 @@ CREATE TABLE model_invocations (
     trace_json TEXT CHECK(trace_json IS NULL OR json_valid(trace_json)),
     raw_response_text TEXT, response_json TEXT CHECK(response_json IS NULL OR json_valid(response_json)),
     claim_version INTEGER NOT NULL DEFAULT 0,
+    render_board_attempt_id INTEGER UNIQUE REFERENCES render_board_attempts(render_board_attempt_id) ON DELETE RESTRICT,
     model_invocation_id INTEGER PRIMARY KEY AUTOINCREMENT, phase TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL,
     attempt_ordinal INTEGER NOT NULL, request_version TEXT NOT NULL, prompt_version TEXT NOT NULL, schema_version TEXT NOT NULL,
     request_hash TEXT NOT NULL CHECK(length(request_hash)=64), model_id TEXT, provider_request_id TEXT, response_hash TEXT,
     input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, estimated_cost_micro_usd INTEGER NOT NULL DEFAULT 0 CHECK(estimated_cost_micro_usd>=0),
-    outcome TEXT NOT NULL CHECK(outcome IN ('started','succeeded','transport_failed','invalid_output','parse_failed','schema_failed','blocked')),
+    outcome TEXT NOT NULL CHECK(outcome IN ('started','succeeded','transport_failed','provider_terminal','ambiguous_outcome','invalid_output','structural_failed','parse_failed','schema_failed','semantic_failed','blocked')),
     safe_error TEXT, started_at TEXT NOT NULL, completed_at TEXT
 );
 
@@ -1039,6 +1083,13 @@ CREATE INDEX ix_publication_resources_attempt ON publication_resources(post_atte
 
 CREATE INDEX ix_budget_accounting_day ON gemini_budget_reservations(accounting_day,status);
 
+CREATE INDEX ix_render_board_units_pickup
+    ON render_board_units(render_run_id,status,render_board_unit_id);
+CREATE INDEX ix_render_board_attempts_unit
+    ON render_board_attempts(render_board_unit_id,attempt_number);
+CREATE INDEX ix_render_units_progress
+    ON render_units(render_run_id,status,slide_ordinal);
+
 CREATE INDEX ix_storage_samples_recent ON storage_samples(sampled_at DESC);
 
 CREATE INDEX ix_maintenance_runs_kind ON maintenance_runs(kind,started_at DESC);
@@ -1102,7 +1153,7 @@ BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 CREATE TRIGGER visual_recipes_immutable_delete BEFORE DELETE ON visual_recipes
 BEGIN SELECT RAISE(ABORT, 'visual recipe is immutable'); END;
 
-PRAGMA user_version = 17;
+PRAGMA user_version = 18;
 
 CREATE TRIGGER adaptation_recipe_lineage BEFORE INSERT ON adaptation_runs
 WHEN NOT EXISTS (SELECT 1 FROM visual_recipes v WHERE v.visual_recipe_id=NEW.visual_recipe_id AND v.output_request_id=NEW.output_request_id)

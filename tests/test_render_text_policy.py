@@ -40,9 +40,17 @@ def test_measurement_literal_unicode_whitespace_and_regions():
                          longest_line_characters=10, longest_line_words=2)
     assert measure_slide(dict(title='', body=' \n'))['total_text_regions'] == 0
     board = measure_board([value, value])
-    assert board == dict(slide_count=2, total_characters=62, total_words=12, total_lines=8,
-                        total_text_regions=4, maximum_slide_characters=31, maximum_slide_words=6,
-                        maximum_slide_lines=4)
+    assert board == dict(slide_count=2, title_characters=10, title_words=4, body_characters=52,
+                         body_words=8, title_non_empty_lines=2, body_non_empty_lines=6,
+                         total_characters=62, total_words=12, total_lines=8, total_text_regions=4,
+                         total_rendered_text_regions=4, maximum_slide_characters=31,
+                         maximum_slide_words=6, maximum_slide_lines=4,
+                         maximum_slide_title_characters=5, maximum_slide_title_words=2,
+                         maximum_slide_body_characters=26, maximum_slide_body_words=4,
+                         maximum_slide_title_non_empty_lines=1, maximum_slide_body_non_empty_lines=3,
+                         maximum_slide_longest_line_characters=10, maximum_slide_longest_line_words=2,
+                         maximum_slide_total_text_regions=2, longest_line_characters=10,
+                         longest_line_words=2)
 
 
 @pytest.mark.parametrize('capacity', [1, 2, 4, 6])
@@ -146,7 +154,7 @@ def prepare_dense_english(store, f, forced=None):
     assert StoryboardPlanner(store,calibration_capacities=forced).run_once() is not None
     assert dict(store.connection.execute('SELECT * FROM content_packages').fetchone()) == before
     row = store.connection.execute('SELECT * FROM storyboard_plans').fetchone()
-    assert row['schema_version'] == 'storyboard_plan_v3'
+    assert row['schema_version'] == 'storyboard_plan_v4'
     return json.loads(before['package_json']), json.loads(row['boards_json'])
 
 
@@ -212,10 +220,12 @@ def test_english_later_board_failure_keeps_ledger_without_partial_review(workflo
         assert worker.run_once() is None
         assert worker.run_once() is None
         outcomes=[r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")]
-        assert outcomes == ['succeeded','blocked' if failure=='budget' else 'transport_failed']
+        assert outcomes == ['succeeded','blocked' if failure=='budget' else 'ambiguous_outcome']
         assert store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0]==0
         assert store.connection.execute('SELECT COUNT(*) FROM render_assets').fetchone()[0]==0
-        assert list(tmp_path.iterdir()) == []
+        # Completed sibling work is checkpointed for restart recovery but never
+        # promoted into review assets until every final slide succeeds.
+        assert [path.name for path in tmp_path.iterdir()] == ['render-1.checkpoint']
 
 
 def test_english_copy_bounds_preserve_required_turns_and_reject_unbounded_titles():

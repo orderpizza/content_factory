@@ -17,6 +17,7 @@ from common.operation_log import emit
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .model_budget import ModelBudgetExceeded
+from common.failure_disposition import RetryScheduled, classify_failure, FailureDisposition
 
 
 def local_operation(table: str, key: str):
@@ -38,6 +39,11 @@ def local_operation(table: str, key: str):
                 except RuntimeError:
                     pass
                 return None
+            except RetryScheduled:
+                # The provider-specific state machine fenced the claim and
+                # persisted retry_wait before returning control to the poller.
+                error_code = 'retry_scheduled'
+                return None
             except Exception as error:
                 error_code = type(error).__name__
                 # Exception bodies may contain operator text or secrets.
@@ -45,10 +51,9 @@ def local_operation(table: str, key: str):
                 if hasattr(error, 'diagnostic'):
                     reason = json.dumps(error.diagnostic, sort_keys=True)
                 try:
-                    from common.gemini import retryable_provider_error
                     text_tables = {'intake_requests', 'determination_requests', 'editorial_plan_runs', 'generation_runs', 'adaptation_runs'}
-                    if table in text_tables and retryable_provider_error(error):
-                        self.store.retry_text_transport(table, key, row, error.code)
+                    if table in text_tables and classify_failure(error) is FailureDisposition.PROVIDER_TRANSIENT:
+                        self.store.retry_provider_transport(table, key, row, error)
                     else:
                         self.store.fail_claim(table, key, row, reason)
                 except RuntimeError:

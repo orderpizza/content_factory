@@ -287,7 +287,7 @@ def test_run_workspace_and_schema_are_isolated(tmp_path):
     assert database.exists()
     import sqlite3
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
     assert not (tmp_path / "development.db").exists()
 
 
@@ -441,7 +441,8 @@ def test_fidelity_profile_is_closed_same_package_comparison(tmp_path, monkeypatc
         rubric=json.loads((directory/'fidelity-review.json').read_text())
         assert rubric['package_sha256'] == hashes[-1]
         assert rubric['render_strategy'] == case.input['render_strategy']
-        assert (directory/'board-validation.json').exists()
+        validation = json.loads((directory/'board-validation.json').read_text())
+        assert all(board['structural']['outcome'] in {'pass', 'inconclusive'} for board in validation['boards'])
     assert len(set(hashes)) == len(set(recipes)) == 1
 
 

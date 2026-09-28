@@ -8,6 +8,7 @@ import json
 
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
+from common.failure_disposition import exception_diagnostic, invocation_outcome
 
 from .store import WorkflowStore
 from .workers import local_operation
@@ -94,12 +95,12 @@ class GeminiIntakeWorker:
                 _intake_prompt(snapshot), INTAKE_SCHEMA, temperature=0.2
             )
         except Exception as error:
-            outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
+            outcome = invocation_outcome(error)
             self.store.finish_model_invocation(
                 invocation_id,
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
-                error=str(error),
+                error=json.dumps(exception_diagnostic('intake', error, int(request['attempt_count'])), sort_keys=True),
             )
             raise
 

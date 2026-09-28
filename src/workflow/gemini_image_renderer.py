@@ -5,6 +5,7 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
+from pathlib import Path
 import json
 import logging
 import os
@@ -15,6 +16,8 @@ from statistics import median
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from common.gemini_image import GeneratedImage, VertexGeminiImageClient, configured_image_model
+from common.failure_disposition import (FailureDisposition, RetryScheduled, classify_failure,
+                                        invocation_outcome, provider_status, safe_failure)
 from .model_budget import ModelBudgetPolicy
 from .workers import local_operation
 from .active_review_renderer import ActiveReviewRenderer, _asset
@@ -32,10 +35,94 @@ OVERLAY_FONT_SIZE = 32
 logger = logging.getLogger(__name__)
 
 
+class StructuralGridViolation(ValueError):
+    """High-confidence extra grid/cut found before a composite is cropped."""
+
+    def __init__(self, code: str, evidence: dict):
+        super().__init__(code)
+        self.code, self.evidence = code, evidence
+
+
+class RenderTerminalFailure(RuntimeError):
+    def __init__(self, diagnostic: dict):
+        super().__init__(diagnostic.get('code', 'render_failure'))
+        self.diagnostic = diagnostic
+
+
 @dataclass(frozen=True)
 class StoryboardSplit:
     slides: list[Image.Image]
     metadata: dict
+
+
+def _strong_separators(image: Image.Image, *, axis: str) -> list[dict]:
+    """Find only near-uniform, full-span divider bands.
+
+    Ordinary cards and text blocks are deliberately ignored: they do not make a
+    strong transition across most of the full orthogonal dimension.  A divider
+    itself need not be one color because a genuine grid can cross different
+    colored cells in successive rows or columns.
+    """
+    preview = image.resize((min(480, image.width), min(480, image.height)), Image.Resampling.BOX)
+    pixels = preview.load()
+    length, cross = (preview.width, preview.height) if axis == 'vertical' else (preview.height, preview.width)
+    candidates: list[int] = []
+    for position in range(2, length - 2):
+        values = [pixels[position, other] if axis == 'vertical' else pixels[other, position]
+                  for other in range(cross)]
+        left = [pixels[position - 1, other] if axis == 'vertical' else pixels[other, position - 1]
+                for other in range(cross)]
+        right = [pixels[position + 1, other] if axis == 'vertical' else pixels[other, position + 1]
+                 for other in range(cross)]
+        contrast = sum(sum(abs(a[c] - b[c]) for c in range(3)) >= 36 for a, b in zip(left, right)) / cross
+        if contrast >= .80:
+            candidates.append(position)
+    groups: list[list[int]] = []
+    merge_gap = max(2, length // 40)
+    for value in candidates:
+        if groups and value <= groups[-1][-1] + merge_gap:
+            groups[-1].append(value)
+        else:
+            groups.append([value])
+    return [dict(start=group[0], end=group[-1] + 1, center=(group[0] + group[-1] + 1) / 2,
+                 fraction=(group[0] + group[-1] + 1) / 2 / length) for group in groups
+            if group[0] > max(2, length // 50) and group[-1] + 1 < length - max(2, length // 50)]
+
+
+def validate_composite_structure(data: bytes, board: dict) -> dict:
+    """Conservatively reject unmistakable extra cells or internal cuts.
+
+    Absence of detectable separators is inconclusive and passes to human review.
+    This is intentionally structural analysis, not OCR or a scene classifier.
+    """
+    from .storyboard_planner import validate_board_geometry
+    validate_board_geometry(board)
+    with Image.open(BytesIO(data)) as raw:
+        source = ImageOps.exif_transpose(raw).convert('RGB')
+    vertical = _strong_separators(source, axis='vertical')
+    horizontal = _strong_separators(source, axis='horizontal')
+    expected = {'columns': board['cols'], 'rows': board['rows']}
+    observed = {'columns': len(vertical) + 1 if vertical else None,
+                'rows': len(horizontal) + 1 if horizontal else None}
+    evidence = {'version': 'grid_structure_v1', 'expected_grid': expected,
+                'detected_separators': {'vertical': vertical, 'horizontal': horizontal},
+                'suspected_region_count': None if observed['columns'] is None or observed['rows'] is None
+                else observed['columns'] * observed['rows'], 'detected_grid': observed,
+                'outcome': 'inconclusive'}
+    extra_axis = ((observed['columns'] is not None and observed['columns'] > board['cols'])
+                  or (observed['rows'] is not None and observed['rows'] > board['rows']))
+    if extra_axis:
+        evidence['outcome'] = 'grid_contract_violation'
+        raise StructuralGridViolation('grid_contract_violation', evidence)
+    # Detected separators may match the requested outer grid.  Any strong one
+    # away from a planned boundary is an independent cut inside a final cell.
+    for separators, count in ((vertical, board['cols']), (horizontal, board['rows'])):
+        planned = {index / count for index in range(1, count)}
+        if any(all(abs(item['fraction'] - boundary) > .08 for boundary in planned) for item in separators):
+            evidence['outcome'] = 'multiple_cuts_detected'
+            raise StructuralGridViolation('multiple_cuts_detected', evidence)
+    evidence['outcome'] = 'pass' if vertical or horizontal else 'inconclusive'
+    return evidence
 
 
 def _load_storyboard(data: bytes) -> tuple[Image.Image, dict]:
@@ -423,16 +510,19 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             self.client = VertexGeminiImageClient(max_output_tokens=self.budget_policy.phase_limits['image_rendering'][1])
         if self.budget_policy is not None and self.budget_policy.model_id != self.client.model:
             raise ValueError('image budget policy does not match configured model')
-        assets, provenance, boards = [], [], []
+        checkpoint_root = self.artifact_root / f"render-{run['render_run_id']}.checkpoint"
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
         ctas = footer_cta_phrases(int(run['render_run_id']), plan['total_slides'], pipeline_id=pipeline_id)
-        for board in plan['boards']:
-            prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board)
+        while (board_unit := self.store.next_render_board_unit(run)) is not None:
+            board = json.loads(board_unit['board_json'])
+            attempt = self.store.begin_render_board_attempt(run, board_unit)
+            prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board,
+                                             reinforce_grid=attempt['attempt_kind'] == 'structural_retry')
             invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
                 key='render_run_id', row=run, request_version='image_storyboard_request_v2',
                 prompt_version=PROMPT_COMPILER_VERSION, schema_version=recipe['renderer_contract_id'],
                 request_value={'prompt_sha256': sha256(prompt.encode()).hexdigest(), 'board': board}, model_id=self.client.model,
-                budget_policy=self.budget_policy, board_index=board['board_index'])
-            from .model_trace import invocation_cost, aggregate_cost
+                budget_policy=self.budget_policy, render_board_attempt_id=attempt['render_board_attempt_id'])
             from common.gemini_image import configured_image_size
             self.store.record_model_request(invocation, prompt, None, {
                 'aspect_ratio': board['provider_aspect_ratio'], 'image_size': configured_image_size(),
@@ -441,40 +531,118 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             started = perf_counter()
             try:
                 generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
-            except Exception:
-                self.store.finish_model_invocation(invocation, outcome='transport_failed', usage=self.client.last_usage,
-                    error='storyboard generation failed', budget_policy=self.budget_policy)
-                raise
+            except Exception as error:
+                disposition = classify_failure(error)
+                # This boundary is immediately around the provider call.  An
+                # untyped exception here could follow a sent request, so do
+                # not relabel it as a safe local failure or replay it.
+                if disposition is FailureDisposition.LOCAL:
+                    disposition = FailureDisposition.AMBIGUOUS_EXTERNAL
+                diagnostic = safe_failure(stage='image_rendering', disposition=disposition,
+                    code=(f'http_{provider_status(error)}' if provider_status(error) is not None else type(error).__name__.casefold()),
+                    attempt=int(attempt['attempt_number']), retryable=disposition is FailureDisposition.PROVIDER_TRANSIENT,
+                    slides=board['slide_indices'], board_capacity=board['capacity'])
+                outcome = ('ambiguous_outcome' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL
+                           else invocation_outcome(error))
+                self.store.finish_model_invocation(invocation, outcome=outcome, usage=self.client.last_usage,
+                    error=json.dumps(diagnostic, sort_keys=True), budget_policy=self.budget_policy)
+                if disposition is FailureDisposition.PROVIDER_TRANSIENT:
+                    if self.store.schedule_render_provider_retry(run, attempt, diagnostic):
+                        raise RetryScheduled()
+                    raise RenderTerminalFailure({**diagnostic, 'code': 'retry_exhausted'})
+                self.store.finish_render_board_attempt(
+                    attempt, status=('provider_terminal' if disposition is FailureDisposition.PROVIDER_TERMINAL else
+                                     'ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'local_failed'),
+                    diagnostic=diagnostic, board_status='ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'failed')
+                raise RenderTerminalFailure(diagnostic) from error
             provider_latency_ms = round((perf_counter() - started) * 1000)
             try:
                 if not isinstance(generated, GeneratedImage):
                     raise ValueError('image client did not preserve media metadata')
+                raw_name = (f"raw-storyboard-{board['board_index']:02d}{generated.extension}"
+                            if attempt['attempt_number'] == 1 else
+                            f"raw-storyboard-{board['board_index']:02d}-attempt-{attempt['attempt_number']}{generated.extension}")
+                raw = checkpoint_root / raw_name
+                raw.write_bytes(generated.data)
+                structural = validate_composite_structure(generated.data, board)
                 split = (split_storyboard_with_metadata(generated.data)
                          if board['split_strategy'] == 'english_accepted_v1'
                          else split_equal_grid(generated.data, board))
-                raw = temporary / f"raw-storyboard-{board['board_index']:02d}{generated.extension}"
-                raw.write_bytes(generated.data)
+                checkpoints = []
                 for cell, (ordinal, slide) in enumerate(zip(board['slide_indices'], split.slides)):
-                    path = temporary / f'unit-{ordinal:02d}.png'
+                    path = checkpoint_root / f'unit-{ordinal:02d}.png'
                     apply_overlays(slide, ordinal, plan['total_slides'], cta_phrase=ctas[ordinal-1],
                         pipeline_id=pipeline_id, role=package['visual_units'][ordinal-1]['role']).save(path, format='PNG')
                     asset = _asset(path, 'preview_png', ordinal, 1080, 1350)
-                    assets.append(asset)
-                    provenance.append(dict(ordinal=ordinal, board_index=board['board_index'], model_invocation_id=invocation,
+                    checkpoints.append(dict(ordinal=ordinal, checkpoint_path=str(path), sha256=asset['sha256'], bytes=asset['bytes'],
                         source_cell=dict(row=cell // board['cols'] + 1, column=cell % board['cols'] + 1),
-                        source_rectangle=split.metadata['source_rectangles'][cell], footer_cta=ctas[ordinal-1],
-                        final=dict(filename=path.name, sha256=asset['sha256'])))
-                boards.append(dict(**board, provider_latency_ms=provider_latency_ms, model_invocation_id=invocation, prompt_sha256=sha256(prompt.encode()).hexdigest(),
-                    raw=dict(filename=raw.name, mime_type=generated.mime_type, extension=generated.extension,
-                             bytes=len(generated.data), sha256=sha256(generated.data).hexdigest()), split=split.metadata))
+                        source_rectangle=split.metadata['source_rectangles'][cell], footer_cta=ctas[ordinal-1], board_index=board['board_index']))
+                result = dict(**board, provider_latency_ms=provider_latency_ms, model_invocation_id=invocation,
+                    prompt_sha256=sha256(prompt.encode()).hexdigest(), raw=dict(checkpoint_path=str(raw), filename=raw.name,
+                    mime_type=generated.mime_type, extension=generated.extension, bytes=len(generated.data),
+                    sha256=sha256(generated.data).hexdigest()), split=split.metadata, structural=structural)
+                self.store.complete_render_board_units(run, attempt, checkpoints, result)
+                self.store.finish_model_invocation(invocation, outcome='succeeded', usage=self.client.last_usage,
+                    response_value={'sha256': sha256(generated.data).hexdigest()}, budget_policy=self.budget_policy)
+            except StructuralGridViolation as error:
+                diagnostic = safe_failure(stage='image_rendering', disposition=FailureDisposition.OUTPUT_CONTRACT,
+                    code=error.code, attempt=int(attempt['attempt_number']), slides=board['slide_indices'],
+                    requested_grid=f"{board['cols']}x{board['rows']}", detected_structure=error.evidence.get('detected_grid'),
+                    action='retry_then_reduce_batch')
+                self.store.finish_model_invocation(invocation, outcome='structural_failed', usage=self.client.last_usage,
+                    response_value={'sha256': sha256(generated.data).hexdigest()}, error=json.dumps(diagnostic, sort_keys=True),
+                    budget_policy=self.budget_policy)
+                previous = self.store.connection.execute(
+                    "SELECT COUNT(*) FROM render_board_attempts WHERE render_board_unit_id=? AND status='structural_failed'",
+                    (attempt['render_board_unit_id'],)).fetchone()[0]
+                if previous == 0 and int(attempt['attempt_number']) < 3:
+                    self.store.finish_render_board_attempt(attempt, status='structural_failed', structural_evidence=error.evidence,
+                                                           diagnostic=diagnostic, board_status='pending')
+                    continue
+                if board['capacity'] > 1:
+                    from .storyboard_planner import split_for_structural_fallback
+                    self.store.split_render_board_unit(run, attempt,
+                        split_for_structural_fallback(board, package['visual_units'], pipeline_id), diagnostic)
+                    continue
+                self.store.finish_render_board_attempt(attempt, status='structural_failed', structural_evidence=error.evidence,
+                                                       diagnostic=diagnostic, board_status='failed')
+                raise RenderTerminalFailure(diagnostic) from error
             except Exception:
                 self.store.finish_model_invocation(invocation, outcome='invalid_output', usage=self.client.last_usage,
-                    error='storyboard processing failed', budget_policy=self.budget_policy)
+                    error='local image processing failure', budget_policy=self.budget_policy)
+                self.store.finish_render_board_attempt(attempt, status='invalid_output',
+                    diagnostic=safe_failure(stage='image_rendering', disposition=FailureDisposition.LOCAL,
+                        code='local_image_processing_failure', attempt=int(attempt['attempt_number']), slides=board['slide_indices']),
+                    board_status='failed')
                 raise
-            self.store.finish_model_invocation(invocation, outcome='succeeded', usage=self.client.last_usage,
-                response_value={'sha256': sha256(generated.data).hexdigest()}, budget_policy=self.budget_policy)
-            boards[-1]['cost'] = invocation_cost(self.store.connection, invocation)
-        return assets, dict(cost=aggregate_cost([b['cost'] for b in boards]), model_id=self.client.model, prompt_version=PROMPT_COMPILER_VERSION,
+
+        from .model_trace import invocation_cost, aggregate_cost
+        assets, provenance, boards = [], [], []
+        for result in self.store.render_successful_board_results(run):
+            source = Path(result['raw']['checkpoint_path'])
+            target = temporary / result['raw']['filename']
+            target.write_bytes(source.read_bytes())
+            result['raw'].pop('checkpoint_path', None)
+            result['cost'] = invocation_cost(self.store.connection, result['model_invocation_id'])
+            result.pop('render_board_attempt_id', None)
+            result.pop('render_board_unit_id', None)
+            boards.append(result)
+        for checkpoint in self.store.render_unit_checkpoints(run):
+            path = temporary / f"unit-{checkpoint['ordinal']:02d}.png"
+            path.write_bytes(Path(checkpoint['checkpoint_path']).read_bytes())
+            asset = _asset(path, 'preview_png', checkpoint['ordinal'], 1080, 1350)
+            if asset['sha256'] != checkpoint['sha256']:
+                raise ValueError('persisted render checkpoint hash changed')
+            assets.append(asset)
+            provenance.append(dict(ordinal=checkpoint['ordinal'], board_index=checkpoint['board_index'],
+                model_invocation_id=checkpoint['model_invocation_id'],
+                render_board_attempt_id=checkpoint['render_board_attempt_id'], source_cell=checkpoint['source_cell'],
+                source_rectangle=checkpoint['source_rectangle'], footer_cta=checkpoint['footer_cta'],
+                final=dict(filename=path.name, sha256=asset['sha256'])))
+        all_costs = [invocation_cost(self.store.connection, row[0]) for row in self.store.connection.execute(
+            "SELECT model_invocation_id FROM model_invocations WHERE phase='image_rendering' AND entity_type='render_run' "
+            "AND entity_id=? AND outcome!='blocked' ORDER BY model_invocation_id", (run['render_run_id'],))]
+        return assets, dict(cost=aggregate_cost(all_costs), model_id=self.client.model, prompt_version=PROMPT_COMPILER_VERSION,
             pipeline_id=pipeline_id, archetype_id=recipe['archetype_id'], archetype_version=recipe['archetype_version'],
             account_visual_profile_id=recipe['account_visual_profile_id'], prompt_compiler_version=recipe['prompt_compiler_version'],
             renderer_contract_id=recipe['renderer_contract_id'], overlay_profile_id=recipe['overlay_profile_id'],

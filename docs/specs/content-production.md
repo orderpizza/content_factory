@@ -41,7 +41,7 @@ local validators are the enforcement boundary.
 
 ## Canonical generation
 
-`workflow_gemini_generation_prompt_v7` returns `canonical_content_v4`. The job
+`workflow_gemini_generation_prompt_v8` returns `canonical_content_v4`. The job
 recipe remains `content_job_recipe_v3`. The closed schema contains hook, context,
 2–8 key points, 0–8 examples, takeaway, optional CTA, up to 30 claims, and one
 matching domain payload. It contains no platform copy, hashtags or visual design.
@@ -59,7 +59,7 @@ paraphrase in subsequent adaptation is semantically faithful.
 
 | Claim kind | Authority and enforcement |
 | --- | --- |
-| `source_bound_fact` | Requires allowed evidence references and a literal excerpt present in a cited source record. A topic-only message cannot support an unrelated assertion. Quotation membership is not independent fact verification. |
+| `source_bound_fact` | Selects one bounded exact item from a deterministic frozen source-excerpt catalog. Gemini returns its stable excerpt ID plus exactly its owner evidence reference with `text: null`; local validation materializes the persisted v4 claim text. Unknown IDs, owner mismatches, authored/paraphrased text and missing evidence fail terminally. A topic-only message cannot support an unrelated assertion. Quotation membership is not independent fact verification. |
 | `model_general_knowledge` | Standard English teaching knowledge only; no evidence references. Unverified model knowledge, not a fact supplied by the human. Origin/cultural assertions still require evidence by domain policy. |
 | `qualified_inference` | Cautious interpretation with an honest qualification; cited references must belong to supplied evidence. Uncertainty must remain visible in public prose. |
 | `generated_example` | Invented illustration, no evidence references. Common `examples` entries require this class. |
@@ -73,6 +73,14 @@ verified, and quotation alone cannot establish the truth of a source's claim.
 AI/Tech cannot use model priors for current product facts. Psychology preserves
 observations, qualified possibilities and alternatives; its mechanism remains
 nullable when evidence establishes none.
+
+The source-excerpt catalog is derived deterministically from the frozen source record
+text, sentence/newline spans and bounded chunks. IDs hash the owner reference and literal
+excerpt, and the request carries only bounded catalog entries. It is a selection mechanism,
+not research or a truth assertion. The provider-facing source-selection fields are normalized
+away before persistence, so the final canonical contract remains `canonical_content_v4`.
+Semantic evidence failures are terminal output-contract failures: they do not cause a second
+Gemini request merely to try a different quotation.
 
 The caller derives `required_public_claim_ids` from key points (the selected
 treatment's must-cover teaching obligations) and takeaway, plus English meaning

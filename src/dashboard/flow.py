@@ -122,7 +122,7 @@ def render_job_progress(connection, job_id):
     rows = connection.execute(
         "SELECT o.output_request_id,o.platform,a.status adaptation_status,a.failure_reason adaptation_reason,"
         "s.status storyboard_status,s.failure_reason storyboard_reason,sp.total_slides,sp.boards_json,"
-        "v.status planning_status,v.failure_reason planning_reason,r.status render_status,r.failure_reason render_reason "
+        "v.status planning_status,v.failure_reason planning_reason,r.render_run_id,r.status render_status,r.failure_reason render_reason "
         "FROM canonical_contents c JOIN output_requests o ON o.canonical_content_id=c.canonical_content_id "
         "LEFT JOIN adaptation_runs a ON a.output_request_id=o.output_request_id "
         "LEFT JOIN content_packages p ON p.adaptation_run_id=a.adaptation_run_id "
@@ -145,5 +145,26 @@ def render_job_progress(connection, job_id):
             boards = json.loads(row['boards_json'])
             layouts = ' · '.join(f"{b['cols']}×{b['rows']}: slides {b['slide_start']}–{b['slide_end']}" for b in boards)
             parts.append(f"<details><summary>Storyboard: {row['total_slides']} slides · {len(boards)} boards</summary><p>{text(layouts)}</p></details>")
+        if row['render_run_id'] is not None:
+            import json
+            board_rows = connection.execute(
+                "SELECT status,COUNT(*) count FROM render_board_units WHERE render_run_id=? GROUP BY status ORDER BY status",
+                (row['render_run_id'],),
+            ).fetchall()
+            if board_rows:
+                summary = ' · '.join(f"{entry['status']}: {entry['count']}" for entry in board_rows)
+                parts.append(f"<p>Render board state: {text(summary)}</p>")
+                diagnostics = connection.execute(
+                    "SELECT a.safe_diagnostic_json,b.board_json FROM render_board_attempts a "
+                    "JOIN render_board_units b USING(render_board_unit_id) WHERE b.render_run_id=? "
+                    "AND a.safe_diagnostic_json IS NOT NULL ORDER BY a.render_board_attempt_id DESC LIMIT 4",
+                    (row['render_run_id'],),
+                ).fetchall()
+                if diagnostics:
+                    parts.append(json_detail('Recent render attempt diagnostics', [
+                        {'slides': json.loads(item['board_json']).get('slide_indices'),
+                         'diagnostic': json.loads(item['safe_diagnostic_json'])}
+                        for item in diagnostics
+                    ], diagnostic=True))
         parts.append('</div>')
     return ''.join(parts)

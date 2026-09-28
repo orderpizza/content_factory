@@ -9,8 +9,8 @@ from .visual_art_direction import (
     EXPRESSION_ROLE_DIRECTIONS, AI_TECH_ROLE_DIRECTIONS, PSYCHOLOGY_ROLE_DIRECTIONS,
 )
 
-PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v6"
-RENDERER_CONTRACT_ID = "image_storyboard_paginated_v3"
+PROMPT_COMPILER_VERSION = "gemini_storyboard_prompt_v7"
+RENDERER_CONTRACT_ID = "image_storyboard_paginated_v4"
 SELECTOR_VERSION = "deterministic_archetype_selector_v1"
 DEFAULT_ARCHETYPE_BY_DOMAIN = {
     "english": "expression_breakdown_v1",
@@ -169,13 +169,13 @@ ARCHETYPES = {a.archetype_id: a for a in (
     _archetype('expression_story_scene_v1', 'english', ('human_interaction', 'dialogue', 'everyday_context'),
         'Teach expressions through human interaction and situational storytelling; less dependence on generic cards.',
         ('Hero expression with a supporting human scene.', 'Definition with a simple visual metaphor.',
-         'Sequence of everyday situations.', 'Two distinct practical scenes.',
+         'One continuous everyday composition suggesting several situations.', 'One continuous composition illustrating two practical uses without divided scenes.',
          'Character conversation with clear speaker separation.', 'Clean recap with a restrained illustration.'),
-        ('human_scene', 'metaphor', 'human_scene', 'paired_scenes', 'dialogue', 'editorial'), compact=True),
+        ('human_scene', 'metaphor', 'human_scene', 'human_scene', 'dialogue', 'editorial'), compact=True),
     _archetype('expression_cards_v1', 'english', ('usage_distinctions', 'multiple_uses', 'abstract_meaning'),
         'Typography-led explanation, controlled color blocking, structured cards and icon-supported grouping.',
         ('Oversized expression and bold type.', 'Structured definition card.',
-         'Three or four compact situation cards.', 'Paired example cards.',
+         'Three or four compact elements within one continuous composition.', 'One coherent composition comparing two examples without separate frames.',
          'Typography-forward conversation with separate speakers.', 'Compact reminder card.'),
         ('typography', 'cards', 'cards', 'cards', 'dialogue', 'cards')),
     _archetype('ai_tech_explainer_v1', 'ai_tech', ('general',),
@@ -183,7 +183,7 @@ ARCHETYPES = {a.archetype_id: a for a in (
     _archetype('ai_tech_product_ui_v1', 'ai_tech', ('product_central', 'capabilities', 'software_use_cases'),
         'Interface-inspired conceptual panels, feature callouts and practical product workflows.',
         ('Topic headline with a conceptual product panel.', 'Feature callouts in a conceptual interface.',
-         'Before and after capability comparison.', 'Product workflow in bounded conceptual panels.',
+         'One coherent capability comparison without before/after split canvases.', 'One continuous product-workflow composition with grouped conceptual elements.',
          'Constraints and availability in prominent capability cards.', 'Compact practical product summary.'),
         ('conceptual_ui',)*6, compact=True,
         negative='Invented UI is conceptual illustration, never an authentic screenshot or factual evidence. No unrequested provider branding.'),
@@ -196,15 +196,15 @@ ARCHETYPES = {a.archetype_id: a for a in (
     _archetype('psychology_explainer_v1', 'psychology', ('general',),
         'Evidence-aware behavioral editorial education.', PSYCHOLOGY_ROLE_DIRECTIONS, ('editorial',)*6),
     _archetype('psychology_human_scenario_v1', 'psychology', ('social_context', 'human_reaction', 'everyday_scenario'),
-        'Everyday human interactions, paired reactions and scenario-led behavioral explanation.',
+        'Everyday human interactions, possible reactions and scenario-led behavioral explanation.',
         ('Recognizable observed human moment.', 'Scene plus qualified interpretation, separate from observation.',
-         'Paired possible reactions; keep uncertainty visible.', 'Everyday interaction in the supplied hypothetical scenario.',
+         'One continuous composition showing possible reactions; keep uncertainty visible.', 'Everyday interaction in the supplied hypothetical scenario.',
          'Optional practical response in a conversational scene.', 'Calm recap preserving qualification and alternatives.'),
         ('human_scene',)*6, compact=True, negative='No inferred diagnoses, asserted motives or exaggerated emotional faces.'),
     _archetype('psychology_concept_cards_v1', 'psychology', ('cognitive_concept', 'alternatives', 'observation_vs_interpretation'),
         'Structured cognitive education: contrasting explanations and observation → thought → response.',
         ('Concept headline with restrained metaphor.', 'Separate observation and interpretation cards.',
-         'Qualified behavior-to-thought-to-response diagram.', 'Paired alternative explanations of the example.',
+         'Qualified behavior-to-thought-to-response diagram.', 'One grouped composition presenting alternative explanations of the example.',
          'Grouped practical responses without prescriptive clinical advice.', 'Summary card with equally visible qualification.'),
         ('cards', 'comparison', 'process', 'comparison', 'cards', 'cards'),
         negative='Qualifications must remain visible; conceptual relationships are not proof or diagnosis.'),

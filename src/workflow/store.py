@@ -15,6 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from common.diagnostics import safe_diagnostic
 from common.operation_log import human_command, emit
 from common.gemini import estimated_cost_usd
+from common.failure_disposition import FailureDisposition, provider_status, safe_failure
 from common.timestamps import parse_timestamp, serialize_timestamp, utc_now
 from .model_budget import ModelBudgetExceeded
 from .catalog import WORKFLOW_PIPELINES, domain_context
@@ -770,7 +771,7 @@ class WorkflowStore:
         with self.transaction():
             self._finish_claim(table,key,row,"failed",now(),safe_diagnostic(reason))
 
-    def retry_text_transport(self, table, key, row, code):
+    def retry_provider_transport(self, table, key, row, error):
         """Fence a new durable attempt only after a terminal transport failure.
 
         Its reservation stays uncertain when no usage was returned. No successful
@@ -785,8 +786,18 @@ class WorkflowStore:
             if invocation is None or invocation['outcome'] != 'transport_failed':
                 raise RuntimeError('retry requires a completed transport failure in this claim')
             moment = now()
-            status = 'retry_wait' if row['attempt_count'] < row['attempt_limit'] else 'failed'
-            self._finish_claim(table, key, row, status, moment, f'retryable_provider_status:{code}')
+            code = provider_status(error)
+            will_retry = row['attempt_count'] < row['attempt_limit']
+            diagnostic = safe_failure(
+                stage={
+                    'intake_requests': 'intake', 'determination_requests': 'determination',
+                    'editorial_plan_runs': 'editorial_planning', 'generation_runs': 'generation',
+                    'adaptation_runs': 'adaptation',
+                }[table], disposition=FailureDisposition.PROVIDER_TRANSIENT,
+                code=f'http_{code}' if will_retry else 'retry_exhausted', attempt=int(row['attempt_count']), retryable=will_retry,
+            )
+            status = 'retry_wait' if will_retry else 'failed'
+            self._finish_claim(table, key, row, status, moment, canonical(diagnostic))
             if status == 'retry_wait':
                 base = 15 * 2 ** (row['attempt_count'] - 1)
                 delay = min(120, base + random.uniform(0, 10))
@@ -821,6 +832,34 @@ class WorkflowStore:
             retry_at = serialize_timestamp(retry_at)
         reason_column = "failure_detail" if table == "intake_requests" else "failure_reason"
         with self.transaction():
+            if table == 'render_runs':
+                # Admission happens before a provider request.  Remove the
+                # provisional board-attempt shell so it cannot consume one of
+                # the three actual-call slots when the daily window reopens.
+                pending = self.connection.execute(
+                    "SELECT a.render_board_attempt_id,a.render_board_unit_id,i.model_invocation_id,i.outcome FROM render_board_attempts a "
+                    "LEFT JOIN model_invocations i ON i.render_board_attempt_id=a.render_board_attempt_id "
+                    "WHERE a.status='started' AND (i.model_invocation_id IS NULL OR i.outcome='blocked') "
+                    "AND a.render_board_unit_id IN (SELECT render_board_unit_id FROM render_board_units WHERE render_run_id=?)",
+                    (row[key],),
+                ).fetchall()
+                for attempt in pending:
+                    # A blocked admission was recorded for audit but never
+                    # crossed the provider boundary.  It cannot retain a
+                    # provisional board attempt or consume one of its three
+                    # actual-call slots after the daily window reopens.
+                    if attempt['model_invocation_id'] is not None:
+                        self.connection.execute(
+                            "UPDATE model_invocations SET render_board_attempt_id=NULL "
+                            "WHERE model_invocation_id=? AND outcome='blocked'",
+                            (attempt['model_invocation_id'],),
+                        )
+                    self.connection.execute("DELETE FROM render_board_attempts WHERE render_board_attempt_id=?",
+                                            (attempt['render_board_attempt_id'],))
+                    self.connection.execute(
+                        "UPDATE render_board_units SET status='pending',provider_attempt_count=MAX(provider_attempt_count-1,0) "
+                        "WHERE render_board_unit_id=?", (attempt['render_board_unit_id'],),
+                    )
             result = self.connection.execute(
                 f"UPDATE {table} SET status=?,next_attempt_at=?,{reason_column}=?,completed_at=? "
                 f"WHERE {key}=? AND status='claimed' AND claim_owner=? AND claim_version=? "
@@ -845,6 +884,7 @@ class WorkflowStore:
         model_id: str,
         budget_policy: Any | None = None,
         board_index: int | None = None,
+        render_board_attempt_id: int | None = None,
     ) -> int:
         """Audit a claimed model operation before making its provider call."""
         policy = budget_policy or self.model_budget_policy
@@ -868,6 +908,19 @@ class WorkflowStore:
         entity_type = key.removesuffix("_id")
         entity_id = int(row[key])
         ordinal = int(row["attempt_count"])
+        if table == "render_runs" and render_board_attempt_id is None:
+            # Compatibility for internal test/tools that still name a frozen
+            # board index. Production rendering uses the explicit attempt ID.
+            if board_index is None:
+                raise RuntimeError("image invocation requires an explicit render-board attempt")
+            legacy = self.connection.execute(
+                "SELECT * FROM render_board_units WHERE render_run_id=? "
+                "AND json_extract(board_json,'$.board_index')=? AND status='pending'",
+                (entity_id, board_index),
+            ).fetchone()
+            if legacy is None:
+                raise RuntimeError('committed render board is unavailable')
+            render_board_attempt_id = int(self.begin_render_board_attempt(row, legacy)['render_board_attempt_id'])
         blocked_reason: str | None = None
         with self.transaction():
             current = self.connection.execute(
@@ -891,22 +944,17 @@ class WorkflowStore:
                 if thread is None or thread["status"] != "open":
                     raise RuntimeError("closed thread cannot start editorial invocation")
             if table == "render_runs":
-                history = self.connection.execute(
-                    "SELECT * FROM model_invocations WHERE entity_type='render_run' "
-                    "AND entity_id=? AND outcome!='blocked' ORDER BY model_invocation_id", (entity_id,),
-                ).fetchall()
-                if board_index is None:
-                    raise RuntimeError("image invocation requires a committed board index")
-                plan_row = self.connection.execute('SELECT boards_json FROM storyboard_plans WHERE storyboard_plan_id=?',
-                    (row['storyboard_plan_id'],)).fetchone()
-                boards = json.loads(plan_row[0])
-                if (type(board_index) is not int or not 1 <= board_index <= len(boards)
-                    or request_value.get('board') != boards[board_index - 1]
-                    or len(history) != board_index - 1
-                    or any(h['outcome'] != 'succeeded' or h['attempt_ordinal'] != i
-                           or h['claim_version'] != row['claim_version'] for i, h in enumerate(history, 1))):
-                    raise RuntimeError('board invocation must follow the committed plan in one claim')
-                ordinal = board_index
+                attempt = self.connection.execute(
+                    "SELECT a.*,b.board_json,b.render_run_id FROM render_board_attempts a "
+                    "JOIN render_board_units b USING(render_board_unit_id) WHERE a.render_board_attempt_id=?",
+                    (render_board_attempt_id,),
+                ).fetchone()
+                if (attempt is None or int(attempt['render_run_id']) != entity_id or attempt['status'] != 'started'
+                    or request_value.get('board') != json.loads(attempt['board_json'])):
+                    raise RuntimeError('image invocation must bind one explicit pending board attempt')
+                # The new explicit attempt identity carries the logical-board
+                # ordinal; this legacy field remains a unique trace sequence.
+                ordinal = int(render_board_attempt_id)
             existing = self.connection.execute(
                 "SELECT model_invocation_id FROM model_invocations "
                 "WHERE phase=? AND entity_type=? AND entity_id=? AND attempt_ordinal=? "
@@ -942,15 +990,24 @@ class WorkflowStore:
             invocation = self.connection.execute(
                 "INSERT INTO model_invocations("
                 "phase,entity_type,entity_id,attempt_ordinal,request_version,prompt_version,"
-                "schema_version,request_hash,model_id,outcome,started_at,claim_version,request_json"
-                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "schema_version,request_hash,model_id,outcome,started_at,claim_version,request_json,render_board_attempt_id"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     phase, entity_type, entity_id, ordinal, request_version,
                     prompt_version, schema_version, digest(request_value), model_id,
                     "blocked" if blocked_reason else "started", moment, row["claim_version"], canonical(request_value),
+                    render_board_attempt_id,
                 ),
             )
             invocation_id = int(invocation.lastrowid)
+            if table == 'render_runs' and not blocked_reason:
+                attached = self.connection.execute(
+                    "UPDATE render_board_attempts SET model_invocation_id=? WHERE render_board_attempt_id=? "
+                    "AND status='started' AND model_invocation_id IS NULL",
+                    (invocation_id, render_board_attempt_id),
+                )
+                if attached.rowcount != 1:
+                    raise RuntimeError('render-board attempt changed before invocation attachment')
             if blocked_reason:
                 self.connection.execute(
                     "UPDATE model_invocations SET safe_error=?,completed_at=? WHERE model_invocation_id=?",
@@ -1024,7 +1081,9 @@ class WorkflowStore:
     ) -> None:
         """Settle usage and validation outcome; exact execution traces remain in SQLite."""
         policy = budget_policy or self.model_budget_policy
-        if outcome not in {"succeeded", "transport_failed", "invalid_output", "parse_failed", "schema_failed", "blocked"}:
+        if outcome not in {"succeeded", "transport_failed", "provider_terminal", "ambiguous_outcome",
+                           "invalid_output", "structural_failed", "parse_failed", "schema_failed",
+                           "semantic_failed", "blocked"}:
             raise ValueError("invalid terminal model invocation outcome")
         input_tokens = None if usage is None else int(getattr(usage, "input_tokens", 0) or 0)
         output_tokens = None if usage is None else int(getattr(usage, "output_tokens", 0) or 0)
@@ -1244,11 +1303,216 @@ class WorkflowStore:
                 'visual_recipe_id,schema_version,planner_version,total_slides,boards_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
                 (run['storyboard_plan_run_id'], row['content_package_id'], row['output_request_id'], row['visual_recipe_id'],
                  plan['schema_version'], plan['planner_version'], plan['total_slides'], canonical(plan['boards']), moment)).lastrowid
-            self.connection.execute(
-                "INSERT INTO render_runs(storyboard_plan_id,content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,1,'pending',2,?)",
-                (plan_id, row['content_package_id'], row['visual_recipe_id'], moment))
+            render_run_id = int(self.connection.execute(
+                "INSERT INTO render_runs(storyboard_plan_id,content_package_id,visual_recipe_id,run_number,status,attempt_limit,created_at) VALUES (?,?,?,1,'pending',100,?)",
+                (plan_id, row['content_package_id'], row['visual_recipe_id'], moment)).lastrowid)
+            for board in plan['boards']:
+                board_unit_id = int(self.connection.execute(
+                    "INSERT INTO render_board_units(render_run_id,parent_render_board_unit_id,board_json,lineage_kind,status,created_at) "
+                    "VALUES (?,?,?,'planned','pending',?)",
+                    (render_run_id, None, canonical(board), moment),
+                ).lastrowid)
+                for ordinal in board['slide_indices']:
+                    self.connection.execute(
+                        "INSERT INTO render_units(render_run_id,slide_ordinal,planned_render_board_unit_id,status,created_at) "
+                        "VALUES (?,?,?,'pending',?)",
+                        (render_run_id, ordinal, board_unit_id, moment),
+                    )
             self._finish_claim('storyboard_plan_runs', 'storyboard_plan_run_id', run, 'succeeded', moment, None)
             return plan_id
+
+    def next_render_board_unit(self, run: Any) -> Any | None:
+        """Return the earliest unresolved logical board, never a completed sibling."""
+        return self.connection.execute(
+            "SELECT b.* FROM render_board_units b WHERE b.render_run_id=? AND b.status='pending' "
+            "AND EXISTS (SELECT 1 FROM render_units u WHERE u.render_run_id=b.render_run_id "
+            "AND u.slide_ordinal BETWEEN json_extract(b.board_json,'$.slide_start') "
+            "AND json_extract(b.board_json,'$.slide_end') AND u.status='pending') "
+            "ORDER BY json_extract(b.board_json,'$.slide_start'),b.render_board_unit_id LIMIT 1",
+            (run['render_run_id'],),
+        ).fetchone()
+
+    def begin_render_board_attempt(self, run: Any, board_unit: Any) -> Any:
+        """Create one explicit logical-board attempt before its paid call."""
+        moment = now()
+        with self.transaction():
+            current = self.connection.execute(
+                "SELECT * FROM render_board_units WHERE render_board_unit_id=? AND render_run_id=?",
+                (board_unit['render_board_unit_id'], run['render_run_id']),
+            ).fetchone()
+            if current is None or current['status'] != 'pending' or int(current['provider_attempt_count']) >= 3:
+                raise RuntimeError('render board is not eligible for another provider attempt')
+            render = self.connection.execute(
+                "SELECT status,claim_owner,claim_version,lease_expires_at FROM render_runs WHERE render_run_id=?",
+                (run['render_run_id'],),
+            ).fetchone()
+            if (render is None or render['status'] != 'claimed' or render['claim_owner'] != run['claim_owner']
+                or int(render['claim_version']) != int(run['claim_version']) or render['lease_expires_at'] <= moment):
+                raise RuntimeError('render claim is stale')
+            number = int(current['provider_attempt_count']) + 1
+            prior = self.connection.execute(
+                "SELECT status FROM render_board_attempts WHERE render_board_unit_id=? ORDER BY attempt_number DESC LIMIT 1",
+                (current['render_board_unit_id'],),
+            ).fetchone()
+            kind = ('fallback_child' if current['lineage_kind'] == 'fallback_child' and number == 1 else
+                    'structural_retry' if prior is not None and prior['status'] == 'structural_failed' else
+                    'provider_retry' if number > 1 else 'initial')
+            attempt_id = int(self.connection.execute(
+                "INSERT INTO render_board_attempts(render_board_unit_id,attempt_number,attempt_kind,status,created_at) "
+                "VALUES (?,?,?,?,?)", (current['render_board_unit_id'], number, kind, 'started', moment),
+            ).lastrowid)
+            self.connection.execute(
+                "UPDATE render_board_units SET status='running',provider_attempt_count=? WHERE render_board_unit_id=?",
+                (number, current['render_board_unit_id']),
+            )
+            return self.connection.execute("SELECT * FROM render_board_attempts WHERE render_board_attempt_id=?", (attempt_id,)).fetchone()
+
+    def finish_render_board_attempt(self, attempt: Any, *, status: str,
+                                    structural_evidence: dict[str, Any] | None = None,
+                                    diagnostic: dict[str, Any] | None = None,
+                                    board_status: str | None = None) -> None:
+        if status not in {'succeeded','provider_transient','provider_terminal','structural_failed','invalid_output','ambiguous','local_failed'}:
+            raise ValueError('invalid render-board attempt terminal status')
+        if board_status is not None and board_status not in {'pending','succeeded','split','failed','ambiguous'}:
+            raise ValueError('invalid render-board status')
+        moment = now()
+        with self.transaction():
+            changed = self.connection.execute(
+                "UPDATE render_board_attempts SET status=?,structural_evidence_json=?,safe_diagnostic_json=?,completed_at=? "
+                "WHERE render_board_attempt_id=? AND status='started'",
+                (status, None if structural_evidence is None else canonical(structural_evidence),
+                 None if diagnostic is None else canonical(diagnostic), moment, attempt['render_board_attempt_id']),
+            )
+            if changed.rowcount != 1:
+                raise RuntimeError('render-board attempt cannot be finalized twice')
+            if board_status is not None:
+                self.connection.execute(
+                    "UPDATE render_board_units SET status=?,completed_at=? WHERE render_board_unit_id=?",
+                    (board_status, moment if board_status in {'succeeded','failed','ambiguous','split'} else None,
+                     attempt['render_board_unit_id']),
+                )
+
+    def attach_render_board_invocation(self, attempt: Any, invocation_id: int) -> None:
+        with self.transaction():
+            changed = self.connection.execute(
+                "UPDATE render_board_attempts SET model_invocation_id=? WHERE render_board_attempt_id=? "
+                "AND status='started' AND model_invocation_id IS NULL",
+                (invocation_id, attempt['render_board_attempt_id']),
+            )
+            if changed.rowcount != 1:
+                raise RuntimeError('render-board invocation cannot be attached')
+
+    def complete_render_board_units(self, run: Any, attempt: Any, checkpoints: list[dict[str, Any]],
+                                    result: dict[str, Any]) -> None:
+        """Persist only verified completed slides; final review assets are promoted later."""
+        moment = now()
+        with self.transaction():
+            board = self.connection.execute("SELECT board_json FROM render_board_units WHERE render_board_unit_id=?",
+                                            (attempt['render_board_unit_id'],)).fetchone()
+            if board is None:
+                raise RuntimeError('render-board unit disappeared')
+            ordinals = json.loads(board[0])['slide_indices']
+            if [item.get('ordinal') for item in checkpoints] != ordinals:
+                raise ValueError('render checkpoints do not match the logical board')
+            for item in checkpoints:
+                updated = self.connection.execute(
+                    "UPDATE render_units SET status='succeeded',completed_render_board_attempt_id=?,checkpoint_json=?,completed_at=? "
+                    "WHERE render_run_id=? AND slide_ordinal=? AND status='pending'",
+                    (attempt['render_board_attempt_id'], canonical(item), moment, run['render_run_id'], item['ordinal']),
+                )
+                if updated.rowcount != 1:
+                    raise RuntimeError('render slide was already completed or is outside this run')
+            self.connection.execute(
+                "UPDATE render_board_attempts SET status='succeeded',result_json=?,completed_at=? "
+                "WHERE render_board_attempt_id=? AND status='started'",
+                (canonical(result), moment, attempt['render_board_attempt_id']),
+            )
+            self.connection.execute(
+                "UPDATE render_board_units SET status='succeeded',completed_at=? WHERE render_board_unit_id=?",
+                (moment, attempt['render_board_unit_id']),
+            )
+
+    def split_render_board_unit(self, run: Any, attempt: Any, children: list[dict[str, Any]], diagnostic: dict[str, Any]) -> None:
+        """Replace a structurally bad composite with deterministic child work only."""
+        moment = now()
+        with self.transaction():
+            changed = self.connection.execute(
+                "UPDATE render_board_attempts SET status='structural_failed',safe_diagnostic_json=?,completed_at=? "
+                "WHERE render_board_attempt_id=? AND status='started'",
+                (canonical(diagnostic), moment, attempt['render_board_attempt_id']),
+            )
+            if changed.rowcount != 1:
+                raise RuntimeError('render-board structural result is stale')
+            self.connection.execute(
+                "UPDATE render_board_units SET status='split',split_reason_json=?,completed_at=? WHERE render_board_unit_id=?",
+                (canonical(diagnostic), moment, attempt['render_board_unit_id']),
+            )
+            for board in children:
+                self.connection.execute(
+                    "INSERT INTO render_board_units(render_run_id,parent_render_board_unit_id,board_json,lineage_kind,status,created_at) "
+                    "VALUES (?,?,?,?, 'pending',?)",
+                    (run['render_run_id'], attempt['render_board_unit_id'], canonical(board), 'fallback_child', moment),
+                )
+
+    def schedule_render_provider_retry(self, run: Any, attempt: Any, diagnostic: dict[str, Any]) -> bool:
+        """Persist a safe transient replay boundary for one logical board."""
+        moment = now()
+        with self.transaction():
+            current = self.connection.execute(
+                "SELECT b.provider_attempt_count,r.status,r.claim_owner,r.claim_version,r.lease_expires_at "
+                "FROM render_board_units b JOIN render_runs r ON r.render_run_id=b.render_run_id "
+                "WHERE b.render_board_unit_id=?", (attempt['render_board_unit_id'],),
+            ).fetchone()
+            if current is None or current['status'] != 'claimed' or current['claim_owner'] != run['claim_owner'] or int(current['claim_version']) != int(run['claim_version']) or current['lease_expires_at'] <= moment:
+                raise RuntimeError('render claim changed before retry scheduling')
+            retryable = int(current['provider_attempt_count']) < 3
+            detail = {**diagnostic, 'retryable': retryable,
+                      'code': diagnostic.get('code') if retryable else 'retry_exhausted'}
+            self.connection.execute(
+                "UPDATE render_board_attempts SET status='provider_transient',safe_diagnostic_json=?,completed_at=? "
+                "WHERE render_board_attempt_id=? AND status='started'",
+                (canonical(detail), moment, attempt['render_board_attempt_id']),
+            )
+            if not retryable:
+                self.connection.execute("UPDATE render_board_units SET status='failed',completed_at=? WHERE render_board_unit_id=?",
+                                        (moment, attempt['render_board_unit_id']))
+                return False
+            delay = min(120, 15 * 2 ** (int(current['provider_attempt_count']) - 1) + random.uniform(0, 10))
+            next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=delay))
+            self.connection.execute("UPDATE render_board_units SET status='pending' WHERE render_board_unit_id=?",
+                                    (attempt['render_board_unit_id'],))
+            self.connection.execute(
+                "UPDATE render_runs SET status='retry_wait',next_attempt_at=?,failure_reason=?,completed_at=NULL "
+                "WHERE render_run_id=? AND status='claimed' AND claim_owner=? AND claim_version=?",
+                (next_attempt, canonical(detail), run['render_run_id'], run['claim_owner'], run['claim_version']),
+            )
+            return True
+
+    def render_unit_checkpoints(self, run: Any) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT u.slide_ordinal,u.checkpoint_json,u.completed_render_board_attempt_id,a.model_invocation_id "
+            "FROM render_units u JOIN render_board_attempts a "
+            "ON a.render_board_attempt_id=u.completed_render_board_attempt_id "
+            "WHERE u.render_run_id=? ORDER BY u.slide_ordinal", (run['render_run_id'],),
+        ).fetchall()
+        if not rows or any(row['checkpoint_json'] is None for row in rows):
+            raise RuntimeError('render has unresolved final slides')
+        return [{**json.loads(row['checkpoint_json']), 'render_board_attempt_id': row['completed_render_board_attempt_id'],
+                 'model_invocation_id': row['model_invocation_id']}
+                for row in rows]
+
+    def render_successful_board_results(self, run: Any) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT a.render_board_attempt_id,a.model_invocation_id,a.result_json,b.board_json,b.render_board_unit_id "
+            "FROM render_board_attempts a JOIN render_board_units b USING(render_board_unit_id) "
+            "WHERE b.render_run_id=? AND a.status='succeeded' ORDER BY json_extract(b.board_json,'$.slide_start'),a.render_board_attempt_id",
+            (run['render_run_id'],),
+        ).fetchall()
+        if not rows or any(row['result_json'] is None for row in rows):
+            raise RuntimeError('successful render board lacks persisted result evidence')
+        return [{**json.loads(row['result_json']), 'render_board_attempt_id': row['render_board_attempt_id'],
+                 'render_board_unit_id': row['render_board_unit_id'], 'model_invocation_id': row['model_invocation_id']}
+                for row in rows]
 
     def create_visual_recipe(self, run: Any) -> int:
         """Select under the write lock, freeze history and recipe, then hand off adaptation."""

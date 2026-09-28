@@ -48,10 +48,10 @@ until multiple-account visual operation is needed. No account key is invented
 from a domain ID. `DEFAULT_ARCHETYPE_BY_DOMAIN` names only the safe fallback,
 not the complete three-archetype set.
 
-Infrastructure is independently versioned: `gemini_storyboard_prompt_v6` identifies
-the deterministic compiler, `image_storyboard_paginated_v3` identifies technical output
+Infrastructure is independently versioned: `gemini_storyboard_prompt_v7` identifies
+the deterministic compiler, `image_storyboard_paginated_v4` identifies technical output
 geometry, and overlay IDs identify local chrome. Neither
-`gemini_storyboard_prompt_v6` nor `image_storyboard_paginated_v3` is a visual template.
+`gemini_storyboard_prompt_v7` nor `image_storyboard_paginated_v4` is a visual template.
 The former is compiler infrastructure; the latter is the technical renderer
 contract. Archetype version is an integer.
 The closed `visual_recipe_v5` stores account, account profile, archetype ID/version,
@@ -95,7 +95,7 @@ paid image generation. No automatic visual fallback exists.
 
 ## Gemini designer review rendering
 
-`storyboard_plan_v3` is an immutable persisted boundary after adaptation. A
+`storyboard_plan_v4` is an immutable persisted boundary after adaptation. A
 StoryboardPlanRun claims a ContentPackage; its fenced transaction commits the plan
 and one RenderRun. The plan freezes package/output/recipe lineage, total slide count,
 planner version and ordered boards. No provider chooses pagination. Each board
@@ -110,15 +110,16 @@ those immutable units into calls; it never changes the ContentPackage, claims,
 slide count or order. Six English slides can use 6, 4+2, 2+4, 2+2+2 or singleton
 boards. Gemini selects neither capacities, grids, ratios nor split strategy.
 
-`render_text_policy.py` owns `rendered_text_load_v1` and the separate
-`render_text_calibration_v1` policy. Measurement counts exact final title/body
+`render_text_policy.py` owns `rendered_text_load_v2` and the separate
+`render_text_calibration_v2` policy. Measurement counts exact final title/body
 Unicode code points including whitespace, whitespace-separated words, nonempty
 logical lines and nonempty title/body regions. It performs no normalization or
 layout inference. It excludes locally rendered overlays, caption, cues and art
 direction. Each slide records title/body characters and words, title/body lines,
 total characters/words/lines/regions, and longest-line characters/words. Each
-candidate board aggregates count, characters, words, lines and regions, plus
-maximum slide characters/words/lines. Logical lines are not predicted visual wraps.
+candidate board aggregates title/body, total characters/words/lines/regions and
+longest-line metrics, plus corresponding per-slide maxima. Logical lines are not
+predicted visual wraps.
 
 The provisional calibration defaults are centralized in that module:
 
@@ -137,13 +138,13 @@ possible while exercising splitting for denser copy. Larger per-slide allowances
 on two-panel/singleton calls preserve legitimate dialogue, examples and
 qualification without deleting words. They do not relax adaptation copy policy.
 
-`text_load_contiguous_v1` exhaustively searches the small contiguous partition
+`text_load_contiguous_v2` exhaustively searches the small contiguous partition
 space (at most 14 slides) using capacities 6, 4, 2, 1. It rejects candidates that
 exceed any per-slide or aggregate budget, minimizes call count, then minimizes
 the maximum board density. Density is the maximum of aggregate word/character
-utilization and each slide's word/character utilization. Fractions compare
-exactly; ties prefer lexicographically larger capacity sequences. Line and region
-counts are hard gates, not density terms. No remaining-slide greedy exception or
+utilization, title and longest-line utilization, and each slide's equivalent
+metrics. Fractions compare exactly; ties prefer lexicographically larger capacity
+sequences. Line and region counts are hard gates, not density terms. No remaining-slide greedy exception or
 special eight-slide rule exists. If even singleton boards cannot fit, planning
 fails before image calls; copy is never truncated or silently reauthored.
 
@@ -176,20 +177,33 @@ different provider ratios. Packing and global slide ordering are unchanged.
 The compiler validates the board spec against the deterministic plan and enumerates
 only that board's exact text, global slide ordinals and local row-major panel order.
 It supplies the exact provider ratio, rows/columns, equal panels, edge-to-edge
-contact, no margins/gutters/borders/overlap or additional text. It distinguishes
+contact, no margins/gutters/borders/overlap or additional text. It calls a generic
+board a contact sheet of final slide designs, not a storyboard: every final cell has
+zero internal subdivisions and is one continuous composition. It explicitly forbids
+independent framed scenes, split screens, mini-storyboards, before/after canvases,
+comic panels and nested slide frames while allowing several elements in one coherent
+composition. Curated archetypes use the same distinction; their composition prose no
+longer implies paired independent cuts. It distinguishes
 raw panels from final slides and keeps titles, bodies, faces, diagrams and meaningful
 visuals away from extreme panel edges to allow center-fit cropping. Exact supplied
 text is serialized last; the model must not omit, summarize or paraphrase it.
 
 The image adapter requests the planned provider ratio and configured image size
-(default 2K), one call per board with SDK retries disabled and no references.
+(default 2K), one provider call per board attempt with SDK retries disabled and no references.
 The shared equal-grid path accepts one PNG/JPEG, at most 40 MB / 40 million pixels, at least
 200×250 pixels per raw cell, and dimensions exactly divisible by columns/rows.
 The returned width/height ratio may differ by at most **2% relative** from the
 requested provider ratio to accommodate pixel rounding. Materially wrong ratios,
 non-divisible grids, small cells and invalid images fail visibly.
 
-`equal_grid_then_fit_4x5_v1` first crops exactly the planned number of equal cells
+Before any crop, `grid_structure_v1` conservatively inspects high-confidence,
+near-full-span transitions. It records expected grid, detected vertical/horizontal
+separators, suspected region count and a structural outcome. A clearly extra grid
+or an off-boundary divider fails as `grid_contract_violation` or
+`multiple_cuts_detected`; missing or weak evidence is inconclusive and proceeds to
+human review. It is structural analysis, not OCR or a semantic vision classifier.
+
+`equal_grid_then_fit_4x5_v1` then crops exactly the planned number of equal cells
 in row-major order. Each raw cell then uses `ImageOps.fit` with Lanczos resampling
 and centering `(0.5, 0.5)` to produce **1080×1350**. It crops proportionally instead
 of stretching a non-4:5 cell. There is no margin inference or fallback. Raw cells
@@ -224,28 +238,42 @@ adjacent repetition. The final slide has no next-slide cue. Font, geometry and
 opacity remain shared. Dynamic overlay versions are
 `ai_tech_transparent_chrome_v2` and `psychology_transparent_chrome_v2`.
 
-One RenderRun renders every board sequentially under a thirty-minute lease. Every
-board has separate admission/accounting against the same daily/job limits, a unique
-invocation ordinal and persisted claim version. A board starts only after all prior
-boards succeeded under that same live claim. Transport uncertainty, lease loss,
-invalid geometry, overlay failure or later-board budget refusal stops the whole
-render with no partial ReviewRequest or automatic paid replay. Daily budget refusal
-before any paid board can defer. There is no per-board resume or repair command.
+A RenderRun is a coordinator with durable `render_board_units`,
+`render_board_attempts` and `render_units`. Each paid attempt binds one logical
+board, model invocation and reservation; successful final slide checkpoints are
+never replayed. A structural violation first retries the same board once with
+reinforced wording. A second violation deterministically replaces only that board:
+6 becomes 4+2, 4 becomes 2+2, and 2 becomes 1+1, subject to the existing text-load
+policy. Singletons cannot be reduced. Provider transient retries, structural retries
+and fallback children are distinct attempt kinds. A restart resumes pending child or
+parent work from SQLite/checkpoints and never recreates a completed sibling.
+
+One final slide is one visual cut; it is not one provider call. The normal path
+therefore still selects the largest safe 6/4/2/1 composite board. All completed
+slides must exist before the renderer promotes assets and creates one ReviewRequest.
+Ambiguous external outcomes, terminal provider/configuration errors, malformed image
+data and local processing errors stop the run without replay. A pre-call daily budget
+refusal can defer and removes its provisional board attempt because no provider call
+was made.
 
 The renderer reads the committed plan before calling the compiler. Raw PNG/JPEG
 boards retain their provider bytes and file types. Manifest provenance links every
 final ordinal to its board, cell, source rectangle, invocation, filename and hash;
 board records include grid/capacity, provider ratio, final slide ratio/dimensions,
-split strategy, text-load/policy evidence, prompt hash, raw hash/size/media, raw dimensions, source rectangles and provider-call latency in milliseconds.
+split strategy, text-load/policy evidence, structural evidence, prompt hash, raw
+hash/size/media, raw dimensions, source rectangles and provider-call latency in milliseconds.
 Split metadata names `ImageOps.fit`, Lanczos, center `(0.5, 0.5)` and final dimensions;
 source rectangles describe the equal-grid cells before normalization. The
 manifest also freezes StoryboardPlan ID/content, recipe/profile identity, compiler,
 renderer, selection and overlay provenance. All assets and one ReviewRequest commit
-only after the full ordered set succeeds. Temporary failed output is removed;
-model accounting remains. Prompts are hashed, never written to diagnostic logs.
+only after the full ordered set succeeds. The atomic-promotion temporary directory is
+removed on failure, while durable raw/slide checkpoints remain as local QA and
+recovery evidence; model accounting remains. Prompts are hashed, never written to
+diagnostic logs.
 
-The dashboard exposes plan/failure progress, expandable slide count, board count,
-layouts and ranges, and all ordered final review slides. It reads persisted evidence
+The dashboard exposes plan/failure progress, current render-board states and recent
+safe attempt diagnostics, alongside expandable slide count, board count, layouts and
+ranges, and all ordered final review slides. It reads persisted evidence
 only. Model-rendered spelling, meaning, caveat quality and aesthetics still require
 human review; capacity and reference checks do not prove semantic fidelity.
 Local font selection and the preserved delivery approval contract belong to

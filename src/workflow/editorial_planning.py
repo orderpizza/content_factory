@@ -5,6 +5,7 @@ import json
 from copy import deepcopy
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
+from common.failure_disposition import exception_diagnostic, invocation_outcome
 from .store import canonical, digest, now
 from .workers import local_operation
 from .planning_context import model_context
@@ -243,8 +244,10 @@ class GeminiEditorialPlanningWorker(EditorialPlanningWorker):
             plan = finalize_proposal(response, snapshot)
             validate_plan(plan, snapshot)
         except Exception as error:
-            self.store.finish_model_invocation(invocation, outcome='schema_failed' if response is not None else 'transport_failed',
-                                               usage=getattr(self.client, 'last_usage', None), error=str(error), response_value=response)
+            self.store.finish_model_invocation(invocation, outcome='schema_failed' if response is not None else invocation_outcome(error),
+                                               usage=getattr(self.client, 'last_usage', None),
+                                               error=json.dumps(exception_diagnostic('editorial_planning', error, int(run['attempt_count'])), sort_keys=True),
+                                               response_value=response)
             raise
         self.store.finish_model_invocation(invocation, outcome='succeeded', usage=getattr(self.client, 'last_usage', None), response_value=response)
         return self.store.complete_editorial_plan(run, plan, planner_version=PLANNER_VERSION)

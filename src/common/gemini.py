@@ -68,15 +68,8 @@ def configured_api_version(model: str | None = None) -> str:
 
 def retryable_provider_error(error):
     """Only completed, explicit provider rejections; never ambiguous local timeouts."""
-    try:
-        from google.genai.errors import APIError
-    except ImportError:
-        return False
-    if not isinstance(error, APIError):
-        return False
-    code = getattr(error, 'code', None)
-    if callable(code): code = code()
-    return type(code) is int and code in {429, 500, 502, 503, 504}
+    from common.failure_disposition import classify_failure, FailureDisposition
+    return classify_failure(error) is FailureDisposition.PROVIDER_TRANSIENT
 
 
 def configured_model() -> str:

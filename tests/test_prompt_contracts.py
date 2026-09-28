@@ -7,7 +7,8 @@ import unittest
 
 from workflow.catalog import domain_context
 from workflow.gemini_intake import _validate_intake_response, _intake_prompt
-from workflow.gemini_generation import _generation_prompt, _validate_content, source_evidence
+from workflow.gemini_generation import _generation_prompt, _validate_content, source_evidence, source_excerpt_catalog
+from common.failure_disposition import ContractFailure
 from workflow.gemini_determination import _determination_prompt, determination_schema, _validate_decision
 from workflow.gemini_adaptation import _adaptation_prompt, _validate_package
 from workflow.editorial_planning import fixture_plan, validate_plan, planning_prompt
@@ -74,13 +75,17 @@ class PromptContractTests(unittest.TestCase):
 
     def test_topic_reference_does_not_establish_other_facts(self):
         c = self.canonical()
-        c['claims'][0].update(text='This expression dates to 1600.', claim_kind='source_bound_fact', evidence_reference_ids=['message:1'])
         source = {'messages': [{'message_id': 1, 'body': 'Teach an English expression.'}], 'job_id': 8}
         self.assertEqual(set(source_evidence(source)), {'message:1'})
-        with self.assertRaisesRegex(ValueError, 'literal excerpt'):
+        excerpt = source_excerpt_catalog(source)[0]
+        c['claims'][0].update(text='This expression dates to 1600.', source_excerpt_id=excerpt['excerpt_id'],
+                              claim_kind='source_bound_fact', evidence_reference_ids=['message:1'])
+        with self.assertRaises(ContractFailure) as raised:
             _validate_content(c, 'english', {'message:1'}, source)
-        c['claims'][0]['text'] = 'Teach an English expression.'
-        _validate_content(c, 'english', {'message:1'}, source)
+        self.assertEqual(raised.exception.code, 'source_bound_text_authored')
+        c['claims'][0]['text'] = None
+        validated = _validate_content(c, 'english', {'message:1'}, source)
+        self.assertEqual(validated['claims'][0]['text'], 'Teach an English expression.')
 
     def test_public_prose_cannot_bypass_claim_registry(self):
         for field in ('context', 'takeaway', 'hook'):
@@ -179,7 +184,9 @@ class PromptContractTests(unittest.TestCase):
                     response = self.response(c, count)
                     self.assertIsNotNone(GeminiAdaptationWorker(store, FakeGeminiClient(response)).run_once())
                     self.assertIsNotNone(StoryboardPlanner(store).run_once())
-                    client = FakeImageClient()
+                    from test_storyboard_pagination import PlannedClient
+                    boards = json.loads(store.connection.execute('SELECT boards_json FROM storyboard_plans').fetchone()[0])
+                    client = PlannedClient(boards)
                     renderer = DispatchVisualRenderer(store, f.path.parent/'images', image_client=client)
                     renderer.image_renderer.budget_policy = image_tests.ImageWorkflowTests.image_policy(self)
                     self.assertIsNotNone(renderer.run_once(), renderer.image_renderer.last_operation)

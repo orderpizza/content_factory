@@ -4,14 +4,15 @@ from common.gemini_image import validate_provider_aspect_ratio
 from .render_text_policy import (MEASUREMENT_VERSION, POLICY_VERSION,
                                PROVISIONAL_CAPACITY_BUDGETS, measure_slide, assess_board)
 
-SCHEMA_VERSION = 'storyboard_plan_v3'
-PLANNER_VERSION = 'text_load_contiguous_v1'
+SCHEMA_VERSION = 'storyboard_plan_v4'
+PLANNER_VERSION = 'text_load_contiguous_v2'
 LAYOUTS = {6: (3, 2), 4: (2, 2), 2: (2, 1), 1: (1, 1)}
 PROVIDER_ASPECT_RATIOS = {1: '4:5', 2: '3:2', 4: '4:5', 6: '5:4'}
 FINAL_WIDTH, FINAL_HEIGHT = 1080, 1350
 SLIDE_ASPECT_RATIO = '4:5'
 SPLIT_STRATEGY = 'equal_grid_then_fit_4x5_v1'
 CALIBRATION_MODE = 'forced_fidelity_experiment_v1'
+FALLBACK_MODE = 'structural_fallback_v1'
 
 
 def validate_board_geometry(board):
@@ -111,7 +112,7 @@ def validate_board(board, units, domain):
         start, capacity, index = board['slide_start'] - 1, board['capacity'], board['board_index']
         if (type(start) is not int or start < 0 or type(capacity) is not int or capacity not in LAYOUTS
             or start + capacity > len(units) or type(index) is not int or index < 1
-            or board['planning_mode'] not in {'automatic', CALIBRATION_MODE}):
+            or board['planning_mode'] not in {'automatic', CALIBRATION_MODE, FALLBACK_MODE}):
             raise ValueError('invalid board range/mode')
         expected = _board([measure_slide(u) for u in units], domain, start, capacity, index, board['planning_mode'])
         if board != expected or (board['budget_violations'] and board['planning_mode'] == 'automatic'):
@@ -119,6 +120,29 @@ def validate_board(board, units, domain):
     except (KeyError, TypeError) as error:
         raise ValueError('invalid board contract') from error
     return board
+
+
+def split_for_structural_fallback(board, units, domain):
+    """Return deterministic smaller children without changing final slide order.
+
+    This is execution lineage, not a replacement for the frozen production
+    plan: it is used only after a high-confidence generated-image violation.
+    """
+    validate_board(board, units, domain)
+    partitions = {6: (4, 2), 4: (2, 2), 2: (1, 1)}.get(board['capacity'])
+    if partitions is None:
+        raise ValueError('singleton board cannot be reduced further')
+    slides = [measure_slide(unit) for unit in units]
+    start = board['slide_start'] - 1
+    children = []
+    for position, capacity in enumerate(partitions, 1):
+        candidate = _board(slides, domain, start, capacity,
+                           int(board['board_index']) * 10 + position, FALLBACK_MODE)
+        if candidate['budget_violations']:
+            raise ValueError('structural fallback cannot satisfy render text policy')
+        children.append(candidate)
+        start += capacity
+    return children
 
 
 from .workers import local_operation

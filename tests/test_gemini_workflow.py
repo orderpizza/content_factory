@@ -19,7 +19,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from workflow import GeminiAdaptationWorker, GeminiDeterminationWorker, GeminiIntakeWorker, GeminiPipelineRunner, VisualPlanner, WORKFLOW_PIPELINES, WorkflowStore
 from workflow.gemini_determination import DETERMINATION_SCHEMA
-from workflow.gemini_generation import DOMAIN_FIELDS, _generation_prompt, _validate_content, generation_schema
+from workflow.gemini_generation import (DOMAIN_FIELDS, _generation_prompt, _validate_content,
+                                        generation_schema, source_excerpt_catalog)
+from common.failure_disposition import ContractFailure
 from workflow.gemini_adaptation import _adaptation_prompt
 from workflow.gemini_intake import BRIEF_FIELDS, INTAKE_SCHEMA
 import json
@@ -441,8 +443,10 @@ class GeminiWorkflowTests(unittest.TestCase):
             "relationship intent from requesting time alone",
         )
         response = self.canonical_response("psychology")
+        source = {'messages': [{'message_id': 1, 'body': 'The supplied scenario describes one observed behavior.'}]}
+        excerpt = source_excerpt_catalog(source)[0]
         response["claims"] = [
-            {"claim_id": "observation", "text": "The supplied scenario describes one observed behavior.",
+            {"claim_id": "observation", "text": None, "source_excerpt_id": excerpt['excerpt_id'],
              "claim_kind": "source_bound_fact", "evidence_reference_ids": ["message:1"],
              "qualification": "Directly reflects the frozen scenario."},
             {"claim_id": "possibility", "text": "One possible explanation is contextual and cannot be established here.",
@@ -463,9 +467,73 @@ class GeminiWorkflowTests(unittest.TestCase):
                                'qualified_inference', 'population frequencies', 'possible_mechanism is null'):
                     self.assertIn(phrase, prompt)
                 register_fixture_semantics(response)
-                validated = _validate_content(response, 'psychology', {'message:1'},
-                    {'messages': [{'message_id': 1, 'body': response['claims'][0]['text']}]})
+                validated = _validate_content(response, 'psychology', {'message:1'}, source)
                 self.assertEqual(validated["claims"][1]["claim_kind"], "qualified_inference")
+
+    def test_source_bound_claims_select_frozen_excerpts_and_never_author_them(self):
+        source = {'messages': [
+            {'message_id': 1, 'body': 'A supplied observation is exact and bounded.'},
+            {'message_id': 2, 'body': 'A separate supplied observation has another owner.'},
+        ]}
+        first, second = source_excerpt_catalog(source)
+
+        def response_for(claim):
+            response = self.canonical_response('psychology')
+            response['claims'].append(claim)
+            return response
+
+        selected = {
+            'claim_id': 'source.observation', 'text': None,
+            'source_excerpt_id': first['excerpt_id'], 'claim_kind': 'source_bound_fact',
+            'evidence_reference_ids': [first['evidence_reference_id']],
+            'qualification': 'Exact supplied observation.',
+        }
+        validated = _validate_content(response_for(selected), 'psychology', {'message:1', 'message:2'}, source)
+        self.assertEqual(validated['claims'][-1]['text'], first['text'])
+        self.assertNotIn('source_excerpt_id', validated['claims'][-1])
+
+        cases = (
+            ({**selected, 'text': 'A paraphrase invented by the model.'}, 'source_bound_text_authored'),
+            ({**selected, 'source_excerpt_id': 'excerpt:not-present'}, 'unknown_source_excerpt_id'),
+            ({**selected, 'evidence_reference_ids': [second['evidence_reference_id']]},
+             'incompatible_source_evidence_reference'),
+            ({**selected, 'evidence_reference_ids': []}, 'source_bound_without_evidence'),
+            ({**selected, 'claim_kind': 'generated_example', 'source_excerpt_id': None,
+              'text': 'An invented illustration.', 'evidence_reference_ids': [first['evidence_reference_id']]},
+             'non_source_claim_cites_evidence'),
+        )
+        for claim, code in cases:
+            with self.subTest(code=code), self.assertRaises(ContractFailure) as raised:
+                _validate_content(response_for(claim), 'psychology', {'message:1', 'message:2'}, source)
+            self.assertEqual(raised.exception.code, code)
+
+    def test_source_selection_semantic_failure_has_one_provider_call_and_no_retry(self):
+        with WorkflowStore(self.path) as store:
+            self.register_catalog(store)
+            self.create_determination_request(store, command_id='selected-source-failure')
+            catalog = json.loads(store.connection.execute(
+                "SELECT input_snapshot_json FROM determination_requests WHERE status='pending'"
+            ).fetchone()[0])['catalog']
+            GeminiDeterminationWorker(store, FakeGeminiClient(self.decision(catalog))).run_once()
+            EditorialPlanningWorker(store).run_once()
+            invalid = self.canonical_response('english')
+            invalid['claims'].append({
+                'claim_id': 'invalid.source', 'text': None, 'source_excerpt_id': 'excerpt:unknown',
+                'claim_kind': 'source_bound_fact', 'evidence_reference_ids': [],
+                'qualification': 'This cannot be selected.',
+            })
+            client = FakeGeminiClient(invalid)
+            worker = GeminiPipelineRunner(store, client)
+            self.assertIsNone(worker.run_once())
+            self.assertIsNone(worker.run_once())
+            self.assertEqual(len(client.calls), 1)
+            invocation = store.connection.execute(
+                "SELECT outcome,safe_error FROM model_invocations WHERE phase='generation'"
+            ).fetchone()
+            self.assertEqual(invocation['outcome'], 'semantic_failed')
+            diagnostic = json.loads(invocation['safe_error'])
+            self.assertEqual((diagnostic['category'], diagnostic['code'], diagnostic['retryable']),
+                             ('output_contract', 'source_bound_without_evidence', False))
 
     def test_psychology_adaptation_prompt_cannot_strengthen_canonical_uncertainty(self):
         prompt = _adaptation_prompt({

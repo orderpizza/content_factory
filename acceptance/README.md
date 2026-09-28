@@ -153,7 +153,10 @@ CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
   --repeat 1 --max-image-calls 12 --max-calls 12 --max-usd 5.00
 ```
 
-Inspect all final slides and raw boards side by side. `fidelity-review.json`
+Inspect all final slides and raw boards side by side. `board-validation.json` also
+records per-board structural expected/detected grid evidence and outcome; compare
+those observations by capacity without treating them as a live quality conclusion.
+`fidelity-review.json`
 contains the identical package hash, expected titles/bodies and blank human
 assessment fields for exact text, altered/missing words, invented text, visual
 quality, cropping/resolution and cross-board consistency. Fill these after review;

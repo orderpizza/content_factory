@@ -9,6 +9,7 @@ from copy import deepcopy
 
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
+from common.failure_disposition import exception_diagnostic, invocation_outcome
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
@@ -131,12 +132,12 @@ class GeminiDeterminationWorker:
                 _determination_prompt(model_input), determination_schema(snapshot['catalog']), temperature=0.2
             )
         except Exception as error:
-            outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
+            outcome = invocation_outcome(error)
             self.store.finish_model_invocation(
                 invocation_id,
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
-                error=str(error),
+                error=json.dumps(exception_diagnostic('determination', error, int(request['attempt_count'])), sort_keys=True),
             )
             raise
 

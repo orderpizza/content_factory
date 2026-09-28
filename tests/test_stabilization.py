@@ -236,6 +236,35 @@ class StabilizationTests(unittest.TestCase):
                 worker=GeminiIntakeWorker(store,FailingClient({}, code))
                 worker.run_once()
                 self.assertEqual(store.connection.execute("SELECT status FROM intake_requests ORDER BY intake_request_id DESC LIMIT 1").fetchone()[0], 'retry_wait')
+            class RecoveringClient(FakeGeminiClient):
+                def __init__(self, statuses):
+                    super().__init__(brief())
+                    self.statuses = statuses
+                def generate_json(self, *args, **kwargs):
+                    if len(self.calls) < len(self.statuses):
+                        self.calls.append(1)
+                        raise ProviderError(self.statuses[len(self.calls) - 1])
+                    return super().generate_json(*args, **kwargs)
+            for statuses, command_id in (((429,), 'recover-429'), ((503, 503), 'recover-third')):
+                request_id = store.create_human_idea(f'recover after {len(statuses)}', command_id=command_id)
+                client = RecoveringClient(statuses)
+                worker = GeminiIntakeWorker(store, client)
+                for attempt in range(len(statuses) + 1):
+                    if attempt:
+                        store.connection.execute('UPDATE intake_requests SET next_attempt_at=NULL WHERE intake_request_id=?',
+                                                 (request_id,))
+                        store.connection.commit()
+                    worker.run_once()
+                row = store.connection.execute(
+                    'SELECT intake_request_id,status FROM intake_requests WHERE intake_request_id=?', (request_id,)
+                ).fetchone()
+                self.assertEqual(row['status'], 'completed')
+                invocations = store.connection.execute(
+                    "SELECT outcome FROM model_invocations WHERE entity_type='intake_request' AND entity_id=? ORDER BY model_invocation_id",
+                    (row['intake_request_id'],),
+                ).fetchall()
+                self.assertEqual([item['outcome'] for item in invocations], ['transport_failed'] * len(statuses) + ['succeeded'])
+                self.assertEqual(len(client.calls), len(statuses) + 1)
             store.create_human_idea('another subject',command_id='schema')
             client=FakeGeminiClient({});worker=GeminiIntakeWorker(store,client);worker.run_once();worker.run_once()
             self.assertEqual(len(client.calls),1)

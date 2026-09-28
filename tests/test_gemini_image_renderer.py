@@ -16,7 +16,10 @@ from workflow.visual_art_direction import EXPRESSION_BREAKDOWN_BRIEF
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from workflow import GeminiAdaptationWorker, VisualPlanner, WorkflowStore
-from workflow.gemini_image_renderer import DispatchVisualRenderer, OVERLAY_PROFILES, apply_overlays, build_storyboard_prompt, footer_cta_phrases, split_storyboard, split_storyboard_with_metadata
+from workflow.gemini_image_renderer import (DispatchVisualRenderer, OVERLAY_PROFILES, StructuralGridViolation,
+                                            apply_overlays, build_storyboard_prompt, footer_cta_phrases,
+                                            split_storyboard, split_storyboard_with_metadata,
+                                            validate_composite_structure)
 from workflow.model_budget import ModelBudgetPolicy
 import json
 import test_gemini_workflow as workflow_fixtures
@@ -62,6 +65,21 @@ def storyboard_image(image_format='PNG'):
     return stream.getvalue()
 
 
+def structural_grid_image(columns, rows, *, size=(600, 400)):
+    image = Image.new('RGB', size)
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    palette = ['#d03030', '#30d030', '#3030d0', '#d0d030', '#d030d0', '#30d0d0']
+    for ordinal in range(columns * rows):
+        column, row = ordinal % columns, ordinal // columns
+        draw.rectangle((column * width // columns, row * height // rows,
+                        (column + 1) * width // columns - 1, (row + 1) * height // rows - 1),
+                       fill=palette[ordinal % len(palette)])
+    stream = BytesIO()
+    image.save(stream, format='PNG')
+    return stream.getvalue()
+
+
 def storyboard_with_margins(*, margin=32, column_gutter=26, row_gutter=30, background='#b9aa9a'):
     panel_height = 450
     height = margin * 2 + panel_height * 2 + row_gutter
@@ -104,6 +122,30 @@ class FakeImageClient:
 
 
 class ImagePipelineTests(unittest.TestCase):
+    def test_structural_grid_validation_rejects_extra_cuts_but_allows_ordinary_card_content(self):
+        from workflow.storyboard_planner import paginate
+        expected_two = paginate(
+            [dict(title='Title', body='Body') for _ in range(4)], 'ai_tech', calibration_capacities=[2, 2]
+        )[0]
+        with self.assertRaises(StructuralGridViolation) as raised:
+            validate_composite_structure(structural_grid_image(2, 2), expected_two)
+        self.assertEqual(raised.exception.code, 'grid_contract_violation')
+        self.assertEqual(raised.exception.evidence['detected_grid'], {'columns': 2, 'rows': 2})
+
+        expected_four = paginate(
+            [dict(title='Title', body='Body') for _ in range(4)], 'ai_tech'
+        )[0]
+        self.assertEqual(validate_composite_structure(structural_grid_image(2, 2), expected_four)['outcome'], 'pass')
+
+        ordinary = Image.new('RGB', (600, 400), '#24465a')
+        draw = ImageDraw.Draw(ordinary)
+        draw.rounded_rectangle((110, 95, 490, 305), radius=24, fill='#e9eef1')
+        draw.rectangle((155, 145, 445, 165), fill='#d03030')
+        draw.rectangle((155, 190, 400, 208), fill='#3030d0')
+        stream = BytesIO()
+        ordinary.save(stream, format='PNG')
+        self.assertEqual(validate_composite_structure(stream.getvalue(), expected_two)['outcome'], 'inconclusive')
+
     def test_storyboard_prompt_has_exact_content_and_instructional_design_contract(self):
         value = recipe('expression_breakdown_v1', roles=EXPRESSION_ROLES)
         package = {'platform': 'instagram', 'visual_units': deepcopy(EXPRESSION_UNITS)}
@@ -281,7 +323,7 @@ class ImageWorkflowTests(unittest.TestCase):
             review = worker.run_once()
             self.assertIsNotNone(review, getattr(worker, 'last_operation', None))
             self.assertEqual(len(client.calls), 1)
-            self.assertIn('3 columns and 2 rows', client.calls[0])
+            self.assertIn('TOTAL FINAL SLIDE CELLS = 6', client.calls[0])
             assets = list(store.connection.execute('SELECT * FROM render_assets ORDER BY ordinal'))
             self.assertEqual([asset['ordinal'] for asset in assets], list(range(1, 7)))
             for ordinal, asset in enumerate(assets, 1):
@@ -294,7 +336,7 @@ class ImageWorkflowTests(unittest.TestCase):
             manifest = json.loads(store.connection.execute('SELECT manifest_json FROM render_runs').fetchone()[0])
             self.assertEqual(manifest['renderer'], 'gemini_storyboard_designer_v1')
             self.assertEqual(manifest['prompt_version'], PROMPT_COMPILER_VERSION)
-            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v6')
+            self.assertEqual(manifest['prompt_compiler_version'], 'gemini_storyboard_prompt_v7')
             self.assertEqual(manifest['overlay']['background'], 'transparent')
             self.assertEqual(manifest['overlay']['brand_text'], 'o2_english')
             self.assertEqual(manifest['overlay']['footer_cta_phrases'], footer_cta_phrases(1))

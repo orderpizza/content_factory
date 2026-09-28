@@ -48,6 +48,21 @@ class PlannedClient(FakeImageClient):
         return GeneratedImage(board_bytes(board), 'image/png')
 
 
+def grid_bytes(columns, rows, aspect_ratio):
+    ratio_width, ratio_height = map(int, aspect_ratio.split(':'))
+    image = Image.new('RGB', (ratio_width * 200, ratio_height * 200))
+    draw = ImageDraw.Draw(image)
+    colors = ('#d03030', '#30d030', '#3030d0', '#d0d030', '#d030d0', '#30d0d0')
+    for ordinal in range(columns * rows):
+        column, row = ordinal % columns, ordinal // columns
+        draw.rectangle((column * image.width // columns, row * image.height // rows,
+                        (column + 1) * image.width // columns - 1,
+                        (row + 1) * image.height // rows - 1), fill=colors[ordinal % len(colors)])
+    stream = BytesIO()
+    image.save(stream, format='PNG')
+    return stream.getvalue()
+
+
 def sparse_units(total):
     return [dict(title='Title', body='Body') for _ in range(total)]
 
@@ -199,7 +214,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
                     self.assertIn(f'{count} slides · {len(boards)} boards',html)
                     for board,prompt in zip(boards,client.calls):
                         if domain=='english': continue
-                        self.assertIn(f"{board['cols']} columns and {board['rows']} rows",prompt)
+                        self.assertIn(f"COLUMNS = {board['cols']}. ROWS = {board['rows']}",prompt)
                         self.assertIn('No outer margins. No gutters.',prompt)
                         self.assertIn(f"Provider board aspect ratio {board['provider_aspect_ratio']}",prompt)
                         self.assertIn('Panels must touch edge-to-edge',prompt)
@@ -256,8 +271,10 @@ class StoryboardBoundaryTests(unittest.TestCase):
             self.assertEqual(len(client.calls),2)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0],0)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM render_assets').fetchone()[0],0)
-            self.assertEqual([r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")],['succeeded','transport_failed'])
-            self.assertEqual(list((Path(f.temporary.name)/'assets').iterdir()),[])
+            self.assertEqual([r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")],['succeeded','ambiguous_outcome'])
+            checkpoint = Path(f.temporary.name) / 'assets' / 'render-1.checkpoint'
+            self.assertTrue(checkpoint.is_dir())
+            self.assertTrue((checkpoint / 'unit-01.png').exists())
 
     def test_dynamic_readability_roles_cues_and_claims(self):
         f=self.fixture()
@@ -298,7 +315,9 @@ class StoryboardBoundaryTests(unittest.TestCase):
                 return store.begin_model_invocation(phase='image_rendering',table='render_runs',key='render_run_id',row=run,
                     request_version='test',prompt_version='test',schema_version='test',model_id='fake',
                     request_value={'board':boards[index-1]},board_index=index)
-            with self.assertRaises(RuntimeError): begin(2)
+            # Explicit board units replace the former serial board-index lock:
+            # either unresolved logical board can acquire an auditable attempt.
+            begin(2)
             begin(1)
             with self.assertRaises(RuntimeError): begin(1)
             with self.assertRaises(RuntimeError): begin(2)
@@ -342,3 +361,44 @@ class StoryboardBoundaryTests(unittest.TestCase):
             worker.image_renderer.budget_policy=policy
             self.assertIsNotNone(worker.run_once(),worker.last_operation)
             self.assertEqual(len(client.calls),2)
+
+    def test_structural_retry_then_smaller_boards_preserves_completed_siblings(self):
+        f = self.fixture()
+        with WorkflowStore(f.path) as store:
+            self.prepare(store, f, 'ai_tech', 8)
+            self.assertIsNotNone(StoryboardPlanner(store).run_once())
+
+            class SequenceClient(FakeImageClient):
+                def __init__(self):
+                    super().__init__()
+                    self.capacities = []
+
+                def generate_image(self, prompt, *, aspect_ratio='5:4'):
+                    import re
+                    self.calls.append(prompt)
+                    capacity = int(re.search(r'TOTAL FINAL SLIDE CELLS = (\d+)', prompt).group(1))
+                    self.capacities.append(capacity)
+                    # Board one succeeds. Board two gets one reinforced retry,
+                    # then only its unresolved slides become 2 + 2 children.
+                    if len(self.calls) in {2, 3}:
+                        return GeneratedImage(grid_bytes(2, 3, aspect_ratio), 'image/png')
+                    cols, rows = {1: (1, 1), 2: (2, 1), 4: (2, 2), 6: (3, 2)}[capacity]
+                    return GeneratedImage(grid_bytes(cols, rows, aspect_ratio), 'image/png')
+
+            client = SequenceClient()
+            worker = DispatchVisualRenderer(store, Path(f.temporary.name) / 'assets', image_client=client)
+            review = worker.run_once()
+            self.assertIsNotNone(review, worker.last_operation)
+            self.assertEqual(client.capacities, [4, 4, 4, 2, 2])
+            self.assertIn('STRUCTURAL RETRY', client.calls[2])
+            self.assertEqual(store.connection.execute(
+                "SELECT provider_attempt_count FROM render_board_units "
+                "WHERE render_run_id=1 AND json_extract(board_json,'$.slide_start')=1"
+            ).fetchone()[0], 1)
+            self.assertEqual(store.connection.execute(
+                "SELECT COUNT(*) FROM render_board_units WHERE render_run_id=1 AND lineage_kind='fallback_child' AND status='succeeded'"
+            ).fetchone()[0], 2)
+            self.assertEqual(store.connection.execute(
+                "SELECT COUNT(*) FROM model_invocations WHERE phase='image_rendering'"
+            ).fetchone()[0], 5)
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 1)

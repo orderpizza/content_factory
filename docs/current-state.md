@@ -2,14 +2,15 @@
 
 ## System state
 
-The current schema is **17**, defined by
+The current schema is **18**, defined by
 [application-schema.sql](contracts/application-schema.sql).
 Use a fresh development database with a new filename. Incompatible databases are
 refused by version/checksum validation; setup refuses any existing path.
 The inactive production configuration contract is `production_configuration_v2`;
 [configuration](specs/configuration.md#preserved-production-configuration) owns
-its visual-approval semantics. No existing database is upgraded automatically. Schema 17 separates canonical
-claim references and structured Adaptation lines from earlier contracts. Existing
+its visual-approval semantics. No existing database is upgraded automatically. Schema 18 adds
+durable render-board attempts, fallback lineage and completed final-slide checkpoints to the
+existing canonical-claim and structured-Adaptation contracts. Existing
 schema-16 databases remain intact and must be opened by their matching code;
 this release requires fresh setup, with no incidental migration.
 All persisted timestamps are UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
@@ -25,9 +26,11 @@ the workflow runs planning only; default workers are deterministic fixtures.
 `--gemini --review-preview` enables canonical generation, deterministic visual planning,
 archetype-aware Instagram adaptation and Gemini review rendering. English supports
 deterministically planned 4–6-slide review carousels; AI/Tech and Psychology produce 4–14 slides. All domains
-use persisted text-aware render pagination independently of content pagination,
-with sequential Gemini
-board calls with explicit supported provider ratios, equal-grid splitting (or the
+use persisted text-aware render pagination independently of content pagination. The normal
+renderer keeps cost-aware 6/4/2/1 composite calls, validates returned composite structure
+before cropping, and can retry one structurally invalid board once before deterministically
+splitting only that unresolved range into smaller boards. A final slide is one visual cut, not
+one provider call. It uses explicit supported provider ratios, equal-grid splitting (or the
 accepted adaptive split for a six-panel English board) and
 proportional center-fit normalization into uniformly 4:5, 1080×1350 PNGs. Each account/domain has three curated archetypes; the accepted English, AI/Tech
 and Psychology explainers remain safe baselines. Canonical semantics and bounded
@@ -38,8 +41,10 @@ Unsupported domain/archetype combinations block explicitly; invalid package
 shapes fail before the image call. No HTML fallback is active. Explicit human slide/domain constraints are extracted
 locally, Editorial Planning IDs/scoring/qualification attachment are deterministic,
 and Adaptation selects required teaching claims into explicit body-line arrays.
-Only explicit retryable text-provider responses can retry within durable attempt
-limits; contract failures stop without repeated paid calls. Text transport uses a
+Only explicit retryable provider responses (429/500/502/503/504) can retry within
+durable limits: three total provider calls per logical text item or image board. Contract,
+semantic, configuration, local and ambiguous external outcomes stop without blind paid replay.
+Text transport uses a
 finite configurable 180-second deadline (maximum 300 seconds) and 600-second
 fenced claims. `gemini-3.7-flash` on Vertex `global` with API `v1` is the current
 GA text recommendation; operator pricing remains required. Startup and invocation

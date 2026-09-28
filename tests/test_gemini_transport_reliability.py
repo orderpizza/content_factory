@@ -131,12 +131,12 @@ class TransportReliabilityTests(unittest.TestCase):
                                      "GEMINI_API_VERSION": "v1", "GEMINI_TEXT_TIMEOUT_SECONDS": "180",
                                      "GOOGLE_CLOUD_PROJECT": "do-not-record"}, clear=True):
             value = runtime_fingerprint()
-        self.assertEqual(value["database_schema_version"], 17)
+        self.assertEqual(value["database_schema_version"], 18)
         self.assertEqual(value["text_model"], "gemini-3.7-flash")
         self.assertEqual(value["vertex_location"], "global")
         self.assertEqual(value["api_version"], "v1")
         self.assertEqual(value["text_timeout_seconds"], 180)
-        self.assertEqual(value["prompt_versions"]["generation"], "workflow_gemini_generation_prompt_v7")
+        self.assertEqual(value["prompt_versions"]["generation"], "workflow_gemini_generation_prompt_v8")
         self.assertNotIn("do-not-record", repr(value))
 
 

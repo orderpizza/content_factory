@@ -80,20 +80,24 @@ thinking and their configured output budgets. `GEMINI_MODEL=gemini-3.7-flash`,
 GA text route; use global only with a model that supports it. Image model and
 endpoint settings remain separate.
 
-An explicit terminal provider HTTP 429, 500, 502, 503 or 504 response may schedule
-the next existing durable text attempt, with 15-second exponential delay capped
-at 120 seconds plus up to 10 seconds of jitter. The limit is three total calls:
-the initial attempt and at most two retries. Each retry has its own fenced claim,
-exact invocation trace and budget reservation. Missing
-usage retains the prior uncertain reservation; it is never treated as free.
-Schema, parse, semantic and deterministic contract failures do not trigger this
-retry. Local timeouts, disconnected/unknown transport outcomes, lease loss and
-image calls remain terminal without automatic paid replay. The SDK is configured
-for one transport attempt, so each durable invocation remains one visible
-provider attempt. An invocation without returned usage keeps its full reservation
-as uncertain; a retry is separately reserved and accounted. No completed text
-handoff is repeated. Budget deferral and the inactive metadata-only repair retain
-their separate existing semantics.
+`FailureDisposition` is shared by Intake, Determination, Editorial Planning,
+Generation, Adaptation and image rendering. It distinguishes retryable explicit
+provider-transient HTTP 429/500/502/503/504, terminal provider/configuration,
+terminal output-contract, ambiguous external, and local/deterministic failures.
+Only the first class may replay. Each logical text item and each logical image
+board has a maximum of **three total provider calls**: the initial call plus at
+most two retries, with 15-second exponential delay capped at 120 seconds plus up
+to 10 seconds of jitter. Each has its own fenced invocation, trace and reservation.
+Missing usage retains an uncertain reservation; it is never free.
+
+Malformed JSON, schema/semantic/evidence/capacity failures and local deterministic
+errors are not retried. Local timeouts, connection loss and unknown transport
+exceptions are ambiguous external outcomes rather than safe replay evidence.
+Terminal provider/configuration responses likewise stop. Image structural failures
+are a separate stochastic output condition: one same-board reinforced retry may be
+made, then deterministic smaller-board lineage replaces the unresolved range.
+The SDK remains one transport attempt per durable invocation. No completed text
+handoff or successful image board is repeated; budget deferral remains separate.
 
 The local input guard is 32,000 serialized request characters, not exact input
 tokenization. Output allowance is sent to the client. `GEMINI_*_RESERVED_INPUT_TOKENS` is a reservation assumption, with backward

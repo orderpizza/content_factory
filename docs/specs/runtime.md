@@ -55,8 +55,10 @@ are rejected; Ctrl+C stops cleanly. Idle polls only update heartbeats.
 Substantive results, clarification and failures have persisted run evidence;
 failed claims must not be reported as idle.
 
-Review rendering uses one Gemini call per persisted storyboard board; all boards
-share one RenderRun and commit one complete review. Unsupported domain/archetype combinations
+Review rendering uses one Gemini call per persisted board attempt; all boards share
+one RenderRun and commit one complete review. Completed board/slide checkpoints
+survive worker restart, while structural retry/fallback lineage identifies only the
+unresolved range. Unsupported domain/archetype combinations
 block without a model call or HTML fallback. [Visual rendering](visual-rendering.md#gemini-designer-review-rendering)
 owns image processing and review assets.
 
@@ -73,9 +75,11 @@ worker from creating children.
 
 Local work without external-call history can be recovered under attempt limits.
 An existing model invocation prevents blind automatic replay after lease loss.
-Explicit terminal retryable text-provider responses can use the next bounded
-claim attempt; [reliability](reliability.md#gemini-accounting) owns the status/delay
-policy. Budget deferrals persist retry-wait state without a model call. Finalization
+Only explicit provider-transient responses can use the next bounded claim attempt;
+both text work and each logical image board allow three total calls.
+[Reliability](reliability.md#gemini-accounting) owns disposition/status/delay policy.
+Structural image retries and smaller-board fallback are persisted separately from
+provider retries. Budget deferrals persist retry-wait state without a model call. Finalization
 checks thread cancellation/closure before inserting downstream output.
 
 A human refinement creates a new immutable brief and request; it does not

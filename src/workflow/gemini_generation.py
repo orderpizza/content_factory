@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from hashlib import sha256
 import json
 import re
 
 from .model_trace import generate_json
 from common.gemini import VertexGeminiClient, configured_model, TEXT_CLAIM_LEASE_SECONDS
+from common.failure_disposition import (ContractFailure, FailureDisposition, classify_failure,
+                                        provider_status, safe_failure)
 
 from .store import WORKFLOW_PIPELINES, WorkflowStore
 from .workers import local_operation
 
 
-GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v7"
+GENERATION_PROMPT_VERSION = "workflow_gemini_generation_prompt_v8"
 GENERATION_SCHEMA_VERSION = "canonical_content_v4"
 CLAIM_KINDS = ("source_bound_fact", "qualified_inference", "generated_example", "model_general_knowledge", "editorial_framing")
 
@@ -107,13 +110,17 @@ def generation_schema(pipeline_id: str) -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "required": [
-                        "claim_id", "text", "claim_kind",
+                        "claim_id", "text", "source_excerpt_id", "claim_kind",
                         "evidence_reference_ids", "qualification",
                     ],
                     "additionalProperties": False,
                     "properties": {
                         "claim_id": {**_string(), "maxLength": 120, "pattern": r"^[A-Za-z0-9._:-]{1,120}$"},
-                        "text": _string(),
+                        # Source-bound text is selected from FROZEN_JOB rather
+                        # than reproduced by the model.  It is materialized
+                        # locally before canonical_content_v4 is persisted.
+                        "text": {"anyOf": [_string(), {"type": "null"}]},
+                        "source_excerpt_id": {"anyOf": [_string(), {"type": "null"}]},
                         "claim_kind": {"type": "string", "enum": list(CLAIM_KINDS)},
                         "evidence_reference_ids": _string_list(minimum=0, maximum=12),
                         "qualification": _string(),
@@ -174,12 +181,14 @@ class GeminiPipelineRunner:
                 raise ValueError(f"ContentJob recipe is missing frozen {field}")
 
         reference_ids = _source_reference_ids(recipe["source_context"])
+        excerpts = source_excerpt_catalog(recipe["source_context"])
         request_value = {
             "pipeline_id": pipeline_id,
             "brief": {k: recipe["brief"][k] for k in ("topic", "constraints", "audience", "desired_outcome")},
             "selected_treatment": selected_treatment(recipe["editorial_plan"]),
             "source_context": recipe["source_context"],
             "allowed_source_reference_ids": reference_ids,
+            "source_excerpt_catalog": excerpts,
         }
         schema = generation_schema(pipeline_id)
         invocation_id = self.store.begin_model_invocation(
@@ -198,24 +207,32 @@ class GeminiPipelineRunner:
                 _generation_prompt(request_value), schema, temperature=0.35
             )
         except Exception as error:
-            outcome = "parse_failed" if "json" in str(error).casefold() else "transport_failed"
+            disposition = classify_failure(error)
+            outcome = (
+                "transport_failed" if disposition is FailureDisposition.PROVIDER_TRANSIENT else
+                "provider_terminal" if disposition is FailureDisposition.PROVIDER_TERMINAL else
+                "ambiguous_outcome" if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else
+                "parse_failed" if "json" in str(error).casefold() else "invalid_output"
+            )
             self.store.finish_model_invocation(
                 invocation_id,
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
-                error=str(error),
+                error=canonical_failure('generation', error, int(run['attempt_count'])),
             )
             raise
 
         try:
-            content = _validate_content(response, pipeline_id, set(reference_ids), recipe["source_context"])
+            content = _validate_content(
+                response, pipeline_id, set(reference_ids), recipe["source_context"], excerpts
+            )
         except Exception as error:
             self.store.finish_model_invocation(
                 invocation_id,
-                outcome="schema_failed",
+                outcome="semantic_failed" if isinstance(error, ContractFailure) else "schema_failed",
                 usage=getattr(self.client, "last_usage", None),
                 response_value=response,
-                error=str(error),
+                error=canonical_failure('generation', error, int(run['attempt_count'])),
             )
             raise
 
@@ -247,7 +264,8 @@ class GeminiPipelineRunner:
 
 
 def _validate_content(
-    value: Any, pipeline_id: str, allowed_reference_ids: set[str], source_context=None
+    value: Any, pipeline_id: str, allowed_reference_ids: set[str], source_context=None,
+    excerpt_catalog: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("Gemini generation response must be an object")
@@ -268,12 +286,17 @@ def _validate_content(
     claims = value["claims"]
     if not isinstance(claims, list) or len(claims) > 30:
         raise ValueError("claims must be a list containing at most 30 entries")
+    by_excerpt_id = {
+        item["excerpt_id"]: item for item in (excerpt_catalog or source_excerpt_catalog(source_context or {}))
+    }
     normalized_claims = []
     seen_claim_ids: set[str] = set()
     for claim in claims:
-        if not isinstance(claim, Mapping) or set(claim) != {
-            "claim_id", "text", "claim_kind", "evidence_reference_ids", "qualification"
-        }:
+        allowed_claim_shapes = (
+            {"claim_id", "text", "claim_kind", "evidence_reference_ids", "qualification"},
+            {"claim_id", "text", "source_excerpt_id", "claim_kind", "evidence_reference_ids", "qualification"},
+        )
+        if not isinstance(claim, Mapping) or set(claim) not in allowed_claim_shapes:
             raise ValueError("each claim must have the complete closed claim shape")
         claim_id = _nonempty(claim["claim_id"], "claim_id")
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,120}", claim_id) or claim_id in seen_claim_ids:
@@ -286,21 +309,33 @@ def _validate_content(
             claim["evidence_reference_ids"], "evidence_reference_ids", 0, 12
         )
         if len(references) != len(set(references)) or not set(references).issubset(allowed_reference_ids):
-            raise ValueError(f"claim {claim_id} references evidence outside the frozen job")
+            raise ContractFailure("foreign_evidence_reference", f"claim {claim_id} references evidence outside the frozen job")
         if claim_kind == "source_bound_fact" and not references:
-            raise ValueError(f"source-bound claim {claim_id} requires frozen evidence")
+            raise ContractFailure("source_bound_without_evidence", f"source-bound claim {claim_id} requires frozen evidence")
         if claim_kind in {'model_general_knowledge', 'generated_example', 'editorial_framing'} and references:
-            raise ValueError('model knowledge, framing and invented examples cannot cite source evidence')
+            raise ContractFailure("non_source_claim_cites_evidence", 'model knowledge, framing and invented examples cannot cite source evidence')
         if claim_kind == 'model_general_knowledge' and pipeline_id != 'english':
             raise ValueError('model general knowledge is permitted only for standard English teaching')
         if claim_kind == 'source_bound_fact':
-            evidence = source_evidence(source_context or {})
+            excerpt_id = claim.get('source_excerpt_id')
+            if not isinstance(excerpt_id, str) or not excerpt_id:
+                raise ContractFailure('unknown_source_excerpt_id', 'source-bound claim must select an allowed source excerpt ID')
+            selected = by_excerpt_id.get(excerpt_id)
+            if selected is None:
+                raise ContractFailure('unknown_source_excerpt_id', 'source-bound claim selected an unknown source excerpt ID')
+            owner = selected['evidence_reference_id']
+            if references != [owner]:
+                raise ContractFailure('incompatible_source_evidence_reference', 'source-bound claim must cite exactly the selected excerpt owner')
+            if claim.get('text') not in (None, ''):
+                raise ContractFailure('source_bound_text_authored', 'source-bound text must be selected, not authored by Gemini')
+            text = selected['text']
+        else:
+            if claim.get('source_excerpt_id') not in (None, ''):
+                raise ContractFailure('source_excerpt_for_non_source_claim', 'only source-bound claims may select source excerpts')
             text = _nonempty(claim['text'], 'claim text')
-            if not all(ref in evidence for ref in references) or not any(text in evidence[ref] for ref in references):
-                raise ValueError('source-bound text must be a literal excerpt of cited supplied evidence')
         normalized_claims.append({
             "claim_id": claim_id,
-            "text": _nonempty(claim["text"], "claim text"),
+            "text": text,
             "claim_kind": claim_kind,
             "evidence_reference_ids": references,
             "qualification": _nonempty(claim["qualification"], "claim qualification"),
@@ -357,6 +392,35 @@ def source_evidence(source_context):
             for child in value:
                 visit(child)
     visit(source_context)
+    return result
+
+
+def source_excerpt_catalog(source_context: Mapping[str, Any], *, limit_per_reference: int = 12,
+                           maximum_length: int = 480) -> list[dict[str, str]]:
+    """Derive bounded, stable literal selections from frozen evidence.
+
+    This intentionally does not judge truth.  Its job is to make the only
+    source-bound text that can enter canonical content a selected exact span.
+    """
+    if limit_per_reference < 1 or maximum_length < 40:
+        raise ValueError('source excerpt bounds are invalid')
+    result: list[dict[str, str]] = []
+    for reference_id, source_text in sorted(source_evidence(source_context).items()):
+        candidates = [part.strip() for part in re.split(r'(?<=[.!?])\s+|\n+', source_text) if part.strip()]
+        if not candidates:
+            candidates = [source_text.strip()]
+        bounded: list[str] = []
+        for candidate in candidates:
+            while len(candidate) > maximum_length:
+                cut = candidate.rfind(' ', 0, maximum_length + 1)
+                cut = maximum_length if cut < 40 else cut
+                bounded.append(candidate[:cut].strip())
+                candidate = candidate[cut:].strip()
+            if candidate:
+                bounded.append(candidate)
+        for index, text in enumerate(bounded[:limit_per_reference], 1):
+            excerpt_id = 'excerpt:' + sha256((reference_id + '\0' + text).encode('utf-8')).hexdigest()[:20]
+            result.append({'excerpt_id': excerpt_id, 'evidence_reference_id': reference_id, 'text': text})
     return result
 
 
@@ -444,6 +508,15 @@ def selected_treatment(plan):
                                     'evidence_requirements', 'qualification_requirements')}
 
 
+def canonical_failure(stage: str, error: Exception, attempt: int) -> str:
+    disposition = classify_failure(error)
+    code = error.code if isinstance(error, ContractFailure) else (
+        f'http_{provider_status(error)}' if provider_status(error) is not None else type(error).__name__.casefold()
+    )
+    return json.dumps(safe_failure(stage=stage, disposition=disposition, code=str(code), attempt=attempt,
+                                   retryable=disposition is FailureDisposition.PROVIDER_TRANSIENT), sort_keys=True)
+
+
 def _generation_prompt(request_value: dict[str, Any]) -> str:
     from .prompt_policy import compose
     return compose("""Write reusable educational content for the supplied subject area.
@@ -459,8 +532,10 @@ The target preserves the human's requested expression, not evidence for its mean
 key_points are the minimal teaching claims that fulfill selected_treatment.must_cover_points;
 they and takeaway must survive publicly, along with domain qualification/meaning.
 Keep supporting details optional. Register at most 30 claims.
-source_bound_fact is a literal excerpt from cited supplied evidence, not a
-paraphrase or an inference. A source naming a topic cannot support other facts.
+source_bound_fact is selected from source_excerpt_catalog, never authored: set
+text to null, choose one source_excerpt_id, and copy exactly its owning
+evidence_reference_id as the sole citation. Do not paraphrase, shorten, combine,
+or infer from an excerpt. A source naming a topic cannot support other facts.
 qualified_inference is an explicitly cautious interpretation, with its uncertainty
 visible in text. generated_example is an invented teaching example. Only standard
 English meaning/usage may use model_general_knowledge: unverified model knowledge,
