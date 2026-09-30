@@ -49,7 +49,9 @@ def invocation_cost(connection, invocation_id):
     value['actual_minus_reservation_micro_usd'] = (
         None if value['actual_micro_usd'] is None or value['reservation_micro_usd'] is None
         else value['actual_micro_usd'] - value['reservation_micro_usd'])
-    value['reservation_semantics'] = 'admission estimate, not a price ceiling'
+    value['reservation_semantics'] = 'historical admission estimate, not an actual charge'
+    value['active_reservation_micro_usd'] = value['reservation_micro_usd'] if value['accounting_status']=='reserved' else 0
+    value['uncertain_micro_usd'] = value['reservation_micro_usd'] if value['accounting_status']=='uncertain' else 0
     return value
 
 
@@ -57,7 +59,8 @@ def aggregate_cost(values):
     def total(key):
         return None if any(v[key] is None for v in values) else sum(v[key] for v in values)
     return {key: total(key) for key in ('reservation_micro_usd', 'actual_micro_usd',
-                                      'actual_minus_reservation_micro_usd')}
+                                      'actual_minus_reservation_micro_usd', 'active_reservation_micro_usd',
+                                      'uncertain_micro_usd')}
 
 
 def job_cost(connection, job_id):

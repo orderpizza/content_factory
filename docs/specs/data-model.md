@@ -95,7 +95,11 @@ slide/board text metrics, capacity budget snapshot, density and planning mode;
 `render_runs.storyboard_plan_id` is required and unique; SQL guards prevent
 lineage substitution. `render_board_units` own logical planned/fallback boards,
 their parents and persisted status; `render_board_attempts` own up to three paid
-attempts, structural evidence and safe diagnostics; `render_units` own one final
+provider attempts per logical request, structural evidence, generated/validated/
+extracted local checkpoints in `result_json`, and safe diagnostics (including a
+pending provider retry time). Reinforced requests reuse the existing
+`structural_retry` child lineage rather than sharing the original provider counter.
+`render_units` own one final
 slide checkpoint and its successful attempt. `model_invocations.render_board_attempt_id`
 binds each paid image request to exactly one attempt. `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.

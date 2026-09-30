@@ -134,3 +134,14 @@ class ModelBudgetPolicy:
             + Decimal(output_tokens) * self.output_usd_per_million
         ).to_integral_value(rounding=ROUND_CEILING)
         return max(0, int(amount))
+
+
+def runtime_job_limit_loader(path, process_environment):
+    """Re-read just the mutable job ceiling; preserve explicit environment precedence."""
+    from common.environment import read_environment_file
+    key = 'GEMINI_JOB_HARD_LIMIT_USD'
+    override = process_environment.get(key)
+    def load():
+        values = {key: override} if override is not None else read_environment_file(path)
+        return _micro_usd(_decimal(key, values))
+    return load

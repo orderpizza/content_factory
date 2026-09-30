@@ -101,6 +101,7 @@ class GeminiIntakeWorker:
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
                 error=json.dumps(exception_diagnostic('intake', error, int(request['attempt_count'])), sort_keys=True),
+                provider_error=error,
             )
             raise
 

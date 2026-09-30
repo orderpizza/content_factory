@@ -247,6 +247,7 @@ class GeminiEditorialPlanningWorker(EditorialPlanningWorker):
             self.store.finish_model_invocation(invocation, outcome='schema_failed' if response is not None else invocation_outcome(error),
                                                usage=getattr(self.client, 'last_usage', None),
                                                error=json.dumps(exception_diagnostic('editorial_planning', error, int(run['attempt_count'])), sort_keys=True),
+                                               provider_error=error,
                                                response_value=response)
             raise
         self.store.finish_model_invocation(invocation, outcome='succeeded', usage=getattr(self.client, 'last_usage', None), response_value=response)

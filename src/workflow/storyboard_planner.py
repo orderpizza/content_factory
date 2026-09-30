@@ -129,7 +129,7 @@ def split_for_structural_fallback(board, units, domain):
     plan: it is used only after a high-confidence generated-image violation.
     """
     validate_board(board, units, domain)
-    partitions = {6: (4, 2), 4: (2, 2), 2: (1, 1)}.get(board['capacity'])
+    partitions = (1,) * board['capacity'] if board['capacity'] > 1 else None
     if partitions is None:
         raise ValueError('singleton board cannot be reduced further')
     slides = [measure_slide(unit) for unit in units]

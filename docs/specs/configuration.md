@@ -50,7 +50,14 @@ this cleanup does not introduce a font-attestation subsystem.
 `.env.example` is the canonical tracked inventory of operator-facing variables.
 Ignored `.env` holds actual local values with the same preferred keys. Entrypoints
 load it before resolving settings: process environment wins over the file, and
-explicit CLI arguments win over both. Restart processes after editing values.
+explicit CLI arguments win over both. Most settings require a process restart.
+The workflow re-reads only `GEMINI_JOB_HARD_LIMIT_USD` from the local file at a
+job's first admitted paid operation; an explicit startup process variable still
+wins. The first reservation snapshots this ceiling, and every later stage/retry
+of that job reuses it. File changes therefore apply to new job execution without
+a poller restart, never retroactively changing an existing job's cap. Prices,
+models, token caps and daily limits retain startup loading. This is a narrow job
+budget reload, not a general live configuration system.
 The loader accepts literal KEY=VALUE records without interpolation or execution;
 invalid lines report a number, never their secret value.
 

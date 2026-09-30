@@ -122,29 +122,16 @@ class FakeImageClient:
 
 
 class ImagePipelineTests(unittest.TestCase):
-    def test_structural_grid_validation_rejects_extra_cuts_but_allows_ordinary_card_content(self):
-        from workflow.storyboard_planner import paginate
-        expected_two = paginate(
-            [dict(title='Title', body='Body') for _ in range(4)], 'ai_tech', calibration_capacities=[2, 2]
-        )[0]
-        with self.assertRaises(StructuralGridViolation) as raised:
-            validate_composite_structure(structural_grid_image(2, 2), expected_two)
-        self.assertEqual(raised.exception.code, 'grid_contract_violation')
-        self.assertEqual(raised.exception.evidence['detected_grid'], {'columns': 2, 'rows': 2})
-
-        expected_four = paginate(
-            [dict(title='Title', body='Body') for _ in range(4)], 'ai_tech'
-        )[0]
-        self.assertEqual(validate_composite_structure(structural_grid_image(2, 2), expected_four)['outcome'], 'pass')
-
-        ordinary = Image.new('RGB', (600, 400), '#24465a')
-        draw = ImageDraw.Draw(ordinary)
-        draw.rounded_rectangle((110, 95, 490, 305), radius=24, fill='#e9eef1')
-        draw.rectangle((155, 145, 445, 165), fill='#d03030')
-        draw.rectangle((155, 190, 400, 208), fill='#3030d0')
-        stream = BytesIO()
-        ordinary.save(stream, format='PNG')
-        self.assertEqual(validate_composite_structure(stream.getvalue(), expected_two)['outcome'], 'inconclusive')
+    def test_expected_layout_ignores_decorative_full_span_lines(self):
+        expected_two = paginate([dict(title='Title', body='Body') for _ in range(4)],
+                                'ai_tech', calibration_capacities=[2, 2])[0]
+        for rows in (2, 3, 4):
+            evidence = validate_composite_structure(structural_grid_image(3, rows), expected_two)
+            self.assertEqual(evidence['expected_grid'], {'columns': 2, 'rows': 1})
+            self.assertEqual(len(evidence['source_rectangles']), 2)
+            self.assertNotIn('detected_grid', evidence)
+        with self.assertRaises(StructuralGridViolation):
+            validate_composite_structure(structural_grid_image(2, 1, size=(600, 800)), expected_two)
 
     def test_storyboard_prompt_has_exact_content_and_instructional_design_contract(self):
         value = recipe('expression_breakdown_v1', roles=EXPRESSION_ROLES)

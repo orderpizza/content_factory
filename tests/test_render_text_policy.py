@@ -220,7 +220,7 @@ def test_english_later_board_failure_keeps_ledger_without_partial_review(workflo
         assert worker.run_once() is None
         assert worker.run_once() is None
         outcomes=[r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")]
-        assert outcomes == ['succeeded','blocked' if failure=='budget' else 'ambiguous_outcome']
+        assert outcomes == (['succeeded','blocked'] if failure=='budget' else ['succeeded','ambiguous_outcome','succeeded'])
         assert store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0]==0
         assert store.connection.execute('SELECT COUNT(*) FROM render_assets').fetchone()[0]==0
         # Completed sibling work is checkpointed for restart recovery but never

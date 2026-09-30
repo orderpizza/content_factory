@@ -50,8 +50,8 @@ def provider_status(error: BaseException) -> int | None:
 def classify_failure(error: BaseException) -> FailureDisposition:
     """Classify replay safety conservatively.
 
-    A local timeout or an arbitrary transport exception might have reached the
-    provider; it is therefore ambiguous rather than an automatic retry.
+    Recognized transient transports may replay within the common three-call
+    limit. Their billing remains uncertain independently of retry eligibility.
     """
     if isinstance(error, ContractFailure):
         return error.category
@@ -66,7 +66,10 @@ def classify_failure(error: BaseException) -> FailureDisposition:
         GeminiConfigurationError = ()  # type: ignore[assignment]
     if isinstance(error, GeminiConfigurationError):
         return FailureDisposition.PROVIDER_TERMINAL
-    if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+    import httpx
+    if isinstance(error, (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)):
+        return FailureDisposition.PROVIDER_TRANSIENT
+    if isinstance(error, OSError):
         return FailureDisposition.AMBIGUOUS_EXTERNAL
     return FailureDisposition.LOCAL
 

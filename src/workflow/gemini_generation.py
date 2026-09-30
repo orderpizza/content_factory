@@ -219,6 +219,7 @@ class GeminiPipelineRunner:
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
                 error=canonical_failure('generation', error, int(run['attempt_count'])),
+                provider_error=error,
             )
             raise
 
@@ -233,6 +234,7 @@ class GeminiPipelineRunner:
                 usage=getattr(self.client, "last_usage", None),
                 response_value=response,
                 error=canonical_failure('generation', error, int(run['attempt_count'])),
+                provider_error=error,
             )
             raise
 

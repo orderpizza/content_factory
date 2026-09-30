@@ -140,3 +140,11 @@ reservation-versus-actual costs. Job details expose the existing ledger's aggreg
 and invocation costs; image manifests retain per-board and carousel costs. Missing
 settlement is unknown, not zero. [Reliability](reliability.md#execution-traces-and-cost-inspection)
 owns these read-only projections; the dashboard invokes no models.
+
+Render wording uses persisted usable slide checkpoints: an active request with
+zero slides says “Rendering”; a failed zero-slide run says “Render failed before
+any slides completed”. “Partial render · X of Y slides completed” requires
+0 < X < Y and adds “retry available” only for deferred resumable work. A zero-slide
+deferred run says “Incomplete · retry available”. A succeeded render says “Ready
+for review”; complete slides awaiting final asset assembly are distinguished from
+an actual committed review. Board/attempt diagnostics remain expandable evidence.

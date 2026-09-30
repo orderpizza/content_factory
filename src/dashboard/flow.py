@@ -19,6 +19,24 @@ OPPORTUNITY_FROM = """ FROM trend_candidates c
  WHERE c.selected_at IS NOT NULL """
 
 
+def render_progress_label(status, completed, total):
+    """Only usable completed slide checkpoints justify the word partial."""
+    if status == 'succeeded':
+        return 'Ready for review'
+    if total and 0 < completed < total:
+        suffix = ' · retry available' if status == 'retry_wait' else ''
+        return f'Partial render · {completed} of {total} slides completed{suffix}'
+    if status in {'claimed', 'running'}:
+        return 'Rendering' if completed == 0 else 'Completing review assets'
+    if status == 'retry_wait':
+        return 'Incomplete · retry available'
+    if status == 'failed' and completed == 0:
+        return 'Render failed before any slides completed'
+    if total and completed == total:
+        return 'Slides complete · review assembly incomplete'
+    return status or 'pending'
+
+
 def _pager(count, page, key, filters):
     pages=max(1,(count+19)//20)
     return ('<nav class="pagination">' +
@@ -136,7 +154,11 @@ def render_job_progress(connection, job_id):
     ).fetchall()
     parts = []
     for row in rows:
-        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Visual planning: {text(row['planning_status'] or 'pending')} · Adaptation: {text(row['adaptation_status'] or 'waiting for visual plan')} · Storyboard: {text(row['storyboard_status'] or 'pending')} · Rendering: {text(row['render_status'] or ('blocked' if row['planning_status'] == 'blocked' else 'pending'))}")
+        completed = connection.execute(
+            "SELECT COUNT(*) FROM render_units WHERE render_run_id=? AND status='succeeded'",
+            (row['render_run_id'],)).fetchone()[0] if row['render_run_id'] else 0
+        render_label = render_progress_label(row['render_status'] or ('blocked' if row['planning_status']=='blocked' else None), completed, row['total_slides'])
+        parts.append(f"<div class='stage-progress'><b>{text(row['platform'])}</b> · Visual planning: {text(row['planning_status'] or 'pending')} · Adaptation: {text(row['adaptation_status'] or 'waiting for visual plan')} · Storyboard: {text(row['storyboard_status'] or 'pending')} · Rendering: {text(render_label)}")
         for key in ('adaptation_reason', 'planning_reason', 'storyboard_reason', 'render_reason'):
             if row[key]:
                 parts.append(f"<p>{text(row[key])}</p>")

@@ -98,7 +98,8 @@ class PaginationTests(unittest.TestCase):
                 for ordinal, slide in zip(board['slide_indices'],split.slides):
                     self.assertEqual(slide.size,(1080,1350))
                     self.assertEqual(slide.getpixel((540,675)),(ordinal*15,80,130))
-                with self.assertRaises(ValueError): split_equal_grid(board_bytes(board,width_delta=1 if board['cols'] > 1 else 100),board)
+                with self.assertRaises(ValueError): split_equal_grid(board_bytes(board,width_delta=100),board)
+                self.assertEqual(len(split_equal_grid(board_bytes(board,width_delta=1),board).slides), board['capacity'])
 
     def test_closed_provider_mapping_for_every_supported_count(self):
         expected = {1: (1,1,'4:5'), 2: (2,1,'3:2'), 4: (2,2,'4:5'), 6: (3,2,'5:4')}
@@ -141,7 +142,7 @@ class PaginationTests(unittest.TestCase):
             split=split_equal_grid(png(width,height),board)
             self.assertEqual(len(split.slides),6)
             self.assertEqual(split.metadata['source_rectangles'][0],[0,0,width//3,height//2])
-        for width,height in ((1200,1200),(1200,800),(1201,960),(597,478)):
+        for width,height in ((1200,1200),(1200,800),(597,478)):
             with self.assertRaises(ValueError): split_equal_grid(png(width,height),board)
 
     def test_center_fit_crops_each_cell_without_geometric_stretch(self):
@@ -261,17 +262,17 @@ class StoryboardBoundaryTests(unittest.TestCase):
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM storyboard_plans').fetchone()[0],0)
             self.assertIsNotNone(StoryboardPlanner(store).run_once())
 
-    def test_partial_provider_failure_never_reviews_or_retries(self):
+    def test_provider_failure_isolated_and_never_reviews_incomplete_slides(self):
         f=self.fixture()
         with WorkflowStore(f.path) as store:
             self.prepare(store,f,'psychology',14); StoryboardPlanner(store).run_once()
             client=PlannedClient(persisted_boards(store),fail_at=2)
             worker=DispatchVisualRenderer(store,Path(f.temporary.name)/'assets',image_client=client)
             self.assertIsNone(worker.run_once()); self.assertIsNone(worker.run_once())
-            self.assertEqual(len(client.calls),2)
+            self.assertEqual(len(client.calls),3)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0],0)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM render_assets').fetchone()[0],0)
-            self.assertEqual([r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")],['succeeded','ambiguous_outcome'])
+            self.assertEqual([r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")],['succeeded','ambiguous_outcome','succeeded'])
             checkpoint = Path(f.temporary.name) / 'assets' / 'render-1.checkpoint'
             self.assertTrue(checkpoint.is_dir())
             self.assertTrue((checkpoint / 'unit-01.png').exists())
@@ -324,10 +325,11 @@ class StoryboardBoundaryTests(unittest.TestCase):
             store.connection.execute("UPDATE render_runs SET lease_expires_at='2000-01-01T00:00:00'")
             store.connection.commit()
             with self.assertRaises(RuntimeError): begin(2)
-            self.assertIsNone(store.claim('render_runs','render_run_id','new-owner'))
-            self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0],'failed')
+            self.assertIsNotNone(store.claim('render_runs','render_run_id','new-owner'))
+            self.assertIsNone(store.next_render_board_unit(run))
+            self.assertEqual(store.connection.execute("SELECT COUNT(*) FROM render_board_units WHERE status='ambiguous'").fetchone()[0], 2)
 
-    def test_second_board_budget_refusal_is_terminal(self):
+    def test_second_board_daily_budget_refusal_preserves_resumable_checkpoints(self):
         from dataclasses import replace
         import test_gemini_image_renderer as image_fixtures
         f=self.fixture()
@@ -338,7 +340,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
             worker.image_renderer.budget_policy=replace(image_fixtures.ImageWorkflowTests.image_policy(self),daily_hard_micro_usd=260000)
             self.assertIsNone(worker.run_once())
             self.assertEqual(len(client.calls),1)
-            self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0],'failed')
+            self.assertEqual(store.connection.execute('SELECT status FROM render_runs').fetchone()[0],'retry_wait')
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0],0)
             self.assertEqual([r[0] for r in store.connection.execute("SELECT outcome FROM model_invocations WHERE phase='image_rendering' ORDER BY model_invocation_id")],['succeeded','blocked'])
             self.assertIsNone(worker.run_once())
@@ -379,9 +381,9 @@ class StoryboardBoundaryTests(unittest.TestCase):
                     capacity = int(re.search(r'TOTAL FINAL SLIDE CELLS = (\d+)', prompt).group(1))
                     self.capacities.append(capacity)
                     # Board one succeeds. Board two gets one reinforced retry,
-                    # then only its unresolved slides become 2 + 2 children.
+                    # then only its unresolved slides become singleton children.
                     if len(self.calls) in {2, 3}:
-                        return GeneratedImage(grid_bytes(2, 3, aspect_ratio), 'image/png')
+                        return GeneratedImage(grid_bytes(2, 3, '3:2'), 'image/png')
                     cols, rows = {1: (1, 1), 2: (2, 1), 4: (2, 2), 6: (3, 2)}[capacity]
                     return GeneratedImage(grid_bytes(cols, rows, aspect_ratio), 'image/png')
 
@@ -389,7 +391,7 @@ class StoryboardBoundaryTests(unittest.TestCase):
             worker = DispatchVisualRenderer(store, Path(f.temporary.name) / 'assets', image_client=client)
             review = worker.run_once()
             self.assertIsNotNone(review, worker.last_operation)
-            self.assertEqual(client.capacities, [4, 4, 4, 2, 2])
+            self.assertEqual(client.capacities, [4, 4, 4, 1, 1, 1, 1])
             self.assertIn('STRUCTURAL RETRY', client.calls[2])
             self.assertEqual(store.connection.execute(
                 "SELECT provider_attempt_count FROM render_board_units "
@@ -397,8 +399,8 @@ class StoryboardBoundaryTests(unittest.TestCase):
             ).fetchone()[0], 1)
             self.assertEqual(store.connection.execute(
                 "SELECT COUNT(*) FROM render_board_units WHERE render_run_id=1 AND lineage_kind='fallback_child' AND status='succeeded'"
-            ).fetchone()[0], 2)
+            ).fetchone()[0], 4)
             self.assertEqual(store.connection.execute(
                 "SELECT COUNT(*) FROM model_invocations WHERE phase='image_rendering'"
-            ).fetchone()[0], 5)
+            ).fetchone()[0], 7)
             self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM review_requests').fetchone()[0], 1)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -60,6 +61,7 @@ class WorkflowStore:
         catalog_kind: str = "fixture",
         model_budget_policy: Any | None = None,
         enforce_storage: bool = False,
+        job_limit_loader=None,
     ):
         if catalog_kind not in {"fixture", "production"}:
             raise ValueError("catalog_kind must be fixture or production")
@@ -76,6 +78,7 @@ class WorkflowStore:
         self.catalog_kind = catalog_kind
         self.model_budget_policy = model_budget_policy
         self.enforce_storage = enforce_storage
+        self.job_limit_loader = job_limit_loader
 
     def close(self) -> None:
         self.connection.close()
@@ -404,7 +407,27 @@ class WorkflowStore:
                         (stale[primary_key],),
                     ).fetchone() is None
                 )
-                safe = table != "post_records" and (not invoked or checkpointed_adaptation)
+                if table == 'render_runs':
+                    self._discard_unrequested_render_attempts(stale[primary_key])
+                    self.connection.execute(
+                        "UPDATE render_board_units SET status='pending' WHERE render_run_id=? AND status='running' "
+                        "AND render_board_unit_id IN (SELECT render_board_unit_id FROM render_board_attempts "
+                        "WHERE status='started' AND json_extract(result_json,'$.stage') IN ('generated','validated','extracted'))",
+                        (stale[primary_key],))
+                    self.connection.execute(
+                        "UPDATE render_board_attempts SET status='ambiguous',completed_at=? "
+                        "WHERE status='started' AND render_board_unit_id IN "
+                        "(SELECT render_board_unit_id FROM render_board_units WHERE render_run_id=? AND status='running')",
+                        (moment, stale[primary_key]))
+                    self.connection.execute(
+                        "UPDATE render_board_units SET status='ambiguous',completed_at=? "
+                        "WHERE render_run_id=? AND status='running'", (moment, stale[primary_key]))
+                    self.connection.execute(
+                        "UPDATE gemini_budget_reservations SET status='uncertain' WHERE status='reserved' "
+                        "AND model_invocation_id IN (SELECT model_invocation_id FROM model_invocations "
+                        "WHERE entity_type='render_run' AND entity_id=? AND outcome='started' "
+                        "AND render_board_attempt_id IN (SELECT render_board_attempt_id FROM render_board_attempts WHERE status='ambiguous'))", (stale[primary_key],))
+                safe = table != "post_records" and (not invoked or checkpointed_adaptation or table == 'render_runs')
                 status = "retry_wait" if safe and stale["attempt_count"] < stale["attempt_limit"] else "failed"
                 column = "failure_detail" if table == "intake_requests" else "failure_reason"
                 self.connection.execute(
@@ -774,8 +797,8 @@ class WorkflowStore:
     def retry_provider_transport(self, table, key, row, error):
         """Fence a new durable attempt only after a terminal transport failure.
 
-        Its reservation stays uncertain when no usage was returned. No successful
-        work or in-flight request is replayed; the next claim reserves anew.
+        Billing uncertainty is independent of retry eligibility. Explicit rejected
+        requests release their reservation; unknown usage remains held.
         """
         if table not in {'intake_requests', 'determination_requests', 'editorial_plan_runs', 'generation_runs', 'adaptation_runs'} or CLAIM_KEYS.get(table) != key:
             raise ValueError('unsupported text retry boundary')
@@ -811,17 +834,39 @@ class WorkflowStore:
                 return
             self._finish_claim("render_runs", "render_run_id", run, "blocked", now(), reason)
 
+    def _discard_unrequested_render_attempts(self, render_run_id):
+        """Remove only provisional shells that never crossed provider admission."""
+        pending = self.connection.execute(
+            "SELECT a.render_board_attempt_id,a.render_board_unit_id,i.model_invocation_id,i.outcome FROM render_board_attempts a "
+            "LEFT JOIN model_invocations i ON i.render_board_attempt_id=a.render_board_attempt_id "
+            "WHERE a.status='started' AND (i.model_invocation_id IS NULL OR i.outcome='blocked') "
+            "AND a.render_board_unit_id IN (SELECT render_board_unit_id FROM render_board_units WHERE render_run_id=?)",
+            (render_run_id,),
+        ).fetchall()
+        for attempt in pending:
+            # A blocked admission was recorded for audit but never
+            # crossed the provider boundary.  It cannot retain a
+            # provisional board attempt or consume one of its three
+            # actual-call slots after the daily window reopens.
+            if attempt['model_invocation_id'] is not None:
+                self.connection.execute(
+                    "UPDATE model_invocations SET render_board_attempt_id=NULL "
+                    "WHERE model_invocation_id=? AND outcome='blocked'",
+                    (attempt['model_invocation_id'],),
+                )
+            self.connection.execute("DELETE FROM render_board_attempts WHERE render_board_attempt_id=?",
+                                    (attempt['render_board_attempt_id'],))
+            self.connection.execute(
+                "UPDATE render_board_units SET status='pending',provider_attempt_count=MAX(provider_attempt_count-1,0) "
+                "WHERE render_board_unit_id=?", (attempt['render_board_unit_id'],),
+            )
+
     def defer_model_budget_claim(self, table: str, key: str, row: Any, reason: str) -> None:
         """Defer a daily-cap refusal; terminally stop a ContentJob-cap refusal."""
         if CLAIM_KEYS.get(table) != key:
             raise ValueError("unsupported claim table/key")
         moment = now()
         daily = "daily Gemini hard limit" in reason
-        if table == 'render_runs' and self.connection.execute(
-            "SELECT 1 FROM model_invocations WHERE entity_type='render_run' AND entity_id=? AND outcome!='blocked'",
-            (row[key],)).fetchone():
-            daily = False
-            reason = 'partial storyboard rendering requires fresh manual work; ' + reason
         status = "retry_wait" if daily else "failed"
         retry_at = None
         if daily:
@@ -836,30 +881,7 @@ class WorkflowStore:
                 # Admission happens before a provider request.  Remove the
                 # provisional board-attempt shell so it cannot consume one of
                 # the three actual-call slots when the daily window reopens.
-                pending = self.connection.execute(
-                    "SELECT a.render_board_attempt_id,a.render_board_unit_id,i.model_invocation_id,i.outcome FROM render_board_attempts a "
-                    "LEFT JOIN model_invocations i ON i.render_board_attempt_id=a.render_board_attempt_id "
-                    "WHERE a.status='started' AND (i.model_invocation_id IS NULL OR i.outcome='blocked') "
-                    "AND a.render_board_unit_id IN (SELECT render_board_unit_id FROM render_board_units WHERE render_run_id=?)",
-                    (row[key],),
-                ).fetchall()
-                for attempt in pending:
-                    # A blocked admission was recorded for audit but never
-                    # crossed the provider boundary.  It cannot retain a
-                    # provisional board attempt or consume one of its three
-                    # actual-call slots after the daily window reopens.
-                    if attempt['model_invocation_id'] is not None:
-                        self.connection.execute(
-                            "UPDATE model_invocations SET render_board_attempt_id=NULL "
-                            "WHERE model_invocation_id=? AND outcome='blocked'",
-                            (attempt['model_invocation_id'],),
-                        )
-                    self.connection.execute("DELETE FROM render_board_attempts WHERE render_board_attempt_id=?",
-                                            (attempt['render_board_attempt_id'],))
-                    self.connection.execute(
-                        "UPDATE render_board_units SET status='pending',provider_attempt_count=MAX(provider_attempt_count-1,0) "
-                        "WHERE render_board_unit_id=?", (attempt['render_board_unit_id'],),
-                    )
+                self._discard_unrequested_render_attempts(row[key])
             result = self.connection.execute(
                 f"UPDATE {table} SET status=?,next_attempt_at=?,{reason_column}=?,completed_at=? "
                 f"WHERE {key}=? AND status='claimed' AND claim_owner=? AND claim_version=? "
@@ -965,7 +987,16 @@ class WorkflowStore:
                 raise RuntimeError("model invocation already exists for this claim attempt")
             job_id = self._model_job_id(table, row)
             budget = None
+            job_limit = None
             if policy is not None:
+                job_limit = policy.job_hard_micro_usd
+                if job_id is not None:
+                    snapshot = self.connection.execute(
+                        "SELECT job_limit_micro_usd FROM gemini_budget_reservations WHERE content_job_id=? "
+                        "ORDER BY gemini_budget_reservation_id LIMIT 1", (job_id,)).fetchone()
+                    job_limit = (snapshot[0] if snapshot and snapshot[0] else
+                                 self.job_limit_loader() if self.job_limit_loader else job_limit)
+                    policy = replace(policy, job_hard_micro_usd=job_limit)
                 reserved_input, output_max, worst_case = policy.reservation_estimate(phase)
                 accounting_day = moment[:10]
                 daily_used = int(self.connection.execute(
@@ -984,7 +1015,7 @@ class WorkflowStore:
                     ).fetchone()[0])
                 if daily_used + worst_case > policy.daily_hard_micro_usd:
                     blocked_reason = "daily Gemini hard limit would be exceeded"
-                elif job_id is not None and job_used + worst_case > policy.job_hard_micro_usd:
+                elif job_id is not None and job_used + worst_case > job_limit:
                     blocked_reason = "ContentJob Gemini hard limit would be exceeded"
                 budget = (accounting_day, reserved_input, output_max, worst_case, job_id)
             invocation = self.connection.execute(
@@ -1024,7 +1055,7 @@ class WorkflowStore:
                      job_id, phase, policy.fingerprint, reserved_input, output_max,
                      policy.daily_hard_micro_usd,
                      policy.daily_warning_micro_usd,
-                     policy.job_hard_micro_usd),
+                     job_limit),
                 )
         if blocked_reason:
             raise ModelBudgetExceeded(blocked_reason)
@@ -1069,6 +1100,16 @@ class WorkflowStore:
                 "WHERE model_invocation_id=? AND outcome='started'",
                 (raw_text, None if parsed is None else canonical(parsed), invocation_id))
 
+    def reconcile_model_usage(self, invocation_id, usage, policy):
+        """Release reservation headroom as soon as provider usage is available."""
+        if usage is None or policy is None:
+            return
+        cost = policy.actual_cost(usage.input_tokens, usage.output_tokens)
+        with self.transaction():
+            self.connection.execute(
+                "UPDATE gemini_budget_reservations SET status='settled',settled_micro_usd=?,settled_at=? "
+                "WHERE model_invocation_id=? AND status='reserved'", (cost, now(), invocation_id))
+
     def finish_model_invocation(
         self,
         invocation_id: int,
@@ -1078,6 +1119,8 @@ class WorkflowStore:
         response_value: Any | None = None,
         error: str | None = None,
         budget_policy: Any | None = None,
+        provider_error: BaseException | None = None,
+        resume_image_output: bool = False,
     ) -> None:
         """Settle usage and validation outcome; exact execution traces remain in SQLite."""
         policy = budget_policy or self.model_budget_policy
@@ -1110,13 +1153,26 @@ class WorkflowStore:
                 ),
             )
             if result.rowcount != 1:
+                # Local recovery may repeat validation after invocation settlement
+                # committed but before the board's structural transition committed.
+                # Accept only the identical, already-audited image result.
+                prior = self.connection.execute(
+                    "SELECT phase,outcome,response_hash FROM model_invocations WHERE model_invocation_id=?",
+                    (invocation_id,)).fetchone()
+                if (resume_image_output and prior and prior['phase']=='image_rendering'
+                    and prior['outcome']==outcome and prior['response_hash']==response_hash):
+                    return
                 raise RuntimeError("model invocation is missing or already finalized")
             reservation = self.connection.execute(
                 "SELECT gemini_budget_reservation_id FROM gemini_budget_reservations "
                 "WHERE model_invocation_id=?", (invocation_id,),
             ).fetchone()
             if reservation is not None:
-                if usage is None:
+                if usage is None and provider_status(provider_error) in {400, 401, 403, 404, 429}:
+                    self.connection.execute(
+                        "UPDATE gemini_budget_reservations SET status='released',settled_micro_usd=0,settled_at=? "
+                        "WHERE gemini_budget_reservation_id=? AND status='reserved'", (now(), reservation[0]))
+                elif usage is None:
                     self.connection.execute(
                         "UPDATE gemini_budget_reservations SET status='uncertain',settled_at=? "
                         "WHERE gemini_budget_reservation_id=? AND status='reserved'",
@@ -1321,6 +1377,13 @@ class WorkflowStore:
             self._finish_claim('storyboard_plan_runs', 'storyboard_plan_run_id', run, 'succeeded', moment, None)
             return plan_id
 
+    def _assert_render_claim(self, run):
+        current = self.connection.execute("SELECT * FROM render_runs WHERE render_run_id=?",
+                                          (run['render_run_id'],)).fetchone()
+        if (current is None or current['status'] != 'claimed' or current['claim_owner'] != run['claim_owner']
+            or current['claim_version'] != run['claim_version'] or current['lease_expires_at'] <= now()):
+            raise RuntimeError('render claim is stale')
+
     def next_render_board_unit(self, run: Any) -> Any | None:
         """Return the earliest unresolved logical board, never a completed sibling."""
         return self.connection.execute(
@@ -1328,8 +1391,11 @@ class WorkflowStore:
             "AND EXISTS (SELECT 1 FROM render_units u WHERE u.render_run_id=b.render_run_id "
             "AND u.slide_ordinal BETWEEN json_extract(b.board_json,'$.slide_start') "
             "AND json_extract(b.board_json,'$.slide_end') AND u.status='pending') "
+            "AND COALESCE((SELECT json_extract(a.safe_diagnostic_json,'$.next_attempt_at') "
+            "FROM render_board_attempts a WHERE a.render_board_unit_id=b.render_board_unit_id "
+            "ORDER BY a.attempt_number DESC LIMIT 1),'')<=? "
             "ORDER BY json_extract(b.board_json,'$.slide_start'),b.render_board_unit_id LIMIT 1",
-            (run['render_run_id'],),
+            (run['render_run_id'], now()),
         ).fetchone()
 
     def begin_render_board_attempt(self, run: Any, board_unit: Any) -> Any:
@@ -1340,22 +1406,22 @@ class WorkflowStore:
                 "SELECT * FROM render_board_units WHERE render_board_unit_id=? AND render_run_id=?",
                 (board_unit['render_board_unit_id'], run['render_run_id']),
             ).fetchone()
-            if current is None or current['status'] != 'pending' or int(current['provider_attempt_count']) >= 3:
+            self._assert_render_claim(run)
+            if current is None or current['status'] != 'pending':
                 raise RuntimeError('render board is not eligible for another provider attempt')
-            render = self.connection.execute(
-                "SELECT status,claim_owner,claim_version,lease_expires_at FROM render_runs WHERE render_run_id=?",
-                (run['render_run_id'],),
-            ).fetchone()
-            if (render is None or render['status'] != 'claimed' or render['claim_owner'] != run['claim_owner']
-                or int(render['claim_version']) != int(run['claim_version']) or render['lease_expires_at'] <= moment):
-                raise RuntimeError('render claim is stale')
+            generated = self.connection.execute(
+                "SELECT * FROM render_board_attempts WHERE render_board_unit_id=? AND status='started' "
+                "AND json_extract(result_json,'$.stage') IN ('generated','validated','extracted')",
+                (current['render_board_unit_id'],)).fetchone()
+            if generated is not None:
+                self.connection.execute("UPDATE render_board_units SET status='running' WHERE render_board_unit_id=?",
+                                        (current['render_board_unit_id'],))
+                return generated
+            if int(current['provider_attempt_count']) >= 3:
+                raise RuntimeError('render board provider attempts exhausted')
             number = int(current['provider_attempt_count']) + 1
-            prior = self.connection.execute(
-                "SELECT status FROM render_board_attempts WHERE render_board_unit_id=? ORDER BY attempt_number DESC LIMIT 1",
-                (current['render_board_unit_id'],),
-            ).fetchone()
             kind = ('fallback_child' if current['lineage_kind'] == 'fallback_child' and number == 1 else
-                    'structural_retry' if prior is not None and prior['status'] == 'structural_failed' else
+                    'structural_retry' if current['lineage_kind'] == 'structural_retry' and number == 1 else
                     'provider_retry' if number > 1 else 'initial')
             attempt_id = int(self.connection.execute(
                 "INSERT INTO render_board_attempts(render_board_unit_id,attempt_number,attempt_kind,status,created_at) "
@@ -1367,7 +1433,7 @@ class WorkflowStore:
             )
             return self.connection.execute("SELECT * FROM render_board_attempts WHERE render_board_attempt_id=?", (attempt_id,)).fetchone()
 
-    def finish_render_board_attempt(self, attempt: Any, *, status: str,
+    def finish_render_board_attempt(self, attempt: Any, *, run: Any, status: str,
                                     structural_evidence: dict[str, Any] | None = None,
                                     diagnostic: dict[str, Any] | None = None,
                                     board_status: str | None = None) -> None:
@@ -1377,6 +1443,7 @@ class WorkflowStore:
             raise ValueError('invalid render-board status')
         moment = now()
         with self.transaction():
+            self._assert_render_claim(run)
             changed = self.connection.execute(
                 "UPDATE render_board_attempts SET status=?,structural_evidence_json=?,safe_diagnostic_json=?,completed_at=? "
                 "WHERE render_board_attempt_id=? AND status='started'",
@@ -1402,11 +1469,22 @@ class WorkflowStore:
             if changed.rowcount != 1:
                 raise RuntimeError('render-board invocation cannot be attached')
 
+    def checkpoint_render_board_output(self, run, attempt, result):
+        """Generated/validated/extracted evidence permits local-only crash recovery."""
+        with self.transaction():
+            self._assert_render_claim(run)
+            changed = self.connection.execute(
+                "UPDATE render_board_attempts SET result_json=? WHERE render_board_attempt_id=? AND status='started'",
+                (canonical(result), attempt['render_board_attempt_id']))
+            if changed.rowcount != 1:
+                raise RuntimeError('render output checkpoint is stale')
+
     def complete_render_board_units(self, run: Any, attempt: Any, checkpoints: list[dict[str, Any]],
                                     result: dict[str, Any]) -> None:
         """Persist only verified completed slides; final review assets are promoted later."""
         moment = now()
         with self.transaction():
+            self._assert_render_claim(run)
             board = self.connection.execute("SELECT board_json FROM render_board_units WHERE render_board_unit_id=?",
                                             (attempt['render_board_unit_id'],)).fetchone()
             if board is None:
@@ -1432,14 +1510,31 @@ class WorkflowStore:
                 (moment, attempt['render_board_unit_id']),
             )
 
-    def split_render_board_unit(self, run: Any, attempt: Any, children: list[dict[str, Any]], diagnostic: dict[str, Any]) -> None:
+    def split_render_board_unit(self, run: Any, attempt: Any, children: list[dict[str, Any]], diagnostic: dict[str, Any],
+                                *, structural_evidence=None, lineage_kind='fallback_child') -> None:
         """Replace a structurally bad composite with deterministic child work only."""
         moment = now()
         with self.transaction():
+            self._assert_render_claim(run)
+            parent = self.connection.execute("SELECT * FROM render_board_units WHERE render_board_unit_id=? AND render_run_id=?",
+                                             (attempt['render_board_unit_id'], run['render_run_id'])).fetchone()
+            if parent is None or parent['status'] != 'running':
+                raise RuntimeError('render board is not running')
+            original = json.loads(parent['board_json'])
+            if lineage_kind == 'structural_retry':
+                if parent['lineage_kind'] == 'structural_retry' or children != [original]:
+                    raise ValueError('only one reinforced request with unchanged geometry is allowed')
+            elif lineage_kind == 'fallback_child':
+                if (parent['lineage_kind'] != 'structural_retry' or original['capacity'] == 1
+                    or [i for child in children for i in child['slide_indices']] != original['slide_indices']
+                    or any(child['capacity'] != 1 for child in children)):
+                    raise ValueError('fallback must cover only the failed reinforced board with singletons')
+            else:
+                raise ValueError('unsupported render fallback lineage')
             changed = self.connection.execute(
-                "UPDATE render_board_attempts SET status='structural_failed',safe_diagnostic_json=?,completed_at=? "
+                "UPDATE render_board_attempts SET status='structural_failed',safe_diagnostic_json=?,structural_evidence_json=?,completed_at=? "
                 "WHERE render_board_attempt_id=? AND status='started'",
-                (canonical(diagnostic), moment, attempt['render_board_attempt_id']),
+                (canonical(diagnostic), canonical(structural_evidence), moment, attempt['render_board_attempt_id']),
             )
             if changed.rowcount != 1:
                 raise RuntimeError('render-board structural result is stale')
@@ -1451,10 +1546,10 @@ class WorkflowStore:
                 self.connection.execute(
                     "INSERT INTO render_board_units(render_run_id,parent_render_board_unit_id,board_json,lineage_kind,status,created_at) "
                     "VALUES (?,?,?,?, 'pending',?)",
-                    (run['render_run_id'], attempt['render_board_unit_id'], canonical(board), 'fallback_child', moment),
+                    (run['render_run_id'], attempt['render_board_unit_id'], canonical(board), lineage_kind, moment),
                 )
 
-    def schedule_render_provider_retry(self, run: Any, attempt: Any, diagnostic: dict[str, Any]) -> bool:
+    def schedule_render_provider_retry(self, run: Any, attempt: Any, diagnostic: dict[str, Any]) -> None:
         """Persist a safe transient replay boundary for one logical board."""
         moment = now()
         with self.transaction():
@@ -1466,26 +1561,40 @@ class WorkflowStore:
             if current is None or current['status'] != 'claimed' or current['claim_owner'] != run['claim_owner'] or int(current['claim_version']) != int(run['claim_version']) or current['lease_expires_at'] <= moment:
                 raise RuntimeError('render claim changed before retry scheduling')
             retryable = int(current['provider_attempt_count']) < 3
+            delay = min(120, 15 * 2 ** (int(current['provider_attempt_count']) - 1) + random.uniform(0, 10))
+            next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=delay))
             detail = {**diagnostic, 'retryable': retryable,
+                      'next_attempt_at': next_attempt if retryable else None,
                       'code': diagnostic.get('code') if retryable else 'retry_exhausted'}
             self.connection.execute(
                 "UPDATE render_board_attempts SET status='provider_transient',safe_diagnostic_json=?,completed_at=? "
                 "WHERE render_board_attempt_id=? AND status='started'",
-                (canonical(detail), moment, attempt['render_board_attempt_id']),
-            )
-            if not retryable:
-                self.connection.execute("UPDATE render_board_units SET status='failed',completed_at=? WHERE render_board_unit_id=?",
-                                        (moment, attempt['render_board_unit_id']))
-                return False
-            delay = min(120, 15 * 2 ** (int(current['provider_attempt_count']) - 1) + random.uniform(0, 10))
-            next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=delay))
-            self.connection.execute("UPDATE render_board_units SET status='pending' WHERE render_board_unit_id=?",
-                                    (attempt['render_board_unit_id'],))
+                (canonical(detail), moment, attempt['render_board_attempt_id']))
             self.connection.execute(
-                "UPDATE render_runs SET status='retry_wait',next_attempt_at=?,failure_reason=?,completed_at=NULL "
-                "WHERE render_run_id=? AND status='claimed' AND claim_owner=? AND claim_version=?",
-                (next_attempt, canonical(detail), run['render_run_id'], run['claim_owner'], run['claim_version']),
-            )
+                "UPDATE render_board_units SET status=?,completed_at=? WHERE render_board_unit_id=?",
+                ('pending' if retryable else 'failed', None if retryable else moment, attempt['render_board_unit_id']))
+
+    def finish_incomplete_render(self, run: Any) -> bool:
+        """Release the coordinator only after every currently eligible board ran."""
+        with self.transaction():
+            self._assert_render_claim(run)
+            unfinished = self.connection.execute(
+                "SELECT COUNT(*) FROM render_units WHERE render_run_id=? AND status!='succeeded'",
+                (run['render_run_id'],)).fetchone()[0]
+            if not unfinished:
+                return False
+            pending = self.connection.execute(
+                "SELECT (SELECT json_extract(a.safe_diagnostic_json,'$.next_attempt_at') "
+                "FROM render_board_attempts a WHERE a.render_board_unit_id=b.render_board_unit_id "
+                "ORDER BY attempt_number DESC LIMIT 1) next_at FROM render_board_units b "
+                "WHERE b.render_run_id=? AND b.status='pending'", (run['render_run_id'],)).fetchall()
+            status = 'retry_wait' if pending else 'failed'
+            self._finish_claim('render_runs', 'render_run_id', run, status, now(),
+                'Incomplete render; retry available' if pending else 'Incomplete render; unresolved boards require attention')
+            if pending:
+                self.connection.execute(
+                    "UPDATE render_runs SET next_attempt_at=?,completed_at=NULL WHERE render_run_id=?",
+                    (min(row['next_at'] or now() for row in pending), run['render_run_id']))
             return True
 
     def render_unit_checkpoints(self, run: Any) -> list[dict[str, Any]]:

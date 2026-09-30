@@ -138,6 +138,7 @@ class GeminiDeterminationWorker:
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
                 error=json.dumps(exception_diagnostic('determination', error, int(request['attempt_count'])), sort_keys=True),
+                provider_error=error,
             )
             raise
 

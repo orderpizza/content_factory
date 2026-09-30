@@ -116,6 +116,7 @@ def _run_pass(workers: tuple[object, ...]) -> None:
 
 
 def main() -> None:
+    process_environment = dict(os.environ)
     load_environment_file(ROOT / ".env")
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", default=os.getenv("CONTENT_FACTORY_ARTIFACT_ROOT", str(ROOT / "data" / "artifacts")))
@@ -153,7 +154,9 @@ def main() -> None:
              prompt_versions=list(fingerprint['prompt_versions'].values()),
              schema_versions=list(fingerprint['schema_versions'].values()))
         budget_policy = ModelBudgetPolicy.from_environment(configured_model()) if args.gemini else None
-        with WorkflowStore(database, model_budget_policy=budget_policy, enforce_storage=True) as store:
+        from workflow.model_budget import runtime_job_limit_loader
+        with WorkflowStore(database, model_budget_policy=budget_policy, enforce_storage=True,
+                           job_limit_loader=runtime_job_limit_loader(ROOT / '.env', process_environment) if args.gemini else None) as store:
             configure_development_catalog(store)
             intake_worker = GeminiIntakeWorker(store) if args.gemini else IdeaIntakeWorker(store)
             determination_worker = (

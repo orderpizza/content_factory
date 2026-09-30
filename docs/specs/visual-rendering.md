@@ -190,25 +190,31 @@ text is serialized last; the model must not omit, summarize or paraphrase it.
 
 The image adapter requests the planned provider ratio and configured image size
 (default 2K), one provider call per board attempt with SDK retries disabled and no references.
-The shared equal-grid path accepts one PNG/JPEG, at most 40 MB / 40 million pixels, at least
-200×250 pixels per raw cell, and dimensions exactly divisible by columns/rows.
-The returned width/height ratio may differ by at most **2% relative** from the
-requested provider ratio to accommodate pixel rounding. Materially wrong ratios,
-non-divisible grids, small cells and invalid images fail visibly.
+The shared extraction path accepts one PNG/JPEG, at most 40 MB / 40 million
+pixels, and at least 200×250 pixels per extracted cell. The returned width/height
+ratio may differ by at most **2% relative** from the requested provider ratio.
+Pixel rounding need not be divisible by the grid. Invalid encodings and unsafe
+image sizes are terminal; insufficient cell dimensions and materially wrong
+provider ratios are structurally unusable outputs.
 
-Before any crop, `grid_structure_v1` conservatively inspects high-confidence,
-near-full-span transitions. It records expected grid, detected vertical/horizontal
-separators, suspected region count and a structural outcome. A clearly extra grid
-or an off-boundary divider fails as `grid_contract_violation` or
-`multiple_cuts_detected`; missing or weak evidence is inconclusive and proceeds to
-human review. It is structural analysis, not OCR or a semantic vision classifier.
+`expected_grid_v2` validates whether the planner's exact cells can be extracted.
+It never infers another grid or counts arbitrary lines across the artwork. Each
+expected internal boundary has a search window of ±12% of one ideal cell's
+width/height. Within it, near-full-span transitions or narrow border-connected
+background gutters can adjust the split. Unrelated decorative lines outside those
+windows do not participate. Small reliable outer margins (at most 6% per edge)
+can be removed. Weak evidence uses rounded deterministic expected geometry;
+ambiguous artwork is not grounds for inventing extra rows/columns. Singletons
+bypass seam detection entirely. Evidence records windows, selected seams,
+extraction rectangles and the expected layout. This is not semantic validation or
+OCR: text quality and content near crop edges still require human review.
 
-`equal_grid_then_fit_4x5_v1` then crops exactly the planned number of equal cells
-in row-major order. Each raw cell then uses `ImageOps.fit` with Lanczos resampling
-and centering `(0.5, 0.5)` to produce **1080×1350**. It crops proportionally instead
-of stretching a non-4:5 cell. There is no margin inference or fallback. Raw cells
-are not required to be 4:5; only final slides are. Content near edges can be cropped,
-so model composition and final visual/text quality still require human review.
+`equal_grid_then_fit_4x5_v1` consumes those same validated rectangles in planned
+row-major order. Every extracted cell uses `ImageOps.fit`, Lanczos and center
+`(0.5, 0.5)` to produce **1080×1350**, preserving proportion rather than stretching.
+The immutable split-strategy identifier continues to designate planner-owned
+cell extraction and final normalization; the manifest's extraction evidence
+identifies the deterministic seam implementation.
 
 English uses the same persisted multi-board execution and manifest as other
 domains. A selected six-panel English board alone retains `english_accepted_v1`:
@@ -238,23 +244,42 @@ adjacent repetition. The final slide has no next-slide cue. Font, geometry and
 opacity remain shared. Dynamic overlay versions are
 `ai_tech_transparent_chrome_v2` and `psychology_transparent_chrome_v2`.
 
-A RenderRun is a coordinator with durable `render_board_units`,
-`render_board_attempts` and `render_units`. Each paid attempt binds one logical
-board, model invocation and reservation; successful final slide checkpoints are
-never replayed. A structural violation first retries the same board once with
-reinforced wording. A second violation deterministically replaces only that board:
-6 becomes 4+2, 4 becomes 2+2, and 2 becomes 1+1, subject to the existing text-load
-policy. Singletons cannot be reduced. Provider transient retries, structural retries
-and fallback children are distinct attempt kinds. A restart resumes pending child or
-parent work from SQLite/checkpoints and never recreates a completed sibling.
+A RenderRun coordinates existing `render_board_units`, `render_board_attempts`
+and `render_units`. The initial request uses the planned composite. A genuine
+structural failure creates one child with `lineage_kind=structural_retry`, the
+same frozen geometry and reinforced prompt. If that request also produces an
+unusable composite, only its slide range becomes singleton fallback children.
+The parent is `split` (superseded by execution children); the immutable plan is
+unchanged. A singleton may receive one reinforced structural request but cannot
+split further. No invalid composite loops indefinitely.
 
-One final slide is one visual cut; it is not one provider call. The normal path
-therefore still selects the largest safe 6/4/2/1 composite board. All completed
-slides must exist before the renderer promotes assets and creates one ReviewRequest.
-Ambiguous external outcomes, terminal provider/configuration errors, malformed image
-data and local processing errors stop the run without replay. A pre-call daily budget
-refusal can defer and removes its provisional board attempt because no provider call
-was made.
+Each logical request (initial, reinforced or fallback) independently allows three
+**total provider attempts**, including the initial call. Provider retries retain
+identical prompt/geometry and never consume the structural transition. The
+[shared retry policy](reliability.md#gemini-accounting) owns error classes and
+backoff. A pending board's latest attempt diagnostic records its UTC retry time.
+The coordinator continues other eligible boards before releasing its claim to
+`retry_wait`; terminal or ambiguous boards likewise do not abort siblings.
+Actual budget admission remains mandatory for every new provider attempt.
+
+Attempts progress from `started` (requested) through `result_json.stage` values
+`generated`, `validated`, `extracted`, then `succeeded`. Raw checkpoints carry
+hash/media/usage evidence before local extraction. Final slide checkpoints commit
+per successful board immediately, independently of final review promotion.
+Completed slides are never regenerated. After an expired coordinator lease,
+verified generated bytes can resume local processing under the same attempt and
+invocation without another reservation or paid call. Interrupted calls without a
+durable generated result become `ambiguous`; only their own range requires
+operator attention while pending siblings continue. Checkpoint hashes must match.
+
+Daily budget refusals defer pending work even after other slides completed;
+job-cap exhaustion remains terminal. Neither refusal is a paid attempt. Provider
+retry exhaustion, non-retryable provider errors and local processing failures
+retain their evidence and stop only the affected board. All final slides must
+complete before assets are promoted and one ReviewRequest commits. The dashboard
+reads completed slide counts, never mere provider activity, to describe partial
+progress. Normal production remains cost-aware composite generation, not per-slide
+calls; singletons are exceptional fallback or explicitly planned small remainders.
 
 The renderer reads the committed plan before calling the compiler. Raw PNG/JPEG
 boards retain their provider bytes and file types. Manifest provenance links every
@@ -263,7 +288,7 @@ board records include grid/capacity, provider ratio, final slide ratio/dimension
 split strategy, text-load/policy evidence, structural evidence, prompt hash, raw
 hash/size/media, raw dimensions, source rectangles and provider-call latency in milliseconds.
 Split metadata names `ImageOps.fit`, Lanczos, center `(0.5, 0.5)` and final dimensions;
-source rectangles describe the equal-grid cells before normalization. The
+source rectangles describe the recovered planned cells before normalization. The
 manifest also freezes StoryboardPlan ID/content, recipe/profile identity, compiler,
 renderer, selection and overlay provenance. All assets and one ReviewRequest commit
 only after the full ordered set succeeds. The atomic-promotion temporary directory is

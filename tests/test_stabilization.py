@@ -200,7 +200,7 @@ class StabilizationTests(unittest.TestCase):
             GeminiIntakeWorker(store,LocalTimeoutClient({})).run_once()
             local=store.connection.execute("SELECT status FROM intake_requests ORDER BY intake_request_id DESC LIMIT 1").fetchone()
             reservation=store.connection.execute("SELECT status FROM gemini_budget_reservations ORDER BY model_invocation_id DESC LIMIT 1").fetchone()
-            self.assertEqual(local['status'],'failed')
+            self.assertEqual(local['status'],'retry_wait')
             self.assertEqual(reservation['status'],'uncertain')
 
     def test_transport_retries_are_bounded_and_semantic_failures_terminal(self):
@@ -230,7 +230,7 @@ class StabilizationTests(unittest.TestCase):
             self.assertEqual(store.connection.execute('SELECT status FROM intake_requests').fetchone()[0],'failed')
             self.assertEqual(len(client.calls),row['attempt_limit'])
             self.assertFalse(retryable_provider_error(ValueError('504')))
-            self.assertFalse(retryable_provider_error(TimeoutError()))
+            self.assertTrue(retryable_provider_error(TimeoutError()))
             for code in (429, 503):
                 store.create_human_idea(f'provider status {code}',command_id=f'status-{code}')
                 worker=GeminiIntakeWorker(store,FailingClient({}, code))

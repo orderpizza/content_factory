@@ -202,6 +202,7 @@ it does not claim that old copy passed the new authoring QA.
 [Reliability](reliability.md#gemini-accounting) owns the single reservation ledger,
 exact execution traces, settlement and uncertain outcomes. No second estimator is
 introduced. Text output defaults remain unchanged; the 10,000-token ceiling remains.
-A budget deferral makes no call. Only explicitly retryable terminal text-provider
-responses receive bounded durable retries; schema failures and uncertain calls do not.
+A budget deferral makes no call. Recognized provider/transport transients receive bounded durable retries; schema
+failures and unclassified external outcomes do not. Billing uncertainty is tracked
+separately from retry eligibility.
 The [reliability policy](reliability.md#gemini-accounting) owns these distinctions. Review-only operation and per-destination Post now ownership are unchanged.

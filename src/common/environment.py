@@ -14,18 +14,19 @@ class EnvironmentFileError(ValueError):
     """Raised for a malformed local environment file without exposing values."""
 
 
-def load_environment_file(path: str | Path) -> bool:
-    """Load KEY=VALUE records if present; existing environment values always win."""
+def read_environment_file(path: str | Path) -> dict[str, str]:
+    """Read literal settings without changing the process environment."""
 
     environment_path = Path(path)
     if not environment_path.exists():
-        return False
+        return {}
     if not environment_path.is_file():
         raise EnvironmentFileError(f"Environment path is not a regular file: {environment_path}")
     try:
         lines = environment_path.read_text(encoding="utf-8-sig").splitlines()
     except OSError as error:
         raise EnvironmentFileError(f"Cannot read environment file: {environment_path}") from error
+    values = {}
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -52,5 +53,12 @@ def load_environment_file(path: str | Path) -> bool:
             value = value[1:-1]
         elif " #" in value:
             value = value.split(" #", 1)[0].rstrip()
+        values.setdefault(key, value)
+    return values
+
+
+def load_environment_file(path: str | Path) -> bool:
+    values = read_environment_file(path)
+    for key, value in values.items():
         os.environ.setdefault(key, value)
-    return True
+    return Path(path).exists()

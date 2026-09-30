@@ -213,6 +213,7 @@ class GeminiAdaptationWorker:
                 outcome=outcome,
                 usage=getattr(self.client, "last_usage", None),
                 error=json.dumps(exception_diagnostic('adaptation', error, int(run['attempt_count'])), sort_keys=True),
+                provider_error=error,
             )
             raise
 
@@ -305,6 +306,7 @@ class GeminiAdaptationWorker:
                 usage=getattr(self.client, "last_usage", None),
                 response_value=response if "response" in locals() else None,
                 error=json.dumps(exception_diagnostic('adaptation_metadata', error, int(run['attempt_count'])), sort_keys=True),
+                provider_error=error,
             )
             raise
         self.store.finish_model_invocation(

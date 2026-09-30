@@ -100,7 +100,7 @@ def _intake_executor(stage_case: StageCase, database: Path, authorization: Any, 
                 (request_id,),
             ).fetchone()
             reservation = store.connection.execute(
-                "SELECT COALESCE(SUM(CASE WHEN status='settled' THEN settled_micro_usd ELSE worst_case_micro_usd END),0) FROM gemini_budget_reservations WHERE claim_type='intake_request' AND claim_id=?",
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('settled','released') THEN settled_micro_usd ELSE worst_case_micro_usd END),0) FROM gemini_budget_reservations WHERE claim_type='intake_request' AND claim_id=?",
                 (request_id,),
             ).fetchone()[0]
             # No prompts, auth configuration, or raw exception text are copied
@@ -123,7 +123,7 @@ def _intake_executor(stage_case: StageCase, database: Path, authorization: Any, 
             (request_id,),
         ).fetchone()
         reservation = store.connection.execute(
-            "SELECT COALESCE(SUM(CASE WHEN status='settled' THEN settled_micro_usd ELSE worst_case_micro_usd END),0) FROM gemini_budget_reservations WHERE claim_type='intake_request' AND claim_id=?",
+            "SELECT COALESCE(SUM(CASE WHEN status IN ('settled','released') THEN settled_micro_usd ELSE worst_case_micro_usd END),0) FROM gemini_budget_reservations WHERE claim_type='intake_request' AND claim_id=?",
             (request_id,),
         ).fetchone()[0]
         if not invocation:

@@ -106,7 +106,7 @@ class TransportReliabilityTests(unittest.TestCase):
     def test_provider_status_codes_retry_but_local_timeout_does_not(self):
         for status in (429, 500, 502, 503, 504):
             self.assertTrue(retryable_provider_error(APIError(status, {})))
-        self.assertFalse(retryable_provider_error(TimeoutError("504 DEADLINE_EXCEEDED")))
+        self.assertTrue(retryable_provider_error(TimeoutError("504 DEADLINE_EXCEEDED")))
         self.assertFalse(retryable_provider_error(SimpleNamespace(code=504)))
         self.assertFalse(retryable_provider_error(APIError(400, {})))
 

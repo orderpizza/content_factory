@@ -36,17 +36,11 @@ logger = logging.getLogger(__name__)
 
 
 class StructuralGridViolation(ValueError):
-    """High-confidence extra grid/cut found before a composite is cropped."""
+    """The planner-requested cells cannot be safely extracted."""
 
     def __init__(self, code: str, evidence: dict):
         super().__init__(code)
         self.code, self.evidence = code, evidence
-
-
-class RenderTerminalFailure(RuntimeError):
-    def __init__(self, diagnostic: dict):
-        super().__init__(diagnostic.get('code', 'render_failure'))
-        self.diagnostic = diagnostic
 
 
 @dataclass(frozen=True)
@@ -55,73 +49,114 @@ class StoryboardSplit:
     metadata: dict
 
 
-def _strong_separators(image: Image.Image, *, axis: str) -> list[dict]:
-    """Find only near-uniform, full-span divider bands.
+def _load_planned_board(data: bytes, board: dict) -> Image.Image:
+    from .storyboard_planner import validate_board_geometry
+    validate_board_geometry(board)
+    if len(data) > 40_000_000:
+        raise ValueError('storyboard exceeds image byte limit')
+    with Image.open(BytesIO(data)) as raw:
+        if raw.format not in {'PNG', 'JPEG'} or getattr(raw, 'n_frames', 1) != 1:
+            raise ValueError('storyboard must be a single PNG or JPEG')
+        width, height = raw.size
+        if width * height > 40_000_000:
+            raise ValueError('storyboard dimensions unsafe')
+        ratio_width, ratio_height = map(int, board['provider_aspect_ratio'].split(':'))
+        if (width < board['cols'] * 200 or height < board['rows'] * 250
+            or abs((width / height) / (ratio_width / ratio_height) - 1) > .02):
+            raise StructuralGridViolation('unextractable_expected_layout', {
+                'version': 'expected_grid_v2', 'outcome': 'unextractable_expected_layout',
+                'expected_grid': {'columns': board['cols'], 'rows': board['rows']},
+                'raw_dimensions': {'width': width, 'height': height}})
+        source = ImageOps.exif_transpose(raw).convert('RGB')
+        if source.size != raw.size:
+            raise ValueError('storyboard orientation inconsistent')
+        return source.copy()
 
-    Ordinary cards and text blocks are deliberately ignored: they do not make a
-    strong transition across most of the full orthogonal dimension.  A divider
-    itself need not be one color because a genuine grid can cross different
-    colored cells in successive rows or columns.
-    """
-    preview = image.resize((min(480, image.width), min(480, image.height)), Image.Resampling.BOX)
+
+def _expected_rectangles(source: Image.Image, board: dict) -> tuple[list, dict]:
+    """Search only around planner boundaries; never infer a replacement grid."""
+    width, height = source.size
+    evidence = {'version': 'expected_grid_v2',
+                'expected_grid': {'columns': board['cols'], 'rows': board['rows']},
+                'outcome': 'expected_geometry', 'seams': {'vertical': [], 'horizontal': []}}
+    if board['capacity'] == 1:
+        evidence['outcome'] = 'singleton'
+        return [(0, 0, width, height)], evidence
+    scale = min(1., 720 / max(width, height))
+    preview = source.resize((round(width * scale), round(height * scale)), Image.Resampling.BOX)
+    pw, ph = preview.size
     pixels = preview.load()
-    length, cross = (preview.width, preview.height) if axis == 'vertical' else (preview.height, preview.width)
-    candidates: list[int] = []
-    for position in range(2, length - 2):
-        values = [pixels[position, other] if axis == 'vertical' else pixels[other, position]
-                  for other in range(cross)]
-        left = [pixels[position - 1, other] if axis == 'vertical' else pixels[other, position - 1]
-                for other in range(cross)]
-        right = [pixels[position + 1, other] if axis == 'vertical' else pixels[other, position + 1]
-                 for other in range(cross)]
-        contrast = sum(sum(abs(a[c] - b[c]) for c in range(3)) >= 36 for a, b in zip(left, right)) / cross
-        if contrast >= .80:
-            candidates.append(position)
-    groups: list[list[int]] = []
-    merge_gap = max(2, length // 40)
-    for value in candidates:
-        if groups and value <= groups[-1][-1] + merge_gap:
-            groups[-1].append(value)
-        else:
-            groups.append([value])
-    return [dict(start=group[0], end=group[-1] + 1, center=(group[0] + group[-1] + 1) / 2,
-                 fraction=(group[0] + group[-1] + 1) / 2 / length) for group in groups
-            if group[0] > max(2, length // 50) and group[-1] + 1 < length - max(2, length // 50)]
+    background = _border_connected_background(preview)
+    bounds = (0, 0, pw, ph)
+    if background:
+        candidate = _content_bounds(background[0], pw, ph)
+        # Trim only small, reliably connected outer margins. Large blank areas
+        # inside artwork do not authorize a different board geometry.
+        if candidate and all(0 <= delta <= length * .06 for delta, length in
+                zip((candidate[0], candidate[1], pw-candidate[2], ph-candidate[3]), (pw, ph, pw, ph))):
+            bounds = candidate
+    axes = []
+    for axis, count, low, high, cross_low, cross_high in (
+        ('vertical', board['cols'], bounds[0], bounds[2], bounds[1], bounds[3]),
+        ('horizontal', board['rows'], bounds[1], bounds[3], bounds[0], bounds[2])):
+        length = high - low
+        cuts = []
+        for index in range(1, count):
+            expected = round(low + length * index / count)
+            radius = max(2, round(length / count * .12))
+            start, stop = max(low+1, expected-radius), min(high-1, expected+radius+1)
+            def pixel(pos, other):
+                return pixels[pos, other] if axis == 'vertical' else pixels[other, pos]
+            # A seam must span most of the orthogonal board dimension. Lines
+            # outside this bounded window never enter the decision.
+            scores = {pos: sum(sum(abs(a-b) for a,b in zip(pixel(pos-1,other), pixel(pos,other))) >= 36
+                              for other in range(cross_low,cross_high)) / (cross_high-cross_low)
+                      for pos in range(start,stop)}
+            candidates = [pos for pos, score in scores.items() if score >= .8]
+            cut = min(candidates, key=lambda pos: (abs(pos-expected), -scores[pos])) if candidates else expected
+            seam = (cut, cut)
+            method = 'transition' if candidates else 'expected_geometry'
+            if background:
+                mask = background[0]
+                def ratio(pos):
+                    return sum(not mask[other*pw+pos if axis == 'vertical' else pos*pw+other]
+                               for other in range(cross_low,cross_high)) / (cross_high-cross_low)
+                blanks = [pos for pos in range(start,stop) if ratio(pos) <= .12]
+                if blanks:
+                    center = min(blanks, key=lambda pos: abs(pos-expected))
+                    left, right = center, center+1
+                    while left > start and ratio(left-1) <= .16:
+                        left -= 1
+                    while right < stop and ratio(right) <= .16:
+                        right += 1
+                    # Bounded runs only: broad flat cell backgrounds are not gutters.
+                    if left > start and right < stop and right-left <= length/count*.12:
+                        seam, method = (left,right), 'margin'
+            cuts.append(seam)
+            evidence['seams'][axis].append({'expected': expected, 'start': seam[0], 'end': seam[1],
+                                            'method': method, 'search_window': [start, stop]})
+        axes.append(list(zip([low]+[cut[1] for cut in cuts], [cut[0] for cut in cuts]+[high])))
+    rectangles = [_native_box((x0,y0,x1,y1), preview.size, source.size)
+                  for y0,y1 in axes[1] for x0,x1 in axes[0]]
+    if any(x1-x0 < 200 or y1-y0 < 250 for x0,y0,x1,y1 in rectangles):
+        raise StructuralGridViolation('unextractable_expected_layout', {**evidence, 'outcome': 'cells_too_small'})
+    if bounds == (0, 0, pw, ph) and all(item['method'] == 'expected_geometry'
+            for axis in evidence['seams'].values() for item in axis):
+        rectangles = [(round(c*width/board['cols']), round(r*height/board['rows']),
+                       round((c+1)*width/board['cols']), round((r+1)*height/board['rows']))
+                      for r in range(board['rows']) for c in range(board['cols'])]
+    evidence['preview_dimensions'] = [pw, ph]
+    evidence['outer_crop_box'] = list(_native_box(bounds, preview.size, source.size))
+    evidence['outcome'] = 'pass' if any(s['method'] != 'expected_geometry'
+        for axis in evidence['seams'].values() for s in axis) else 'expected_geometry'
+    return rectangles, evidence
 
 
 def validate_composite_structure(data: bytes, board: dict) -> dict:
-    """Conservatively reject unmistakable extra cells or internal cuts.
-
-    Absence of detectable separators is inconclusive and passes to human review.
-    This is intentionally structural analysis, not OCR or a scene classifier.
-    """
-    from .storyboard_planner import validate_board_geometry
-    validate_board_geometry(board)
-    with Image.open(BytesIO(data)) as raw:
-        source = ImageOps.exif_transpose(raw).convert('RGB')
-    vertical = _strong_separators(source, axis='vertical')
-    horizontal = _strong_separators(source, axis='horizontal')
-    expected = {'columns': board['cols'], 'rows': board['rows']}
-    observed = {'columns': len(vertical) + 1 if vertical else None,
-                'rows': len(horizontal) + 1 if horizontal else None}
-    evidence = {'version': 'grid_structure_v1', 'expected_grid': expected,
-                'detected_separators': {'vertical': vertical, 'horizontal': horizontal},
-                'suspected_region_count': None if observed['columns'] is None or observed['rows'] is None
-                else observed['columns'] * observed['rows'], 'detected_grid': observed,
-                'outcome': 'inconclusive'}
-    extra_axis = ((observed['columns'] is not None and observed['columns'] > board['cols'])
-                  or (observed['rows'] is not None and observed['rows'] > board['rows']))
-    if extra_axis:
-        evidence['outcome'] = 'grid_contract_violation'
-        raise StructuralGridViolation('grid_contract_violation', evidence)
-    # Detected separators may match the requested outer grid.  Any strong one
-    # away from a planned boundary is an independent cut inside a final cell.
-    for separators, count in ((vertical, board['cols']), (horizontal, board['rows'])):
-        planned = {index / count for index in range(1, count)}
-        if any(all(abs(item['fraction'] - boundary) > .08 for boundary in planned) for item in separators):
-            evidence['outcome'] = 'multiple_cuts_detected'
-            raise StructuralGridViolation('multiple_cuts_detected', evidence)
-    evidence['outcome'] = 'pass' if vertical or horizontal else 'inconclusive'
+    """Validate extraction of exactly the planned cells, not arbitrary artwork lines."""
+    source = _load_planned_board(data, board)
+    rectangles, evidence = _expected_rectangles(source, board)
+    evidence['source_rectangles'] = [list(box) for box in rectangles]
     return evidence
 
 
@@ -382,41 +417,20 @@ def split_storyboard_with_metadata(data: bytes) -> StoryboardSplit:
     return StoryboardSplit(slides, metadata)
 
 
-def split_equal_grid(data, board):
-    """Strict persisted-grid crop; no margin inference or content-dependent cropping."""
-    from .storyboard_planner import validate_board_geometry, SPLIT_STRATEGY
-    validate_board_geometry(board)
-    cols, rows = board['cols'], board['rows']
-    if board['split_strategy'] != SPLIT_STRATEGY:
-        raise ValueError('equal-grid splitter requires its planned normalization strategy')
-    if len(data) > 40_000_000:
-        raise ValueError('storyboard exceeds image byte limit')
-    with Image.open(BytesIO(data)) as raw:
-        if raw.format not in {'PNG', 'JPEG'} or getattr(raw, 'n_frames', 1) != 1:
-            raise ValueError('storyboard must be one PNG/JPEG')
-        width, height = raw.size
-        if width * height > 40_000_000 or width < cols * 200 or height < rows * 250:
-            raise ValueError('storyboard dimensions unsafe or too small')
-        if width % cols or height % rows:
-            raise ValueError('storyboard dimensions are not divisible by the planned grid')
-        ar_width, ar_height = map(int, board['provider_aspect_ratio'].split(':'))
-        # Permit provider pixel rounding, but not a different board shape (2% relative).
-        if abs((width / height) / (ar_width / ar_height) - 1) > 0.02:
-            raise ValueError('storyboard aspect ratio does not match the requested provider ratio')
-        source = ImageOps.exif_transpose(raw).convert('RGB')
-        if source.size != (width, height):
-            raise ValueError('storyboard orientation inconsistent')
-        cw, ch = width // cols, height // rows
-        rectangles = [(c*cw, r*ch, (c+1)*cw, (r+1)*ch) for r in range(rows) for c in range(cols)]
-        if len(rectangles) != board['capacity']:
-            raise ValueError('split cell count does not match the storyboard plan')
-        slides = [ImageOps.fit(source.crop(box), (board['final_width'], board['final_height']),
-                              method=Image.Resampling.LANCZOS, centering=(0.5, 0.5)) for box in rectangles]
-    return StoryboardSplit(slides, dict(method=SPLIT_STRATEGY, fallback_used=False,
-        normalization=dict(method='ImageOps.fit', resampling='LANCZOS', centering=[0.5, 0.5],
+def split_equal_grid(data: bytes, board: dict, *, structural: dict | None = None) -> StoryboardSplit:
+    """Extract planner cells using the same bounded seam evidence as validation."""
+    from .storyboard_planner import SPLIT_STRATEGY
+    source = _load_planned_board(data, board)
+    structural = structural or validate_composite_structure(data, board)
+    rectangles = structural['source_rectangles']
+    slides = [ImageOps.fit(source.crop(box), (board['final_width'], board['final_height']),
+                          method=Image.Resampling.LANCZOS, centering=(.5,.5)) for box in rectangles]
+    return StoryboardSplit(slides, dict(method=SPLIT_STRATEGY, fallback_used=structural['outcome']=='expected_geometry',
+        extraction=structural,
+        normalization=dict(method='ImageOps.fit', resampling='LANCZOS', centering=[.5,.5],
                            slide_aspect_ratio=board['slide_aspect_ratio'],
                            final_width=board['final_width'], final_height=board['final_height']),
-        raw_dimensions=dict(width=width, height=height), source_rectangles=[list(b) for b in rectangles]))
+        raw_dimensions=dict(width=source.width, height=source.height), source_rectangles=rectangles))
 
 
 def split_storyboard(data: bytes) -> list[Image.Image]:
@@ -517,57 +531,81 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             board = json.loads(board_unit['board_json'])
             attempt = self.store.begin_render_board_attempt(run, board_unit)
             prompt = build_storyboard_prompt(package, recipe, pipeline_id=pipeline_id, board=board,
-                                             reinforce_grid=attempt['attempt_kind'] == 'structural_retry')
-            invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
-                key='render_run_id', row=run, request_version='image_storyboard_request_v2',
-                prompt_version=PROMPT_COMPILER_VERSION, schema_version=recipe['renderer_contract_id'],
-                request_value={'prompt_sha256': sha256(prompt.encode()).hexdigest(), 'board': board}, model_id=self.client.model,
-                budget_policy=self.budget_policy, render_board_attempt_id=attempt['render_board_attempt_id'])
-            from common.gemini_image import configured_image_size
-            self.store.record_model_request(invocation, prompt, None, {
-                'aspect_ratio': board['provider_aspect_ratio'], 'image_size': configured_image_size(),
-                'response_modalities': ['TEXT', 'IMAGE'], 'candidate_count': 1,
-                'max_output_tokens': getattr(self.client, 'max_output_tokens', None)})
-            started = perf_counter()
+                                             reinforce_grid=board_unit['lineage_kind'] == 'structural_retry')
+            saved = json.loads(attempt['result_json']) if attempt['result_json'] else None
+            if saved:
+                invocation = attempt['model_invocation_id']
+                from common.gemini import GeminiUsage
+                self.client.last_usage = GeminiUsage(**saved['usage']) if saved.get('usage') else None
+                provider_latency_ms = saved['provider_latency_ms']
+            else:
+                invocation = self.store.begin_model_invocation(phase='image_rendering', table='render_runs',
+                    key='render_run_id', row=run, request_version='image_storyboard_request_v2',
+                    prompt_version=PROMPT_COMPILER_VERSION, schema_version=recipe['renderer_contract_id'],
+                    request_value={'prompt_sha256': sha256(prompt.encode()).hexdigest(), 'board': board}, model_id=self.client.model,
+                    budget_policy=self.budget_policy, render_board_attempt_id=attempt['render_board_attempt_id'])
+                from common.gemini_image import configured_image_size
+                self.store.record_model_request(invocation, prompt, None, {
+                    'aspect_ratio': board['provider_aspect_ratio'], 'image_size': configured_image_size(),
+                    'response_modalities': ['TEXT', 'IMAGE'], 'candidate_count': 1,
+                    'max_output_tokens': getattr(self.client, 'max_output_tokens', None)})
+                started = perf_counter()
+                try:
+                    generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
+                except Exception as error:
+                    disposition = classify_failure(error)
+                    # This boundary is immediately around the provider call.  An
+                    # untyped exception here could follow a sent request, so do
+                    # not relabel it as a safe local failure or replay it.
+                    if disposition is FailureDisposition.LOCAL:
+                        disposition = FailureDisposition.AMBIGUOUS_EXTERNAL
+                    diagnostic = safe_failure(stage='image_rendering', disposition=disposition,
+                        code=(f'http_{provider_status(error)}' if provider_status(error) is not None else type(error).__name__.casefold()),
+                        attempt=int(attempt['attempt_number']), retryable=disposition is FailureDisposition.PROVIDER_TRANSIENT,
+                        slides=board['slide_indices'], board_capacity=board['capacity'])
+                    outcome = ('ambiguous_outcome' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL
+                               else invocation_outcome(error))
+                    self.store.finish_model_invocation(invocation, outcome=outcome, usage=self.client.last_usage,
+                        error=json.dumps(diagnostic, sort_keys=True), budget_policy=self.budget_policy, provider_error=error)
+                    if disposition is FailureDisposition.PROVIDER_TRANSIENT:
+                        self.store.schedule_render_provider_retry(run, attempt, diagnostic)
+                        continue
+                    self.store.finish_render_board_attempt(
+                        attempt, run=run, status=('provider_terminal' if disposition is FailureDisposition.PROVIDER_TERMINAL else
+                                         'ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'local_failed'),
+                        diagnostic=diagnostic, board_status='ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'failed')
+                    continue
+                self.store.reconcile_model_usage(invocation, self.client.last_usage, self.budget_policy)
+                provider_latency_ms = round((perf_counter() - started) * 1000)
             try:
-                generated = self.client.generate_image(prompt, aspect_ratio=board['provider_aspect_ratio'])
-            except Exception as error:
-                disposition = classify_failure(error)
-                # This boundary is immediately around the provider call.  An
-                # untyped exception here could follow a sent request, so do
-                # not relabel it as a safe local failure or replay it.
-                if disposition is FailureDisposition.LOCAL:
-                    disposition = FailureDisposition.AMBIGUOUS_EXTERNAL
-                diagnostic = safe_failure(stage='image_rendering', disposition=disposition,
-                    code=(f'http_{provider_status(error)}' if provider_status(error) is not None else type(error).__name__.casefold()),
-                    attempt=int(attempt['attempt_number']), retryable=disposition is FailureDisposition.PROVIDER_TRANSIENT,
-                    slides=board['slide_indices'], board_capacity=board['capacity'])
-                outcome = ('ambiguous_outcome' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL
-                           else invocation_outcome(error))
-                self.store.finish_model_invocation(invocation, outcome=outcome, usage=self.client.last_usage,
-                    error=json.dumps(diagnostic, sort_keys=True), budget_policy=self.budget_policy)
-                if disposition is FailureDisposition.PROVIDER_TRANSIENT:
-                    if self.store.schedule_render_provider_retry(run, attempt, diagnostic):
-                        raise RetryScheduled()
-                    raise RenderTerminalFailure({**diagnostic, 'code': 'retry_exhausted'})
-                self.store.finish_render_board_attempt(
-                    attempt, status=('provider_terminal' if disposition is FailureDisposition.PROVIDER_TERMINAL else
-                                     'ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'local_failed'),
-                    diagnostic=diagnostic, board_status='ambiguous' if disposition is FailureDisposition.AMBIGUOUS_EXTERNAL else 'failed')
-                raise RenderTerminalFailure(diagnostic) from error
-            provider_latency_ms = round((perf_counter() - started) * 1000)
-            try:
+                if saved:
+                    raw_data = Path(saved['raw']['checkpoint_path']).read_bytes()
+                    if sha256(raw_data).hexdigest() != saved['raw']['sha256']:
+                        raise ValueError('persisted raw board hash changed')
+                    generated = GeneratedImage(raw_data, saved['raw']['mime_type'])
                 if not isinstance(generated, GeneratedImage):
                     raise ValueError('image client did not preserve media metadata')
-                raw_name = (f"raw-storyboard-{board['board_index']:02d}{generated.extension}"
-                            if attempt['attempt_number'] == 1 else
-                            f"raw-storyboard-{board['board_index']:02d}-attempt-{attempt['attempt_number']}{generated.extension}")
+                suffix = '' if board_unit['lineage_kind'] == 'planned' and attempt['attempt_number'] == 1 else f"-request-{attempt['render_board_attempt_id']}"
+                raw_name = f"raw-storyboard-{board['board_index']:02d}{suffix}{generated.extension}"
                 raw = checkpoint_root / raw_name
-                raw.write_bytes(generated.data)
+                if not saved:
+                    raw.write_bytes(generated.data)
+                    with raw.open('rb') as handle:
+                        os.fsync(handle.fileno())
+                usage = self.client.last_usage
+                output = dict(stage='generated', provider_latency_ms=provider_latency_ms,
+                    usage=None if usage is None else dict(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+                                                         total_tokens=usage.total_tokens, model=usage.model),
+                    raw=dict(checkpoint_path=str(raw), sha256=sha256(generated.data).hexdigest(), mime_type=generated.mime_type))
+                self.store.checkpoint_render_board_output(run, attempt, output)
                 structural = validate_composite_structure(generated.data, board)
+                output.update(stage='validated', structural=structural)
+                self.store.checkpoint_render_board_output(run, attempt, output)
                 split = (split_storyboard_with_metadata(generated.data)
                          if board['split_strategy'] == 'english_accepted_v1'
-                         else split_equal_grid(generated.data, board))
+                         else split_equal_grid(generated.data, board, structural=structural))
+                output.update(stage='extracted', split=split.metadata)
+                self.store.checkpoint_render_board_output(run, attempt, output)
                 checkpoints = []
                 for cell, (ordinal, slide) in enumerate(zip(board['slide_indices'], split.slides)):
                     path = checkpoint_root / f'unit-{ordinal:02d}.png'
@@ -587,34 +625,35 @@ class GeminiImageRenderer(ActiveReviewRenderer):
             except StructuralGridViolation as error:
                 diagnostic = safe_failure(stage='image_rendering', disposition=FailureDisposition.OUTPUT_CONTRACT,
                     code=error.code, attempt=int(attempt['attempt_number']), slides=board['slide_indices'],
-                    requested_grid=f"{board['cols']}x{board['rows']}", detected_structure=error.evidence.get('detected_grid'),
+                    requested_grid=f"{board['cols']}x{board['rows']}", extraction_outcome=error.evidence.get('outcome'),
                     action='retry_then_reduce_batch')
                 self.store.finish_model_invocation(invocation, outcome='structural_failed', usage=self.client.last_usage,
                     response_value={'sha256': sha256(generated.data).hexdigest()}, error=json.dumps(diagnostic, sort_keys=True),
-                    budget_policy=self.budget_policy)
-                previous = self.store.connection.execute(
-                    "SELECT COUNT(*) FROM render_board_attempts WHERE render_board_unit_id=? AND status='structural_failed'",
-                    (attempt['render_board_unit_id'],)).fetchone()[0]
-                if previous == 0 and int(attempt['attempt_number']) < 3:
-                    self.store.finish_render_board_attempt(attempt, status='structural_failed', structural_evidence=error.evidence,
-                                                           diagnostic=diagnostic, board_status='pending')
+                    budget_policy=self.budget_policy, resume_image_output=bool(saved))
+                if board_unit['lineage_kind'] != 'structural_retry':
+                    self.store.split_render_board_unit(run, attempt, [board], diagnostic,
+                        structural_evidence=error.evidence, lineage_kind='structural_retry')
                     continue
                 if board['capacity'] > 1:
                     from .storyboard_planner import split_for_structural_fallback
                     self.store.split_render_board_unit(run, attempt,
-                        split_for_structural_fallback(board, package['visual_units'], pipeline_id), diagnostic)
+                        split_for_structural_fallback(board, package['visual_units'], pipeline_id), diagnostic,
+                        structural_evidence=error.evidence)
                     continue
-                self.store.finish_render_board_attempt(attempt, status='structural_failed', structural_evidence=error.evidence,
+                self.store.finish_render_board_attempt(attempt, run=run, status='structural_failed', structural_evidence=error.evidence,
                                                        diagnostic=diagnostic, board_status='failed')
-                raise RenderTerminalFailure(diagnostic) from error
+                continue
             except Exception:
                 self.store.finish_model_invocation(invocation, outcome='invalid_output', usage=self.client.last_usage,
                     error='local image processing failure', budget_policy=self.budget_policy)
-                self.store.finish_render_board_attempt(attempt, status='invalid_output',
+                self.store.finish_render_board_attempt(attempt, run=run, status='invalid_output',
                     diagnostic=safe_failure(stage='image_rendering', disposition=FailureDisposition.LOCAL,
                         code='local_image_processing_failure', attempt=int(attempt['attempt_number']), slides=board['slide_indices']),
                     board_status='failed')
-                raise
+                continue
+
+        if self.store.finish_incomplete_render(run):
+            raise RetryScheduled()
 
         from .model_trace import invocation_cost, aggregate_cost
         assets, provenance, boards = [], [], []
