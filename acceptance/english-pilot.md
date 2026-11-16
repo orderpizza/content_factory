@@ -33,13 +33,15 @@ so this sample does not test history-based variety across a real account.
 
 ### Why recovery budgets exceed slide counts
 
-Inspection of `acceptance/adapters/pipeline.py` shows admission checks the initial
-plan's board count, not a per-provider-call acceptance counter. The production
-renderer can reinforce an invalid composite, then split into singletons; each
-singleton can be reinforced. Each logical request has at most three provider
-attempts. Existing scenarios' one-image-per-slide envelopes need not cover all
-these transitions. Do not describe their CLI counts as universal hard intercepts.
-
+The acceptance runner now checks every runtime-controlled provider attempt through
+a shared acceptance-only guard at the persisted pre-dispatch trace boundary. Case
+phase allowances, run combined/image caps and the planned run text cap apply across
+retries and recovery; `--repeat` does not reset the run counters when it opens a new
+isolated database. See [exact safety semantics](README.md#safety-and-budgets).
+The production renderer can reinforce an invalid composite, then split into
+singletons; each singleton can be reinforced. Each logical request has at most three
+provider attempts. All these attempts consume the same acceptance allowance.
+A nominal board allowance may stop recovery before completion.
 For N slides, B composite boards and S initially singleton slides, the maximum
 logical requests are `2B + 2(N-S) + 2S = 2B + 2N`. Since `B <= N/2`, a conservative
 lifetime bound is `3 * (2B + 2N) <= 9N` image calls. The new positive cases each
@@ -48,9 +50,9 @@ maximum of six slides), including recovery, without changing renderer behavior.
 The requested count is evaluated after execution; an upstream model could lose
 the count constraint. Reserving only 9 × the requested four/five slides would
 underbudget that failure path. Human/automatic review still rejects a wrong count.
-Text stages are invoked
-once per case by this adapter (five per positive, one per control); the guide
-forbids manual worker resumes or automatic fresh-case reruns. A smaller initial
+Text stages have hard one-attempt allowances (five per positive, one per control);
+provider retries or adaptation metadata repair cannot exceed those allowances.
+The guide forbids manual worker resumes or automatic fresh-case reruns. A smaller initial
 plan normally uses far fewer calls. This is a defensive envelope, not expected
 spend, a recommendation to exhaust it, or a quality result. Revisit the bound if
 recovery topology changes; offline recovery tests remain authoritative.
@@ -59,8 +61,8 @@ The full two-repeat plan therefore reserves at most 52 text + 540 image = **592
 provider calls**, across 12 attempts and 48 intended final positive slides. This
 large reservation can cause `SKIP_BUDGET` even when nominal boards would be cheap.
 Keep the USD ceiling; reduce the sample or seek a new explicit budget rather than
-quietly enlarging it. Per-call acceptance caps would be a useful narrowly scoped
-follow-up if conservative admission makes the experiment impractical.
+quietly enlarging it. The count caps are enforced before dispatch; the USD amounts
+remain reservation-based admission estimates, not guaranteed invoice ceilings.
 
 ## Offline procedure — safe now
 
@@ -206,42 +208,37 @@ render attempts can retain raw checkpoints without a final gallery; inspect thei
 SQLite/retained paths. The immutable exact package/assets reviewed must be linked
 in the report, including subsequent revisions.
 
-`costs.json` provides total accounted cost and call counts, but not all raw usage
-or the split between actual and unknown costs. Export the existing ledger through
-its current cost projection for **each** live attempt, including failed attempts.
-Set `PILOT_ATTEMPT` to the printed attempt directory; this reads SQLite without
-provider construction and writes a local report next to it:
+`accounting.json` is automatically exported for **each** live attempt, including
+adapter exceptions before return. It projects existing `model_invocations` and
+`gemini_budget_reservations` without changing production schema. `costs.json` and
+`run.json` roll up the same evidence. Inspect per-invocation input/output tokens,
+phase/model, priced `actual_micro_usd`, historical `reservation_micro_usd`,
+`active_reservation_micro_usd`, `uncertain_micro_usd` and
+`actual_minus_reservation_micro_usd`. USD = micro-USD / 1,000,000.
 
-```sh
-PILOT_ATTEMPT=data/acceptance/REPLACE_RUN/cases/REPLACE_CASE/attempt-01 \
-PYTHONPATH=src .venv/bin/python - <<'PY'
-import json, os, sqlite3
-from pathlib import Path
-from workflow.model_trace import invocation_cost
-attempt = Path(os.environ['PILOT_ATTEMPT']).resolve()
-connection = sqlite3.connect((attempt / 'workflow.db').as_uri() + '?mode=ro', uri=True)
-connection.row_factory = sqlite3.Row
-ids = [r[0] for r in connection.execute(
-    'SELECT model_invocation_id FROM model_invocations ORDER BY model_invocation_id')]
-rows = [invocation_cost(connection, i) for i in ids]
-connection.close()
-(attempt / 'pilot-ledger.json').write_text(json.dumps(rows, indent=2) + '\n')
-PY
-```
+Keep priced settlement separate from active/uncertain holds. Historical reservations
+are not additional charges. Blocked invocations are not calls; explicit rejections
+released by production can settle to zero while consuming an attempt. Missing usage
+and lost responses retain uncertain holds; missing/partial database evidence yields
+null totals and `accounting_incomplete`, not zero. The pre-dispatch admitted count
+may conservatively include local transport setup failure or a crash before send;
+it is not a provider billing receipt. SDK retries are configured to one attempt for
+both transports; the caps cannot govern external behavior outside this client.
 
-Keep input/output tokens by phase and model, actual text/image calls, settled
-`actual_micro_usd`, `active_reservation_micro_usd` and `uncertain_micro_usd` separate
-(USD = micro-USD / 1,000,000). Missing tokens/cost are unknown. Blocked invocations
-are not calls; released explicit rejections can have zero settled cost. Do not
-add historical `reservation_micro_usd` to settlement or count only successful
-manifest boards: recovery invocations and early text stages also cost money.
-Reconcile the projection with `costs.json`; unexplained mismatches stop expansion.
-In particular, the runner's outer exception path constructs an ERROR result with
-zero default calls/cost if the adapter raises before returning its ledger summary.
-That zero is not evidence of no spend: inspect the attempt database after every
-error, and keep accounting unknown if it is missing. The manual ledger check is
-required before another batch; automated failure-total recovery is a focused
-instrumentation gap for a later change.
+Errors retain safe type diagnostics and partial handoffs/checkpoints. Inspect
+`evaluation.json`, `accounting.json` and the attempt SQLite database even if the
+adapter did not return. Unresolved accounting makes the result ERROR and stops
+subsequent cases in the same matrix with `SKIP_BUDGET`. There is no automatic
+resolution command. A new CLI invocation does not resolve uncertainty: the operator
+must reconcile it and explicitly authorize remaining campaign capacity first.
+The runner can allow further attempts inside the current case under the unchanged
+production recovery policy, but each consumes count and reservation capacity.
+
+Response usage above its reserve is settled in full; later admissions use that
+larger amount. Even the pre-attempt USD checks cannot guarantee the bill for an
+already sent request. Keep headroom and inspect over-reservation deltas. An
+unexplained mismatch stops expansion, and uncertain holds are not proof of a charge
+or of no charge.
 Provider billing reconciliation may still be needed; these are priced usage and
 holds, not invoices. Follow the rubric's denominators for cost/tokens/images per
 approved lesson, operator time, controls, skips and revisions. Publication metrics
@@ -272,9 +269,9 @@ Recommended order for ChatGPT's architectural review:
 2. **Conditional controlled board experiment** if text fidelity/readability is the
    dominant failure: reuse `render_fidelity.json` and the unchanged
    `english_fidelity_6_v1.json`, identical package/model/prices, comparing 6,
-   4+2, 2+2+2 and singletons. The existing guide's 12 images cover nominal boards,
-   not recovery: revise the authorized envelope using the recovery bound or add
-   per-call admission before executing. Compare exact-text error locations,
+   4+2, 2+2+2 and singletons. The guide's 12-image comparison now enforces 12
+   runtime-controlled attempts, including recovery. Variants may stop at their
+   case limits; any larger recovery envelope needs separate authorization. Compare exact-text error locations,
    readable slides, board seams, latency and all-in cost; retain failed variants.
 3. **Learner comprehension/localization probe** only on human-passed assets: recruit
    consenting A1/A2/B1 learners across first languages, ask the stated practical
@@ -283,7 +280,6 @@ Recommended order for ChatGPT's architectural review:
    not evidence already collected. Consider a small manual posting pilot only
    after quality/cost review and exact-asset publication authorization.
 
-If conservative envelopes or cost-report gaps block (1), prioritize a narrow
-acceptance-budget/accounting correction with fake-provider recovery tests before
-any live run. Do not start posting integration or account-model redesign to solve
+If conservative envelopes or unresolved accounting block (1), inspect the evidence
+and reduce the proposed batch or seek an explicitly revised budget before a live run. Do not start posting integration or account-model redesign to solve
 an unmeasured teaching or rendering problem.

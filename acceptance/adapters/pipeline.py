@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from acceptance.framework import (Category, StageCase, StageExecution, Status, TEXT_STAGES,
+from acceptance.safety import AcceptanceStore, RunGuard
+from acceptance.framework import (configured_worst_case, Category, StageCase, StageExecution, Status, TEXT_STAGES,
                                   initialize_acceptance_database,
                                   require_live_authorization)
 from common.gemini import VertexGeminiClient, configured_model
@@ -578,11 +579,15 @@ def _write_render_outputs(output: dict[str, Any], artifact_root: Path) -> None:
 
 
 def execute_case(stage_case: StageCase, database: Path, authorization: Any, text_policy: Any,
-                 image_policy: Any | None = None, artifact_root: Path | None = None) -> StageExecution:
+                 image_policy: Any | None = None, artifact_root: Path | None = None,
+                 attempt_guard=None) -> StageExecution:
     """Run an isolated production journey, including image rendering when requested."""
     require_live_authorization(authorization)
-    initialize_acceptance_database(database)
     case = stage_case.case
+    if attempt_guard is None:
+        calls, images, cost = configured_worst_case(case, text_policy, image_policy)
+        attempt_guard = RunGuard(calls, images, calls - images, cost).attempt(case, cost)
+    initialize_acceptance_database(database)
     if case.source_kind == "stage_fixture":
         # Fixture setup must not reserve production model budget or be counted
         # as a live call. It writes only a frozen upstream handoff.
@@ -594,7 +599,7 @@ def execute_case(stage_case: StageCase, database: Path, authorization: Any, text
     requested = ("intake", "determination", "editorial_planning", "generation", "visual_selection", "adaptation", "storyboard_planning", "image_rendering")
     active = requested[requested.index(case.start_stage):requested.index(case.end_stage) + 1]
     executed: list[str] = []
-    with WorkflowStore(database, model_budget_policy=text_policy) as store:
+    with AcceptanceStore(database, model_budget_policy=text_policy, attempt_guard=attempt_guard) as store:
         if case.source_kind == "human":
             store.create_human_idea(case.input["idea"], command_id=f"acceptance-{case.case_id}-{stage_case.attempt}")
         elif case.source_kind == "detection_fixture":

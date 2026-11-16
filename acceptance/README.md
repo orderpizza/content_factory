@@ -58,16 +58,60 @@ override are present, the smaller applies. `LIVE_TEST_MAX_CALLS`,
 `LIVE_TEST_MAX_IMAGE_CALLS`, and `LIVE_TEST_MAX_CASES` can constrain the run;
 the corresponding CLI values can only make those limits stricter. A case is
 admitted only if its whole declared call/image/cost envelope fits before it
-starts. These are case-admission constraints, not guaranteed per-provider-call
-limits: retries, reinforced boards and fallback can exceed a case's nominal
-call or image envelope after admission. The runner does not intercept each such
-call against the acceptance limits. See the [pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
-for recovery-aware planning and accounting. Cost envelopes use configured current Gemini prices, input-token reservation
-assumptions and provider output caps. Input reservations are not enforced token
-maxima; reported actual cost can exceed the estimate. The production `ModelBudgetPolicy` and SQLite invocation/reservation
-ledger still gate and account for each actual call. Acceptance totals retain an
-uncertain invocation’s full reserved amount when usage is absent; they must not
-report that call as zero cost.
+starts. A single acceptance-only guard also checks **every runtime-controlled
+provider attempt** at `AcceptanceStore.record_model_request`, after the production
+reservation and immediately before `generate_json` / `generate_image`. This covers
+all text stages, adaptation metadata repair, image provider retries, reinforced
+composites and singleton fallbacks. Frozen fixture preparation uses local responses
+and is excluded. Production worker composition, prompts and retry policies are unchanged.
+
+Each attempt is limited by the case's `calls_by_stage` (including `image_rendering`);
+these imply separate text/image and combined case caps. A refusal is persisted as
+`blocked`, releases that unsent reservation, and produces a budget ERROR. Completed
+handoffs and raw image checkpoints remain available. Current text scenarios declare
+one call per phase: a retry or metadata repair may therefore be refused. Image
+scenarios with only nominal board allowances may stop before recovery completes.
+Budgets are never automatically enlarged or retries silently disabled.
+
+The serialized matrix shares combined/image counters across all cases and `--repeat`
+attempts, despite their separate databases. The run's text cap is the sum of planned
+text allowances; the combined cap can tighten it further. Run limits are the minimum
+of planned totals, environment limits and CLI limits. Admissions are durably recorded in the trace; shared in-process counters
+increment before dispatch. They conservatively include attempts that fail locally
+in transport setup, and may include an admission followed by a crash before send.
+They do not establish provider receipt or exact billable usage. Both Gemini transports
+configure `HttpRetryOptions(attempts=1)`; there are no independent SDK retries in this
+configuration. External service behavior outside this runtime is not bounded here.
+Do not resume acceptance databases with production workers or concurrent processes.
+
+The estimated USD gate checks the case envelope at admission and ledger settlement
+plus active/uncertain reservations before each further attempt, including the new
+reservation. Historical reservations are not added to settled usage. The production
+`ModelBudgetPolicy` and SQLite daily/job gates remain active. Configured input-token
+reservations are assumptions, while output tokens are provider caps. Response usage
+can exceed its reservation and is settled in full; this may exceed an admission USD
+budget before the next request is refused. No guaranteed dollar invoice maximum is
+claimed. See the [pilot recovery guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts).
+
+Every live attempt exports `accounting.json` from `model_invocations` and
+`gemini_budget_reservations`, even if its adapter raises before returning. It includes
+priced settled usage, active reservations, uncertain holds, per-invocation usage,
+and `accounting_incomplete` / `unresolved` indicators. `estimated_cost_usd` includes
+known holds; it is not confirmed spend. Missing/partial evidence produces null
+(unknown) totals rather than zero. Explicit provider rejections released by the
+production policy can be zero-cost but still count as attempts. Missing response
+usage, lost/started requests and unresolved holds block **all subsequent case
+admissions** with `SKIP_BUDGET`; they remain visible as ERROR, not a free success.
+The current case's existing retry/recovery policy may continue within its count
+and reservation caps. There is no automatic accounting-resolution or resume command.
+
+Inspect `evaluation.json`, `accounting.json`, the attempt's `workflow.db` and retained
+checkpoints after failures. Run `costs.json`, `run.json`, CLI and Markdown summaries
+carry unknown/unresolved indicators and settlement/hold totals. Safe error types
+are retained; raw provider exceptions and credentials are not exported. Reconcile
+uncertainty before authorizing new work. Separate CLI runs have no shared campaign
+ledger: human control must subtract cumulative attempts and settled usage plus
+unresolved holds, and must not treat a new run as resolution.
 
 Configure local Vertex ADC, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`,
 text/image model IDs, and the same current `GEMINI_*_COST_PER_MILLION_USD`,
@@ -117,8 +161,8 @@ Plan the visual profile without a provider call:
 
 Before a separately authorized live run, configure image model/pricing and
 choose a recovery-aware case-admission envelope and budget. The profile's
-declared dynamic-board envelope covers initial plans, not necessarily retries or
-fallback calls. Follow the [pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
+declared dynamic-board envelope is now a hard attempt allowance, so recovery
+may exhaust it before all slides complete. Follow the [pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
 and inspect each attempt's ledger before proceeding.
 
 `visual` covers automatic text-aware board planning, English adaptive splitting
@@ -141,19 +185,27 @@ gates still apply. Normal workflow entrypoints cannot select a forced strategy.
 
 Recommended first comparison: one attempt of all four variants, with 12 nominal
 initial image requests in total, the same configured model, 2K size and prices.
-Retries, reinforcement and fallback can increase actual provider calls beyond 12.
+Retries, reinforcement and fallback consume these same 12 slots; variants can
+fail at their own limits before completing all slides.
 First inspect a free dry-run:
 
 ```sh
 .venv/bin/python -m acceptance.runners.matrix --profile fidelity --dry-run --max-usd 5.00
 ```
 
-Do not treat `--max-calls 12` or `--max-image-calls 12` as a hard
-12-provider-call ceiling. Before any separately authorized live comparison,
-establish a recovery-aware envelope or a true per-call enforcement mechanism;
-the existing fidelity scenario budgets count nominal boards. Follow the
-[pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
-for recovery and ledger review.
+After separate owner authorization, this comparison enforces at most 12
+runtime-controlled image attempts total, with each variant limited to its declared
+board allowance. It does not guarantee completion or an invoice ceiling:
+
+```sh
+CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
+.venv/bin/python -m acceptance.runners.matrix --profile fidelity --live-gemini \
+  --max-calls 12 --max-image-calls 12 --max-cases 4 --max-usd 5.00
+```
+
+A larger recovery allowance is a new, explicitly authorized comparison condition;
+never increase limits to make a failed baseline pass. Review incomplete variants
+and their full ledgers alongside successes.
 
 Inspect all final slides and raw boards side by side. `board-validation.json` also
 records per-board structural expected/detected grid evidence and outcome; compare

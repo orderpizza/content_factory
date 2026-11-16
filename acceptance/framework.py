@@ -276,12 +276,13 @@ class StageExecution:
     stage: str
     model_id: str | None
     output: dict[str, Any] = field(default_factory=dict)
-    calls: int = 0
-    image_calls: int = 0
-    estimated_cost_micro_usd: int = 0
+    calls: int | None = 0
+    image_calls: int | None = 0
+    estimated_cost_micro_usd: int | None = 0
     error: str | None = None
     error_category: Category = Category.PROVIDER
     executed_stages: tuple[str, ...] = ()
+    accounting: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -472,6 +473,8 @@ def result_dict(stage_case: StageCase, execution: StageExecution, evaluation: St
             "status": evaluation.status.value,
             "model_id": execution.model_id, "calls": execution.calls,
             "image_calls": execution.image_calls,
-            "estimated_cost_usd": str(Decimal(execution.estimated_cost_micro_usd) / Decimal(1_000_000)),
+            "estimated_cost_usd": (None if execution.estimated_cost_micro_usd is None else
+                                   str(Decimal(execution.estimated_cost_micro_usd) / Decimal(1_000_000))),
+            "accounting": execution.accounting,
             "output": execution.output,
             "findings": [{**asdict(f), "status": f.status.value, "category": f.category.value} for f in evaluation.findings]}

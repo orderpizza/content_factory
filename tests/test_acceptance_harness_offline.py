@@ -331,7 +331,8 @@ def test_v1_live_intake_artifact_uses_the_persisted_source_request_column(tmp_pa
 
     class FakeClient:
         model = "fake-live-intake"
-        last_usage = None
+        from common.gemini import GeminiUsage
+        last_usage = GeminiUsage(120, 80, 200, model)
 
         def __init__(self, **kwargs):
             pass
@@ -377,19 +378,17 @@ def test_case_that_does_not_fit_is_skipped_before_execution(tmp_path, monkeypatc
 
 def test_repeat_expansion_respects_case_limit_before_attempt_execution(tmp_path, monkeypatch):
     monkeypatch.setattr(matrix, "_policies", lambda env, need_images: (text_policy(), None))
-    calls = []
-    def fake_execute(*args):
-        calls.append(args)
-        return StageExecution(Status.PASS, "intake", "fake", output={"ok": True}, calls=1,
-                              estimated_cost_micro_usd=1000)
-    monkeypatch.setattr(matrix, "_intake_executor", fake_execute)
+    from common import gemini
+    from test_gemini_workflow import FakeGeminiClient, brief
+    client = FakeGeminiClient(brief())
+    monkeypatch.setattr(gemini, 'VertexGeminiClient', lambda **kwargs: client)
     output, info = matrix.run_matrix(profile="smoke", dry_run=False, cli_live=True, repeat=2,
         limits={"max_usd": "0.2", "max_calls": None, "max_image_calls": None, "max_cases": 1},
         environment={"CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS": "1"}, case_directory=FIXTURES,
         output_root=tmp_path / "acceptance")
     attempts = [json.loads(path.read_text()) for path in sorted(output.glob("cases/**/evaluation.json"))]
     assert [item["status"] for item in attempts] == [Status.PASS.value, Status.SKIP_BUDGET.value]
-    assert len(calls) == 1
+    assert len(client.calls) == info['actual_calls'] == 1
 
 
 def test_live_environment_or_cli_alone_cannot_reach_provider(tmp_path, monkeypatch):
