@@ -3,13 +3,10 @@
 This directory holds opt-in live acceptance tooling, versioned reusable scenarios and
 stage/chain/full-journey evaluators. It is separate from production worker
 composition. Normal tests use fake providers and remain offline. The permanent
-architecture, regression philosophy and historical status are owned by
-[`docs/acceptance/`](../docs/acceptance/README.md); this document owns runner
-operation, profiles, authorization, budgets and artifacts.
-
-Reusable definitions are in `scenarios/`. Historical campaign
-evidence is deliberately outside this directory under
-[`docs/acceptance/history/`](../docs/acceptance/history/README.md).
+testing policy is owned by [testing](../docs/testing.md); this document owns
+runner operation, profiles, authorization, budgets and artifacts. Reusable
+definitions are in `scenarios/`; per-run evidence belongs in ignored
+`data/acceptance/`, not tracked historical reports.
 
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for

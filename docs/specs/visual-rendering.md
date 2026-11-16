@@ -305,13 +305,5 @@ Local font selection and the preserved delivery approval contract belong to
 [configuration](configuration.md#preserved-production-configuration).
 
 
-## Archived deterministic visual library
-
-The former generic HTML/Playwright library, gallery tooling, assets and historical
-tests are retained only under `archive/deterministic_visual_library/`. It is not
-on an active import path and has no operator command, selector, renderer or
-fallback. Its archived material is reference-only future work; restoring it
-requires a deliberate new contract and implementation.
-
 The dashboard serves review assets only after path, length and hash validation.
 R2 is downstream staging, never a renderer input or canonical asset store.

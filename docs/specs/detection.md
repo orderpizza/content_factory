@@ -2,7 +2,7 @@
 
 **Owner:** Source behavior, lexical/semantic resolution, deterministic attention
 scoring, selection and frozen evidence. Commands belong to
-[operations](../current-state.md); settings and exact source endpoints belong to
+[operations](../operations.md); settings and exact source endpoints belong to
 the [release manifest](../../config/releases/detection.json).
 
 ## Architecture

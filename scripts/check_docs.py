@@ -15,7 +15,7 @@ from workflow.catalog import WORKFLOW_PIPELINES
 
 DOCUMENTS = [*sorted(ROOT.glob('*.md')), *sorted((ROOT / "docs").rglob("*.md")),
              *sorted((ROOT / "acceptance").rglob("*.md"))]
-REQUIRED = ["docs/system.md", "docs/current-state.md", "docs/specs/detection.md",
+REQUIRED = ["docs/product.md", "docs/roadmap.md", "docs/testing.md", "docs/architecture.md", "docs/operations.md", "docs/specs/detection.md",
             "docs/specs/idea-intake-and-determination.md", "docs/specs/dashboard.md",
             "docs/specs/data-model.md",
             "docs/specs/configuration.md", "docs/specs/runtime.md",
@@ -32,7 +32,7 @@ def anchor(value):
 def main():
     errors = [f"Missing {p}" for p in REQUIRED if not (ROOT/p).is_file()]
     texts = {p: p.read_text() for p in DOCUMENTS if p.is_file()}
-    router = texts.get(ROOT/'docs/system.md', '')
+    router = texts.get(ROOT/'docs/architecture.md', '')
     routed = {(ROOT/'docs'/target.partition('#')[0]).resolve()
               for target in LINK.findall(router) if '://' not in target}
     for document in texts:
@@ -87,7 +87,7 @@ def main():
     domains = re.findall(r"^\| `([a-z0-9_]+)` \|", (ROOT/"docs/pipelines/domains.md").read_text(), re.M)
     if set(domains) != set(WORKFLOW_PIPELINES) or set(domains) != {"english", "ai_tech", "psychology"} or len(domains) != 3:
         errors.append("Domain reference must contain exactly three registered domains")
-    operations = texts.get(ROOT / "docs/current-state.md", "")
+    operations = texts.get(ROOT / "docs/operations.md", "")
     for script in (ROOT / "scripts").glob("*.py"):
         if f"`{script.name}`" not in operations:
             errors.append(f"Operator entrypoint is not documented: {script.name}")

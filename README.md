@@ -1,30 +1,35 @@
 # Content Factory
 
-Local-first content production on a Mac Mini, with SQLite worker handoffs and a
-loopback dashboard. Automatic Detection and human ideas can both reach any of
-three domains: `english`, `ai_tech`, `psychology`. Each domain has one Instagram
-destination.
+Build a repeatable, profitable AI-assisted social content operation, beginning
+with one Instagram account. The current local Mac Mini application produces
+review-ready content; production publishing, analytics feedback and account-first
+configuration are not operational.
 
-```text
-Sources / Human ideas → Detection / Intake → Determination
-→ Editorial Planning → immutable EditorialPlan → ContentJob
-→ Canonical generation → Visual planning → Instagram adaptation → Gemini rendering → Review
+## Start locally
+
+With Python 3.10+ and uv installed:
+
+```sh
+uv sync --frozen --extra dev
+.venv/bin/python -m playwright install chromium
+.venv/bin/python scripts/setup_development.py
+.venv/bin/python scripts/serve_dashboard.py
 ```
 
-English produces exactly six Instagram review PNGs; AI/Tech and Psychology
-produce 4–14. Deterministic text-load planning groups these unchanged slides
-into 1×1, 2×1, 2×2, and 3×2 Gemini boards, potentially several calls per carousel; each domain has three curated
-archetypes. Shared local processing makes every final slide 4:5 (1080×1350).
-See the [visual rendering contract](docs/specs/visual-rendering.md) for the
-profiles, board mapping, split behavior, and review requirements. The dashboard
-shows progress, evidence and exact review assets. Actual posting is outside the
-current implementation scope; generic delivery records and R2 staging remain
-preserved. The deterministic visual library and HTML renderer are preserved
-inactive.
+Setup creates a fresh timestamped SQLite database and synthetic development
+bindings without provider calls. The dashboard runs on loopback port 8787.
+It records commands; producing Gemini review assets requires the separately
+configured, paid workflow described in [operations](docs/operations.md).
+Actual settings belong in ignored `.env`; `.env.example` inventories their names.
 
-Start with [operations](docs/current-state.md), [architecture and document
-ownership](docs/system.md), and [agent instructions](AGENTS.md).
-The permanent [live acceptance and regression architecture](docs/acceptance/README.md)
-keeps reusable definitions separate from ignored per-run evidence.
-`.env.example` is the canonical tracked inventory of operator settings; actual
-values belong in ignored `.env`. Planning-only mode stops at ContentJobs.
+## Documentation
+
+- [Product](docs/product.md): business hypotheses and measurable MVP outcomes.
+- [Architecture](docs/architecture.md): current pipeline, target and contract router.
+- [Roadmap](docs/roadmap.md): publish and measure, then accounts, then platforms.
+- [Operations](docs/operations.md): setup, secrets, Mac Mini processes and backups.
+- [Testing](docs/testing.md): offline safeguards and opt-in paid acceptance.
+- [AGENTS.md](AGENTS.md): safe implementation and verification instructions.
+
+Remote repository cleanup does not erase ignored local databases, logs, artifacts
+or secrets. Local data cleanup is a separate, explicitly authorized operation.

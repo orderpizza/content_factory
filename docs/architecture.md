@@ -1,9 +1,9 @@
-# Content Factory system
+# Architecture
 
 This guide owns architecture and document routing. Focused specs describe current
 code, configuration and persisted contracts.
 
-## Current boundary
+## CURRENT: review-only workflow
 
 The three domains are `english`, `ai_tech`, `psychology`. Each has one Instagram
 destination. Domain IDs are editorial identities, never account IDs. Both
@@ -43,8 +43,7 @@ Content pagination freezes units in the package; render pagination packs them by
 versioned deterministic text-load budgets. Six English slides may use multiple
 image calls. Every final Instagram slide is 4:5 at 1080×1350. English produces 4–6
 review PNGs; AI/Tech and Psychology produce 4–14 ordered review PNGs. The accepted English baseline prompt and overlays are preserved.
-Unsupported combinations stop explicitly with no HTML fallback. The former
-deterministic visual library remains archived and inactive. See
+Unsupported combinations stop explicitly with no HTML fallback. See
 [visual rendering](specs/visual-rendering.md) for the nine archetypes and provenance.
 
 The current acceptance boundary is review-ready slides visible in the dashboard.
@@ -58,7 +57,7 @@ storage admission; monitoring remains advisory there.
 
 | Concern | Canonical reference |
 | --- | --- |
-| Commands, project map and limitations | [Current state](current-state.md) |
+| Commands, project map and limitations | [Current state](operations.md) |
 | Identity, transactions, schema initialization and record inventory | [Data model](specs/data-model.md) |
 | SQL/JSON contract ownership | [Contracts](contracts/README.md) |
 | Detection and semantic evidence | [Detection](specs/detection.md) |
@@ -71,7 +70,7 @@ storage admission; monitoring remains advisory there.
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
-| Live acceptance architecture and regression philosophy | [Acceptance](acceptance/README.md) |
+| Offline safeguards and opt-in live acceptance | [Testing](testing.md) |
 
 ### Required reading for a code change
 
@@ -95,6 +94,26 @@ also read the data model and executable contract.
 README is the short entry point; current state owns runnable commands. Each
 focused spec owns one contract; executable SQL and in-code schemas own exact
 fields. Update the owner with code changes and link instead of duplicating.
-Keep no roadmap, audit diary or migration narrative. Git retains source history;
+The [roadmap](roadmap.md) owns planned work and completion gates. Git retains source history;
 immutable records retain runtime evidence. [Agent instructions](../AGENTS.md)
 own safe editing and verification.
+
+## TARGET: publish and measure before expanding
+
+This section is direction, not implemented capability. The [product goal](product.md)
+is a profitable, repeatable operation, initially for one Instagram account.
+Complete a human-approved publication and measurement loop first: exact reviewed
+assets → authorized delivery → reconciled publication receipt → observed outcomes
+→ editorial decisions. Define measurement provenance and attribution before
+claiming that engagement or revenue improved.
+
+After that loop is demonstrated, separate account identity and editorial policy
+from domains. An account will own its audience, voice, platform credentials,
+review policy and performance history; domains remain reusable subject areas.
+Canonical content, destination adaptation, rendering and delivery should retain
+explicit boundaries. Other platforms follow demonstrated multi-account operation.
+
+SQLite handoffs, immutable evidence, bounded cost and explicit human authorization
+are current safeguards. Framework choice, account modeling and scheduling are
+future design decisions; Phase 1 changes no runtime topology or schema.
+See the [roadmap](roadmap.md) for gates and unresolved decisions.
