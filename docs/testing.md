@@ -27,7 +27,7 @@ source roster, operator commands and environment settings.
 | Geometry, asset integrity and checkpoint recovery | `test_storyboard_pagination.py`, `test_gemini_image_renderer.py`, `test_render_text_policy.py`, `test_render_recovery.py` |
 | Review and duplicate-delivery protection | `test_delivery_boundaries.py`, `test_visual_configuration.py`, `test_workflow_planning.py`, `test_r2_relay.py` |
 | Dashboard security and operator recovery | `test_dashboard.py`, `test_gemini_workflow.py`, `test_storage_and_maintenance.py` |
-| Acceptance isolation and documentation integrity | `test_acceptance_harness_offline.py`, `test_documentation_contracts.py` |
+| Acceptance isolation and documentation integrity | `test_acceptance_harness_offline.py`, `test_acceptance_safety.py`, `test_documentation_contracts.py` |
 
 Delivery logic is not composed into a live posting service. Its tests protect
 explicit approval and conservative uncertain outcomes for future integration.

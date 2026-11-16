@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
+from dataclasses import replace
 from decimal import Decimal
+import sqlite3
+from types import SimpleNamespace
 import json
 import os
 from pathlib import Path
@@ -16,12 +19,12 @@ sys.path.insert(0, str(ROOT))
 from acceptance import FRAMEWORK_VERSION
 from acceptance.framework import (
     AcceptanceError, Case, PROFILES, RunWorkspace, StageCase, StageExecution, Status,
-    StageRegistry,
     authorize_live, build_run_budget, configured_worst_case, discover_cases,
     case_fits_remaining, Category, evaluate_hard_invariants, initialize_acceptance_database,
     require_live_authorization, result_dict, write_json,
 )
 from acceptance.adapters import execute_case
+from acceptance.safety import AcceptanceStore, RunGuard, read_accounting, total_known
 from acceptance.gallery import write_gallery
 from acceptance.evaluators import evaluate_pipeline
 from common.environment import load_environment_file
@@ -71,18 +74,21 @@ def _planned(cases: list[Case], text_policy: Any, image_policy: Any | None, repe
     return rows
 
 
-def _intake_executor(stage_case: StageCase, database: Path, authorization: Any, text_policy: Any) -> StageExecution:
+def _intake_executor(stage_case: StageCase, database: Path, authorization: Any, text_policy: Any, *, attempt_guard=None) -> StageExecution:
     # Only this function constructs the live provider client. It requires the
     # authorization object returned by the central environment + CLI gate.
     require_live_authorization(authorization)
     if stage_case.case.stage != "intake" or stage_case.case.source_kind != "human":
         return StageExecution(Status.ERROR, stage_case.case.stage, None,
                               error="No live adapter is registered for this source/stage pair in Pass 1.")
-    from workflow import GeminiIntakeWorker, WorkflowStore
+    from workflow import GeminiIntakeWorker
     from common.gemini import VertexGeminiClient
     from common.gemini import configured_model
+    if attempt_guard is None:
+        calls, images, cost = configured_worst_case(stage_case.case, text_policy, None)
+        attempt_guard = RunGuard(calls, images, calls - images, cost).attempt(stage_case.case, cost)
     initialize_acceptance_database(database)
-    with WorkflowStore(database, model_budget_policy=text_policy) as store:
+    with AcceptanceStore(database, model_budget_policy=text_policy, attempt_guard=attempt_guard) as store:
         request_id = store.create_human_idea(
             stage_case.case.input["idea"],
             command_id=f"acceptance-{stage_case.parent_case_id}-{stage_case.attempt}",
@@ -148,7 +154,10 @@ def _summary(results: list[dict[str, Any]], budget: dict[str, Any], planned: lis
     counts = {status.value: sum(item["status"] == status.value for item in results) for status in Status}
     cost = (int(Decimal(budget["planned_max_cost_usd"]) * 1_000_000)
             if budget["mode"] == "dry_run" else
-            sum(int(Decimal(item["estimated_cost_usd"]) * 1_000_000) for item in results))
+            total_known(None if item["estimated_cost_usd"] is None else
+                               int(Decimal(item["estimated_cost_usd"]) * 1_000_000) for item in results))
+    calls = total_known(r['calls'] for r in results)
+    images = total_known(r['image_calls'] for r in results)
     inspect = [f"- `{r['case_id']}` attempt {r['attempt']}: {r['status']}" for r in results if r["status"] not in {"PASS", "SKIP"}]
     findings = [finding for result in results for finding in result["findings"]]
     provider_errors = sum(f["category"] == "provider" and f["status"] in {"ERROR", "FAIL"} for f in findings)
@@ -158,8 +167,10 @@ def _summary(results: list[dict[str, Any]], budget: dict[str, Any], planned: lis
              f"Models: text `{budget['text_model']}`; image `{budget['image_model'] or 'not configured'}`.",
              "", "## Results", "",
              " | ".join(f"{name}: {counts[name]}" for name in counts),
-             f"{'Planned maximum' if budget['mode'] == 'dry_run' else 'Estimated'} spend: ${Decimal(cost) / Decimal(1_000_000):.6f} of ${budget['max_usd']} ceiling.",
-             f"Planned attempts: {len(planned)}; actual provider calls: {sum(r['calls'] for r in results)}; image calls: {sum(r['image_calls'] for r in results)}.", "", "## Cases needing inspection", ""]
+             f"{'Planned maximum' if budget['mode'] == 'dry_run' else 'Estimated accounted'} spend: {('unknown' if cost is None else '$' + format(Decimal(cost) / Decimal(1_000_000), '.6f'))} against ${budget['max_usd']} admission budget.",
+             f"Priced settled usage (micro-USD): {budget.get('settled_micro_usd', 0)}; active reservations: {budget.get('active_reservation_micro_usd', 0)}; uncertain holds: {budget.get('uncertain_micro_usd', 0)}.",
+             f"Accounting unresolved: {budget.get('accounting_unresolved', False)}; incomplete: {budget.get('accounting_incomplete', False)}.",
+             f"Planned attempts: {len(planned)}; provider attempts admitted: {calls if calls is not None else 'unknown'}; image attempts: {images if images is not None else 'unknown'}.", "", "## Cases needing inspection", ""]
     lines.extend(inspect or ["- None."])
     lines += ["", "## Provider, contract, and budget findings", "",
               f"Provider errors: {provider_errors}; contract errors: {contract_errors}; budget findings: {budget_findings} (including {counts['SKIP_BUDGET']} budget skips).",
@@ -216,7 +227,8 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
     budget = build_run_budget(limits, environment, planned_calls=planned_calls,
                               planned_images=planned_images, planned_cases=len(planned))
     authorization = None if dry_run else authorize_live(cli_live=cli_live, environment=environment)
-    stage_registry = None if dry_run else StageRegistry({"intake": _intake_executor})
+    guard = RunGuard(budget.max_calls, budget.max_image_calls, planned_calls - planned_images,
+                     int(budget.max_usd * 1_000_000))
     workspace = RunWorkspace.create(output_root)
     write_json(workspace.root / "run.json", {
         "schema_version": 1, "framework_version": FRAMEWORK_VERSION,
@@ -225,9 +237,11 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
         "mode": "dry_run" if dry_run else "live", "text_model": text_policy.model_id,
         "image_model": None if image_policy is None else image_policy.model_id,
         "acceptance_budget": {"max_usd": str(budget.max_usd), "max_calls": budget.max_calls,
-                              "max_image_calls": budget.max_image_calls, "max_cases": budget.max_cases},
+                              "max_image_calls": budget.max_image_calls, "max_text_calls": guard.max_text_calls,
+                              "max_cases": budget.max_cases},
         "planned_attempts": len(planned), "result_counts": {},
-        "estimated_cost_usd": "0", "cases": [p["case_id"] for p in planned],
+        "estimated_cost_usd": "0" if dry_run else None,
+        "accounting_unresolved": not dry_run, "cases": [p["case_id"] for p in planned],
     })
     write_json(workspace.root / "plan.json", {"profile": profile, "repeat": repeat,
                                                 "planned": planned, "selected_case_ids": [c.case_id for c in selected]})
@@ -237,24 +251,24 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
     for plan in planned:
         case = by_id[plan["case_id"]]
         envelope = int(Decimal(plan["estimated_max_cost_usd"]) * 1_000_000)
-        fits = case_fits_remaining(case_calls=plan["max_calls"],
+        fits = not guard.stopped and case_fits_remaining(case_calls=plan["max_calls"],
                 case_image_calls=plan["max_image_calls"], case_cost_micro_usd=envelope,
-                remaining_calls=budget.max_calls - used_calls,
-                remaining_image_calls=budget.max_image_calls - used_images,
+                remaining_calls=max(0, budget.max_calls - used_calls),
+                remaining_image_calls=max(0, budget.max_image_calls - used_images),
                 remaining_cases=budget.max_cases - used_cases,
-                remaining_micro_usd=int(budget.max_usd * 1_000_000) - spent)
+                remaining_micro_usd=max(0, int(budget.max_usd * 1_000_000) - spent))
         stage_case = StageCase(case, plan["attempt"], case.case_id)
         if not fits:
             evaluation_status = Status.SKIP_BUDGET
             execution = StageExecution(Status.SKIP_BUDGET, case.stage, None,
-                                       error="The full case envelope does not fit in the remaining run budget.")
-            from acceptance.framework import Finding, Category, StageEvaluation
+                                       error=("Unresolved accounting prevents further case admission." if guard.stopped else
+                                              "The full case envelope does not fit in the remaining run budget."))
+            from acceptance.framework import Finding, StageEvaluation
             evaluation = StageEvaluation(evaluation_status, (Finding(case.case_id, case.stage,
-                Status.SKIP_BUDGET, Category.BUDGET, "case_envelope_exceeds_remaining", execution.error),))
+                Status.SKIP_BUDGET, Category.BUDGET, ("accounting_unresolved" if guard.stopped else "case_envelope_exceeds_remaining"), execution.error),))
         elif dry_run:
-            from acceptance.framework import Finding, Category, StageEvaluation
-            execution = StageExecution(Status.SKIP, case.stage, None, output={"planned": True},
-                                       estimated_cost_micro_usd=envelope)
+            from acceptance.framework import Finding, StageEvaluation
+            execution = StageExecution(Status.SKIP, case.stage, None, output={"planned": True, "planned_cost_micro_usd": envelope})
             evaluation = StageEvaluation(Status.SKIP, (Finding(case.case_id, case.stage, Status.SKIP,
                 Category.CONTRACT, "dry_run", "Provider execution omitted in dry-run mode."),))
             used_calls += plan["max_calls"]; used_images += plan["max_image_calls"]; used_cases += 1
@@ -263,27 +277,54 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
             attempt_dir = workspace.case_attempt(case.case_id, plan["attempt"])
             write_json(attempt_dir / "input.json", case.input)
             database = attempt_dir / "workflow.db"
+            attempt_guard = guard.attempt(case, envelope)
             try:
                 # Preserve Pass 1's direct Intake executor for v1 compatibility;
                 # v2 routes each requested range through the modular production adapters.
                 if case.schema_version == 1 and case.stage == "intake":
-                    execution = stage_registry.execute(stage_case, database, authorization, text_policy)
-                    evaluation = evaluate_hard_invariants(stage_case, execution)
+                    execution = _intake_executor(stage_case, database, authorization, text_policy,
+                                                 attempt_guard=attempt_guard)
                 else:
                     execution = execute_case(stage_case, database, authorization, text_policy,
-                                             image_policy=image_policy, artifact_root=attempt_dir)
-                    evaluation = evaluate_pipeline(stage_case, execution)
+                                             image_policy=image_policy, artifact_root=attempt_dir,
+                                             attempt_guard=attempt_guard)
             except Exception as error:
                 execution = StageExecution(Status.ERROR, case.stage, None,
                                            error=f"{type(error).__name__}: case execution failed")
-                evaluation = evaluate_hard_invariants(stage_case, execution)
-            used_calls += execution.calls; used_images += execution.image_calls; used_cases += 1
-            spent += execution.estimated_cost_micro_usd
+            # Always recover from durable evidence, including exceptions raised
+            # after a billable call but before an adapter returns StageExecution.
+            accounting = read_accounting(database)
+            if accounting['calls'] is not None and accounting['calls'] != sum(attempt_guard.counts.values()):
+                accounting.update(accounting_incomplete=True, unresolved=True,
+                                  diagnostic='guard_ledger_mismatch', calls=None, image_calls=None, text_calls=None,
+                                  accounted_micro_usd=None)
+            execution = replace(execution, calls=accounting['calls'], image_calls=accounting['image_calls'],
+                                estimated_cost_micro_usd=accounting['accounted_micro_usd'], accounting=accounting)
+            if not execution.output and database.exists():
+                try:
+                    from acceptance.adapters.pipeline import _outputs
+                    with sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True) as connection:
+                        connection.row_factory = sqlite3.Row
+                        execution = replace(execution, output=_outputs(SimpleNamespace(connection=connection)))
+                except (sqlite3.Error, ValueError, KeyError):
+                    pass  # Preserve the original safe error; DB/checkpoints remain inspectable.
+            if attempt_guard.blocked:
+                execution = replace(execution, status=Status.ERROR, error_category=Category.BUDGET,
+                                    error=attempt_guard.blocked + (f'; {execution.error}' if execution.error else ''))
+            evaluation = (evaluate_hard_invariants(stage_case, execution)
+                          if case.schema_version == 1 else evaluate_pipeline(stage_case, execution))
+            if accounting['unresolved']:
+                from acceptance.framework import Finding, StageEvaluation
+                evaluation = StageEvaluation(Status.ERROR, (*evaluation.findings, Finding(
+                    case.case_id, execution.stage, Status.ERROR, Category.BUDGET,
+                    'accounting_unresolved', 'Billing is unresolved; further case admission is stopped.')))
+                guard.stopped = True
+            used_calls = guard.calls; used_images = guard.images; used_cases += 1
+            spent += accounting['accounted_micro_usd'] or 0
+            guard.accounted_micro_usd = spent
+            write_json(attempt_dir / 'accounting.json', accounting)
             write_json(attempt_dir / "evaluation.json", result_dict(stage_case, execution, evaluation))
             _write_stage_artifacts(attempt_dir, execution)
-            if database.exists():
-                # SQLite stores no secrets; keep it as inspectable run evidence.
-                pass
             results.append(result_dict(stage_case, execution, evaluation))
             continue
         attempt_dir = workspace.case_attempt(case.case_id, plan["attempt"])
@@ -291,7 +332,8 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
         write_json(attempt_dir / "evaluation.json", result_dict(stage_case, execution, evaluation))
         results.append(result_dict(stage_case, execution, evaluation))
     actual_cost = (0 if dry_run else
-                   sum(int(Decimal(item["estimated_cost_usd"]) * 1_000_000) for item in results))
+                   total_known(None if item["estimated_cost_usd"] is None else
+                               int(Decimal(item["estimated_cost_usd"]) * 1_000_000) for item in results))
     planned_max_cost = sum(int(Decimal(row["estimated_max_cost_usd"]) * 1_000_000) for row in planned)
     counts = {status.value: sum(item["status"] == status.value for item in results) for status in Status}
     cost_rows = []
@@ -299,16 +341,24 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
     for result in results:
         plan = plan_by_attempt[(result["case_id"], result["attempt"])]
         cost_rows.append({"case_id": result["case_id"], "attempt": result["attempt"], "stage": result["stage"],
-                          "model_id": result["model_id"], "text_calls": result["calls"] - result["image_calls"],
+                          "model_id": result["model_id"], "text_calls": (None if result["calls"] is None or result["image_calls"] is None else
+                                         result["calls"] - result["image_calls"]),
+                          "accounting": result["accounting"],
                           "image_calls": result["image_calls"], "estimated_cost_usd": "0" if dry_run else result["estimated_cost_usd"],
                           "planned_max_calls": plan["max_calls"],
                           "planned_max_image_calls": plan["max_image_calls"],
                           "estimated_max_cost_usd": plan["estimated_max_cost_usd"]})
+    accounting_totals = {
+        key: total_known(r['accounting'].get(key, 0) for r in results)
+        for key in ('settled_micro_usd', 'active_reservation_micro_usd', 'uncertain_micro_usd')}
+    accounting_totals.update(
+        accounting_incomplete=any(r['accounting'].get('accounting_incomplete', False) for r in results),
+        accounting_unresolved=guard.stopped)
     write_json(workspace.root / "costs.json", {"schema_version": 1, "currency": "USD",
                "basis": "planned_case_maxima" if dry_run else "estimated_cost_or_conservative_production_reservation",
-               "total_estimated_cost_usd": str(Decimal(actual_cost) / Decimal(1_000_000)),
+               "total_estimated_cost_usd": None if actual_cost is None else str(Decimal(actual_cost) / Decimal(1_000_000)),
                "total_estimated_max_cost_usd": str(Decimal(planned_max_cost) / Decimal(1_000_000)),
-               "cases": cost_rows})
+               "accounting": accounting_totals, "cases": cost_rows})
     stability = _stability(results)
     write_json(workspace.root / "stability.json", stability)
     gallery = write_gallery(workspace.root, results)
@@ -317,11 +367,14 @@ def run_matrix(*, profile: str, dry_run: bool, cli_live: bool, repeat: int,
         "git_revision": _git_revision(), "profile": profile, "mode": "dry_run" if dry_run else "live",
         "text_model": text_policy.model_id, "image_model": None if image_policy is None else image_policy.model_id,
         "acceptance_budget": {"max_usd": str(budget.max_usd), "max_calls": budget.max_calls,
-                              "max_image_calls": budget.max_image_calls, "max_cases": budget.max_cases},
-        "estimated_cost_usd": str(Decimal(actual_cost) / Decimal(1_000_000)),
+                              "max_image_calls": budget.max_image_calls, "max_text_calls": guard.max_text_calls,
+                              "max_cases": budget.max_cases},
+        "estimated_cost_usd": None if actual_cost is None else str(Decimal(actual_cost) / Decimal(1_000_000)),
         "planned_max_cost_usd": str(Decimal(planned_max_cost) / Decimal(1_000_000)),
-        "result_counts": counts, "actual_calls": sum(r["calls"] for r in results),
-        "actual_image_calls": sum(r["image_calls"] for r in results),
+        "result_counts": counts, "actual_calls": total_known(r["calls"] for r in results),
+        "actual_image_calls": total_known(r["image_calls"] for r in results),
+        **accounting_totals,
+        "guard_admitted_calls": guard.calls, "guard_admitted_image_calls": guard.images,
         "stability_report": "stability.json", "gallery": gallery.name}
     write_json(workspace.root / "run.json", run_info)
     (workspace.root / "summary.md").write_text(_summary(results, {**run_info, "max_usd": str(budget.max_usd)}, planned))
@@ -364,9 +417,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
-    cost_label = "planned maximum" if run_info["mode"] == "dry_run" else "estimated spend"
+    cost_label = "planned maximum" if run_info["mode"] == "dry_run" else "estimated accounted amount"
     cost_value = run_info["planned_max_cost_usd"] if run_info["mode"] == "dry_run" else run_info["estimated_cost_usd"]
-    print(f"{run_info['mode']} run {run_info['run_id']}: {run_info['result_counts']} ; {cost_label} ${cost_value} ; artifacts {output}")
+    if run_info.get('accounting_unresolved'):
+        cost_label += ' (UNRESOLVED; inspect accounting.json)'
+    cost_value = 'unknown' if cost_value is None else '$' + cost_value
+    calls = run_info['actual_calls']
+    images = run_info['actual_image_calls']
+    print(f"{run_info['mode']} run {run_info['run_id']}: {run_info['result_counts']} ; {cost_label} {cost_value} ; provider attempts {calls if calls is not None else 'unknown'} (images {images if images is not None else 'unknown'}) ; artifacts {output}")
     return 0
 
 
