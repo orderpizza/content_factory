@@ -1,0 +1,71 @@
+{
+  "case_id": "pilot_b1_pragmatic_nuance",
+  "schema_version": 2,
+  "description": "B1 pragmatic_nuance: one observable learning goal through exact review assets; human rubric required.",
+  "source_kind": "human",
+  "input": {
+    "idea": "Teach the English phrase \"I'll think about it\" to worldwide non-native intermediate learners (B1 planning level). After this lesson the learner can recognize that it can express genuine consideration or a noncommittal response, and ask a neutral follow-up instead of assuming yes or no. Include contrasting everyday contexts and a short natural dialogue. Explain that context and tone matter; do not claim that it always means refusal or attribute a rule to a nationality. Make exactly 6 slides. Use simple English-first teaching with visual explanation, no mandatory translation. End with one small practice action. CEFR labels are planning guides, not certification."
+  },
+  "expectations": {
+    "intake": {
+      "statuses": [
+        "completed"
+      ],
+      "must_preserve": [
+        "B1",
+        "I'll think about it"
+      ]
+    },
+    "determination": {
+      "required_selected": [
+        "english"
+      ],
+      "forbidden_selected": [
+        "ai_tech",
+        "psychology"
+      ]
+    },
+    "canonical": {
+      "must_preserve": [
+        "I'll think about it"
+      ],
+      "required_claim_kinds": [
+        "model_general_knowledge",
+        "generated_example"
+      ]
+    },
+    "adaptation": {
+      "min_slides": 6,
+      "max_slides": 6
+    }
+  },
+  "conservation": [
+    {
+      "kind": "exact_identifier",
+      "value": "I'll think about it"
+    }
+  ],
+  "tags": [
+    "english",
+    "pilot",
+    "b1",
+    "pragmatic_nuance"
+  ],
+  "profiles": [
+    "journey",
+    "full"
+  ],
+  "live_budget": {
+    "calls_by_stage": {
+      "intake": 1,
+      "determination": 1,
+      "editorial_planning": 1,
+      "generation": 1,
+      "adaptation": 1,
+      "image_rendering": 54
+    },
+    "image_calls": 54
+  },
+  "start_stage": "intake",
+  "end_stage": "image_rendering"
+}

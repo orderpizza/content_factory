@@ -8,6 +8,12 @@ runner operation, profiles, authorization, budgets and artifacts. Reusable
 definitions are in `scenarios/`; per-run evidence belongs in ignored
 `data/acceptance/`, not tracked historical reports.
 
+The [English pilot guide](english-pilot.md) selects a bounded global A1–B1 matrix
+with `--cases acceptance/scenarios/english_pilot` using existing profiles. Discovery
+is nonrecursive: the pilot does not expand the default matrix or replace the
+accepted English fidelity fixture. The guide owns pilot sampling and review
+collection; [testing](../docs/testing.md#english-pilot-human-review) owns its rubric.
+
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for
 a realistic input. A case is a golden input and a set of stable constraints;
@@ -52,7 +58,11 @@ override are present, the smaller applies. `LIVE_TEST_MAX_CALLS`,
 `LIVE_TEST_MAX_IMAGE_CALLS`, and `LIVE_TEST_MAX_CASES` can constrain the run;
 the corresponding CLI values can only make those limits stricter. A case is
 admitted only if its whole declared call/image/cost envelope fits before it
-starts. Cost envelopes use configured current Gemini prices, input-token reservation
+starts. These are case-admission constraints, not guaranteed per-provider-call
+limits: retries, reinforced boards and fallback can exceed a case's nominal
+call or image envelope after admission. The runner does not intercept each such
+call against the acceptance limits. See the [pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
+for recovery-aware planning and accounting. Cost envelopes use configured current Gemini prices, input-token reservation
 assumptions and provider output caps. Input reservations are not enforced token
 maxima; reported actual cost can exceed the estimate. The production `ModelBudgetPolicy` and SQLite invocation/reservation
 ledger still gate and account for each actual call. Acceptance totals retain an
@@ -105,15 +115,11 @@ Plan the visual profile without a provider call:
 .venv/bin/python -m acceptance.runners.matrix --profile visual --dry-run --max-usd 5.00
 ```
 
-Run it only after configuring the image model/pricing and deliberately choosing
-an image-call ceiling. The profile reserves its maximum dynamic-board envelope
-before starting each case; a completed case can consume fewer boards.
-
-```sh
-CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
-LIVE_TEST_MAX_IMAGE_CALLS=40 \
-.venv/bin/python -m acceptance.runners.matrix --live-gemini --profile visual --max-usd 5.00
-```
+Before a separately authorized live run, configure image model/pricing and
+choose a recovery-aware case-admission envelope and budget. The profile's
+declared dynamic-board envelope covers initial plans, not necessarily retries or
+fallback calls. Follow the [pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
+and inspect each attempt's ledger before proceeding.
 
 `visual` covers automatic text-aware board planning, English adaptive splitting
 and complete ReviewRequest journeys. Its current sparse fixed fixtures select
@@ -133,22 +139,21 @@ calibration evidence, not production admission. Plans record forced mode,
 policy versions, limits, metrics and violations. Adaptation and model budget
 gates still apply. Normal workflow entrypoints cannot select a forced strategy.
 
-Recommended first comparison: one attempt of all four variants, exactly 12 image
-calls, same configured model, 2K size and prices. First inspect a free dry-run:
+Recommended first comparison: one attempt of all four variants, with 12 nominal
+initial image requests in total, the same configured model, 2K size and prices.
+Retries, reinforcement and fallback can increase actual provider calls beyond 12.
+First inspect a free dry-run:
 
 ```sh
 .venv/bin/python -m acceptance.runners.matrix --profile fidelity --dry-run --max-usd 5.00
 ```
 
-Only after explicit live authorization and choosing a USD ceiling sufficient for
-the displayed reservations, use this opt-in command (the 5 USD ceiling is an
-operator example, not a price claim):
-
-```sh
-CONTENT_FACTORY_ENABLE_LIVE_GEMINI_TESTS=1 \
-.venv/bin/python -m acceptance.runners.matrix --profile fidelity --live-gemini \
-  --repeat 1 --max-image-calls 12 --max-calls 12 --max-usd 5.00
-```
+Do not treat `--max-calls 12` or `--max-image-calls 12` as a hard
+12-provider-call ceiling. Before any separately authorized live comparison,
+establish a recovery-aware envelope or a true per-call enforcement mechanism;
+the existing fidelity scenario budgets count nominal boards. Follow the
+[pilot safety guidance](english-pilot.md#why-recovery-budgets-exceed-slide-counts)
+for recovery and ledger review.
 
 Inspect all final slides and raw boards side by side. `board-validation.json` also
 records per-board structural expected/detected grid evidence and outcome; compare
