@@ -1,70 +1,48 @@
-# Content Factory Working Instructions
+# Content Factory working instructions
 
-## Start here
+Read [product](docs/product.md), [architecture](docs/architecture.md) and
+[roadmap](docs/roadmap.md) first. Use the architecture router for the affected
+technical contract and [operations](docs/operations.md) for runnable commands.
 
-1. Read `docs/system.md` for architecture and document ownership.
-2. Read `docs/current-state.md` for implemented modes and safe operations.
-3. Follow the required-reading matrix in the system guide for the affected boundary.
-   Read domain references when that detail is relevant.
+## Direction and scope
 
-## System boundaries
+Build a profitable, repeatable operation: publish and measure one Instagram
+account before multi-account support and wider platforms. The current application
+stops at review. Do not describe target features as implemented. Domain/account
+coupling is a current limitation, not a permanent architectural requirement.
+Change runtime topology, schemas or editorial policy only in an authorized phase.
 
-- Local-first Mac Mini PoC; SQLite is the persisted cross-worker interface.
-  Do not introduce direct worker calls, distributed queues or cloud workers.
-- Detection is LLM-free: deterministic lexical canonicalization, local MiniLM
-  resolution and frozen deterministic scoring. Gemini is limited to Intake,
-  Determination, Editorial Planning, canonical generation, Instagram adaptation and image rendering.
-- Use Source / Feed, Raw Feed Item, Cluster, Opportunity, Determination Decision
-  and ContentJob. An Opportunity requires a committed Detection handoff.
-- A selected domain creates Editorial Planning work; its immutable plan creates a job. Generate platform-neutral canonical
-  content once per job, then adapt for its Instagram destination.
-  The only domains are `english`, `ai_tech`, `psychology`.
-  Domain IDs are not account IDs.
-- Adaptation owns copy/metadata; the shared renderer owns assets; posting only
-  delivers exact reviewed content. Every destination needs its own Post now.
-- The dashboard persists commands and reads evidence; it never invokes workers
-  or providers. Preserve immutable snapshots, lineage and safe uncertain outcomes.
-- Planning through ContentJob creation ignores storage admission. Monitoring is
-  advisory; actual write errors and downstream production gates still apply.
-- Deterministic workers are the default. `--gemini --planning-only` stops at jobs.
-  `--gemini --review-preview` enables generation through review. Actual provider
-  delivery is outside the current implementation scope.
-- All three active domains use Gemini image rendering. Never silently substitute
-  the inactive HTML renderer. English `expression_breakdown_v1` is the accepted
-  visual baseline and must not be changed incidentally while modifying other
-  domain profiles. Preserve its prompt, splitting, overlays and six-slide review.
-- The deterministic visual library and its HTML renderer are preserved inactive;
-  keep their assets, primitives, registry, gallery tooling and useful tests.
+## Protect current operation
 
-## Change discipline
+- SQLite is the persisted worker interface; preserve atomic/idempotent handoffs,
+  immutable evidence, fenced leases, lineage and explicit failure states.
+- Detection is LLM-free. Keep source-bound claims and editorial qualifications
+  intact through generation/adaptation; consult the owning contracts.
+- The dashboard reads evidence and persists commands, never invokes providers or
+  workers. Human review must authorize exact assets for each destination.
+- Preserve bounded model cost, uncertain-outcome handling and checkpoint recovery.
+  Never blindly replay possibly accepted provider calls or publication attempts.
+- Active rendering uses Gemini with local split/normalization/overlays. Preserve
+  supported geometry and final-asset validation; no silent renderer fallback.
+- Planning through job creation ignores storage admission; downstream write and
+  production safeguards still apply.
+- All workers use `database.current`. Bootstrap creates a fresh DB; do not migrate
+  or reset an operator database incidentally. Persist timestamps via
+  `common.timestamps` as UTC-naive ISO-8601 seconds (`YYYY-MM-DDTHH:MM:SS`).
 
-- Explore code/tests before editing; specs must describe current behavior.
-  Do not claim a planned safeguard exists or silently relax an implemented one.
-- Use explicit persisted models/statuses and boundary tests. Preserve unrelated
-  dirty-worktree changes and user data.
-- Secrets stay outside tracked files, diagnostic logs and model inputs.
-  Isolate external API access in small adapters.
-- Do not run live provider checks, paid inference, public posts or non-temporary
-  retention as routine verification.
-- All workers use `database.current`. Setup creates a fresh database;
-  never reset or migrate an existing database as an incidental repair.
-- All Content Factory timestamps are UTC-naive ISO-8601 second-precision strings:
-  `YYYY-MM-DDTHH:MM:SS`. Never persist `Z`, `+00:00`, other offsets, fractional
-  seconds or local wall-clock timestamps. Convert external/aware timestamps to
-  UTC before removing timezone information; use `common.timestamps` for parsing
-  and serialization. An explicitly requested database migration is the sole
-  exception to the no-incidental-migration rule.
-- After documentation-only changes run `.venv/bin/python scripts/check_docs.py`.
-  After code/tooling changes also run `.venv/bin/python scripts/run_tests.py`.
+## Safe changes and verification
 
-## Documentation maintenance
+Inspect code, inbound references and tests before deleting anything. Preserve
+unrelated edits and untracked data. Secrets stay outside tracked files, logs and
+model inputs. No paid calls, live provider checks, public posts or local data
+cleanup without explicit authorization. Repository cleanup does not erase ignored
+Mac Mini databases, logs, artifacts or secrets; local cleanup requires separately
+verified paths and authorization.
 
-Keep one owner for each contract, as routed by `docs/system.md`. Update the owner
-in the same change; link to it instead of duplicating its detail. Update
-`docs/current-state.md` when runnable capabilities or operations change.
-
-Keep repository documentation current. Do not add dated
-audit registers, decision archives, migration narratives, verification diaries
-or superseded algorithm descriptions. Retain version identifiers only when used
-by running code, configuration or persisted evidence. Runtime history belongs in
-its immutable records; source-change history belongs in Git.
+Run `.venv/bin/python scripts/check_docs.py` for documentation changes; also run
+`.venv/bin/python scripts/run_tests.py` for code/tooling changes. See
+[testing](docs/testing.md) for safeguard coverage and honest reporting of blockers.
+Keep one authoritative owner for each current contract and link to it. Update
+product/architecture/roadmap when direction changes; store runtime evidence in
+ignored data paths, not permanent historical reports. Put cleanup rationale and
+verification evidence in the PR description. Do not merge without authorization.

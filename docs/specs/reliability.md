@@ -1,7 +1,7 @@
 # Reliability and Safety
 
 **Owner:** Cross-cutting failure boundaries, Gemini accounting and storage policy.
-Normal stage behavior belongs in the owning specs, routed by [system](../system.md).
+Normal stage behavior belongs in the owning specs, routed by [system](../architecture.md).
 
 ## Claims and immutable handoffs
 

@@ -6,7 +6,7 @@
 ## Processes
 
 Run from the Mac Mini repository root against one current-schema database.
-The [operations guide](../current-state.md) owns copyable session commands and
+The [operations guide](../operations.md) owns copyable session commands and
 the supported 24/7 review-only LaunchAgent composition.
 
 No process initializes or migrates the database implicitly. Incompatible schemas

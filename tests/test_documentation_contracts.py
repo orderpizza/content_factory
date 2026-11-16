@@ -45,11 +45,11 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn('missing local link',self.run_check())
 
     def test_unrouted_focused_document_is_rejected(self):
-        self.alter('docs/system.md',lambda text:text.replace('(specs/visual-rendering.md)', ''))
+        self.alter('docs/architecture.md',lambda text:text.replace('(specs/visual-rendering.md)', ''))
         self.assertIn('Unrouted focused document: docs/specs/visual-rendering.md',self.run_check())
 
     def test_root_readme_broken_anchor_is_rejected(self):
-        self.alter('README.md',lambda text:text+'\n[bad](docs/current-state.md#missing-section)\n')
+        self.alter('README.md',lambda text:text+'\n[bad](docs/operations.md#missing-section)\n')
         self.assertIn('missing anchor',self.run_check())
 
     def test_duplicate_or_platform_specific_domain_is_rejected(self):

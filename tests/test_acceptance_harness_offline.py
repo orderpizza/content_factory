@@ -228,7 +228,6 @@ def test_profiles_filter_by_metadata_and_unknown_profile_cli_rejected():
     assert not any("pass" in case.case_id or "pass" in profile
                    for case in cases for profile in case.profiles)
     assert not (ROOT / "acceptance" / "cases").exists()
-    assert (ROOT / "docs" / "acceptance" / "history" / "pass2" / "cases" / "psychology_epistemic_hardening.json").is_file()
     with pytest.raises(SystemExit):
         matrix.main(["--profile", "unknown", "--dry-run"])
 
