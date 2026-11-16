@@ -1,0 +1,71 @@
+{
+  "case_id": "pilot_a1_vocabulary",
+  "schema_version": 2,
+  "description": "A1 vocabulary: one observable learning goal through exact review assets; human rubric required.",
+  "source_kind": "human",
+  "input": {
+    "idea": "Teach the everyday English word 'umbrella' to worldwide non-native beginners (A1 planning level). After this lesson the learner can name the object and ask to borrow one when it rains. Use a clear picture of the object, simple English explanations and a short natural dialogue. Focus on this one word, not a list. Make exactly 4 slides. Use simple English-first teaching with visual explanation, no mandatory translation. End with one small practice action. CEFR labels are planning guides, not certification."
+  },
+  "expectations": {
+    "intake": {
+      "statuses": [
+        "completed"
+      ],
+      "must_preserve": [
+        "A1",
+        "umbrella"
+      ]
+    },
+    "determination": {
+      "required_selected": [
+        "english"
+      ],
+      "forbidden_selected": [
+        "ai_tech",
+        "psychology"
+      ]
+    },
+    "canonical": {
+      "must_preserve": [
+        "umbrella"
+      ],
+      "required_claim_kinds": [
+        "model_general_knowledge",
+        "generated_example"
+      ]
+    },
+    "adaptation": {
+      "min_slides": 4,
+      "max_slides": 4
+    }
+  },
+  "conservation": [
+    {
+      "kind": "exact_identifier",
+      "value": "umbrella"
+    }
+  ],
+  "tags": [
+    "english",
+    "pilot",
+    "a1",
+    "vocabulary"
+  ],
+  "profiles": [
+    "journey",
+    "full"
+  ],
+  "live_budget": {
+    "calls_by_stage": {
+      "intake": 1,
+      "determination": 1,
+      "editorial_planning": 1,
+      "generation": 1,
+      "adaptation": 1,
+      "image_rendering": 54
+    },
+    "image_calls": 54
+  },
+  "start_stage": "intake",
+  "end_stage": "image_rendering"
+}

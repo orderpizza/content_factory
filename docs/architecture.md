@@ -102,6 +102,9 @@ own safe editing and verification.
 
 This section is direction, not implemented capability. The [product goal](product.md)
 is a profitable, repeatable operation, initially for one Instagram account.
+The selected first pilot is global English Learning at A1–B1. The
+[roadmap](roadmap.md) sequences quality/economics preparation and authorized live
+acceptance before publication integration; this does not change current topology.
 Complete a human-approved publication and measurement loop first: exact reviewed
 assets → authorized delivery → reconciled publication receipt → observed outcomes
 → editorial decisions. Define measurement provenance and attribution before

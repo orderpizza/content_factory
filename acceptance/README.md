@@ -8,6 +8,12 @@ runner operation, profiles, authorization, budgets and artifacts. Reusable
 definitions are in `scenarios/`; per-run evidence belongs in ignored
 `data/acceptance/`, not tracked historical reports.
 
+The [English pilot guide](english-pilot.md) selects a bounded global A1–B1 matrix
+with `--cases acceptance/scenarios/english_pilot` using existing profiles. Discovery
+is nonrecursive: the pilot does not expand the default matrix or replace the
+accepted English fidelity fixture. The guide owns pilot sampling and review
+collection; [testing](../docs/testing.md#english-pilot-human-review) owns its rubric.
+
 Offline tests answer whether deterministic contracts are enforced. Live tests
 answer whether the real Gemini-backed stage produces an inspectable result for
 a realistic input. A case is a golden input and a set of stable constraints;

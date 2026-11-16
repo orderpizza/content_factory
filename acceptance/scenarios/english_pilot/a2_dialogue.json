@@ -1,0 +1,71 @@
+{
+  "case_id": "pilot_a2_dialogue",
+  "schema_version": 2,
+  "description": "A2 daily_conversation: one observable learning goal through exact review assets; human rubric required.",
+  "source_kind": "human",
+  "input": {
+    "idea": "Teach the English phrase 'Could you say that again?' to worldwide non-native elementary learners (A2 planning level). After this lesson the learner can ask for repetition when they do not hear a meeting place clearly. Show a short natural dialogue with a helpful response and a clarification of the place. Do not assume a workplace, national culture or shared first language. Make exactly 5 slides. Use simple English-first teaching with visual explanation, no mandatory translation. End with one small practice action. CEFR labels are planning guides, not certification."
+  },
+  "expectations": {
+    "intake": {
+      "statuses": [
+        "completed"
+      ],
+      "must_preserve": [
+        "A2",
+        "Could you say that again?"
+      ]
+    },
+    "determination": {
+      "required_selected": [
+        "english"
+      ],
+      "forbidden_selected": [
+        "ai_tech",
+        "psychology"
+      ]
+    },
+    "canonical": {
+      "must_preserve": [
+        "Could you say that again?"
+      ],
+      "required_claim_kinds": [
+        "model_general_knowledge",
+        "generated_example"
+      ]
+    },
+    "adaptation": {
+      "min_slides": 5,
+      "max_slides": 5
+    }
+  },
+  "conservation": [
+    {
+      "kind": "exact_identifier",
+      "value": "Could you say that again?"
+    }
+  ],
+  "tags": [
+    "english",
+    "pilot",
+    "a2",
+    "daily_conversation"
+  ],
+  "profiles": [
+    "journey",
+    "full"
+  ],
+  "live_budget": {
+    "calls_by_stage": {
+      "intake": 1,
+      "determination": 1,
+      "editorial_planning": 1,
+      "generation": 1,
+      "adaptation": 1,
+      "image_rendering": 54
+    },
+    "image_calls": 54
+  },
+  "start_stage": "intake",
+  "end_stage": "image_rendering"
+}

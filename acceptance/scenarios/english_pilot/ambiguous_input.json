@@ -1,0 +1,34 @@
+{
+  "case_id": "pilot_ambiguous_input",
+  "schema_version": 2,
+  "description": "Missing target, referent and learning goal must elicit clarification, not invented teaching content.",
+  "source_kind": "human",
+  "input": {
+    "idea": "Make an English lesson about that thing for them. Make it better."
+  },
+  "expectations": {
+    "intake": {
+      "statuses": [
+        "needs_clarification"
+      ]
+    }
+  },
+  "conservation": [],
+  "tags": [
+    "english",
+    "pilot",
+    "clarification"
+  ],
+  "profiles": [
+    "stage",
+    "full"
+  ],
+  "live_budget": {
+    "calls_by_stage": {
+      "intake": 1
+    },
+    "image_calls": 0
+  },
+  "start_stage": "intake",
+  "end_stage": "intake"
+}
