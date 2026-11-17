@@ -1,0 +1,151 @@
+"""Offline protocol sequencing only; no credentials or network calls."""
+from hashlib import sha256
+from pathlib import Path
+
+import pytest
+
+from workflow.delivery import DeliveryError, R2TransientRelay
+from workflow.instagram_protocol import OfflineInstagramProtocol
+from workflow.offline import offline_only
+
+
+@pytest.fixture(autouse=True)
+def no_network():
+    with offline_only():
+        yield
+
+
+class FakeObjects:
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, *, Bucket, Key, Body, ContentType, CacheControl, Metadata):
+        self.objects[Key] = (Body, ContentType, Metadata)
+
+    def head_object(self, *, Bucket, Key):
+        data, kind, metadata = self.objects[Key]
+        return {"ContentLength": len(data), "ContentType": kind, "Metadata": metadata}
+
+    def get_exact_bytes(self, url, *, expected_bytes, timeout, stage):
+        return self.objects[url.removeprefix("https://example.invalid/")][0]
+
+
+class FakeTransport:
+    def __init__(self):
+        self.calls = []
+        self.next_id = 100
+        self.status = "FINISHED"
+        self.fail_at = None
+
+    def request(self, method, path, body):
+        self.calls.append((method, path, dict(body)))
+        if self.fail_at == len(self.calls):
+            raise TimeoutError("secret-token and https://secret.example")
+        if method == "GET":
+            return {"status_code": self.status}
+        self.next_id += 1
+        return {"id": str(self.next_id)}
+
+
+def fixture(tmp_path, count):
+    assets = []
+    descriptions = [f"alt {n}" for n in range(1, count + 1)]
+    for n, alt in enumerate(descriptions, 1):
+        data = f"reviewed jpeg bytes {n}".encode()
+        path = tmp_path / f"{n}.jpg"
+        path.write_bytes(data)
+        assets.append({"ordinal": n, "path": str(path), "bytes": len(data),
+                       "sha256": sha256(data).hexdigest(), "alt_text": alt})
+    context = {"platform": "instagram", "provider_account_id": "123", "delivery_revision_id": 1,
+               "post_attempt_id": 1, "post_record_id": 2, "attempt_number": 1, "assets": assets,
+               "package": {"caption": "Exact caption", "image_alt_text": descriptions}}
+    objects, transport = FakeObjects(), FakeTransport()
+    relay = R2TransientRelay({"r2_bucket_name": "test", "r2_account_id": "test",
+                              "r2_public_domain": "https://example.invalid"},
+                             client=objects, transport=objects)
+    calls = []
+    def record(**kw):
+        calls.append(kw)
+        return len(calls)
+    return context, objects, transport, calls, record, OfflineInstagramProtocol(transport, relay, account_id="123")
+
+
+@pytest.mark.parametrize("count", [4, 5, 6])
+def test_order_exact_bytes_alt_and_receipt(tmp_path, count):
+    context, objects, transport, records, record, protocol = fixture(tmp_path, count)
+    staged = protocol.stage(context, record)
+    receipt = protocol.publish(staged)
+    creates = [body for method, path, body in transport.calls if method == "POST" and path.endswith("/media")]
+    assert [c["alt_text"] for c in creates[:-1]] == context["package"]["image_alt_text"]
+    assert creates[-1] == {"media_type": "CAROUSEL", "children": ",".join(str(i) for i in range(101, 101 + count)),
+                           "caption": "Exact caption"}
+    assert [objects.objects[c["image_url"].split("example.invalid/", 1)[1]][0] for c in creates[:-1]] == [
+        Path(a["path"]).read_bytes() for a in context["assets"]]
+    assert receipt.parent_id == str(101 + count) and receipt.media_id == str(102 + count)
+    assert sum(r.get("resource_type") == "instagram_create_intent" for r in records) == count + 1
+
+
+def test_invalid_account_or_alt_stops_before_upload(tmp_path):
+    context, objects, transport, _, record, protocol = fixture(tmp_path, 4)
+    context["assets"][0]["alt_text"] = "changed"
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert not objects.objects and not transport.calls
+
+
+def test_changed_bytes_and_provider_failure_are_not_retried(tmp_path):
+    context, objects, transport, records, record, protocol = fixture(tmp_path, 4)
+    Path(context["assets"][0]["path"]).write_bytes(b"changed")
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert not transport.calls and records[0]["resource_type"] == "r2_object"
+
+
+def test_lost_child_response_records_intent_and_redacts(tmp_path):
+    context, _, transport, records, record, protocol = fixture(tmp_path, 4)
+    transport.fail_at = 1
+    with pytest.raises(DeliveryError) as caught:
+        protocol.stage(context, record)
+    assert "secret" not in str(caught.value)
+    assert records[-1]["resource_type"] == "instagram_create_intent"
+    assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize("status", ["IN_PROGRESS", "ERROR", "EXPIRED", "PUBLISHED", None])
+def test_polling_is_bounded_and_fails_closed(tmp_path, status):
+    context, _, transport, _, record, protocol = fixture(tmp_path, 4)
+    transport.status = status
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert len([call for call in transport.calls if call[0] == "GET"]) == (5 if status == "IN_PROGRESS" else 1)
+    assert not any(call[1].endswith("media_publish") for call in transport.calls)
+
+
+def test_public_byte_mismatch_fails_before_container_create(tmp_path):
+    context, objects, transport, _, record, protocol = fixture(tmp_path, 4)
+    original = objects.get_exact_bytes
+    objects.get_exact_bytes = lambda *args, **kwargs: b"x" * len(original(*args, **kwargs))
+    with pytest.raises(DeliveryError, match="anonymous R2 bytes differ"):
+        protocol.stage(context, record)
+    assert not transport.calls
+
+
+def test_parent_response_loss_is_never_retried(tmp_path):
+    context, _, transport, records, record, protocol = fixture(tmp_path, 4)
+    transport.fail_at = 9  # four create/read pairs, then parent create
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert records[-1] == {"resource_type": "instagram_create_intent", "remote_id": "parent",
+                           "safe_metadata": {"kind": "parent"}}
+    assert len(transport.calls) == 9
+    assert not any(path.endswith("media_publish") for _, path, _ in transport.calls)
+
+
+def test_lost_publish_reply_makes_one_request_and_redacts(tmp_path):
+    context, _, transport, _, record, protocol = fixture(tmp_path, 4)
+    staged = protocol.stage(context, record)
+    transport.fail_at = len(transport.calls) + 1
+    with pytest.raises(DeliveryError) as caught:
+        protocol.publish(staged)
+    assert "secret" not in str(caught.value)
+    assert sum(path.endswith("media_publish") for _, path, _ in transport.calls) == 1

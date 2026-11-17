@@ -247,3 +247,42 @@ Official references (documentation reads only):
 
 [Data model](data-model.md) owns persisted identity and
 [reliability](reliability.md) owns uncertainty and storage admission.
+
+## Offline Instagram Login protocol experiment (Phase 3B2, incomplete)
+
+`workflow.instagram_protocol.OfflineInstagramProtocol` models ordered child
+creation, exact reviewed per-image alt text, parent creation, bounded status reads
+and a final publish receipt through injected transports. It uses the existing R2
+relay and records object/create intents before each corresponding operation. It
+is **not a production adapter** and is not registered with the posting agent; it
+provides no HTTP implementation, token loading, activation switch or live entry
+point. Its fake-provider tests block network access. A create intent alone does
+not make crash recovery safe: the existing pre-final lease recovery can retry and
+create additional containers. The existing cleanup queue also has no ingestion-safe
+hold. Do not connect this experiment to the production worker.
+
+Documentation rechecked 2026-11-17: the [Instagram publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing)
+selects Instagram Login, `graph.instagram.com`, an Instagram User token, and
+`instagram_business_basic` plus `instagram_business_content_publish`; the older
+[Meta changelog](https://developers.facebook.com/docs/instagram/platform/instagram-api/changelog/)
+uses `instagram_business_content_publishing`. The guide says both 100 and 50
+posts per rolling day in different sections. The [media endpoint](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media)
+documents alt text for image carousel items (maximum 1,000 characters), a
+24-hour container lifetime, and 400 created containers per rolling 24 hours.
+The guide recommends status reads at most once per minute for five minutes.
+These sources do not establish account-specific entitlement or quota. The
+[version table](https://developers.facebook.com/docs/graph-api/changelog/versions/)
+lists v26.0 with no expiration date, while other current Meta pages show v27.0;
+no version is selected for live operation without resolving this discrepancy.
+
+Before a real adapter can be activated, implement and verify a versioned,
+nonsecret capability snapshot and credential boundary, account/token/scope and
+quota checks with reservation, a fixed-host bounded HTTP transport, safe staging
+recovery and ingestion-safe cleanup. Verify AI-label support and account-specific
+alt-text behavior; do not silently omit reviewed material. Add receipt readback and
+conservative reconciliation without inferring absence, and test lost responses,
+lease expiry, persistence failures, restart and concurrent workers. Only then
+provide an independently approved activation path and read-only preflight. A
+separate owner-authorized test publication remains necessary; this experiment
+provides no evidence that any real account is ready. R2 storage/egress and Meta
+account operations can incur costs; assess current pricing before activation.
