@@ -44,3 +44,18 @@ current live fidelity. Retry/checkpoint recovery has offline coverage, but live
 behavior needs authorized observation. Psychology policy changes and hybrid text
 rendering remain separate product experiments. A simulated receipt is not an
 Instagram media ID, and the current rehearsal collects no real metrics.
+
+## Phase 3B2 checkpoints
+
+Checkpoint 1 implements disabled-by-default production registration/composition,
+bounded authenticated transport, credential resolution/rotation checks, trusted
+read-only preflight interfaces, expiring offline evidence and scoped run activation.
+4–6-slide journeys use the real configuration/factory and authorization gates.
+The live contract registry is empty: API version/token-introspection semantics and
+owner account/app/permissions/quota require external verification. No real services
+are enabled. See [posting](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+Subsequent checkpoints retain receipt attribution/reconciliation, orphan
+investigation, ingestion-safe retention/release and detailed provider fidelity.
+Do not merge or activate the broader Phase 3B2 work on Checkpoint 1 evidence alone.
+English quality and design work remains last.

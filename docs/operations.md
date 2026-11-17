@@ -172,13 +172,41 @@ inspect it and choose a new directory for a new command rather than overwrite it
 
 ## Instagram integration status
 
-Phase 3B2 has fake-provider state-machine tests and fail-closed readiness primitives,
-but no live delivery command or authenticated preflight. Do not construct a live
-adapter from those primitives. An Instagram staging object marked for manual
-ingestion-safety retention is not eligible for the automatic cleanup queue; no
-operator release procedure or safe retention duration is established yet. See the
-[posting contract](specs/posting.md#offline-instagram-login-protocol-experiment-phase-3b2-incomplete)
-for the remaining activation prerequisites and evidence limitations.
+Checkpoint 1 implements the registered factory, bounded authenticated HTTP,
+credential resolution/rotation checks, read-only preflight interface and separate
+single-post run activation. Live operation remains blocked by the empty verified
+contract registry; neither the Mac mini worker nor dashboard is connected to it.
+No live send or preflight command is installed. See the [posting contract](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+The owner handoff, for a later separately authorized integration, is:
+
+1. Select one professional Business/Creator account and Meta app with Instagram
+   Login, confirm app access/review requirements and the exact granted permissions.
+   Do not silently substitute Facebook Login credentials or require a Page for
+   Instagram Login.
+2. Verify the explicit API version, identity/permissions/quota response shapes and
+   token-introspection authentication flow against current official references.
+   Record dates, selected-login scope spelling, app/account binding and expiry.
+   The candidate v26 fixture profile does not establish any of these facts. A
+   reviewed live contract/token reader must then be registered in code.
+3. Provision `DELIVERY_TOKEN` through an OS secret manager/process environment under
+   the worker's local OS owner. Do not paste it into shell command arguments,
+   configuration JSON, `.env` files, Git, chat, logs or SQLite. Start a fresh worker
+   after OS-environment rotation; obtain fresh read-only preflight and new scoped
+   authorization. In-process resolver changes are detected before staging/final
+   send. Existing/consumed activations cannot automatically resume.
+4. Only with separate permission, run read-only preflight. It must prove account,
+   app, login mode, grants, valid token, selected version and available dynamic
+   quota. Failures revoke older evidence; no fake results may become real readiness.
+5. Complete the later receipt, orphan/retention and protocol-fidelity checkpoints,
+   including alt/AI-label behavior. Obtain separate authorization for an eventual
+   controlled test publication: persistent enabled configuration, exact JPEG
+   approval, Post now, one-post run approval, then explicit execution. Providing a
+   credential or passing preflight grants none of those publishing approvals.
+
+No Meta, R2 or paid Gemini operation belongs to this checkpoint. Retained Instagram
+staging objects remain excluded from automatic cleanup; release and ingestion-safe
+timing are subsequent work. Do not deploy a delivery LaunchAgent or automatic poller.
 
 ## Offline delivery rehearsal
 

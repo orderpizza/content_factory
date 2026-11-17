@@ -40,26 +40,25 @@ def legacy_db(path):
 
 @pytest.fixture(params=[False, True], ids=["fresh", "migrated"])
 def source(tmp_path, request):
+    return make_source(tmp_path, migrated=request.param)
+
+
+def make_source(tmp_path, *, migrated=False, configuration=None, readiness=None, count=6):
     path = tmp_path / "operator.db"
     initialize_database(path)
     with DetectionStore(path) as detection:
         detection.apply_manifest(load_manifest(ROOT / "config/releases/detection.json"))
     artifacts = tmp_path / "artifacts"
     with WorkflowStore(path, catalog_kind="production") as store:
-        store.register_production_configuration(production_configuration())
-        for row in store.connection.execute("SELECT social_destination_id FROM social_destinations"):
-            store.record_destination_readiness(row[0], status="ready", reasons=[], facts={"offline_fixture": True},
-                                               valid_for=timedelta(days=1))
-        fixture = text_fixtures.GeminiWorkflowTests()
-        fixture.register_catalog = lambda store: None  # use the frozen production binding above
-        fixture.prepare_english_canonical(store)
-        assert GeminiAdaptationWorker(store, text_fixtures.FakeGeminiClient(
-            fixture.adaptation_response("instagram"))).run_once()
-        assert StoryboardPlanner(store).run_once()
-        worker = DispatchVisualRenderer(store, artifacts, image_client=image_fixtures.FakeImageClient())
-        review = worker.run_once()
-        assert review, getattr(worker, "last_operation", None)
-    if request.param:
+        store.register_production_configuration(configuration or production_configuration())
+        if readiness:
+            readiness(store)
+        else:
+            for row in store.connection.execute("SELECT social_destination_id FROM social_destinations"):
+                store.record_destination_readiness(row[0], status="ready", reasons=[], facts={"offline_fixture": True},
+                                                   valid_for=timedelta(days=1))
+        review = render_source(store, artifacts, count=count)
+    if migrated:
         # Preserve a real populated pre-revision database, not only an empty schema.
         legacy = tmp_path / "populated-v18.db"
         legacy_db(legacy)
@@ -86,6 +85,27 @@ def source(tmp_path, request):
         with WorkflowStore(path) as store:
             assert original_evidence(store, review) == before
     return path, artifacts, review
+
+
+def render_source(store, artifacts, *, count=6, command_id="production"):
+    fixture = text_fixtures.GeminiWorkflowTests()
+    fixture.register_catalog = lambda store: None  # use the frozen production binding above
+    if count != 6:
+        canonical = fixture.canonical_response("english")
+        canonical["domain_payload"]["usage_notes"] = canonical["domain_payload"]["usage_notes"][:1]
+        canonical["examples"] = canonical["examples"][:1] if count == 4 else canonical["examples"] * 2
+        # Fixture responses enter through real generation/adaptation workers.
+        fixture.canonical_response = lambda pipeline: canonical
+    fixture.prepare_english_canonical(store, command_id=command_id)
+    response = fixture.adaptation_response("instagram")
+    from workflow.content_contract import english_positions
+    response["visual_units"] = [response["visual_units"][i] for i in english_positions(count)]
+    assert GeminiAdaptationWorker(store, text_fixtures.FakeGeminiClient(response)).run_once()
+    assert StoryboardPlanner(store).run_once()
+    worker = DispatchVisualRenderer(store, artifacts, image_client=image_fixtures.FakeImageClient())
+    review = worker.run_once()
+    assert review, getattr(worker, "last_operation", None)
+    return review
 
 
 def prepared(store, root, source, **extra):

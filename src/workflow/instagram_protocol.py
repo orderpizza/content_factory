@@ -38,6 +38,8 @@ class OfflineInstagramProtocol:
     def _request(self, method: str, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
         try:
             response = self.transport.request(method, path, body)
+        except DeliveryError as error:
+            raise DeliveryError(error.category, "Instagram request refused", False, "instagram") from None
         except Exception as error:
             # Provider exceptions may include tokens, captions, or public media URLs.
             raise DeliveryError("provider_transport", type(error).__name__, False, "instagram") from None

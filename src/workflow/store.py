@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .offline import readiness_eligible
+
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from contextlib import contextmanager
@@ -361,7 +363,9 @@ class WorkflowStore:
                 )
         return capability_id
 
-    def claim(self, table: str, primary_key: str, worker: str, *, lease_seconds: int = 300) -> Any | None:
+    def claim(self, table: str, primary_key: str, worker: str, *, lease_seconds: int = 300, record_id: int | None = None) -> Any | None:
+        if record_id is not None and (table != "post_records" or type(record_id) is not int or record_id < 1):
+            raise ValueError("scoped claim requires a positive post record ID")
         if CLAIM_KEYS.get(table) != primary_key:
             raise ValueError("unsupported claim table")
         if type(lease_seconds) is not int or lease_seconds < 1 or not worker:
@@ -444,7 +448,10 @@ class WorkflowStore:
                 f"SELECT * FROM {table} WHERE status IN ('pending','retry_wait') AND attempt_count<attempt_limit "
                 "AND (next_attempt_at IS NULL OR next_attempt_at<=?) "
                 + ("AND eligible_at<=? " if table == "post_records" else "")
-                + f"ORDER BY created_at,{primary_key} LIMIT 1", (moment, moment) if table == "post_records" else (moment,)
+                + (f"AND {primary_key}=? " if record_id is not None else "")
+                + f"ORDER BY created_at,{primary_key} LIMIT 1",
+                ((moment, moment) if table == "post_records" else (moment,))
+                + ((record_id,) if record_id is not None else ())
             ).fetchone()
             if row is None:
                 return None
@@ -595,7 +602,8 @@ class WorkflowStore:
                     raise ValueError("inactive delivery boundary requires a generic secret reference")
                 config = destination["config"]
                 if config != {"adapter_version": "unimplemented"}:
-                    raise ValueError("posting provider implementation is outside the current baseline")
+                    from .instagram_composition import validate_registration
+                    validate_registration(config)
                 policy = destination["posting_policy"]
                 if not isinstance(policy, dict) or set(policy) != {
                     "timezone", "max_posts_per_day", "min_post_interval_minutes",
@@ -1906,6 +1914,7 @@ class WorkflowStore:
         reasons: list[str],
         facts: dict[str, Any],
         valid_for: timedelta = timedelta(hours=6),
+        preflight: Any = None,
     ) -> int:
         """Persist one bounded provider/config readiness observation."""
         self._validate_schema()
@@ -1915,6 +1924,19 @@ class WorkflowStore:
             raise ValueError("readiness reasons must be non-empty strings")
         if not isinstance(facts, dict) or valid_for <= timedelta(0):
             raise ValueError("readiness facts or validity window is invalid")
+        destination = self.connection.execute(
+            "SELECT config_json FROM social_destinations WHERE social_destination_id=?", (destination_id,)
+        ).fetchone()
+        if destination and json.loads(destination[0]).get("adapter_version") == "instagram_login_v1" and status == "ready":
+            from .instagram_composition import _destination, validate_proof
+            registered, _ = _destination(self, destination_id)
+            validate_proof(preflight, registered)
+            if canonical(facts) != canonical(preflight.facts()) or reasons:
+                raise ValueError("readiness facts must be the issued preflight result")
+            valid_for = min(valid_for, parse_timestamp(preflight.valid_until) - parse_timestamp(now()))
+            if preflight.provenance == "offline":
+                status = "degraded"
+                reasons = ["offline evidence only; not production readiness"]
         moment = now()
         valid_until = serialize_timestamp(parse_timestamp(moment) + valid_for)
         evidence = {"status": status, "reasons": reasons, "facts": facts, "valid_until": valid_until}
@@ -2214,7 +2236,7 @@ class WorkflowStore:
                 "q.status request_status,q.expires_at,"
                 "t.status thread_status,a.status attempt_status,a.final_publication_request_sent_at "
                 ",b.delivery_enabled,b.visual_configuration_approved,d.enabled destination_enabled,"
-                "cr.status readiness_status,cr.valid_until readiness_valid_until "
+                "cr.status readiness_status,cr.facts_json readiness_facts,cr.valid_until readiness_valid_until "
                 "FROM post_records p JOIN post_requests q ON q.post_request_id=p.post_request_id "
                 "JOIN review_requests v ON v.review_request_id=q.review_request_id "
                 "JOIN content_packages cp ON cp.content_package_id=v.content_package_id "
@@ -2248,7 +2270,7 @@ class WorkflowStore:
                 raise RuntimeError("delivery authorization was cancelled or claim is stale")
             if (
                 not row["delivery_enabled"] or not row["visual_configuration_approved"]
-                or not row["destination_enabled"] or row["readiness_status"] != "ready"
+                or not row["destination_enabled"] or not readiness_eligible(row["readiness_status"], row["readiness_facts"])
                 or row["readiness_valid_until"] <= moment
             ):
                 raise RuntimeError("production destination readiness expired during staging")
@@ -2728,7 +2750,7 @@ class WorkflowStore:
             "p.content_hash,r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.destination_key,d.enabled destination_enabled,d.config_json,d.secret_ref,"
-            "d.provider_account_id,d.configuration_release_id,cr.status readiness_status,"
+            "d.provider_account_id,d.configuration_release_id,cr.facts_json readiness_facts,cr.status readiness_status,"
             "cr.valid_until readiness_valid_until,pp.policy_version,pp.timezone_name,"
             "pp.max_posts_per_day,pp.min_post_interval_minutes,pp.authorization_ttl_hours "
             "FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id "
@@ -2751,7 +2773,9 @@ class WorkflowStore:
             raise ValueError("review is not current and awaiting authorization")
         if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
             raise ValueError("production destination is disabled or visual configuration is not approved")
-        if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
+        from .instagram_composition import validate_persisted_readiness
+        validate_persisted_readiness(self, row["social_destination_id"])
+        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
         if row["review_destination_key"] != row["destination_key"]:
             raise ValueError("review destination differs from the bound destination")
@@ -2766,7 +2790,7 @@ class WorkflowStore:
             "r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.enabled destination_enabled,d.config_json,d.secret_ref,d.provider_account_id,"
-            "d.configuration_release_id,cr.status readiness_status,cr.valid_until readiness_valid_until,"
+            "d.configuration_release_id,cr.facts_json readiness_facts,cr.status readiness_status,cr.valid_until readiness_valid_until,"
             "pp.policy_version,pp.timezone_name,pp.max_posts_per_day,pp.min_post_interval_minutes,"
             "pp.authorization_ttl_hours "
             "FROM post_records pr JOIN post_requests pq ON pq.post_request_id=pr.post_request_id "
@@ -2790,7 +2814,9 @@ class WorkflowStore:
             raise ValueError("delivery is expired or not yet policy eligible")
         if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
             raise ValueError("production destination is disabled or visual configuration is not approved")
-        if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
+        from .instagram_composition import validate_persisted_readiness
+        validate_persisted_readiness(self, row["social_destination_id"])
+        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
         if row["destination_key"] != row["actual_destination_key"]:
             raise ValueError("authorized destination differs from the bound destination")

@@ -47,9 +47,40 @@ this cleanup does not introduce a font-attestation subsystem.
 
 The offline rehearsal reuses this closed shape only inside a fresh isolated DB,
 with synthetic configuration approval/readiness and account `simulation`, provider
-ID `0`. It does not load `.env` or resolve `DELIVERY_TOKEN`. No new production
-configuration format or operator migration is introduced; the future versioned
+ID `0`. It does not load `.env` or resolve `DELIVERY_TOKEN`. No operator migration is introduced; the versioned
 capability contract belongs to [posting](posting.md#future-meta-adapter-contract-instagram_adapter_spec_v1).
+
+### Instagram adapter registration (Checkpoint 1)
+
+A destination may retain `{"adapter_version":"unimplemented"}` or use this closed
+nonsecret registration in its `config` field:
+
+```json
+{
+  "adapter_version": "instagram_login_v1",
+  "login_mode": "instagram_login",
+  "api_version": "v26.0",
+  "contract_ref": "instagram_login_candidate_v1",
+  "enabled": false,
+  "credential_generation": 1,
+  "app_id": "OWNER_META_APP_ID"
+}
+```
+
+Replace the app placeholder with a numeric ID; the example is not ready to register
+unchanged. Destination provider/account ID and `secret_ref=DELIVERY_TOKEN` remain
+outside this nested field. Extra fields (including tokens), unknown versions/login
+modes and implicit latest are rejected. `registration(app_id=...)` defaults to
+false. Changing the immutable registration requires an explicit new configuration
+release; configuration never runs preflight, uploads or publishes.
+
+The candidate version is **not live verified**. The code-owned live-contract
+registry is empty and cannot be enabled by JSON/environment. Readiness and run
+activation are additional separate boundaries; see [posting](posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+The credential reference is resolved from the OS process environment only, without
+loading `.env`, persisting the value or accepting a token CLI argument. Rotation
+requires fresh preflight and fresh run authorization; consumed/abandoned runs are
+never automatically revived.
 
 ## Environment loading
 

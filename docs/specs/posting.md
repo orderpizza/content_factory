@@ -7,7 +7,7 @@ state machine, and the future Instagram adapter contract.
 
 The generation workflow ends at review PNGs. Phase 3B1 adds explicit offline
 preparation, separate JPEG approval and Post now authorization in an operator DB.
-No delivery runner or real adapter is composed. The dashboard reads evidence and
+A disabled-by-default adapter factory is implemented; no live contract is verified or delivery runner enabled. The dashboard reads evidence and
 persists commands; it never constructs a provider, converts assets or sends posts.
 Its CSRF, path containment and exact hash checks are preserved. JPEG reviews use
 the [offline owner CLI and report](../operations.md#exact-jpeg-delivery-review).
@@ -23,9 +23,9 @@ the [offline owner CLI and report](../operations.md#exact-jpeg-delivery-review).
 | Reconciliation | `PublicationReconciliationWorker` records unavailable lookup evidence and hands uncertainty to a human. Explicit decisions can confirm publication, cancel as not published, or leave unknown. None reposts automatically. |
 | Cleanup | Attempt resources and cleanup tasks remain separately durable. Cleanup can remove staged objects after success, failure, cancellation or uncertainty; it never reverses a publication or resolves its outcome. |
 
-The production catalog remains closed `production_configuration_v2` with
-`adapter_version=unimplemented`. No OAuth, live adapter, send command
-or real capability probe is enabled. Configuration visual acceptance is separate
+The production catalog remains closed `production_configuration_v2`. It accepts
+`adapter_version=unimplemented` or the versioned, disabled-by-default Instagram
+registration below. No OAuth, live send command or real capability probe is enabled. Configuration visual acceptance is separate
 from exact post authorization; see [configuration](configuration.md#preserved-production-configuration).
 
 ## Offline artifact preparation and approval boundary
@@ -166,7 +166,8 @@ creates work. The fake object's HTTP-looking `.invalid` URL is never requested.
 
 ## Future Meta adapter contract: instagram_adapter_spec_v1
 
-Specification only; **no Meta API request or public upload was made or implemented**.
+Target contract; **no real Meta API request or public upload was made**. Checkpoint 1
+implements the transport and composition boundaries described below, with live use blocked.
 Official documentation was inspected on 2026-11-16/17. Documentation examples use
 `v27.0`; that is evidence to validate in Phase 3B, not a configured working version.
 The future immutable capability snapshot must record explicit Graph API version,
@@ -250,57 +251,118 @@ Official references (documentation reads only):
 
 ## Offline Instagram Login protocol experiment (Phase 3B2, incomplete)
 
-`workflow.instagram_protocol.OfflineInstagramProtocol` implements the posting
-agent's stage/publish interface with injected fake transports. Offline tests exercise
-a genuine Phase 3B1 revision, JPEG approval and Post now through the existing
-posting agent, while overriding the disabled adapter marker only in the test's
-in-memory context. The actual immutable production catalog still admits only
-`adapter_version=unimplemented`; no real adapter is registered or live entry point
-exists. The fake provider records ordered child/parent creates and exact caption,
-alt text and bytes; these tests do not prove real provider compatibility.
+### Checkpoint 1: registered composition and trusted boundaries
 
-The agent now fences publication-resource writes by post claim, lease and attempt.
-A committed `instagram_create_intent` blocks automatic pre-final retry, including
-when a worker dies before recording the response. A pre-final interrupted attempt
-is marked failed and needs operator investigation; it is not a confirmed public
-post. The existing final marker still turns uncertain final sends or receipt
-persistence failures into `publication_unknown`, with no automatic repost. Objects
-marked `manual_ingestion_safety` are excluded from automatic cleanup indefinitely;
-this is a conservative hold, not a verified retention duration or cleanup procedure.
+`workflow.instagram_composition.InstagramComposition` now consumes the actual
+immutable `production_configuration_v2` catalog through a closed
+`instagram_login_v1` registration. The registration defaults to `enabled=false`;
+credentials and registration alone cannot start work. The factory is not installed
+in the polling worker, dashboard or LaunchAgents. No live command is exposed.
 
-`workflow.instagram_readiness` supplies nonsecret versioned Instagram Login
-configuration, scoped token-reference resolution, fake observation validation and a
-fixed-host injected exchange abstraction. It checks account, scopes, observation and
-token freshness, an observed quota and capability flags; its double opt-in and
-pre-final recheck are tested with synthetic evidence. These are primitives only:
-there is no authenticated preflight, trusted proof store, quota reservation, actual
-HTTP transport, production activation or live registration. In particular, a
-caller-constructed observation is not account readiness evidence. No real delivery
-may be enabled on this basis. Its fake exchange must not be substituted for a
-bounded redirect-refusing implementation without further review.
+The explicit sequence is configuration approval → read-only `preflight()` → exact
+JPEG review/approval → separate Post now → `activate(..., confirm=True)` →
+`agent(...).run_once()`. Construction, preflight, activation and agent construction
+never publish or stage objects. Activation is restricted to one pending PostRecord,
+its destination/provider account, configuration, credential, evidence, package and
+manifest. It expires within two minutes (or earlier evidence expiry). The agent
+claims only that record. An activation is consumed durably before staging and
+cannot be reused or automatically reissued after failure/restart. It uses the
+existing final-send marker, lease fencing, authorization and uncertainty states.
 
-Documentation rechecked 2026-11-17: the [Instagram publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing)
-selects Instagram Login, `graph.instagram.com`, an Instagram User token, and
-`instagram_business_basic` plus `instagram_business_content_publish`; the older
+Preflight reads identity, permission grants and quota via the authenticated HTTP
+interface and consumes a separate `TokenValidityReader` for token/app/login/expiry
+verification. Only service-issued results can be persisted through the registered
+readiness API; arbitrary `CapabilityObservation`, dicts and copied results are
+rejected. Evidence is allowlisted, bound to the immutable destination/configuration
+and current in-memory credential, and expires within five minutes or token expiry.
+A failed refresh revokes prior readiness. Credential changes and evidence refreshes
+invalidate previous run approvals. Evidence is rechecked before each asset upload and provider request as well as the
+final marker, and the final request requires that durable marker. A new nonsecret
+evidence ID makes even an identical refresh invalidate previous run approvals.
+
+**Live verification remains blocked.** `VERIFIED_LIVE_CONTRACTS` is empty. The
+candidate profile is `instagram_login_candidate_v1`, explicitly pinned to `v26.0`
+for fixtures only. It uses GET `/me` (`user_id,account_type`), GET `/me/permissions`
+and GET `/{account}/content_publishing_limit` (`quota_usage,config`). These response
+shapes, the `facebook-api-version` response header, and the selected-login token
+introspection flow have **not been externally verified in this checkpoint**.
+There is no registered live `TokenValidityReader`. No JSON flag, token, fake
+observation or run confirmation can substitute for that verification. A reviewed
+implementation of the verified token reader and live contract is required before
+real read-only preflight can run. This is an explicit external-contract blocker,
+not a claim that fixture account observations are authenticated.
+
+Injected HTTP, token and storage implementations require the explicit
+`offline_only()` network-refusal boundary, with every external dependency supplied.
+Their evidence has `provenance=offline` and remains **degraded** in SQLite; only
+inside that boundary is it eligible for offline authorization checks. Outside it,
+the production catalog, review/Post now, attempt and final-marker checks refuse
+that evidence. Injected adapters cannot bypass the registered factory. The old
+observation/exchange helpers are offline-only and cannot establish readiness.
+Trust assumes the local OS/database owner; this is not a sandbox against arbitrary
+Python execution or an owner directly rewriting SQLite.
+
+Quota comes from a bounded fresh observation, never a universal 50/100 constant.
+Activation atomically reserves one post using append-only command receipts under
+the existing SQLite write transaction. All activations for that destination within
+the provider window count, including failed/unknown attempts and newer snapshots;
+there is no automatic release. This can conservatively double-count observed use,
+but cannot over-admit local concurrent runs. Cross-process/restart reservations
+persist. This is a publication reservation, not the later container/orphan quota
+and recovery policy.
+
+### Authenticated HTTP and credentials
+
+`workflow.instagram_http` pins TLS with certificate/hostname verification to
+`graph.instagram.com`, the configured explicit version, allowed methods and account
+paths. Bearer credentials go only in the Authorization header. Requests are limited
+to 32 KiB encoded parameters; responses to 64 KiB, JSON, no compression and the
+matching API-version header. Redirects are refused, including Location headers.
+There is no retry loop, even for 429, 5xx, timeouts or potentially accepted POSTs.
+Safe categories replace provider messages/exception text; tokens, raw replies and
+request headers are never persisted or logged.
+
+A single HTTPS attempt runs in a bounded child process. The parent enforces a
+20-second maximum wall-clock deadline across DNS, connection, TLS, headers and
+body reads, terminating the child on timeout. Socket inactivity timeout alone
+would not bound slow responses. Credentials cross only in-memory IPC, never
+command arguments or files. Offline tests supply a wire below the same request,
+response, authentication and validation logic; separate tests cover TLS host
+pinning and termination of a stalled child without network access.
+
+`EnvironmentCredentials` resolves only the configured `DELIVERY_TOKEN` reference
+from an OS-injected process environment. It rejects missing/invalid values and
+hides the secret in representations. No token enters production configuration,
+SQLite, Git, model traces or logs. There is no dotenv loading or command-line token
+argument in this composition. A process-local keyed fingerprint detects rotation
+without persisting any token-derived value. See the [operator handoff](../operations.md#instagram-integration-status).
+
+### Preserved protocol and deferred checkpoints
+
+The injected carousel protocol preserves exact reviewed bytes, order, child alt
+text and parent caption. A committed create intent blocks automatic retry after
+child/parent uncertainty, including worker death or lost persistence. Uncertain
+final sends remain `publication_unknown`; no second final request is automatic.
+The scoped adapter additionally refuses a second final call in the same run.
+Objects marked `manual_ingestion_safety` remain excluded from cleanup indefinitely.
+These conservative behaviors are retained, not a completed orphan/release policy.
+
+Receipt readback/reconciliation, orphan investigation, ingestion-safe R2 release,
+container quota policy and detailed protocol fidelity (including the review-bound
+AI declaration) remain subsequent assignments. A fixture receipt is not verified
+publication. No real send can be enabled until those gates are implemented and
+reviewed as well. English content/design refinement remains last.
+
+Prior review recorded these sources on 2026-11-17; they were not contacted during
+Checkpoint 1. The [Instagram publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing)
+selects Instagram Login, `graph.instagram.com`, Instagram User tokens,
+`instagram_business_basic` and `instagram_business_content_publish`. The older
 [Meta changelog](https://developers.facebook.com/docs/instagram/platform/instagram-api/changelog/)
-uses `instagram_business_content_publishing`. The guide says both 100 and 50
-posts per rolling day in different sections. The [media endpoint](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media)
-documents alt text for image carousel items (maximum 1,000 characters), a
-24-hour container lifetime, and 400 created containers per rolling 24 hours.
-The guide recommends status reads at most once per minute for five minutes.
-These sources do not establish account-specific entitlement or quota. The
+uses `instagram_business_content_publishing`; do not request a guessed union.
+The guide contains conflicting 50/100 quotas and recommends bounded status reads
+at most once per minute. The [media endpoint](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media)
+describes carousel-item alt text, container lifetime and creation limits. The
 [version table](https://developers.facebook.com/docs/graph-api/changelog/versions/)
-lists v26.0 with no expiration date, while other current Meta pages show v27.0;
-no version is selected for live operation without resolving this discrepancy.
-
-Before a real adapter can be activated, implement a trusted capability snapshot
-and credential provisioning, authenticated account/token/scope and quota checks
-with durable concurrent reservation, a fixed-host bounded redirect-refusing HTTP
-transport, a reviewed resolution for retained orphans and ingestion-safe cleanup. Verify AI-label support and account-specific
-alt-text behavior; do not silently omit reviewed material. Add receipt readback and
-conservative reconciliation without inferring absence, and test lost responses,
-lease expiry, persistence failures, restart and concurrent workers. Only then
-provide an independently approved activation path and read-only preflight. A
-separate owner-authorized test publication remains necessary; this experiment
-provides no evidence that any real account is ready. R2 storage/egress and Meta
-account operations can incur costs; assess current pricing before activation.
+and v27 examples do not establish the candidate v26 contract. These are unresolved
+verification inputs, not production evidence. Assess R2 storage/egress pricing
+before any separately authorized live integration.

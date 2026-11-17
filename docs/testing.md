@@ -203,12 +203,24 @@ real provider send; current configuration/readiness integration remains a Phase
 
 ### Phase 3B2 offline integration (incomplete)
 
-`tests/test_instagram_posting_integration.py` exercises six-slide genuine JPEG
-revisions and Post now through the posting agent using fake provider and object
-storage, including lost child, parent and final responses, receipt persistence
-failure, stale fake readiness, process death and restart. The production adapter
-configuration remains blocked; tests override its marker only in memory.
-`tests/test_instagram_protocol.py` covers 4–6-slide request sequences and exact
-byte/alt mapping; `tests/test_instagram_readiness.py` covers synthetic readiness,
-credential reference and fixed-host validation. None verifies real API behavior,
-real receipt attribution, quota reservation or cleanup timing.
+`tests/test_instagram_posting_integration.py` exercises 4-, 5- and 6-slide genuine
+Phase 3B1 revisions through immutable production registration, preflight, JPEG
+approval, Post now, scoped activation and the actual adapter factory. There is no
+production-configuration monkeypatch. Fake HTTP and storage cover child/parent/final
+response loss, receipt persistence failure, freshness/rotation/activation expiry,
+restart, durable quota reservations and no duplicate send. Fresh and migrated
+schemas are exercised without migrating an operator DB.
+
+`test_instagram_composition.py` checks default-disabled registration, no side
+effects from configuration/preflight, trust provenance, caller-forged evidence,
+account/app/login/scopes/version/token/quota failures and secret-free persistence.
+Offline evidence stays degraded and is ineligible outside the network-refusal
+boundary. `test_instagram_http.py` covers TLS host pinning, bounded request/response
+sizes, redirects, response version, safe diagnostics, no POST retry and hard child
+process deadlines. All external dependencies are fake; no live endpoint is tested.
+The original protocol tests retain exact bytes/order/alt mapping and intent fences.
+
+The full suite still owns legacy delivery/idempotency/migration/review safeguards.
+Passing it does not prove a supported live API version, authenticated account
+capabilities, real receipt attribution or safe cleanup timing. Those gates remain
+explicitly blocked/deferred in the [posting contract](specs/posting.md).

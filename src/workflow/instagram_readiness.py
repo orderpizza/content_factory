@@ -1,7 +1,7 @@
 """Fail-closed, non-network Instagram Login configuration primitives.
 
-No production worker constructs these objects. An injected HTTP exchange is
-mandatory; this module deliberately offers no live exchange or activation path.
+Legacy observation helpers remain untrusted and offline-only. Registered adapter
+composition and authenticated HTTP live in instagram_composition/instagram_http.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Any
 
 from common.timestamps import parse_timestamp
 from .delivery import DeliveryConfigurationError, DeliveryError
+from .offline import require_offline
 
 VERSION = "v26.0"
 PERMISSIONS = frozenset({"instagram_business_basic", "instagram_business_content_publish"})
@@ -38,7 +39,7 @@ class InstagramLoginConfiguration:
 
 @dataclass(frozen=True)
 class CapabilityObservation:
-    """Nonsecret evidence supplied by a future authenticated preflight."""
+    """Untrusted caller observations. Never accepted by registered composition."""
     account_id: str
     login_mode: str
     api_version: str
@@ -77,29 +78,33 @@ class CapabilityObservation:
 class ScopedToken:
     value: str = field(repr=False)
 
+    def __post_init__(self):
+        if not isinstance(self.value, str) or not re.fullmatch(r"[A-Za-z0-9_.|~-]{1,4096}", self.value):
+            raise DeliveryConfigurationError("Instagram token is unavailable")
+
     @classmethod
     def resolve(cls, config: InstagramLoginConfiguration, secrets: Mapping[str, str]) -> "ScopedToken":
         config.validate()
         token = secrets.get(config.token_ref)
-        if not isinstance(token, str) or not token or any(c in token for c in "\r\n"):
+        if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_.|~-]{1,4096}", token):
             raise DeliveryConfigurationError("Instagram token is unavailable")
         return cls(token)
 
 
 class FixedHostInstagramExchange:
-    """Version/host pinned request adapter around an explicitly injected exchange.
+    """Legacy offline exchange fixture; never accepted by registered composition.
 
-    `exchange` must itself enforce redirect refusal, time and response bounds. The
-    production integration is blocked until such an exchange is implemented and
-    account-specific preflight evidence is available.
+    The actual bounded client lives in instagram_http.InstagramHTTPTransport.
     """
     def __init__(self, config: InstagramLoginConfiguration, token: ScopedToken,
                  exchange: Callable[..., Mapping[str, Any]], *, run_approved: bool = False):
+        require_offline()
         config.validate()
         self.config, self._token, self._exchange = config, token, exchange
         self._run_approved = run_approved
 
     def request(self, method: str, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        require_offline()
         if self.config.enabled is not True or self._run_approved is not True:
             raise DeliveryConfigurationError("Instagram exchange is disabled")
         if method not in {"GET", "POST"} or not re.fullmatch(r"/[1-9][0-9]{0,29}(?:/(?:media|media_publish|content_publishing_limit))?", path):
@@ -123,11 +128,13 @@ class OfflineReadinessGate:
     def __init__(self, adapter: Any, config: InstagramLoginConfiguration,
                  observation: CapabilityObservation, token: ScopedToken,
                  *, run_approved: bool = False, clock: Callable[[], datetime] | None = None):
+        require_offline()
         self.adapter, self.config, self.observation = adapter, config, observation
         self._token, self.run_approved = token, run_approved
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def _check(self, context: Mapping[str, Any]) -> None:
+        require_offline()
         if (self.config.enabled is not True or self.run_approved is not True
                 or not isinstance(self._token, ScopedToken) or not self._token.value
                 or context.get("provider_account_id") != self.config.account_id
@@ -143,4 +150,5 @@ class OfflineReadinessGate:
         self._check(context)
 
     def publish(self, context: Mapping[str, Any], staged: Any) -> str:
+        self._check(context)
         return self.adapter.publish(context, staged)

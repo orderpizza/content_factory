@@ -174,14 +174,16 @@ class CredentialedPostingAgent:
         adapters: Mapping[str, Any] | None = None,
         artifact_root: str | Path | None = None,
         instance_id: str = "delivery",
+        post_record_id: int | None = None,
     ):
         self.store = store
         self.adapters = dict(adapters or {})
+        self.post_record_id = post_record_id
         self.instance_id = instance_id
         self.artifact_root = None if artifact_root is None else Path(artifact_root).resolve()
 
     def run_once(self) -> int | None:
-        record = self.store.claim("post_records", "post_record_id", self.instance_id)
+        record = self.store.claim("post_records", "post_record_id", self.instance_id, record_id=self.post_record_id)
         if record is None:
             return None
         try:
@@ -215,6 +217,10 @@ class CredentialedPostingAgent:
             adapter = self.adapters.get(context["platform"])
             if adapter is None:
                 raise DeliveryConfigurationError("no delivery adapter is configured")
+            if context["destination_config"].get("adapter_version") == "instagram_login_v1":
+                from .instagram_composition import is_registered_adapter
+                if not is_registered_adapter(adapter):
+                    raise DeliveryConfigurationError("registered Instagram composition and run activation required")
             simulated = context["package"].get("execution_mode") == "simulation"
             if simulated != (getattr(adapter, "execution_mode", None) == "simulation"):
                 raise DeliveryConfigurationError("simulation package and adapter modes must match")

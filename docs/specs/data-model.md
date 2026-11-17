@@ -221,3 +221,24 @@ no parallel schema. Existing samples without growth metadata remain valid.
 
 No data-retention command removes these records as part of normal planning.
 Verified backups and restore checks use the current schema checksum.
+
+## Instagram Checkpoint 1 evidence (schema unchanged)
+
+The adapter reuses existing `social_destinations.config_json`,
+`capability_readiness` and `capability_readiness_checks`. Registration is immutable
+within a configuration release. Preflight facts contain only allowlisted nonsecret
+account/app/login/version/grant/quota/expiry/configuration/generation/provenance
+fields. Offline observations remain `degraded`, never production-ready. Historical
+checks append; failed refreshes block the current readiness row. No raw provider
+response, access token or credential fingerprint is stored.
+
+`human_command_receipts` appends `instagram_run_activate` and
+`instagram_run_consume` events. Payload hashes bind the post's package/manifest,
+configuration, proof and run expiry; result IDs reference the scoped PostRecord.
+Unique command IDs fence consumption under the SQLite write transaction. Activation
+receipts also reserve quota conservatively across the provider window and process
+restarts. No application path updates/deletes/reissues them automatically. Existing
+schema ownership assumes the local OS owner; these receipt tables do not add a
+new SQL tamper-proof audit guarantee. Tokens and issued proof/run handles remain
+in process memory; restart requires fresh verification and cannot revive a run.
+See [posting](posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
