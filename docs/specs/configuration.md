@@ -19,7 +19,7 @@ No schema migration or database reset is implicit.
 
 ## Preserved production configuration
 
-The inactive delivery catalog accepts a closed `production_configuration_v2`:
+The delivery catalog, inactive for real providers, accepts a closed `production_configuration_v2`:
 `policy_version`, `approved_by`, `approved_at`, `visual_configuration_approved`,
 `destinations` and `bindings`. Registration freezes the configuration and copies
 its visual approval into each output binding. Superseded configuration shapes
@@ -44,6 +44,12 @@ metadata. Active review overlays use `CONTENT_FACTORY_FONT_PATH` and the existin
 local fallback-font sequence in `gemini_image_renderer.py`. No production JSON
 font path is loaded and no font fingerprint is currently verified or recorded;
 this cleanup does not introduce a font-attestation subsystem.
+
+The offline rehearsal reuses this closed shape only inside a fresh isolated DB,
+with synthetic configuration approval/readiness and account `simulation`, provider
+ID `0`. It does not load `.env` or resolve `DELIVERY_TOKEN`. No new production
+configuration format or operator migration is introduced; the future versioned
+capability contract belongs to [posting](posting.md#future-meta-adapter-contract-instagram_adapter_spec_v1).
 
 ## Environment loading
 

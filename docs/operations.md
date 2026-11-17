@@ -73,6 +73,69 @@ Human ideation is immediately available for every domain.
 
 Use the actual thread ID and version. Refinement creates immutable new work.
 
+## Offline delivery rehearsal
+
+These commands use synthetic content and fake providers only. `init` creates a new
+retained temporary directory by default and prints its path, JPEG paths, caption,
+alt text, review identity and state. It does not approve anything. Optional
+`--workspace /path/to/new-directory` refuses an existing directory. No production
+DB is selected, `.env` loaded, credential read or network connection made.
+
+```sh
+.venv/bin/python scripts/simulate_delivery.py init
+.venv/bin/python scripts/simulate_delivery.py report --workspace /printed/workspace
+```
+
+Inspect every listed **JPEG**, caption and alt text. For a deliberately simulated
+authorization, copy the displayed identity and version into the explicit command:
+
+```sh
+.venv/bin/python scripts/simulate_delivery.py post-now --workspace /printed/workspace \
+  --review-id 1 --row-version 1 --review-identity DISPLAYED_IDENTITY \
+  --destination instagram:simulation --command-id unique-review-command
+.venv/bin/python scripts/simulate_delivery.py run --workspace /printed/workspace
+```
+
+Post now only writes authorization; `run` executes one fake-provider attempt.
+Use a fresh workspace per scenario. `run --outcome unknown` rehearses a lost final
+response; `run --outcome outage` fails before the final marker. Repeated/restarted
+runs do not resend successful or uncertain posts. Retryable staging observes the
+store's bounded retry delay. Reports always label results simulated and expose
+hashes, authorization, attempts, fake sends, cleanup and reconciliation evidence.
+No arguments or environment settings can switch this command to real publishing.
+
+For an uncertain post, request an unavailable lookup and inspect the resulting
+check/version before explicitly resolving it:
+
+```sh
+.venv/bin/python scripts/simulate_delivery.py reconcile --workspace /printed/workspace \
+  --post-id 1 --command-id unique-reconcile-command
+.venv/bin/python scripts/simulate_delivery.py resolve --workspace /printed/workspace \
+  --request-id 1 --check-id 1 --row-version DISPLAYED_VERSION \
+  --decision leave_unknown --note "Synthetic evidence is inconclusive" \
+  --command-id unique-resolution-command
+.venv/bin/python scripts/simulate_delivery.py cleanup --workspace /printed/workspace
+```
+
+Resolution also supports `published` or `not_published_cancel` for explicit
+synthetic manual decisions; none authorizes reposting. `cancel --post-id ID
+--row-version VERSION --command-id ID --workspace PATH` works before the final
+marker. Cleanup processes due fake objects separately from publication state.
+Keep the workspace for inspection; no automatic deletion or operator data cleanup
+occurs. See [posting](specs/posting.md) for the full boundary and real-integration gaps.
+
+To prepare candidates from an existing English PNG review without changing its DB:
+
+```sh
+.venv/bin/python scripts/prepare_delivery_artifacts.py --database /explicit/operator.db \
+  --review-id 1 --artifacts /configured/artifact/root --output /new/candidate-directory
+```
+
+The output parent must exist. This writes only a new local candidate directory;
+PNG approval is not copied. No production candidate importer or real Post now
+entrypoint exists. A new exact-JPEG approval/package boundary remains necessary
+before real delivery; schema 18 and existing operator records are unchanged.
+
 ## Verification and live acceptance
 
 Run offline checks as described in [testing](testing.md). Live review sessions
@@ -167,6 +230,8 @@ not affect unrelated LaunchAgents.
 | `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
 | `install_review_baseline.py` | Write/load/status the five review-only Mac Mini LaunchAgents |
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
+| `prepare_delivery_artifacts.py` | Read-only PNG review export to a new, unapproved JPEG candidate |
+| `simulate_delivery.py` | Isolated synthetic review, explicit fake Post now, delivery/recovery and read-only report |
 | `run_tests.py` | Offline suite, including local browser and packaging checks |
 | `check_docs.py` | Documentation links, schema, sources, domain and environment consistency |
 

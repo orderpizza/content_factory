@@ -25,11 +25,18 @@ source roster, operator commands and environment settings.
 | Evidence, claims and domain integrity | `test_detection.py`, `test_semantic_detection.py`, `test_gemini_workflow.py`, `test_prompt_contracts.py`, `test_domain_boundaries.py` |
 | Budget, uncertainty and bounded retries | `test_model_budget.py`, `test_gemini_transport_reliability.py`, `test_render_recovery.py` |
 | Geometry, asset integrity and checkpoint recovery | `test_storyboard_pagination.py`, `test_gemini_image_renderer.py`, `test_render_text_policy.py`, `test_render_recovery.py` |
-| Review and duplicate-delivery protection | `test_delivery_boundaries.py`, `test_visual_configuration.py`, `test_workflow_planning.py`, `test_r2_relay.py` |
+| Review and duplicate-delivery protection | `test_delivery_boundaries.py`, `test_delivery_simulation.py`, `test_visual_configuration.py`, `test_workflow_planning.py`, `test_r2_relay.py` |
 | Dashboard security and operator recovery | `test_dashboard.py`, `test_gemini_workflow.py`, `test_storage_and_maintenance.py` |
 | Acceptance isolation and documentation integrity | `test_acceptance_harness_offline.py`, `test_acceptance_safety.py`, `test_documentation_contracts.py` |
 
-Delivery logic is not composed into a live posting service. Its tests protect
+Delivery logic is composed only into the isolated offline rehearsal, never a live
+posting service. `test_delivery_simulation.py` blocks networking and exercises
+exact JPEG approval, 4–6 slide success, tampering/missing assets, wrong destinations,
+stale/expired reviews, preparation without inherited PNG approval, mode isolation,
+pre-final outage/cancellation, crash/restart, uncertain final results, manual
+resolution and independent cleanup. CLI tests cross process boundaries. Tests
+authorize synthetic fixtures explicitly; they never approve operator content.
+Existing tests protect
 explicit approval and conservative uncertain outcomes for future integration.
 Do not delete these checks merely because current operation stops at review.
 Current domain/visual policy tests are not obsolete just because future accounts
@@ -45,6 +52,10 @@ assets; they validate mechanics, not real model quality. Never reset a local
 operator database to run a smoke check.
 
 ## Opt-in paid acceptance
+
+English quality/design calibration is deferred to the final [roadmap](roadmap.md)
+phase. Retain this procedure and the Phase 2B0 attempt/accounting safeguards; they
+are not prerequisites for synthetic publishing-readiness work.
 
 [The acceptance runner](../acceptance/README.md) owns stage, chain and full-journey
 commands, finite budget requirements and authorization switches. Reusable

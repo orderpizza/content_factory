@@ -1,7 +1,7 @@
-"""Inactive generic delivery orchestration and transient R2 helpers.
+"""Generic delivery orchestration and transient R2 helpers.
 
-The workflow runner does not construct these objects. Provider adapters are
-unimplemented; offline boundary tests inject transports and fake adapters.
+The live workflow runner does not construct these objects. The offline rehearsal
+and boundary tests inject local transports and fake adapters.
 """
 
 from __future__ import annotations
@@ -212,6 +212,9 @@ class CredentialedPostingAgent:
             adapter = self.adapters.get(context["platform"])
             if adapter is None:
                 raise DeliveryConfigurationError("no delivery adapter is configured")
+            simulated = context["package"].get("execution_mode") == "simulation"
+            if simulated != (getattr(adapter, "execution_mode", None) == "simulation"):
+                raise DeliveryConfigurationError("simulation package and adapter modes must match")
             staged = adapter.stage(context, record_resource)
             self.store.mark_attempt_ready(int(context["post_attempt_id"]))
         except DeliveryConfigurationError as error:
