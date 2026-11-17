@@ -199,3 +199,16 @@ The prior delivery simulation, claim/fencing, uncertain-outcome, R2 and acceptan
 safety tests remain part of `scripts/run_tests.py`. No test authorizes or proves a
 real provider send; current configuration/readiness integration remains a Phase
 3B2 gate. English quality and visual refinement stay in the final phase.
+
+
+### Phase 3B2 offline integration (incomplete)
+
+`tests/test_instagram_posting_integration.py` exercises six-slide genuine JPEG
+revisions and Post now through the posting agent using fake provider and object
+storage, including lost child, parent and final responses, receipt persistence
+failure, stale fake readiness, process death and restart. The production adapter
+configuration remains blocked; tests override its marker only in memory.
+`tests/test_instagram_protocol.py` covers 4–6-slide request sequences and exact
+byte/alt mapping; `tests/test_instagram_readiness.py` covers synthetic readiness,
+credential reference and fixed-host validation. None verifies real API behavior,
+real receipt attribution, quota reservation or cleanup timing.

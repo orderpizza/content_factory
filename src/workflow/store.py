@@ -488,7 +488,14 @@ class WorkflowStore:
                     )
                     self._schedule_attempt_cleanup(int(record["post_attempt_id"]), moment)
             else:
-                status = "retry_wait" if record["attempt_count"] < record["attempt_limit"] else "failed"
+                # A committed create intent means an external container may exist,
+                # even when its response was lost or the worker died before sending.
+                intent = self.connection.execute(
+                    "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type='instagram_create_intent' LIMIT 1",
+                    (record["post_attempt_id"],),
+                ).fetchone()
+                status = "retry_wait" if not intent and record["attempt_count"] < record["attempt_limit"] else "failed"
                 self.connection.execute(
                     "UPDATE post_records SET status=?,failure_reason='delivery lease expired before final request',"
                     "next_attempt_at=?,completed_at=?,claim_version=claim_version+1,row_version=row_version+1 "
@@ -2129,6 +2136,7 @@ class WorkflowStore:
         asset_ordinal: int | None = None,
         status: str = "created",
         safe_metadata: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> int:
         self._validate_schema()
         if status not in {"created", "ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
@@ -2137,6 +2145,8 @@ class WorkflowStore:
             raise ValueError("publication resource identity is invalid")
         moment = now()
         with self.transaction():
+            if context is not None:
+                self._check_post_resource_fence(context, attempt_id, moment)
             attempt = self.connection.execute(
                 "SELECT status FROM post_attempts WHERE post_attempt_id=?", (attempt_id,),
             ).fetchone()
@@ -2149,17 +2159,33 @@ class WorkflowStore:
                  canonical(safe_metadata or {}), moment, moment),
             ).lastrowid)
 
-    def update_publication_resource(self, resource_id: int, *, status: str) -> int:
+    def _check_post_resource_fence(self, context: dict[str, Any], attempt_id: int, moment: str) -> None:
+        row = self.connection.execute(
+            "SELECT 1 FROM post_records p JOIN post_attempts a ON a.post_record_id=p.post_record_id "
+            "WHERE p.post_record_id=? AND a.post_attempt_id=? AND p.status='publishing' "
+            "AND p.claim_owner=? AND p.claim_version=? AND p.lease_expires_at>? "
+            "AND a.status IN ('staging','ready_to_publish')",
+            (context["post_record_id"], attempt_id, context["claim_owner"], context["claim_version"], moment),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("delivery resource claim is stale or cancelled")
+
+    def update_publication_resource(self, resource_id: int, *, status: str,
+                                    context: dict[str, Any] | None = None) -> int:
         """Advance one provider-side resource without changing its identity."""
         self._validate_schema()
         if status not in {"ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
             raise ValueError("invalid publication resource status")
         moment = now()
         with self.transaction():
+            if context is not None:
+                self._check_post_resource_fence(context, int(context["post_attempt_id"]), moment)
             result = self.connection.execute(
                 "UPDATE publication_resources SET status=?,updated_at=? "
-                "WHERE publication_resource_id=? AND status NOT IN ('cleaned','failed')",
-                (status, moment, resource_id),
+                "WHERE publication_resource_id=? AND status NOT IN ('cleaned','failed') "
+                + ("AND post_attempt_id=?" if context is not None else ""),
+                (status, moment, resource_id, int(context["post_attempt_id"])) if context is not None
+                else (status, moment, resource_id),
             )
             if result.rowcount != 1:
                 raise RuntimeError("publication resource is missing or terminal")
@@ -2340,7 +2366,12 @@ class WorkflowStore:
                     "SELECT attempt_limit FROM post_records WHERE post_record_id=?",
                     (context["post_record_id"],),
                 ).fetchone()[0])
-                will_retry = retryable and attempt_count < attempt_limit
+                intent = self.connection.execute(
+                    "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type='instagram_create_intent' LIMIT 1",
+                    (context["post_attempt_id"],),
+                ).fetchone()
+                will_retry = retryable and not intent and attempt_count < attempt_limit
                 status = "retry_wait" if will_retry else "failed"
                 self.connection.execute(
                     "UPDATE post_attempts SET status=?,failure_category=?,failure_detail=?,completed_at=? "
@@ -2902,7 +2933,8 @@ class WorkflowStore:
     def _schedule_attempt_cleanup(self, attempt_id: int, moment: str) -> None:
         resources = self.connection.execute(
             "SELECT publication_resource_id,remote_id FROM publication_resources "
-            "WHERE post_attempt_id=? AND resource_type='r2_object' AND status NOT IN ('cleaned','cleanup_pending')",
+            "WHERE post_attempt_id=? AND resource_type='r2_object' AND status NOT IN ('cleaned','cleanup_pending') "
+            "AND COALESCE(json_extract(safe_metadata_json,'$.retention'),'') != 'manual_ingestion_safety'",
             (attempt_id,),
         ).fetchall()
         for resource in resources:

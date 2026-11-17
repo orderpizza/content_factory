@@ -7,7 +7,6 @@ remaining account-specific verification and recovery work.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 import re
 from typing import Any, Protocol
 
@@ -17,11 +16,6 @@ from .delivery import DeliveryError, _r2_object_key
 class Transport(Protocol):
     def request(self, method: str, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
-
-@dataclass(frozen=True)
-class ProtocolReceipt:
-    media_id: str
-    parent_id: str
 
 
 def _id(value: Any) -> str:
@@ -82,7 +76,7 @@ class OfflineInstagramProtocol:
         for asset, alt in zip(assets, descriptions):
             key = _r2_object_key(context, asset)
             resource = record(resource_type="r2_object", remote_id=key, asset_ordinal=asset["ordinal"],
-                              safe_metadata={"sha256": asset["sha256"]})
+                              safe_metadata={"sha256": asset["sha256"], "retention": "manual_ingestion_safety"})
             _, url = self.relay.stage(context, asset, key=key)
             record(resource_id=resource, status="ready")
             # This intent is evidence of a potentially accepted create, even if
@@ -104,9 +98,11 @@ class OfflineInstagramProtocol:
         self._ready(parent)
         return {"parent": parent}
 
-    def publish(self, staged: Mapping[str, str]) -> ProtocolReceipt:
+    def publish(self, context: Mapping[str, Any], staged: Mapping[str, str]) -> str:
+        if context.get("provider_account_id") != self.account_id:
+            raise DeliveryError("validation", "account mismatch", False, "instagram")
         parent = _id(staged["parent"])
         media = _id(self._request("POST", f"/{self.account_id}/media_publish", {
             "creation_id": parent,
         }).get("id"))
-        return ProtocolReceipt(media, parent)
+        return media

@@ -250,16 +250,34 @@ Official references (documentation reads only):
 
 ## Offline Instagram Login protocol experiment (Phase 3B2, incomplete)
 
-`workflow.instagram_protocol.OfflineInstagramProtocol` models ordered child
-creation, exact reviewed per-image alt text, parent creation, bounded status reads
-and a final publish receipt through injected transports. It uses the existing R2
-relay and records object/create intents before each corresponding operation. It
-is **not a production adapter** and is not registered with the posting agent; it
-provides no HTTP implementation, token loading, activation switch or live entry
-point. Its fake-provider tests block network access. A create intent alone does
-not make crash recovery safe: the existing pre-final lease recovery can retry and
-create additional containers. The existing cleanup queue also has no ingestion-safe
-hold. Do not connect this experiment to the production worker.
+`workflow.instagram_protocol.OfflineInstagramProtocol` implements the posting
+agent's stage/publish interface with injected fake transports. Offline tests exercise
+a genuine Phase 3B1 revision, JPEG approval and Post now through the existing
+posting agent, while overriding the disabled adapter marker only in the test's
+in-memory context. The actual immutable production catalog still admits only
+`adapter_version=unimplemented`; no real adapter is registered or live entry point
+exists. The fake provider records ordered child/parent creates and exact caption,
+alt text and bytes; these tests do not prove real provider compatibility.
+
+The agent now fences publication-resource writes by post claim, lease and attempt.
+A committed `instagram_create_intent` blocks automatic pre-final retry, including
+when a worker dies before recording the response. A pre-final interrupted attempt
+is marked failed and needs operator investigation; it is not a confirmed public
+post. The existing final marker still turns uncertain final sends or receipt
+persistence failures into `publication_unknown`, with no automatic repost. Objects
+marked `manual_ingestion_safety` are excluded from automatic cleanup indefinitely;
+this is a conservative hold, not a verified retention duration or cleanup procedure.
+
+`workflow.instagram_readiness` supplies nonsecret versioned Instagram Login
+configuration, scoped token-reference resolution, fake observation validation and a
+fixed-host injected exchange abstraction. It checks account, scopes, observation and
+token freshness, an observed quota and capability flags; its double opt-in and
+pre-final recheck are tested with synthetic evidence. These are primitives only:
+there is no authenticated preflight, trusted proof store, quota reservation, actual
+HTTP transport, production activation or live registration. In particular, a
+caller-constructed observation is not account readiness evidence. No real delivery
+may be enabled on this basis. Its fake exchange must not be substituted for a
+bounded redirect-refusing implementation without further review.
 
 Documentation rechecked 2026-11-17: the [Instagram publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing)
 selects Instagram Login, `graph.instagram.com`, an Instagram User token, and
@@ -275,10 +293,10 @@ These sources do not establish account-specific entitlement or quota. The
 lists v26.0 with no expiration date, while other current Meta pages show v27.0;
 no version is selected for live operation without resolving this discrepancy.
 
-Before a real adapter can be activated, implement and verify a versioned,
-nonsecret capability snapshot and credential boundary, account/token/scope and
-quota checks with reservation, a fixed-host bounded HTTP transport, safe staging
-recovery and ingestion-safe cleanup. Verify AI-label support and account-specific
+Before a real adapter can be activated, implement a trusted capability snapshot
+and credential provisioning, authenticated account/token/scope and quota checks
+with durable concurrent reservation, a fixed-host bounded redirect-refusing HTTP
+transport, a reviewed resolution for retained orphans and ingestion-safe cleanup. Verify AI-label support and account-specific
 alt-text behavior; do not silently omit reviewed material. Add receipt readback and
 conservative reconciliation without inferring absence, and test lost responses,
 lease expiry, persistence failures, restart and concurrent workers. Only then

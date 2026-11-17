@@ -74,14 +74,14 @@ def fixture(tmp_path, count):
 def test_order_exact_bytes_alt_and_receipt(tmp_path, count):
     context, objects, transport, records, record, protocol = fixture(tmp_path, count)
     staged = protocol.stage(context, record)
-    receipt = protocol.publish(staged)
+    receipt = protocol.publish(context, staged)
     creates = [body for method, path, body in transport.calls if method == "POST" and path.endswith("/media")]
     assert [c["alt_text"] for c in creates[:-1]] == context["package"]["image_alt_text"]
     assert creates[-1] == {"media_type": "CAROUSEL", "children": ",".join(str(i) for i in range(101, 101 + count)),
                            "caption": "Exact caption"}
     assert [objects.objects[c["image_url"].split("example.invalid/", 1)[1]][0] for c in creates[:-1]] == [
         Path(a["path"]).read_bytes() for a in context["assets"]]
-    assert receipt.parent_id == str(101 + count) and receipt.media_id == str(102 + count)
+    assert staged["parent"] == str(101 + count) and receipt == str(102 + count)
     assert sum(r.get("resource_type") == "instagram_create_intent" for r in records) == count + 1
 
 
@@ -146,6 +146,6 @@ def test_lost_publish_reply_makes_one_request_and_redacts(tmp_path):
     staged = protocol.stage(context, record)
     transport.fail_at = len(transport.calls) + 1
     with pytest.raises(DeliveryError) as caught:
-        protocol.publish(staged)
+        protocol.publish(context, staged)
     assert "secret" not in str(caught.value)
     assert sum(path.endswith("media_publish") for _, path, _ in transport.calls) == 1

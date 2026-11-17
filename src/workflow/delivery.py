@@ -203,10 +203,10 @@ class CredentialedPostingAgent:
             resource_id = values.pop("resource_id", None)
             if resource_id is not None:
                 return self.store.update_publication_resource(
-                    int(resource_id), status=str(values.pop("status")),
+                    int(resource_id), status=str(values.pop("status")), context=context,
                 )
             return self.store.record_publication_resource(
-                int(context["post_attempt_id"]), **values,
+                int(context["post_attempt_id"]), context=context, **values,
             )
         try:
             if (context.get("delivery_revision_id") is not None
@@ -220,6 +220,8 @@ class CredentialedPostingAgent:
                 raise DeliveryConfigurationError("simulation package and adapter modes must match")
             staged = adapter.stage(context, record_resource)
             self.store.mark_attempt_ready(int(context["post_attempt_id"]))
+            if hasattr(adapter, "check_before_final"):
+                adapter.check_before_final(context, staged)
         except DeliveryConfigurationError as error:
             self.store.fail_post_attempt(
                 context, category="configuration", detail=str(error), retryable=False,

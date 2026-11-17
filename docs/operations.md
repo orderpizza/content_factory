@@ -170,6 +170,16 @@ preparation may leave an unregistered directory that cannot become delivery work
 inspect it and choose a new directory for a new command rather than overwrite it.
 [Posting](specs/posting.md) owns the full state and future adapter contract.
 
+## Instagram integration status
+
+Phase 3B2 has fake-provider state-machine tests and fail-closed readiness primitives,
+but no live delivery command or authenticated preflight. Do not construct a live
+adapter from those primitives. An Instagram staging object marked for manual
+ingestion-safety retention is not eligible for the automatic cleanup queue; no
+operator release procedure or safe retention duration is established yet. See the
+[posting contract](specs/posting.md#offline-instagram-login-protocol-experiment-phase-3b2-incomplete)
+for the remaining activation prerequisites and evidence limitations.
+
 ## Offline delivery rehearsal
 
 These commands use synthetic content and fake providers only. `init` creates a new
