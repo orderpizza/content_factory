@@ -1,38 +1,45 @@
 # Roadmap
 
-The [product measures](product.md) guide scope. These phases are plans, not claims
-that publishing, measurement or account-first configuration already work.
+The [product measures](product.md) guide scope. English content-quality and visual
+design refinement are deliberately **last**. Publishing and measurement foundations
+can be developed independently with synthetic content; offline success establishes
+no live publication, model quality, learner outcomes or revenue.
 
 | Phase | Deliverable | Completion gate |
 | --- | --- | --- |
-| 1 — repository foundation | Remove dead archives and old run evidence, establish current contracts and goal-oriented docs. | Fresh bootstrap and applicable offline verification pass; retained safeguards are identifiable; cleanup PR reviewed. |
-| 2A — English quality/economics preparation | Global A1–B1 learner brief, human rubric, reusable acceptance cases and reproducible evaluation procedure. | Offline validation passes; preparation PR receives ChatGPT architectural review before merge. No paid calls or publication. |
-| 2B — measured live acceptance | Owner-authorized, bounded Gemini sample; human teaching/visual review, cost and edit effort; focused corrections supported by evidence. | Quality and economics reviewed by level/family; unknown spend reconciled; provisional targets agreed with owner before expanding. |
-| 2C — publish and measure one Instagram account | Manually or safely automatically publish exact approved assets, reconcile receipts and collect outcome metrics and operating costs. | A separately authorized pilot resolves uncertain outcomes without duplicate sends and produces a complete cost/quality/outcome report over an agreed window. |
-| 3 — differentiated accounts | Separate account identity, policy, credentials, history and budgets from domains. | Two distinct accounts operate with isolated authorization, attribution and configuration; cross-account leakage tests pass. |
-| 4 — wider platforms | Add platform-specific adaptation and delivery behind proven boundaries. | A second platform meets its own review, reconciliation, measurement and unit-economics gates without weakening existing operation. |
+| 1 — repository foundation (done) | Current contracts, repository cleanup and goal-oriented docs. | Retained safeguards and fresh bootstrap have offline coverage. |
+| 2A — English evaluation preparation (done) | Global A1–B1 brief, rubric, reusable cases and evaluation procedure. | Offline preparation only; no measured quality claim. |
+| 2B0 — acceptance safety (done) | Per-attempt provider caps and truthful failure/cost accounting. | Offline safeguards retained; paid calibration remains deferred. |
+| 3A — offline Instagram readiness | Deterministic unapproved JPEG candidates; isolated explicit review/Post now rehearsal through existing posting, relay, cleanup and reconciliation contracts; read-only evidence. | Offline tests and docs pass, exact-asset approval is preserved, and PR receives ChatGPT architectural review. No production DB migration, live adapter, upload or public send. |
+| 3B — real provider integration (later, explicitly authorized) | One professional Instagram account, versioned capability/preflight, credentials and exact-byte R2 staging, container/publish/receipt adapter. | Resolve the immutable PNG-to-delivery-package boundary with a fresh exact-JPEG review; validate account/scopes/version, quota and reconciliation with a narrowly authorized pilot. Unknown sends never auto-retry. |
+| 4 — receipts, insights and operating feedback | Durable receipt attribution, platform insights provenance, model/operator/delivery costs and outcome reporting. | Agreed observation windows and missing-data semantics; real evidence reconciled without claiming engagement is revenue. |
+| 5 — account-first expansion where justified | Account-specific identity, policy, credentials, history and budgets; other platforms only where useful. | Demonstrated one-account loop and isolated authorization/attribution tests before expansion. |
+| Final — English quality, visual refinement and paid calibration | Bounded Gemini samples and human teaching/design review; evidence-based prompt/layout corrections and economics calibration. | Separate authorization and finite budgets; unknown spend reconciled, quality and effort assessed by level/family, provisional targets agreed with owner. |
 
-## Phase 2 decisions before implementation
+## Next integration decisions
 
-The first audience is [global English learners at A1–B1](product.md#english-learning-pilot-brief).
-Complete the [quality/cost baseline](../acceptance/english-pilot.md) before a large
-publishing integration. Agree provisional thresholds after baseline. For Phase 2C, confirm
-Instagram provider eligibility, credential handling, permission scope and supported
-publication/reconciliation APIs. Design the minimal receipt and measurement
-contracts against the existing inactive posting/delivery records; determine what
-can be reused before removing them. Specify metric freshness, attribution windows,
-manual reconciliation and operator visibility for unknown outcomes.
+The first audience remains [global English learners at A1–B1](product.md#english-learning-pilot-brief).
+The [posting contract](specs/posting.md) maps the existing infrastructure and the
+remaining immutable-package blocker. Its versioned Meta adapter specification
+separates documentation evidence from tested behavior. Reuse the current
+domain-to-one-destination binding; no speculative account schema redesign.
 
-Preserve the existing bounded model budgets, evidence lineage, immutable review
-assets and fenced worker claims. Live validation requires separate authorization
-and finite budgets; a passed offline test does not authorize publishing.
+The [quality/cost baseline](../acceptance/english-pilot.md) is retained for the final
+phase, not a prerequisite for offline infrastructure. Existing prompts, renderer
+algorithms, archetypes and accepted baseline are preserved. Human approval of each
+exact delivery artifact and caption/alt text remains mandatory even while design
+improvement is deferred. Synthetic review commands do not approve real content.
+
+Live validation requires separate authorization. Phase 3B should first implement
+and test the explicit new delivery approval boundary, then connect one selected
+login flow and one account under a finite test plan. Do not enable unattended
+publishing, schedule posts or expand providers as part of that connection.
 
 ## Known limitations to carry forward
 
 Gemini typography and factual/editorial quality still require human review.
 Text-load thresholds are provisional; no retained historical report establishes
-current live fidelity. Existing retry/checkpoint recovery has offline coverage,
-but production behavior needs authorized observation. Psychology policy changes
-and hybrid text rendering are separate product experiments, not Phase 1 changes.
-Account-first modeling, unattended publishing and new orchestration frameworks
-are outside Phase 1 and must not precede the single-account learning loop.
+current live fidelity. Retry/checkpoint recovery has offline coverage, but live
+behavior needs authorized observation. Psychology policy changes and hybrid text
+rendering remain separate product experiments. A simulated receipt is not an
+Instagram media ID, and the current rehearsal collects no real metrics.

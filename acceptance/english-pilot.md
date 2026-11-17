@@ -1,5 +1,12 @@
 # English pilot execution and review
 
+English content-quality/design refinement and paid Gemini calibration are deferred
+to the final [roadmap](../docs/roadmap.md) phase. The procedure below is retained
+for that later, separately authorized experiment; its historical Phase 2B label
+does not make it the next task. Publishing infrastructure uses offline synthetic
+fixtures first. No pilot quality or outcome measurement is established here.
+
+
 Phase 2A prepares evidence collection only. Audience and learning requirements
 are owned by [product](../docs/product.md#english-learning-pilot-brief); scoring
 and provisional targets by [testing](../docs/testing.md#english-pilot-human-review).
@@ -242,7 +249,7 @@ or of no charge.
 Provider billing reconciliation may still be needed; these are priced usage and
 holds, not invoices. Follow the rubric's denominators for cost/tokens/images per
 approved lesson, operator time, controls, skips and revisions. Publication metrics
-are N/A until a separately authorized Phase 2C experiment.
+are N/A until a separately authorized Phase 3B/4 publication and measurement experiment.
 
 ## Technical findings and next experiments
 

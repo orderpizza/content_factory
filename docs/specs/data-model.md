@@ -61,8 +61,9 @@ carry destination/format readiness and the preserved production
 `visual_configuration_approved` gate; the
 [configuration contract](configuration.md#preserved-production-configuration)
 owns its approval semantics. Renderer identity belongs to VisualRecipe; exact board geometry belongs to StoryboardPlan.
-`social_destinations` and configuration/readiness records belong to the preserved
-inactive delivery catalog; fixture bindings have no deliverable destination.
+`social_destinations` and configuration/readiness records belong to the delivery
+catalog, still inactive for real providers. Development fixture bindings have no
+deliverable destination; the isolated rehearsal uses a marked synthetic destination.
 
 `determination_requests` freeze brief, evidence and catalog.
 `determination_decisions` records aggregate editorial value;
@@ -158,6 +159,15 @@ Use the DDL for exact columns, enums, indexes and immutable-trigger definitions,
 not a second field catalog. JSON validity at SQL level is supplemented
 by worker/store semantic validation before finalization.
 
+
+### Offline delivery scope
+
+Phase 3A keeps schema 18 unchanged. The isolated rehearsal uses existing synthetic
+lineage and delivery records; it neither imports production PNG reviews nor
+migrates operator DBs. Candidate preparation opens the source DB read-only. The
+one-package/output and immutable storyboard/render constraints prevent changing
+an approved PNG package into a deliverable JPEG package in place. The explicit
+new approval-boundary design is owned by [posting](posting.md#offline-artifact-preparation-and-approval-boundary).
 
 ### Claimable-record transition matrix
 

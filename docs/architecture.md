@@ -48,7 +48,10 @@ Unsupported combinations stop explicitly with no HTML fallback. See
 
 The current acceptance boundary is review-ready slides visible in the dashboard.
 Generic review → posting/delivery → external delivery records and R2 staging
-remain preserved, but no posting provider or public-delivery CLI is composed.
+are now composed only in an isolated synthetic offline rehearsal. PNG-to-JPEG
+preparation exports an unapproved candidate without changing the operator DB.
+No real posting provider or public-delivery CLI is composed; the immutable-package
+promotion blocker is documented in [posting](specs/posting.md).
 The dashboard reads evidence and persists review/planning commands; it invokes
 neither providers nor workers. Planning through ContentJob creation ignores
 storage admission; monitoring remains advisory there.
@@ -103,8 +106,9 @@ own safe editing and verification.
 This section is direction, not implemented capability. The [product goal](product.md)
 is a profitable, repeatable operation, initially for one Instagram account.
 The selected first pilot is global English Learning at A1–B1. The
-[roadmap](roadmap.md) sequences quality/economics preparation and authorized live
-acceptance before publication integration; this does not change current topology.
+[roadmap](roadmap.md) sequences offline publishing foundations, separately authorized
+real integration and measurement before expansion. English content/visual refinement
+and paid quality calibration are last; current production topology is unchanged.
 Complete a human-approved publication and measurement loop first: exact reviewed
 assets → authorized delivery → reconciled publication receipt → observed outcomes
 → editorial decisions. Define measurement provenance and attribution before

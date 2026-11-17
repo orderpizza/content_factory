@@ -2656,7 +2656,8 @@ class WorkflowStore:
     def _review_delivery_context(self, review_id: int, *, moment: str) -> dict[str, Any]:
         row = self.connection.execute(
             "SELECT v.review_request_id,v.status review_status,v.expires_at review_expires_at,"
-            "v.package_hash,v.manifest_hash,v.render_run_id,p.content_package_id,p.package_json,"
+            "v.package_hash,v.manifest_hash,v.render_run_id,v.destination_key review_destination_key,"
+            "j.pipeline_id,p.content_package_id,p.package_json,"
             "p.content_hash,r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.destination_key,d.enabled destination_enabled,d.config_json,d.secret_ref,"
@@ -2666,6 +2667,8 @@ class WorkflowStore:
             "FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id "
             "JOIN render_runs r ON r.render_run_id=v.render_run_id "
             "JOIN output_requests o ON o.output_request_id=p.output_request_id "
+            "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+            "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
             "JOIN output_bindings b ON b.output_binding_id=o.output_binding_id "
             "JOIN social_destinations d ON d.social_destination_id=b.social_destination_id "
             "JOIN capability_readiness cr ON cr.social_destination_id=d.social_destination_id "
@@ -2682,12 +2685,15 @@ class WorkflowStore:
             raise ValueError("production destination is disabled or visual configuration is not approved")
         if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
+        if row["review_destination_key"] != row["destination_key"]:
+            raise ValueError("review destination differs from the bound destination")
         return self._validate_delivery_artifacts(row)
 
     def _post_delivery_context(self, post_record_id: int, *, moment: str) -> dict[str, Any]:
         row = self.connection.execute(
             "SELECT pr.post_record_id,pr.status post_status,pr.eligible_at,pr.claim_owner,pr.claim_version,"
-            "pq.post_request_id,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
+            "pq.post_request_id,pq.publication_identity,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
+            "d.destination_key actual_destination_key,j.pipeline_id,"
             "pq.destination_key,pq.render_run_id,p.content_package_id,p.package_json,p.content_hash,"
             "r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
@@ -2700,6 +2706,8 @@ class WorkflowStore:
             "JOIN content_packages p ON p.content_package_id=pq.content_package_id "
             "JOIN render_runs r ON r.render_run_id=pq.render_run_id "
             "JOIN output_requests o ON o.output_request_id=p.output_request_id "
+            "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+            "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
             "JOIN output_bindings b ON b.output_binding_id=o.output_binding_id "
             "JOIN social_destinations d ON d.social_destination_id=b.social_destination_id "
             "JOIN capability_readiness cr ON cr.social_destination_id=d.social_destination_id "
@@ -2716,6 +2724,8 @@ class WorkflowStore:
             raise ValueError("production destination is disabled or visual configuration is not approved")
         if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
+        if row["destination_key"] != row["actual_destination_key"]:
+            raise ValueError("authorized destination differs from the bound destination")
         context = self._validate_delivery_artifacts(row)
         context["post_record_id"] = post_record_id
         context["post_request_id"] = int(row["post_request_id"])
@@ -2743,6 +2753,12 @@ class WorkflowStore:
         ]
         if len(assets) != len(manifest_assets) or not assets:
             raise ValueError("delivery asset set differs from the reviewed manifest")
+        if ([asset["ordinal"] for asset in assets] != list(range(1, len(assets) + 1))
+                or len(package.get("visual_units", [])) != len(assets)
+                or package.get("platform") != row["platform"]
+                or package.get("account") != row["account"]
+                or manifest.get("content_hash") != row["content_hash"]):
+            raise ValueError("delivery order, copy lineage or account differs from the reviewed package")
         validated: list[dict[str, Any]] = []
         for stored, frozen in zip(assets, manifest_assets, strict=True):
             path = Path(stored["local_path"]).resolve(strict=True)
@@ -2773,7 +2789,8 @@ class WorkflowStore:
                 raise ValueError("physical delivery asset hash or size changed after review")
             validated.append({**expected, "render_asset_id": int(stored["render_asset_id"]), "path": str(path)})
         if row["platform"] == "instagram":
-            if not 5 <= len(validated) <= 8 or any(
+            maximum = 6 if row["pipeline_id"] == "english" else 14
+            if not 4 <= len(validated) <= maximum or any(
                 item["mime"] != "image/jpeg" or (item["width"], item["height"]) != (1080, 1350)
                 or item["bytes"] > 8_000_000 for item in validated
             ):

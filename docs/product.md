@@ -4,6 +4,17 @@ Build a repeatable, profitable AI-assisted social content operation, starting
 with one Instagram account. Expand to differentiated accounts and other platforms
 only after production and measurement demonstrate value.
 
+## Development priority
+
+Build and test publishing readiness, delivery recovery, then receipts/insights and
+cost feedback with synthetic content first. Real account integration is a later,
+separately authorized phase. English content-quality, prompt, visual-design and
+paid Gemini calibration work is explicitly deferred until the final phase; retain
+the accepted baseline and safety infrastructure. This sequencing does not waive
+human approval of exact delivery JPEGs, caption/alt text or destination.
+The offline rehearsal is operational with fake providers only; it establishes no
+real publishing, model-quality or audience metric result. See the [roadmap](roadmap.md).
+
 ## Business hypotheses
 
 A focused audience may return for useful, recognizable content; AI may reduce
