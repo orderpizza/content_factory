@@ -20,7 +20,7 @@ def _review_preview(
     csrf_token: str,
 ) -> str:
     review = connection.execute(
-        "SELECT v.status,v.row_version,p.package_json,r.render_run_id,vr.recipe_json,vr.selection_provenance_json "
+        "SELECT v.status,v.row_version,v.delivery_revision_id,p.package_json,r.render_run_id,vr.recipe_json,vr.selection_provenance_json "
         "FROM review_requests v JOIN content_packages p "
         "ON p.content_package_id=v.content_package_id "
         "JOIN render_runs r ON r.render_run_id=v.render_run_id "
@@ -30,6 +30,10 @@ def _review_preview(
     ).fetchone()
     if review is None:
         return ""
+    if review["delivery_revision_id"] is not None:
+        return (f"<p>JPEG delivery review #{review_id}: {escape(review['status'])}. "
+                "Inspect the exact JPEGs and approve using scripts/review_delivery.py report and approve. "
+                "The PNG review controls do not approve this delivery revision.</p>")
     package = json.loads(review["package_json"])
     public_text = package.get("public_text") or package.get("caption") or ""
     assets = connection.execute(

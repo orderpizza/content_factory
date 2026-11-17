@@ -3,7 +3,7 @@
 This guide owns architecture and document routing. Focused specs describe current
 code, configuration and persisted contracts.
 
-## CURRENT: review-only workflow
+## CURRENT: review generation and offline delivery authorization
 
 The three domains are `english`, `ai_tech`, `psychology`. Each has one Instagram
 destination. Domain IDs are editorial identities, never account IDs. Both
@@ -46,12 +46,16 @@ review PNGs; AI/Tech and Psychology produce 4–14 ordered review PNGs. The acce
 Unsupported combinations stop explicitly with no HTML fallback. See
 [visual rendering](specs/visual-rendering.md) for the nine archetypes and provenance.
 
-The current acceptance boundary is review-ready slides visible in the dashboard.
-Generic review → posting/delivery → external delivery records and R2 staging
-are now composed only in an isolated synthetic offline rehearsal. PNG-to-JPEG
-preparation exports an unapproved candidate without changing the operator DB.
-No real posting provider or public-delivery CLI is composed; the immutable-package
-promotion blocker is documented in [posting](specs/posting.md).
+The generation acceptance boundary is review-ready slides visible in the dashboard.
+Phase 3B1 adds an explicit offline path from a bound English PNG review to an
+immutable JPEG delivery revision, local exact-asset report, separate human JPEG
+approval, then separate Post now authorization. It reuses WorkflowStore publication
+records and retains original evidence. Schema 19 has an explicit backed-up v18
+migration; startup never upgrades data. No real adapter or send command exists.
+External delivery and R2 staging are composed only in the isolated synthetic
+rehearsal. The read-only Phase 3A exporter remains available; the Phase 3B1
+preparation command explicitly appends a separately reviewed delivery revision.
+[Posting](specs/posting.md) owns both boundaries and the future adapter contract.
 The dashboard reads evidence and persists review/planning commands; it invokes
 neither providers nor workers. Planning through ContentJob creation ignores
 storage admission; monitoring remains advisory there.

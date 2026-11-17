@@ -179,3 +179,23 @@ Published count and cost per published are N/A in Phase 2A/2B. Later, divide all
 campaign costs by confirmed published carousels and include delivery costs, with
 receipt/observation window provenance. Engagement, retention and learning gains
 require separate audience measurement; a human rubric pass establishes none.
+
+
+## Phase 3B1 offline delivery revision coverage
+
+`tests/test_delivery_revision.py` drives real intake, determination, editorial,
+generation, adaptation, storyboard and PNG rendering workers with injected offline
+responses, then the production preparation/approval/Post now path. It runs on
+fresh and migrated schemas; it never uses `seed_review` to import production
+lineage. It checks original evidence retention, independent approvals, immutable
+copy/alt/provenance, exact bytes/order/count, stale commands, destination/account,
+revoked readiness, expiry/rejection, path containment, duplicate canonical
+publication identities, process restart and the empty adapter registry.
+Migration checks cover read-only dry run, preserved rows/ledger/backup,
+transaction rollback before commit, restore-copy validation, idempotent bootstrap
+and rejection of altered schemas/overwritten backups. CLI/report tests verify
+read-only self-contained escaped HTML and explicit inspection acknowledgment.
+The prior delivery simulation, claim/fencing, uncertain-outcome, R2 and acceptance
+safety tests remain part of `scripts/run_tests.py`. No test authorizes or proves a
+real provider send; current configuration/readiness integration remains a Phase
+3B2 gate. English quality and visual refinement stay in the final phase.

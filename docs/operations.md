@@ -1,6 +1,6 @@
 # Current implementation and operations
 
-The [architecture](architecture.md) describes the current review-only pipeline.
+The [architecture](architecture.md) describes the current generation/review pipeline and offline delivery authorization.
 Authoritative settings and budgets are in [configuration](specs/configuration.md),
 and the schema/bootstrap contract is in [data model](specs/data-model.md).
 
@@ -73,6 +73,103 @@ Human ideation is immediately available for every domain.
 
 Use the actual thread ID and version. Refinement creates immutable new work.
 
+## Offline database migration for delivery revisions
+
+Schema 19 is required. Startup/bootstrap never migrates a database. For an existing
+schema-18 operator DB, first stop all writers (including the dashboard and review
+LaunchAgents) and record its exact path. Keep its artifact tree and independent
+verified backups. Use an unused backup filename outside the selected primary DB
+pattern so backup discovery cannot select it as the current database.
+
+```sh
+.venv/bin/python scripts/install_review_baseline.py --stop
+.venv/bin/python scripts/migrate_delivery_database.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db
+.venv/bin/python scripts/migrate_delivery_database.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db \
+  --apply --writers-stopped --backup /absolute/backups/pre-v19.db
+```
+
+The default is a read-only dry run: validate the exact v18 checksum, executable
+schema, integrity and foreign keys, then exercise the additive migration on an
+in-memory snapshot. Apply creates an exclusive SQLite backup (including committed
+WAL contents), validates it, checks the stopped DB still matches it under the write
+lock, and commits DDL/version/ledger together. Existing rows and the v18 ledger
+entry remain; already-current databases validate idempotently. No data reset,
+automatic discovery, paid call or provider call occurs.
+
+If interrupted before commit, SQLite rolls back the migration; inspect and rerun
+the dry run. Keep any partial backup as diagnostic evidence and use a new backup
+path. After commit, rollback means stopping writers and restoring the verified
+pre-v19 backup to a **new** DB path with matching v18 code; do not copy over an open
+DB or leave unrelated WAL/SHM sidecars beside a restored file. Preserve the v19 DB
+and artifacts. Restoring v18 cannot retain later v19 approval/authorization writes;
+there is no destructive down-migration. Test restore on a separate copy before
+resuming operation. No operator DB is migrated by a code checkout or test run.
+
+## Exact JPEG delivery review
+
+Use an explicit schema-19 database and an existing English PNG review that already
+has its frozen account/destination binding. A default development fixture binding
+without a destination is ineligible; these commands never assign one retroactively.
+The source review must be awaiting or editorially approved, unexpired, with an open
+thread and intact local artifacts. The source caption and aggregate alt text are
+preserved. Create a UTF-8 JSON array containing one complete alt description per
+image in slide order, such as `image-alt.json`. This is human input, not generated
+copy. Keep English quality/design refinement deferred to the final phase.
+
+Preparation can run before readiness. Approval and Post now require the existing
+active destination, enabled delivery/visual approval and a current ready observation;
+no command here probes a provider or fabricates readiness. Post now also requires
+a recent admissible storage sample from the existing storage monitor. The account
+argument is the frozen account key, not necessarily the domain name `english`.
+Replace every uppercase placeholder below with displayed values.
+
+```sh
+.venv/bin/python scripts/review_delivery.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db prepare \
+  --source-review-id PNG_REVIEW_ID --account ACCOUNT --destination instagram:ACCOUNT \
+  --artifacts /absolute/artifacts --output /absolute/artifacts/new-delivery \
+  --image-alt-text /absolute/image-alt.json --command-id UNIQUE_PREPARATION_ID
+.venv/bin/python scripts/review_delivery.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db report \
+  --review-id NEW_JPEG_REVIEW_ID --output /absolute/review-before-approval.html
+```
+
+Open the local HTML report and inspect **every JPEG**, the caption, aggregate and
+per-image alt text, account/provider ID and destination. Copy the displayed hashes
+in order. The report embeds exact JPEG bytes, escapes text and makes no network
+request. Approval is an independent explicit action:
+
+```sh
+.venv/bin/python scripts/review_delivery.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db approve \
+  --review-id NEW_JPEG_REVIEW_ID --row-version DISPLAYED_VERSION --fingerprint DISPLAYED_FINGERPRINT \
+  --account ACCOUNT --destination instagram:ACCOUNT --reviewed-images HASH1 HASH2 HASH3 HASH4 HASH5 HASH6 \
+  --confirm-reviewed-all --command-id UNIQUE_JPEG_APPROVAL_ID
+.venv/bin/python scripts/review_delivery.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db report \
+  --review-id NEW_JPEG_REVIEW_ID --output /absolute/review-after-approval.html
+```
+
+Supply exactly the number of images in the report (4–6). Approval creates no
+request or send. Use the **new** version/fingerprint from the second report only
+when independently choosing Post now:
+
+```sh
+.venv/bin/python scripts/review_delivery.py --database /absolute/operator/db_YYYYMMDDHHMMSS.db post-now \
+  --review-id NEW_JPEG_REVIEW_ID --row-version NEW_VERSION --fingerprint NEW_FINGERPRINT \
+  --account ACCOUNT --destination instagram:ACCOUNT --command-id UNIQUE_POST_NOW_ID
+```
+
+Post now appends the existing approved PostRequest and pending PostRecord, subject
+to cadence/expiry. It does not run delivery. There is **no production send command**,
+real adapter, R2 upload, paid Gemini call or publication in Phase 3B1. Do not run the
+simulation against this DB. Reusing an identical command ID returns its original
+result; changed arguments, stale fingerprints, altered/missing assets, wrong
+account/destination or revoked readiness fail closed. A different delivery revision
+for the same canonical content/destination cannot create a second authorization.
+
+Corrections require a new preparation directory/revision and human approval; old
+records are retained. The CLI accepts no arbitrary candidate import. Failed
+preparation may leave an unregistered directory that cannot become delivery work;
+inspect it and choose a new directory for a new command rather than overwrite it.
+[Posting](specs/posting.md) owns the full state and future adapter contract.
+
 ## Offline delivery rehearsal
 
 These commands use synthetic content and fake providers only. `init` creates a new
@@ -132,9 +229,10 @@ To prepare candidates from an existing English PNG review without changing its D
 ```
 
 The output parent must exist. This writes only a new local candidate directory;
-PNG approval is not copied. No production candidate importer or real Post now
-entrypoint exists. A new exact-JPEG approval/package boundary remains necessary
-before real delivery; schema 18 and existing operator records are unchanged.
+PNG approval is not copied. This export cannot be imported as authorization. Use
+the [separate revision workflow](#exact-jpeg-delivery-review) to prepare directly
+from trusted source evidence and persist a new JPEG review. Existing source records
+remain unchanged; schema 19 migration is always explicit.
 
 ## Verification and live acceptance
 
@@ -230,6 +328,8 @@ not affect unrelated LaunchAgents.
 | `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
 | `install_review_baseline.py` | Write/load/status the five review-only Mac Mini LaunchAgents |
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
+| `migrate_delivery_database.py` | Explicit v18→v19 dry run, verified backup and additive offline migration |
+| `review_delivery.py` | Production-source preparation, read-only local report, separate JPEG approval and Post now; never sends |
 | `prepare_delivery_artifacts.py` | Read-only PNG review export to a new, unapproved JPEG candidate |
 | `simulate_delivery.py` | Isolated synthetic review, explicit fake Post now, delivery/recovery and read-only report |
 | `run_tests.py` | Offline suite, including local browser and packaging checks |

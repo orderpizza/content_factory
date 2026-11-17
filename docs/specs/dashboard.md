@@ -103,7 +103,11 @@ reply. A new revision does not overwrite older work.
 
 Supported forms persist `new_idea`, `continue_thread`, review approval,
 rejection and changes. Delivery/provider controls and commands are not exposed.
-Review acceptance does not create posting authorization.
+Review acceptance does not create posting authorization. Delivery revisions are
+labelled separately and direct operators to the offline exact-JPEG report/CLI;
+the dashboard never displays source PNGs as if they were those JPEGs and never
+offers its generic approval form for a delivery revision. Store guards reject
+forged generic approval commands too. See [operations](../operations.md#exact-jpeg-delivery-review).
 
 Commands are idempotent by command ID, with compare-and-swap row versions where
 needed. New ideas and replies redirect to their resulting thread. Form bodies

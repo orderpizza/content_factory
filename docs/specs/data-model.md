@@ -105,6 +105,16 @@ slide checkpoint and its successful attempt. `model_invocations.render_board_att
 binds each paid image request to exactly one attempt. `render_runs` and assets preserve actual local files;
 `review_requests` references exact packages and assets.
 
+`delivery_revisions` freezes a new JPEG package/manifest, source review and full
+lineage fingerprint without new generation, adaptation, storyboard or render rows.
+The nullable unique `review_requests.delivery_revision_id` distinguishes a new
+JPEG review from its original PNG review; its package/render foreign keys remain
+source lineage, while hashes bind the derivative. SQL guards freeze revision and
+review binding fields, require unapproved insertion and independently approved
+review before PostRequest insertion. No existing table is rebuilt and no original
+row is rewritten by migration. The [posting contract](posting.md) owns transitions,
+canonical/destination duplicate protection and the two explicit human actions.
+
 `post_requests`, `post_records`, `post_attempts` and publication resources
 separate human authorization from delivery. `reconciliation_requests` and
 checks preserve uncertain outcomes without an automatic repost.
@@ -118,7 +128,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 18. All workers open and validate databases through
+authoritative schema, at version 19. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates
@@ -151,7 +161,7 @@ selected database; restart it after creating a newer database to switch over.
 | Planning | pipeline_capabilities, output_bindings, determination_requests, determination_decisions, determination_routes, editorial_plan_runs, editorial_plans, content_jobs, generation_runs |
 | Production | canonical_contents, output_requests, adaptation_runs, content_packages, visual_plan_runs, visual_recipes, storyboard_plan_runs, storyboard_plans, render_runs, render_board_units, render_board_attempts, render_units, render_assets, review_requests |
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
-| Publication | post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
+| Publication | delivery_revisions, post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
 | Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |
 | Cost and operations | model_invocations, gemini_budget_reservations, worker_heartbeats, worker_runs, storage_samples, maintenance_runs, artifact_reconciliations |
 
@@ -162,12 +172,12 @@ by worker/store semantic validation before finalization.
 
 ### Offline delivery scope
 
-Phase 3A keeps schema 18 unchanged. The isolated rehearsal uses existing synthetic
-lineage and delivery records; it neither imports production PNG reviews nor
-migrates operator DBs. Candidate preparation opens the source DB read-only. The
-one-package/output and immutable storyboard/render constraints prevent changing
-an approved PNG package into a deliverable JPEG package in place. The explicit
-new approval-boundary design is owned by [posting](posting.md#offline-artifact-preparation-and-approval-boundary).
+The isolated rehearsal uses existing synthetic lineage and delivery records; it
+never imports production PNG reviews or migrates operator DBs. The read-only
+candidate exporter remains separate. Phase 3B1 appends delivery revisions while
+preserving the one-package/output and storyboard/render constraints. Existing
+source review approval is not inherited; separate JPEG approval and Post now are
+required by the [posting contract](posting.md#append-only-delivery-revision-and-human-commands-phase-3b1).
 
 ### Claimable-record transition matrix
 
@@ -194,7 +204,12 @@ Determination commits all routes/planning runs in one transaction. Editorial
 Planning commits its plan/job/generation run in a separate fenced transaction. A SQL trigger
 protects request input, revision and fingerprint after creation. Catalog changes
 require a new request, not mutation at claim time.
-Fresh setup never upgrades an existing database.
+Fresh setup never upgrades an existing database. The explicit offline v18→v19
+migration is documented in [operations](../operations.md#offline-database-migration-for-delivery-revisions).
+It verifies the exact historical checksum and executable schema, creates a
+validated backup, and appends the v19 ledger row atomically with additive DDL.
+Fresh DBs have one v19 ledger entry; migrated DBs retain v18 plus v19.
+Recovery after commit uses the verified v18 backup, never an in-place downgrade.
 
 ## Storage measurement evidence
 

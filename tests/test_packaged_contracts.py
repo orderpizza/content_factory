@@ -40,8 +40,8 @@ class PackagedContractTests(unittest.TestCase):
             with zipfile.ZipFile(wheel) as archive:
                 archive.extractall(installed)
             contracts = installed / "content_factory_resources" / "contracts"
-            expected = sorted((ROOT / "docs/contracts").glob("application-schema.sql"))
-            self.assertEqual(len(expected), 1)
+            expected = sorted((ROOT / "docs/contracts").glob("*.sql"))
+            self.assertEqual(len(expected), 2)
             for source in expected:
                 self.assertEqual(sha256(source.read_bytes()).hexdigest(), sha256((contracts / source.name).read_bytes()).hexdigest())
             code = """
@@ -58,8 +58,20 @@ with DetectionStore(path) as store:
 assert not initialize_database(path)
 connection = connect(path)
 validate_database(connection)
-assert connection.execute('PRAGMA user_version').fetchone()[0] == 18
+assert connection.execute('PRAGMA user_version').fetchone()[0] == 19
 connection.close()
+from database.migrate_delivery import _legacy_sql, migrate
+from database.current import SCHEMA_NAME, V18_CHECKSUM
+from common.timestamps import utc_now
+import sqlite3
+legacy = path + '.v18'
+with sqlite3.connect(legacy) as old:
+    old.executescript(_legacy_sql())
+    old.execute('INSERT INTO schema_migrations VALUES (1,18,?,?,?)', (SCHEMA_NAME,V18_CHECKSUM,utc_now()))
+assert migrate(legacy) == 'dry_run_ok'
+assert migrate(legacy, apply=True, backup=legacy+'.backup') == 'migrated'
+with connect(legacy) as migrated:
+    validate_database(migrated)
 """
             result = subprocess.run([sys.executable, "-I", "-c", code, str(installed), str(target / "fixture.db")],
                                     cwd=target, capture_output=True, text=True,
