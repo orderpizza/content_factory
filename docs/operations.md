@@ -178,6 +178,16 @@ single-post run activation. Live operation remains blocked by the empty verified
 contract registry; neither the Mac mini worker nor dashboard is connected to it.
 No live send or preflight command is installed. See the [posting contract](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
 
+The two-minute activation window only authorizes starting one attempt. A consumed
+run can continue under its original claim for at most 45 minutes, renewing its
+five-minute lease and refreshing read-only evidence while checking cancellation
+and the exact reviewed identity. Token/post/review expiries may shorten that bound.
+Polling uses minute intervals, at most five reads/five minutes per container.
+Crash, expired lease or lost ownership stops continuation; no worker restart can
+reuse the consumed run, even if it died before uploading. There is no human rearm
+command in this checkpoint. Expired unused authorizations remain held; consumed
+failures require investigation, and final-send uncertainty never permits retry.
+
 The owner handoff, for a later separately authorized integration, is:
 
 1. Select one professional Business/Creator account and Meta app with Instagram

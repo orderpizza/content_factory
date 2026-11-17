@@ -48,7 +48,7 @@ class FakeHTTP:
         return HTTPReply(self.status, {'facebook-api-version': self.version, 'content-type': 'application/json'}, json.dumps(data).encode())
 
 
-def composition(store, *, http=None, credentials=None, clock=utc_datetime_now):
+def composition(store, *, http=None, credentials=None, clock=utc_datetime_now, **timing):
     http = http or FakeHTTP()
     objects = FakeObjects()
     destination_id = store.connection.execute('SELECT social_destination_id FROM social_destinations').fetchone()[0]
@@ -56,5 +56,30 @@ def composition(store, *, http=None, credentials=None, clock=utc_datetime_now):
         credentials=EnvironmentCredentials({'DELIVERY_TOKEN': 'fixture-secret'}) if credentials is None else credentials,
         objects=objects, media_transport=objects,
         relay_config={'r2_bucket_name': 'test', 'r2_account_id': 'test', 'r2_public_domain': 'https://example.invalid'},
-        clock=clock)
+        clock=clock, **timing)
     return factory, objects, http
+
+
+class FakeClock:
+    def __init__(self):
+        self.origin = utc_datetime_now()
+        self.elapsed = 0.0
+        self.wall_elapsed = 0.0
+        self.on_sleep = lambda: None
+
+    def now(self):
+        return self.origin + timedelta(seconds=self.wall_elapsed)
+
+    def timestamp(self):
+        return serialize_timestamp(self.now())
+
+    def monotonic(self):
+        return self.elapsed
+
+    def advance(self, seconds):
+        self.elapsed += seconds
+        self.wall_elapsed += seconds
+
+    def sleep(self, seconds):
+        self.advance(seconds)
+        self.on_sleep()

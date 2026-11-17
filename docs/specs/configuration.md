@@ -81,6 +81,9 @@ The credential reference is resolved from the OS process environment only, witho
 loading `.env`, persisting the value or accepting a token CLI argument. Rotation
 requires fresh preflight and fresh run authorization; consumed/abandoned runs are
 never automatically revived.
+Guarded read-only evidence refresh during the same active attempt does not require
+a new activation, but cannot change its credential/configuration binding or extend
+its fixed execution deadline. Unrelated evidence replacement stops that attempt.
 
 ## Environment loading
 

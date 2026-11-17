@@ -264,10 +264,47 @@ JPEG review/approval → separate Post now → `activate(..., confirm=True)` →
 `agent(...).run_once()`. Construction, preflight, activation and agent construction
 never publish or stage objects. Activation is restricted to one pending PostRecord,
 its destination/provider account, configuration, credential, evidence, package and
-manifest. It expires within two minutes (or earlier evidence expiry). The agent
-claims only that record. An activation is consumed durably before staging and
-cannot be reused or automatically reissued after failure/restart. It uses the
-existing final-send marker, lease fencing, authorization and uncertainty states.
+manifest. Its **authorization-to-start** expires within two minutes (or earlier
+evidence expiry), checked with both wall and monotonic clocks before claiming and
+again before consumption. The agent claims only that record. Consumption and an
+`instagram_run` execution grant are committed atomically before staging. The grant
+binds that attempt's claim owner/version and exact reviewed identity. It cannot be
+reused, transferred to another worker or automatically reissued after failure.
+
+An already running attempt has a separate fixed execution deadline: at most 45
+minutes from consumption, capped by the original token, Post now and JPEG review
+expiries. The two-minute start deadline no longer stops this authorized work.
+Both elapsed monotonic time and the durable wall deadline are enforced; backward
+clock movement fails closed. Neither heartbeats nor fresh evidence extend the
+grant. The same live claim renews its five-minute lease before every external
+request and in at-most-30-second polling wait segments, bounded by that deadline.
+An expired/lost claim cannot renew or start another request.
+
+| Lifecycle boundary | Result |
+| --- | --- |
+| Configuration, preflight, JPEG approval, Post now, activation | Separate approvals; no provider side effects from configuration or activation. |
+| Unused start authorization expires | No new claim, consumption or external request; the queued post stays held. |
+| Unexpired activation is consumed by its claim | `publishing` / `staging`, with one durable execution grant for one attempt. |
+| Current claim continues within its execution deadline | Guarded staging and minute-spaced polling; renewable lease and fresh readiness, then `ready_to_publish`. |
+| Execution/polling deadline, cancellation or lost ownership before the final marker | Stop requests; failure/cancellation or fenced stale recovery, with investigation required for a consumed run. No automatic replay. |
+| Durable final marker commits | `final_request_sent`; at most one final POST, still guarded immediately before dispatch. |
+| Final response or uncertain outcome | Existing `published` receipt handling or `publication_unknown`; never an automatic final-send retry. |
+
+Continuation means the **same living invocation, attempt, claim and grant**. It is
+not a restart or retry. Restart cannot reconstruct in-memory run authority, even
+after a crash before the first upload/create intent. Stale recovery makes consumed
+pre-final attempts terminal; a committed final marker instead preserves publication
+uncertainty. This checkpoint has no human rearm command, even for an unused expired
+activation or a consumed run proven to have zero external effects. Such a command
+would need separate review of quota, approval and side-effect evidence.
+
+Container polling allows at most five reads, at least 60 seconds between request
+starts and a five-minute elapsed limit including waits and requests. These are
+local conservative bounds, not a verified provider SLA. Slow responses count
+toward both container and overall execution limits. No POST is automatically
+retried. SQL admission checks do not hold a transaction across network I/O: an
+already admitted in-flight request cannot be recalled by later cancellation or
+claim loss. Its reply cannot revive an expired lease or authorize a next request.
 
 Preflight reads identity, permission grants and quota via the authenticated HTTP
 interface and consumes a separate `TokenValidityReader` for token/app/login/expiry
@@ -275,10 +312,16 @@ verification. Only service-issued results can be persisted through the registere
 readiness API; arbitrary `CapabilityObservation`, dicts and copied results are
 rejected. Evidence is allowlisted, bound to the immutable destination/configuration
 and current in-memory credential, and expires within five minutes or token expiry.
-A failed refresh revokes prior readiness. Credential changes and evidence refreshes
-invalidate previous run approvals. Evidence is rechecked before each asset upload and provider request as well as the
-final marker, and the final request requires that durable marker. A new nonsecret
-evidence ID makes even an identical refresh invalidate previous run approvals.
+A failed refresh revokes prior readiness. Evidence is rechecked before each R2
+put/head/anonymous read and each Instagram request, as well as the final marker.
+The current invocation refreshes evidence when it has at most 90 seconds left,
+checking its claim, cancellation, exact assets, original token and fixed execution
+deadline before every read-only refresh request and before persisting the result.
+Only this guarded refresh can replace its active proof; the original configuration
+and credential binding must match. Expired evidence permits only that guarded
+read-only refresh, never a publish/upload. Credential changes, revocation or an
+unrelated replacement evidence ID stop the run. Fresh evidence cannot revive an
+expired start authorization, lost claim or consumed activation after restart.
 
 **Live verification remains blocked.** `VERIFIED_LIVE_CONTRACTS` is empty. The
 candidate profile is `instagram_login_candidate_v1`, explicitly pinned to `v26.0`

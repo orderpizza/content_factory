@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import re
+import time
 from typing import Any, Protocol
 
 from .delivery import DeliveryError, _r2_object_key
@@ -28,12 +29,13 @@ class OfflineInstagramProtocol:
     """Exercise request sequencing with injected fakes; not a production adapter."""
 
     def __init__(self, transport: Transport, relay: Any, *, account_id: str,
-                 max_polls: int = 5, pause: Callable[[], None] = lambda: None):
+                 max_polls: int = 5, sleep: Callable[[float], None] = time.sleep,
+                 monotonic: Callable[[], float] = time.monotonic):
         self.transport, self.relay = transport, relay
         self.account_id = _id(account_id)
         if self.account_id == "0" or type(max_polls) is not int or not 1 <= max_polls <= 5:
             raise ValueError("invalid offline account or polling bound")
-        self.max_polls, self.pause = max_polls, pause
+        self.max_polls, self.sleep, self.monotonic = max_polls, sleep, monotonic
 
     def _request(self, method: str, path: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
         try:
@@ -48,16 +50,30 @@ class OfflineInstagramProtocol:
         return response
 
     def _ready(self, container: str) -> None:
+        # Five reads, at least sixty seconds between request starts, and a hard
+        # five-minute elapsed bound per container (including HTTP/waits).
+        deadline = self.monotonic() + 300
+        next_poll = self.monotonic()
         for attempt in range(self.max_polls):
+            delay = next_poll - self.monotonic()
+            if delay > 0:
+                self.sleep(delay)
+            started = self.monotonic()
+            if started >= deadline or started < next_poll:
+                raise DeliveryError("container_timeout", "container polling deadline reached", False, "instagram")
             response = self._request("GET", f"/{container}", {"fields": "status_code"})
+            if self.monotonic() >= deadline:
+                raise DeliveryError("container_timeout", "container polling deadline reached", False, "instagram")
             status = response.get("status_code")
             if status == "FINISHED":
                 return
             if status != "IN_PROGRESS":
                 raise DeliveryError("container_status", "container is not eligible", False, "instagram")
-            if attempt + 1 < self.max_polls:
-                self.pause()
-        raise DeliveryError("container_status", "polling limit reached", False, "instagram")
+            # Wait from the completed response: request admission may itself
+            # refresh readiness. Its latency must not shorten the interval
+            # between actual provider requests.
+            next_poll = self.monotonic() + 60
+        raise DeliveryError("container_timeout", "container polling limit reached", False, "instagram")
 
     def stage(self, context: Mapping[str, Any], record: Callable[..., int]) -> dict[str, str]:
         if (context.get("provider_account_id") != self.account_id

@@ -67,7 +67,10 @@ def fixture(tmp_path, count):
     def record(**kw):
         calls.append(kw)
         return len(calls)
-    return context, objects, transport, calls, record, OfflineInstagramProtocol(transport, relay, account_id="123")
+    from instagram_fakes import FakeClock
+    clock = FakeClock()
+    return context, objects, transport, calls, record, OfflineInstagramProtocol(
+        transport, relay, account_id="123", sleep=clock.sleep, monotonic=clock.monotonic)
 
 
 @pytest.mark.parametrize("count", [4, 5, 6])
@@ -119,6 +122,23 @@ def test_polling_is_bounded_and_fails_closed(tmp_path, status):
         protocol.stage(context, record)
     assert len([call for call in transport.calls if call[0] == "GET"]) == (5 if status == "IN_PROGRESS" else 1)
     assert not any(call[1].endswith("media_publish") for call in transport.calls)
+
+
+def test_readiness_admission_latency_cannot_compress_poll_intervals(tmp_path):
+    from instagram_fakes import FakeClock
+    _, _, transport, _, _, protocol = fixture(tmp_path, 4)
+    clock = FakeClock()
+    starts = []
+    def request(method, path, body):
+        if not starts:
+            clock.advance(30)  # Read-only readiness refresh before first dispatch.
+        starts.append(clock.monotonic())
+        clock.advance(3)
+        return {'status_code': 'FINISHED' if len(starts) == 2 else 'IN_PROGRESS'}
+    transport.request = request
+    protocol.sleep, protocol.monotonic = clock.sleep, clock.monotonic
+    protocol._ready('123')
+    assert starts[1] - starts[0] >= 60
 
 
 def test_public_byte_mismatch_fails_before_container_create(tmp_path):

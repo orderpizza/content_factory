@@ -240,5 +240,16 @@ receipts also reserve quota conservatively across the provider window and proces
 restarts. No application path updates/deletes/reissues them automatically. Existing
 schema ownership assumes the local OS owner; these receipt tables do not add a
 new SQL tamper-proof audit guarantee. Tokens and issued proof/run handles remain
-in process memory; restart requires fresh verification and cannot revive a run.
+in process memory; restart cannot revive a run.
+
+Consumption also atomically inserts one `publication_resources` row of type
+`instagram_run` for the attempt. Nonsecret metadata binds the activation receipt,
+claim owner/version, post, delivery revision, package/manifest, account/destination,
+configuration, initial evidence ID, start time and fixed execution deadline. The
+existing `post_records.lease_expires_at` is renewed only by that still-live claim,
+never beyond the grant deadline; heartbeats do not change the displayed row version.
+Guarded active readiness refreshes use the existing evidence tables and do not
+change the grant. Recovery treats a consumed grant as terminal before final send,
+even without a create intent; a final marker retains the existing unknown-outcome
+rule. No schema migration or automatic rearm path is introduced.
 See [posting](posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).

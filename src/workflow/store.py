@@ -495,27 +495,36 @@ class WorkflowStore:
                     )
                     self._schedule_attempt_cleanup(int(record["post_attempt_id"]), moment)
             else:
-                # A committed create intent means an external container may exist,
-                # even when its response was lost or the worker died before sending.
+                # A create intent may mean an external container exists. A consumed
+                # run grant also forbids restart/replay even before any create intent;
+                # restarting cannot reuse the human's single-use authorization.
                 intent = self.connection.execute(
                     "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
-                    "AND resource_type='instagram_create_intent' LIMIT 1",
+                    "AND resource_type IN ('instagram_create_intent','instagram_run') LIMIT 1",
                     (record["post_attempt_id"],),
                 ).fetchone()
+                run = self.connection.execute(
+                    "SELECT safe_metadata_json FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type='instagram_run'", (record['post_attempt_id'],)).fetchone()
+                expired_run = run is not None and json.loads(run[0])['deadline_at'] <= moment
+                detail = ("delivery execution deadline expired; investigation required" if expired_run else
+                          "consumed delivery run interrupted; investigation required" if run else
+                          "delivery lease expired before final request")
+                category = 'stage_expired' if expired_run else 'run_interrupted' if run else 'local_interruption'
                 status = "retry_wait" if not intent and record["attempt_count"] < record["attempt_limit"] else "failed"
                 self.connection.execute(
-                    "UPDATE post_records SET status=?,failure_reason='delivery lease expired before final request',"
+                    "UPDATE post_records SET status=?,failure_reason=?,"
                     "next_attempt_at=?,completed_at=?,claim_version=claim_version+1,row_version=row_version+1 "
                     "WHERE post_record_id=?",
-                    (status, moment if status == "retry_wait" else None,
+                    (status, detail, moment if status == "retry_wait" else None,
                      moment if status == "failed" else None, record["post_record_id"]),
                 )
                 if record["post_attempt_id"] is not None:
                     self.connection.execute(
-                        "UPDATE post_attempts SET status=?,failure_category='local_interruption',"
-                        "failure_detail='delivery lease expired before final request',completed_at=? "
+                        "UPDATE post_attempts SET status=?,failure_category=?,"
+                        "failure_detail=?,completed_at=? "
                         "WHERE post_attempt_id=? AND status IN ('created','staging','ready_to_publish')",
-                        ("retryable_failed" if status == "retry_wait" else "failed", moment,
+                        ("retryable_failed" if status == "retry_wait" else "failed", category, detail, moment,
                          record["post_attempt_id"]),
                     )
                     self.connection.execute(
@@ -2192,6 +2201,52 @@ class WorkflowStore:
         if row is None:
             raise RuntimeError("delivery resource claim is stale or cancelled")
 
+    def renew_post_execution(self, context: dict[str, Any], *, require_fresh_readiness: bool = True) -> dict:
+        """Fence and renew the SAME durable Instagram attempt, never an expired lease.
+
+        This is request admission, not a lock held across external I/O. An already
+        admitted/in-flight request cannot be recalled. Every subsequent request
+        needs a new check; a late response cannot grant another lease.
+        """
+        moment = now()
+        with self.transaction():
+            resource = self.connection.execute(
+                "SELECT safe_metadata_json FROM publication_resources WHERE post_attempt_id=? "
+                "AND resource_type='instagram_run'", (context['post_attempt_id'],)).fetchone()
+            if resource is None:
+                raise RuntimeError("delivery execution grant is missing")
+            grant = json.loads(resource[0])
+            if moment >= grant['deadline_at']:
+                raise RuntimeError("delivery execution deadline expired")
+            row = self.connection.execute(
+                "SELECT p.status,p.claim_owner,p.claim_version,p.lease_expires_at,a.status attempt_status,t.status thread_status "
+                "FROM post_records p JOIN post_attempts a ON a.post_record_id=p.post_record_id "
+                "JOIN post_requests q ON q.post_request_id=p.post_request_id "
+                "JOIN content_packages cp ON cp.content_package_id=q.content_package_id "
+                "JOIN output_requests o ON o.output_request_id=cp.output_request_id "
+                "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+                "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
+                "JOIN brief_revisions b ON b.revision_id=j.brief_revision_id "
+                "JOIN content_threads t ON t.thread_id=b.thread_id "
+                "WHERE p.post_record_id=? AND a.post_attempt_id=?",
+                (context['post_record_id'], context['post_attempt_id'])).fetchone()
+            if (row is None or row['status'] != 'publishing' or row['thread_status'] != 'open'
+                    or row['attempt_status'] not in {'staging', 'ready_to_publish', 'final_request_sent'}
+                    or row['lease_expires_at'] <= moment or row['claim_owner'] != context['claim_owner']
+                    or row['claim_version'] != context['claim_version']):
+                raise RuntimeError("delivery execution claim is stale or cancelled")
+            current = self._post_delivery_context(context['post_record_id'], moment=moment,
+                                                 require_fresh_readiness=require_fresh_readiness)
+            for key in ('post_record_id', 'claim_owner', 'claim_version', 'package_hash', 'manifest_hash',
+                        'delivery_revision_id', 'provider_account_id', 'destination_key'):
+                if grant[key] != context[key] or current[key] != context[key]:
+                    raise RuntimeError("delivery execution identity changed")
+            lease = min(grant['deadline_at'], serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=300)))
+            self.connection.execute(
+                "UPDATE post_records SET lease_expires_at=? WHERE post_record_id=? AND claim_owner=? AND claim_version=?",
+                (lease, context['post_record_id'], context['claim_owner'], context['claim_version']))
+            return grant
+
     def update_publication_resource(self, resource_id: int, *, status: str,
                                     context: dict[str, Any] | None = None) -> int:
         """Advance one provider-side resource without changing its identity."""
@@ -2377,8 +2432,10 @@ class WorkflowStore:
                 self._schedule_attempt_cleanup(int(context["post_attempt_id"]), moment)
             else:
                 if current["lease_expires_at"] <= moment:
-                    # Leave the record for the conservative stale-claim recovery
-                    # transaction. It owns retry classification and fencing.
+                    # Execution expiry is a known terminal stop. Use the same
+                    # fenced stale-recovery rules; never resurrect its lease.
+                    if category == 'stage_expired':
+                        self._recover_stale_post_claims(moment)
                     return int(context["post_record_id"])
                 attempt_count = int(self.connection.execute(
                     "SELECT attempt_count FROM post_records WHERE post_record_id=?",
@@ -2390,7 +2447,7 @@ class WorkflowStore:
                 ).fetchone()[0])
                 intent = self.connection.execute(
                     "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
-                    "AND resource_type='instagram_create_intent' LIMIT 1",
+                    "AND resource_type IN ('instagram_create_intent','instagram_run') LIMIT 1",
                     (context["post_attempt_id"],),
                 ).fetchone()
                 will_retry = retryable and not intent and attempt_count < attempt_limit
@@ -2781,7 +2838,7 @@ class WorkflowStore:
             raise ValueError("review destination differs from the bound destination")
         return self._validate_delivery_artifacts(row)
 
-    def _post_delivery_context(self, post_record_id: int, *, moment: str) -> dict[str, Any]:
+    def _post_delivery_context(self, post_record_id: int, *, moment: str, require_fresh_readiness: bool = True) -> dict[str, Any]:
         row = self.connection.execute(
             "SELECT pr.post_record_id,v.delivery_revision_id,v.status review_status,v.expires_at review_expires_at,pr.status post_status,pr.eligible_at,pr.claim_owner,pr.claim_version,"
             "pq.post_request_id,pq.publication_identity,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
@@ -2816,7 +2873,7 @@ class WorkflowStore:
             raise ValueError("production destination is disabled or visual configuration is not approved")
         from .instagram_composition import validate_persisted_readiness
         validate_persisted_readiness(self, row["social_destination_id"])
-        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or row["readiness_valid_until"] <= moment:
+        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or (require_fresh_readiness and row["readiness_valid_until"] <= moment):
             raise ValueError("production destination readiness is not current")
         if row["destination_key"] != row["actual_destination_key"]:
             raise ValueError("authorized destination differs from the bound destination")

@@ -19,12 +19,15 @@ from typing import Any, Mapping, Protocol
 from weakref import WeakSet
 
 from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
-from .delivery import CredentialedPostingAgent, DeliveryConfigurationError, R2TransientRelay
+from .delivery import CredentialedPostingAgent, DeliveryConfigurationError, DeliveryError, R2TransientRelay
 from .instagram_http import InstagramHTTPTransport
 from .instagram_protocol import OfflineInstagramProtocol
 from .instagram_readiness import InstagramLoginConfiguration, PERMISSIONS, ScopedToken, VERSION
 from .offline import require_offline, is_offline
 from .store import canonical, digest, now
+
+MAX_EXECUTION_SECONDS = 45 * 60
+HEARTBEAT_SECONDS = 30
 
 ADAPTER_VERSION = "instagram_login_v1"
 CONTRACT_REF = "instagram_login_candidate_v1"
@@ -129,7 +132,7 @@ class PreflightResult:
         return value
 
 
-def validate_proof(proof, row, *, moment=None):
+def validate_proof(proof, row, *, moment=None, allow_expired=False):
     if type(proof) is not PreflightResult or proof not in _PROOFS:
         raise DeliveryConfigurationError("readiness requires an issued preflight result")
     if proof.provenance == 'offline':
@@ -139,7 +142,8 @@ def validate_proof(proof, row, *, moment=None):
     current = moment or utc_datetime_now()
     if (proof.destination_id != row['social_destination_id']
             or proof.configuration_hash != digest(dict(row))
-            or not parse_timestamp(proof.observed_at) <= current < parse_timestamp(proof.valid_until)
+            or current < parse_timestamp(proof.observed_at)
+            or (not allow_expired and current >= parse_timestamp(proof.valid_until))
             or current >= parse_timestamp(proof.token_valid_until)):
         raise DeliveryConfigurationError("preflight evidence is stale or configuration mismatched")
 
@@ -153,8 +157,10 @@ class InstagramComposition:
     """
     def __init__(self, store, destination_id: int, *, credentials=None, wire=None,
                  token_validity: TokenValidityReader | None = None,
-                 objects=None, media_transport=None, relay_config=None, clock=utc_datetime_now):
+                 objects=None, media_transport=None, relay_config=None, clock=utc_datetime_now,
+                 monotonic=time.monotonic, sleep=time.sleep):
         self.store, self.destination_id, self.clock = store, destination_id, clock
+        self.monotonic, self.sleep = monotonic, sleep
         row, self.config = _destination(store, destination_id)
         self._offline = any(x is not None for x in (wire, token_validity, objects, media_transport))
         if self._offline:
@@ -167,7 +173,7 @@ class InstagramComposition:
         self._wire, self._token_validity = wire, token_validity
         self._objects, self._media_transport, self._relay_config = objects, media_transport, relay_config
 
-    def preflight(self) -> PreflightResult:
+    def preflight(self, *, before_request=None) -> PreflightResult:
         """Read identity, grants, token validity and dynamic quota; whitelist evidence."""
         row, config = _destination(self.store, self.destination_id)
         try:
@@ -176,9 +182,14 @@ class InstagramComposition:
             token = self.credentials.resolve(config)
             client = InstagramHTTPTransport(config, token, verified_version=config.api_version, wire=self._wire)
             started = self.clock()
+            check = before_request or (lambda: None)
+            check()
             validity = self._token_validity(token)
+            check()
             identity = client.request('GET', '/me', {'fields': 'user_id,account_type'})
+            check()
             grants = client.request('GET', '/me/permissions', {})
+            check()
             quota = client.request('GET', f'/{config.account_id}/content_publishing_limit',
                                    {'fields': 'quota_usage,config'})
             entries = grants['data']
@@ -210,6 +221,7 @@ class InstagramComposition:
                 serialize_timestamp(started), serialize_timestamp(expires), serialize_timestamp(token_until),
                 used, total, window, row['config']['credential_generation'],
                 'offline' if self._offline else 'authenticated', secrets.token_hex(16), _token_binding(token))
+            check()
             _PROOFS.add(proof)
             self.store.record_destination_readiness(self.destination_id, status='ready', reasons=[],
                 facts=proof.facts(), valid_for=expires - utc_datetime_now(), preflight=proof)
@@ -220,9 +232,9 @@ class InstagramComposition:
                 reasons=['Instagram preflight failed closed'], facts={'kind': 'preflight_failure'})
             raise DeliveryConfigurationError("Instagram preflight failed closed") from None
 
-    def _check(self, proof):
+    def _check(self, proof, *, allow_expired=False):
         row, config = _destination(self.store, self.destination_id)
-        validate_proof(proof, row, moment=self.clock())
+        validate_proof(proof, row, moment=self.clock(), allow_expired=allow_expired)
         if row['enabled'] != 1 or config.enabled is not True:
             raise DeliveryConfigurationError("persistent Instagram delivery configuration is disabled")
         if not hmac.compare_digest(_token_binding(self.credentials.resolve(config)), proof._token_binding):
@@ -231,7 +243,7 @@ class InstagramComposition:
             'SELECT status,facts_json,valid_until FROM capability_readiness WHERE social_destination_id=?',
             (self.destination_id,)).fetchone()
         if (ready['status'] != ('degraded' if self._offline else 'ready') or json.loads(ready['facts_json']) != json.loads(canonical(proof.facts()))
-                or parse_timestamp(ready['valid_until']) <= self.clock()):
+                or (not allow_expired and parse_timestamp(ready['valid_until']) <= self.clock())):
             raise DeliveryConfigurationError("preflight evidence was revoked or replaced")
         return row, config
 
@@ -265,7 +277,8 @@ class InstagramComposition:
             self.store.connection.execute(
                 "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
                 "VALUES (?,'instagram_run_activate','local_owner',?,?,?)", (command_id, binding, post_record_id, now()))
-        activation = RunActivation(command_id, post_record_id, binding, serialize_timestamp(expiry), proof, self)
+        activation = RunActivation(command_id, post_record_id, binding, serialize_timestamp(expiry),
+                                   self.monotonic() + 120, proof, self)
         _ACTIVATIONS.add(activation)
         return activation
 
@@ -275,7 +288,7 @@ class InstagramComposition:
         self._check(activation.proof)
         gate = _ActivatedAdapter(self, activation)
         return CredentialedPostingAgent(self.store, artifact_root=artifact_root, adapters={'instagram': gate},
-                                        post_record_id=activation.post_record_id)
+                                        post_record_id=activation.post_record_id, start_guard=gate.check_start)
 
 
 @dataclass(frozen=True, eq=False)
@@ -284,6 +297,7 @@ class RunActivation:
     post_record_id: int
     binding: str
     expires_at: str
+    start_deadline_monotonic: float
     proof: PreflightResult
     _composition: Any = field(repr=False)
 
@@ -296,54 +310,125 @@ class _ActivatedAdapter:
         self._publish_started = False
         self._context = None
         self._client = None
+        self._proof = activation.proof
+        self._started_monotonic = None
+        self._last_wall = None
+        self._last_monotonic = None
+        self._deadline_at = None
 
-    def _check(self, context):
+    def check_start(self):
         c, a = self.composition, self.activation
-        row, config = c._check(a.proof)
-        if (c.clock() >= parse_timestamp(a.expires_at) or context['post_record_id'] != a.post_record_id
-                or context['social_destination_id'] != c.destination_id
-                or context['provider_account_id'] != config.account_id
-                or context['destination_key'] != config.destination_key
-                or context['destination_config'] != row['config']):
-            raise DeliveryConfigurationError("run activation is expired or scope mismatched")
-        return config
+        row = c.store.connection.execute('SELECT status FROM post_records WHERE post_record_id=?',
+                                         (a.post_record_id,)).fetchone()
+        if row is None or row['status'] not in {'pending', 'retry_wait'}:
+            return False
+        self._check_start_window()
+        return True
+
+    def _check_start_window(self):
+        c, a = self.composition, self.activation
+        c._check(a.proof)
+        if c.clock() >= parse_timestamp(a.expires_at) or c.monotonic() >= a.start_deadline_monotonic:
+            raise DeliveryConfigurationError("authorization-to-start expired; no new attempt may start")
+
+    def _execution_guard(self):
+        """Local checks also guard each read-only readiness refresh request."""
+        c, a = self.composition, self.activation
+        wall, elapsed = c.clock(), c.monotonic()
+        if (elapsed < self._last_monotonic or wall < self._last_wall
+                or elapsed - self._started_monotonic >= MAX_EXECUTION_SECONDS
+                or wall >= parse_timestamp(self._deadline_at)):
+            raise DeliveryError('stage_expired', 'bounded delivery execution expired; investigation required', False, 'instagram')
+        self._last_wall, self._last_monotonic = wall, elapsed
+        try:
+            grant = c.store.renew_post_execution(self._context, require_fresh_readiness=False)
+        except (RuntimeError, ValueError, OSError):
+            raise DeliveryError('execution_fence', 'claim, approval or execution grant is no longer valid', False, 'instagram') from None
+        if grant['activation_binding'] != a.binding or grant['deadline_at'] != self._deadline_at:
+            raise DeliveryConfigurationError('durable execution grant changed')
+        # Expiry may trigger authenticated refresh; revocation, replacement and
+        # token/account/configuration changes never do.
+        c._check(self._proof, allow_expired=True)
+
+    def _guard(self):
+        self._execution_guard()
+        c = self.composition
+        if parse_timestamp(self._proof.valid_until) <= c.clock() + timedelta(seconds=90):
+            proof = c.preflight(before_request=self._execution_guard)
+            if (proof.configuration_hash != self.activation.proof.configuration_hash
+                    or not hmac.compare_digest(proof._token_binding, self.activation.proof._token_binding)):
+                raise DeliveryConfigurationError('readiness refresh changed the authorized identity')
+            self._proof = proof
+        c._check(self._proof)
+        c.store.renew_post_execution(self._context)
 
     def stage(self, context, record):
         c, a = self.composition, self.activation
         with c.store.transaction():
-            config = self._check(context)
+            self._check_start_window()
+            row, config = c._check(a.proof)
+            if (context['post_record_id'] != a.post_record_id or context['social_destination_id'] != c.destination_id
+                    or context['provider_account_id'] != config.account_id
+                    or context['destination_key'] != config.destination_key or context['destination_config'] != row['config']):
+                raise DeliveryConfigurationError('run activation scope mismatch')
+            c.store._check_post_resource_fence(context, context['post_attempt_id'], now())
             receipt = c.store.connection.execute(
                 "SELECT * FROM human_command_receipts WHERE command_id=? AND command_kind='instagram_run_activate'",
                 (a.command_id,)).fetchone()
             if receipt is None or receipt['payload_hash'] != a.binding or receipt['result_record_id'] != a.post_record_id:
-                raise DeliveryConfigurationError("run activation audit is missing")
-            # Unique command ID makes consumption atomic across competing agents.
+                raise DeliveryConfigurationError('run activation audit is missing')
+            started = c.clock()
+            deadline = min(started + timedelta(seconds=MAX_EXECUTION_SECONDS),
+                           parse_timestamp(a.proof.token_valid_until), parse_timestamp(context['expires_at']),
+                           parse_timestamp(context['review_expires_at']))
+            grant = {key: context[key] for key in ('post_record_id', 'claim_owner', 'claim_version',
+                     'package_hash', 'manifest_hash', 'delivery_revision_id', 'provider_account_id', 'destination_key')}
+            grant.update(activation_binding=a.binding, activation_command_id=a.command_id,
+                         started_at=serialize_timestamp(started), deadline_at=serialize_timestamp(deadline),
+                         configuration_hash=a.proof.configuration_hash, initial_evidence_id=a.proof.evidence_id)
             c.store.connection.execute(
                 "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
                 "VALUES (?,'instagram_run_consume','local_owner',?,?,?)",
                 (a.command_id + ':consume', a.binding, a.post_record_id, now()))
-        self._attempt_id = context['post_attempt_id']
+            c.store.connection.execute(
+                "INSERT INTO publication_resources(post_attempt_id,resource_type,remote_id,status,safe_metadata_json,created_at,updated_at) "
+                "VALUES (?,'instagram_run',?,'created',?,?,?)",
+                (context['post_attempt_id'], a.command_id, canonical(grant), now(), now()))
+        self._attempt_id, self._context = context['post_attempt_id'], context
+        self._deadline_at = grant['deadline_at']
+        self._started_monotonic = self._last_monotonic = c.monotonic()
+        self._last_wall = started
         token = c.credentials.resolve(config)
         if not hmac.compare_digest(_token_binding(token), a.proof._token_binding):
-            raise DeliveryConfigurationError("credential changed during composition; fresh preflight required")
-        self._context = context
+            raise DeliveryConfigurationError('credential changed during composition; fresh preflight required')
         self._client = InstagramHTTPTransport(config, token, verified_version=config.api_version, wire=c._wire)
-        relay = R2TransientRelay(c._relay_config, client=c._objects, transport=c._media_transport)
-        relay = _RunRelay(relay, lambda: self._check(context))
+        relay = R2TransientRelay(c._relay_config, client=c._objects, transport=c._media_transport, before_io=self._guard)
         self._protocol = OfflineInstagramProtocol(self, relay, account_id=config.account_id,
-                                                   pause=(lambda: None) if c._offline else lambda: time.sleep(2))
-        return self._protocol.stage(context, record)
+                                                  sleep=self._wait, monotonic=c.monotonic)
+        def guarded_record(**values):
+            self._guard()
+            return record(**values)
+        return self._protocol.stage(context, guarded_record)
+
+    def _wait(self, seconds):
+        c = self.composition
+        until = c.monotonic() + seconds
+        while c.monotonic() < until:
+            self._guard()
+            before = c.monotonic()
+            c.sleep(min(HEARTBEAT_SECONDS, until - before))
+            if c.monotonic() <= before:
+                raise DeliveryConfigurationError('polling clock did not advance')
+        self._guard()
 
     def request(self, method, path, body):
-        # A multi-slide stage may outlive an activation or credential. Recheck
-        # before every provider request, not only at the beginning of staging.
-        self._check(self._context)
+        self._guard()
         return self._client.request(method, path, body)
 
     def check_before_final(self, context, staged):
-        self._check(context)
         if context['post_attempt_id'] != self._attempt_id:
-            raise DeliveryConfigurationError("run activation attempt mismatch")
+            raise DeliveryConfigurationError('run activation attempt mismatch')
+        self._guard()
 
     def publish(self, context, staged):
         self.check_before_final(context, staged)
@@ -351,18 +436,9 @@ class _ActivatedAdapter:
             "SELECT status,final_publication_request_sent_at FROM post_attempts WHERE post_attempt_id=?",
             (self._attempt_id,)).fetchone()
         if self._publish_started or row is None or row['status'] != 'final_request_sent' or not row['final_publication_request_sent_at']:
-            raise DeliveryConfigurationError("durable single final-send marker required")
+            raise DeliveryConfigurationError('durable single final-send marker required')
         self._publish_started = True
         return self._protocol.publish(context, staged)
-
-
-class _RunRelay:
-    def __init__(self, relay, check):
-        self.relay, self.check = relay, check
-
-    def stage(self, *args, **kwargs):
-        self.check()
-        return self.relay.stage(*args, **kwargs)
 
 
 def validate_persisted_readiness(store, destination_id):

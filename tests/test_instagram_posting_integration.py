@@ -217,9 +217,10 @@ def test_rotation_revokes_activation_and_requires_new_preflight(source):
         refreshed = factory.preflight()
         assert refreshed._token_binding != proof._token_binding
         # A refreshed preflight does not silently upgrade an old run authorization.
-        assert agent.run_once() == post
+        with pytest.raises(DeliveryConfigurationError, match="credential changed"):
+            agent.run_once()
         assert not objects.objects and not http.protocol.calls
-        assert store.connection.execute('SELECT final_publication_request_sent_at FROM post_attempts').fetchone()[0] is None
+        assert store.connection.execute('SELECT COUNT(*) FROM post_attempts').fetchone()[0] == 0
         dump = '\n'.join(store.connection.iterdump())
         assert 'fixture-secret' not in dump
 
@@ -250,9 +251,10 @@ def test_activation_expiry_and_scope_are_checked_before_staging(source):
         activation = factory.activate(proof, post_record_id=post, command_id='run', confirm=True)
         agent = factory.agent(activation, artifact_root=root)
         clock[0] += timedelta(minutes=3)
-        assert agent.run_once() == post
+        with pytest.raises(DeliveryConfigurationError, match="authorization-to-start expired"):
+            agent.run_once()
         assert not objects.objects and not http.protocol.calls
-        assert store.connection.execute('SELECT final_publication_request_sent_at FROM post_attempts').fetchone()[0] is None
+        assert store.connection.execute('SELECT COUNT(*) FROM post_attempts').fetchone()[0] == 0
 
 
 def test_quota_reservation_survives_new_preflight_and_restart(source):

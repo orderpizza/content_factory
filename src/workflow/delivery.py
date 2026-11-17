@@ -78,8 +78,10 @@ class R2TransientRelay:
         *,
         client: Any | None = None,
         transport: ExactMediaTransport | None = None,
+        before_io: Callable[[], None] | None = None,
     ):
         self.config = dict(config)
+        self.before_io = before_io or (lambda: None)
         self.transport = transport or ExactMediaTransport()
         self.bucket = _required_setting(self.config, "r2_bucket_name")
         self.public_domain = _required_setting(self.config, "r2_public_domain").rstrip("/")
@@ -122,12 +124,16 @@ class R2TransientRelay:
             "attempt-number": str(context["attempt_number"]),
             "asset-ordinal": str(asset["ordinal"]),
         }
+        self.before_io()
         try:
             self.client.put_object(
                 Bucket=self.bucket, Key=key, Body=data, ContentType="image/jpeg",
                 CacheControl="no-store, max-age=0", Metadata=metadata,
             )
+            self.before_io()
             head = self.client.head_object(Bucket=self.bucket, Key=key)
+        except (DeliveryError, DeliveryConfigurationError):
+            raise
         except Exception as error:
             raise DeliveryError("r2", type(error).__name__, True, "r2_upload") from error
         returned_metadata = {str(k).casefold(): str(v) for k, v in dict(head.get("Metadata", {})).items()}
@@ -138,6 +144,7 @@ class R2TransientRelay:
         ):
             raise DeliveryError("r2_verification", "authenticated R2 HEAD mismatch", False, "r2_head")
         public_url = self.public_domain + "/" + quote(key, safe="/")
+        self.before_io()
         fetched = self.transport.get_exact_bytes(
             public_url, expected_bytes=len(data), timeout=20, stage="r2_public_probe"
         )
@@ -175,14 +182,18 @@ class CredentialedPostingAgent:
         artifact_root: str | Path | None = None,
         instance_id: str = "delivery",
         post_record_id: int | None = None,
+        start_guard: Callable[[], bool] | None = None,
     ):
         self.store = store
         self.adapters = dict(adapters or {})
         self.post_record_id = post_record_id
+        self.start_guard = start_guard
         self.instance_id = instance_id
         self.artifact_root = None if artifact_root is None else Path(artifact_root).resolve()
 
     def run_once(self) -> int | None:
+        if self.start_guard is not None and not self.start_guard():
+            return None
         record = self.store.claim("post_records", "post_record_id", self.instance_id, record_id=self.post_record_id)
         if record is None:
             return None

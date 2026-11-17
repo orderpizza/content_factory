@@ -220,6 +220,16 @@ sizes, redirects, response version, safe diagnostics, no POST retry and hard chi
 process deadlines. All external dependencies are fake; no live endpoint is tested.
 The original protocol tests retain exact bytes/order/alt mapping and intent fences.
 
+`test_instagram_execution.py` uses fake wall/monotonic clocks and the same real
+factory/configuration path for 4–6 slides. Provider responses consume simulated
+time; containers process for one, two or four minutes each, with total attempts
+exceeding both two and five minutes. Assertions cover minute-spaced bounded polls,
+lease renewal, fresh readiness and single consumption/final send. Failure cases
+cover expired unused activation, execution deadlines, clock rollback, cancellation,
+claim loss (including during refresh and after the final marker), revoked readiness,
+credential/asset changes, late responses, and restart after crashes before upload or
+after create. No real sleeps or external operations are needed for these journeys.
+
 The full suite still owns legacy delivery/idempotency/migration/review safeguards.
 Passing it does not prove a supported live API version, authenticated account
 capabilities, real receipt attribution or safe cleanup timing. Those gates remain

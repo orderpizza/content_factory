@@ -51,6 +51,10 @@ Checkpoint 1 implements disabled-by-default production registration/composition,
 bounded authenticated transport, credential resolution/rotation checks, trusted
 read-only preflight interfaces, expiring offline evidence and scoped run activation.
 4–6-slide journeys use the real configuration/factory and authorization gates.
+The short start window is separate from a bounded active execution grant, with
+renewable fenced leases, guarded evidence refresh and realistic minute-spaced
+polling. Fake clocks exercise long runs, cancellation, expiry and crash/restart;
+consumed attempts cannot automatically resume or retry.
 The live contract registry is empty: API version/token-introspection semantics and
 owner account/app/permissions/quota require external verification. No real services
 are enabled. See [posting](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
