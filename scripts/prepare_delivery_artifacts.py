@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from workflow.delivery_artifacts import prepare_review_bundle
-from workflow.delivery_simulation import offline_only
+from workflow.offline import offline_only
 from workflow.store import WorkflowStore
 
 

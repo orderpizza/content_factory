@@ -6,9 +6,10 @@ import sqlite3
 from common.timestamps import utc_now
 from content_factory_resources import contract_path
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 CONTRACT_PATH = contract_path("application-schema.sql")
 SCHEMA_NAME = "content_factory_application"
+V18_CHECKSUM = "df5dcc3a8c0d55a2ad014b3fd0d190264b704c157217fc562a53c2f85e35b0cf"
 
 
 class SchemaError(RuntimeError):
@@ -31,10 +32,13 @@ def connect(path, *, read_only=False):
 
 def validate_database(connection, *, check_foreign_keys=True):
     if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-        raise SchemaError("Current schema 18 required; create a fresh database with a new filename")
+        raise SchemaError("Current schema 19 required; use the explicit offline migration for schema 18")
     try:
-        rows = connection.execute("SELECT version,name,checksum FROM schema_migrations").fetchall()
-        if len(rows) != 1 or tuple(rows[0]) != (SCHEMA_VERSION, SCHEMA_NAME, contract_checksum()):
+        rows = connection.execute("SELECT version,name,checksum FROM schema_migrations ORDER BY version").fetchall()
+        if ([tuple(r) for r in rows] not in [
+            [(SCHEMA_VERSION, SCHEMA_NAME, contract_checksum())],
+            [(18, SCHEMA_NAME, V18_CHECKSUM), (SCHEMA_VERSION, SCHEMA_NAME, contract_checksum())],
+        ]):
             raise SchemaError("Database schema identity/checksum does not match the current contract")
     except sqlite3.Error as error:
         raise SchemaError("Database schema ledger is missing or invalid") from error

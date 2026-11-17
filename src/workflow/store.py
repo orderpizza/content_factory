@@ -1749,11 +1749,13 @@ class WorkflowStore:
                     raise ValueError("command ID was reused with different input")
                 return int(receipt["result_record_id"])
             review = self.connection.execute(
-                "SELECT status,row_version,expires_at FROM review_requests WHERE review_request_id=?",
+                "SELECT status,row_version,expires_at,delivery_revision_id FROM review_requests WHERE review_request_id=?",
                 (review_id,),
             ).fetchone()
             if review is None:
                 raise ValueError("review request does not exist")
+            if review["delivery_revision_id"] is not None and decision == "approved":
+                raise ValueError("JPEG approval requires the exact delivery review command")
             if review["status"] != "awaiting_review":
                 raise ValueError("only an awaiting review can be decided")
             if int(review["row_version"]) != row_version:
@@ -1801,7 +1803,7 @@ class WorkflowStore:
                     raise ValueError("command ID was reused with different input")
                 return int(receipt["result_record_id"])
             context = self.connection.execute(
-                "SELECT v.status,v.row_version,v.expires_at,p.content_package_id,o.output_request_id,"
+                "SELECT v.status,v.row_version,v.expires_at,v.delivery_revision_id,p.content_package_id,o.output_request_id,"
                 "o.platform,o.account,o.content_format,r.thread_id,t.status thread_status "
                 "FROM review_requests v "
                 "JOIN content_packages p ON p.content_package_id=v.content_package_id "
@@ -1815,6 +1817,8 @@ class WorkflowStore:
             ).fetchone()
             if context is None:
                 raise ValueError("review request does not exist")
+            if context["delivery_revision_id"] is not None:
+                raise ValueError("prepare a new delivery revision to change JPEG review evidence")
             if context["status"] != "awaiting_review" or context["thread_status"] != "open":
                 raise ValueError("only an awaiting review on an open thread can request changes")
             if int(context["row_version"]) != row_version:
@@ -1932,14 +1936,19 @@ class WorkflowStore:
         *,
         row_version: int,
         command_id: str,
+        fingerprint: str | None = None,
+        account: str | None = None,
+        destination: str | None = None,
     ) -> int:
-        """Approve one exact review and atomically create immediate delivery work."""
+        """Authorize delivery; delivery revisions require prior independent JPEG approval."""
         self._validate_schema()
         self._require_storage_action("post_now")
         if type(row_version) is not int or row_version < 1:
             raise ValueError("a positive displayed review row version is required")
         payload_hash = digest({
             "kind": "post_now", "review_id": review_id, "row_version": row_version,
+            **({"fingerprint": fingerprint, "account": account, "destination": destination}
+               if any(v is not None for v in (fingerprint, account, destination)) else {}),
         })
         prior_receipt = self._command_receipt(command_id)
         if prior_receipt:
@@ -1947,20 +1956,24 @@ class WorkflowStore:
                 raise ValueError("command ID was reused with different input")
             return int(prior_receipt["result_record_id"])
         moment = now()
-        # File reads and hashing stay outside the write transaction. The exact
-        # database hashes and row version are rechecked while authorizing.
-        context = self._review_delivery_context(review_id, moment=moment)
         with self.transaction():
             receipt = self._command_receipt(command_id)
             if receipt:
                 if receipt["payload_hash"] != payload_hash:
                     raise ValueError("command ID was reused with different input")
                 return int(receipt["result_record_id"])
+            # Readiness and exact evidence are rechecked under the same write lock.
+            context = self._review_delivery_context(review_id, moment=moment)
+            is_revision = context.get("delivery_revision_id") is not None
+            if is_revision:
+                from .delivery_revision import check_command
+                check_command(self, review_id, row_version=row_version, fingerprint=fingerprint,
+                              account=account, destination=destination)
             review = self.connection.execute(
                 "SELECT status,row_version,package_hash,manifest_hash,expires_at "
                 "FROM review_requests WHERE review_request_id=?", (review_id,),
             ).fetchone()
-            if review is None or review["status"] != "awaiting_review":
+            if review is None or review["status"] != ("approved" if is_revision else "awaiting_review"):
                 raise ValueError("only an awaiting production review can be posted")
             if int(review["row_version"]) != row_version:
                 raise ValueError("review has changed; refresh before posting")
@@ -1985,6 +1998,18 @@ class WorkflowStore:
                 "manifest_hash": context["manifest_hash"],
                 "destination_key": context["destination_key"],
             })
+            if is_revision:
+                publication_identity = digest({
+                    "canonical_identity": context["lineage"]["canonical_identity"],
+                    "destination_key": context["destination_key"],
+                })
+                if self.connection.execute(
+                    "SELECT 1 FROM post_requests q JOIN content_packages p USING(content_package_id) "
+                    "JOIN output_requests o USING(output_request_id) JOIN canonical_contents c USING(canonical_content_id) "
+                    "WHERE c.canonical_identity=? AND q.destination_key=?",
+                    (context["lineage"]["canonical_identity"], context["destination_key"]),
+                ).fetchone():
+                    raise ValueError("canonical content already has a publication authorization for this destination")
             post_request_id = int(self.connection.execute(
                 "INSERT INTO post_requests(review_request_id,content_package_id,status,delivery_mode,"
                 "publication_identity,row_version,created_at,expires_at,render_run_id,package_hash,"
@@ -2006,12 +2031,18 @@ class WorkflowStore:
                 "created_at,policy_snapshot_json) VALUES (?,'pending',?,3,1,?,?)",
                 (post_request_id, eligible_at, moment, canonical(policy_snapshot)),
             ).lastrowid)
-            updated = self.connection.execute(
-                "UPDATE review_requests SET status='approved',destination_key=?,decision_note='Post now',"
-                "actor_id='local_owner',decided_at=?,row_version=row_version+1 "
-                "WHERE review_request_id=? AND status='awaiting_review' AND row_version=?",
-                (context["destination_key"], moment, review_id, row_version),
-            )
+            if is_revision:
+                updated = self.connection.execute(
+                    "UPDATE review_requests SET row_version=row_version+1 WHERE review_request_id=? "
+                    "AND status='approved' AND row_version=?", (review_id, row_version),
+                )
+            else:
+                updated = self.connection.execute(
+                    "UPDATE review_requests SET status='approved',destination_key=?,decision_note='Post now',"
+                    "actor_id='local_owner',decided_at=?,row_version=row_version+1 "
+                    "WHERE review_request_id=? AND status='awaiting_review' AND row_version=?",
+                    (context["destination_key"], moment, review_id, row_version),
+                )
             if updated.rowcount != 1:
                 raise RuntimeError("stale Post now command cannot finalize")
             self.connection.execute(
@@ -2147,6 +2178,11 @@ class WorkflowStore:
         """Commit the no-retry boundary immediately before the public call."""
         moment = now()
         with self.transaction():
+            if context.get("delivery_revision_id") is not None:
+                try:
+                    self._post_delivery_context(int(context["post_record_id"]), moment=moment)
+                except (ValueError, OSError) as error:
+                    raise RuntimeError("exact JPEG approval or artifacts no longer valid") from error
             row = self.connection.execute(
                 "SELECT p.status,p.claim_owner,p.claim_version,p.lease_expires_at,"
                 "q.status request_status,q.expires_at,"
@@ -2653,9 +2689,9 @@ class WorkflowStore:
             raise RuntimeError(f"storage admission refused ({state['reason']}); "
                                f"last sample: {state['sampled_at'] or 'none'}. " + storage_recovery(state))
 
-    def _review_delivery_context(self, review_id: int, *, moment: str) -> dict[str, Any]:
+    def _review_delivery_context(self, review_id: int, *, moment: str, required_status: str | None = None) -> dict[str, Any]:
         row = self.connection.execute(
-            "SELECT v.review_request_id,v.status review_status,v.expires_at review_expires_at,"
+            "SELECT v.review_request_id,v.delivery_revision_id,v.status review_status,v.expires_at review_expires_at,"
             "v.package_hash,v.manifest_hash,v.render_run_id,v.destination_key review_destination_key,"
             "j.pipeline_id,p.content_package_id,p.package_json,"
             "p.content_hash,r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
@@ -2679,7 +2715,8 @@ class WorkflowStore:
         ).fetchone()
         if row is None:
             raise ValueError("review is not bound to an active production destination")
-        if row["review_status"] != "awaiting_review" or row["review_expires_at"] <= moment:
+        expected_status = required_status or ("approved" if row["delivery_revision_id"] is not None else "awaiting_review")
+        if row["review_status"] != expected_status or row["review_expires_at"] <= moment:
             raise ValueError("review is not current and awaiting authorization")
         if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
             raise ValueError("production destination is disabled or visual configuration is not approved")
@@ -2691,7 +2728,7 @@ class WorkflowStore:
 
     def _post_delivery_context(self, post_record_id: int, *, moment: str) -> dict[str, Any]:
         row = self.connection.execute(
-            "SELECT pr.post_record_id,pr.status post_status,pr.eligible_at,pr.claim_owner,pr.claim_version,"
+            "SELECT pr.post_record_id,v.delivery_revision_id,v.status review_status,v.expires_at review_expires_at,pr.status post_status,pr.eligible_at,pr.claim_owner,pr.claim_version,"
             "pq.post_request_id,pq.publication_identity,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
             "d.destination_key actual_destination_key,j.pipeline_id,"
             "pq.destination_key,pq.render_run_id,p.content_package_id,p.package_json,p.content_hash,"
@@ -2726,12 +2763,16 @@ class WorkflowStore:
             raise ValueError("production destination readiness is not current")
         if row["destination_key"] != row["actual_destination_key"]:
             raise ValueError("authorized destination differs from the bound destination")
+        if row["delivery_revision_id"] is not None and (row["review_status"] != "approved" or row["review_expires_at"] <= moment):
+            raise ValueError("JPEG approval is no longer current")
         context = self._validate_delivery_artifacts(row)
         context["post_record_id"] = post_record_id
         context["post_request_id"] = int(row["post_request_id"])
         return context
 
     def _validate_delivery_artifacts(self, row: Any) -> dict[str, Any]:
+        from .delivery_revision import overlay
+        row = overlay(self, row)
         package = json.loads(row["package_json"])
         manifest = json.loads(row["manifest_json"] or "null")
         if not isinstance(package, dict) or package.get("delivery_ready") is not True:
@@ -2742,11 +2783,17 @@ class WorkflowStore:
             raise ValueError("package hash does not match the reviewed package")
         if digest(manifest) != row["manifest_hash"]:
             raise ValueError("manifest hash does not match the reviewed render")
-        assets = self.connection.execute(
-            "SELECT render_asset_id,asset_role,ordinal,local_path,mime_type,width,height,bytes,sha256 "
-            "FROM render_assets WHERE render_run_id=? AND asset_role='delivery_jpeg' "
-            "AND deleted_at IS NULL ORDER BY ordinal", (row["render_run_id"],),
-        ).fetchall()
+        if row.get("delivery_revision_id") is not None:
+            assets = [{"asset_role": a["role"], "ordinal": a["ordinal"], "local_path": a["path"],
+                       "mime_type": a["mime"], "width": a["width"], "height": a["height"],
+                       "bytes": a["bytes"], "sha256": a["sha256"], "render_asset_id": None}
+                      for a in manifest["assets"]]
+        else:
+            assets = self.connection.execute(
+                "SELECT render_asset_id,asset_role,ordinal,local_path,mime_type,width,height,bytes,sha256 "
+                "FROM render_assets WHERE render_run_id=? AND asset_role='delivery_jpeg' "
+                "AND deleted_at IS NULL ORDER BY ordinal", (row["render_run_id"],),
+            ).fetchall()
         manifest_assets = [
             item for item in manifest.get("assets", [])
             if isinstance(item, dict) and item.get("role") == "delivery_jpeg"
@@ -2787,7 +2834,8 @@ class WorkflowStore:
                 raise ValueError("stored delivery asset differs from the reviewed manifest")
             if len(data) != int(stored["bytes"]) or actual_hash != stored["sha256"]:
                 raise ValueError("physical delivery asset hash or size changed after review")
-            validated.append({**expected, "render_asset_id": int(stored["render_asset_id"]), "path": str(path)})
+            validated.append({**expected, "render_asset_id": stored["render_asset_id"], "path": str(path),
+                              **({"alt_text": frozen["alt_text"]} if row.get("delivery_revision_id") is not None else {})})
         if row["platform"] == "instagram":
             maximum = 6 if row["pipeline_id"] == "english" else 14
             if not 4 <= len(validated) <= maximum or any(

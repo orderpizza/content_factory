@@ -209,6 +209,9 @@ class CredentialedPostingAgent:
                 int(context["post_attempt_id"]), **values,
             )
         try:
+            if (context.get("delivery_revision_id") is not None
+                    and context["destination_config"].get("adapter_version") == "unimplemented"):
+                raise DeliveryConfigurationError("production delivery revision has no configured provider")
             adapter = self.adapters.get(context["platform"])
             if adapter is None:
                 raise DeliveryConfigurationError("no delivery adapter is configured")

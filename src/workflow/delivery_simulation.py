@@ -1,12 +1,11 @@
 """Fully local rehearsal composition; no real provider or credential selection."""
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager
 from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
 from tempfile import mkdtemp
-from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 import json
 import os
@@ -25,16 +24,7 @@ MODE = "offline_delivery_simulation_v1"
 DESTINATION = "instagram:simulation"
 
 
-@contextmanager
-def offline_only():
-    """Defense in depth for this single-threaded CLI, including DNS and sockets."""
-    def refused(*args, **kwargs):
-        raise RuntimeError("network access is forbidden in offline delivery simulation")
-    with ExitStack() as stack:
-        for target in ("socket.socket.connect", "socket.socket.connect_ex",
-                       "socket.create_connection", "socket.getaddrinfo", "socket.socket.sendto"):
-            stack.enter_context(patch(target, refused))
-        yield
+from .offline import offline_only
 
 
 def initialize_simulation(workspace=None, *, slide_count=6):

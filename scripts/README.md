@@ -16,6 +16,10 @@ count justifies the path churn.
 - `setup_development.py` — create a fresh development database and seed local configuration.
 - `create_local_idea.py` — submit or refine a human idea.
 - `run_maintenance.py` — perform explicit backup, restore verification, or pruning.
+- `migrate_delivery_database.py` — explicit offline v18→v19 dry run, backup and additive migration.
+- `review_delivery.py` — prepare from an original PNG review, inspect a local JPEG report, approve separately and authorize Post now; never sends.
+- `prepare_delivery_artifacts.py` — read-only unapproved candidate export.
+- `simulate_delivery.py` — isolated synthetic fake-delivery rehearsal only.
 - `install_review_baseline.py` — manage the five review-only Mac Mini LaunchAgents.
 
 ## Development verification

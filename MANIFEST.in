@@ -1,2 +1,2 @@
 include build_support.py
-include docs/contracts/application-schema.sql
+include docs/contracts/*.sql

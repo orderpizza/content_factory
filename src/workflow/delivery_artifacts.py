@@ -97,8 +97,8 @@ def prepare_bundle(package, manifest, *, lineage, artifact_root, output):
     return bundle
 
 
-def prepare_review_bundle(store, review_id, *, artifact_root, output):
-    """Read a frozen PNG review; export a candidate only, with no database writes."""
+def read_review_source(store, review_id):
+    """Validate persisted source evidence without writes or conversion."""
     row = store.connection.execute(
         "SELECT v.*,p.package_json,p.content_hash,r.manifest_json,j.pipeline_id "
         "FROM review_requests v JOIN content_packages p USING(content_package_id) "
@@ -110,7 +110,8 @@ def prepare_review_bundle(store, review_id, *, artifact_root, output):
     if row is None or row["pipeline_id"] != "english":
         raise ValueError("an existing English review is required")
     package, manifest = json.loads(row["package_json"]), json.loads(row["manifest_json"])
-    if digest(package) != row["package_hash"] or digest(manifest) != row["manifest_hash"]:
+    if (digest(package) != row["package_hash"] or row["content_hash"] != row["package_hash"]
+            or digest(manifest) != row["manifest_hash"]):
         raise ValueError("source review hashes differ from persisted evidence")
     stored = [dict(a) for a in store.connection.execute(
         "SELECT asset_role role,ordinal,local_path path,mime_type mime,width,height,bytes,sha256 "
@@ -119,8 +120,14 @@ def prepare_review_bundle(store, review_id, *, artifact_root, output):
     )]
     if not stored or stored != [{k: a.get(k) for k in stored[0]} for a in manifest.get("assets", [])]:
         raise ValueError("source assets differ from persisted manifest")
-    return prepare_bundle(package, manifest, lineage={
+    return package, manifest, {
         "review_request_id": review_id, "render_run_id": row["render_run_id"],
         "content_package_id": row["content_package_id"], "source_database": str(store.path),
         "source_review_status": row["status"], "destination_key": row["destination_key"],
-    }, artifact_root=artifact_root, output=output)
+    }
+
+
+def prepare_review_bundle(store, review_id, *, artifact_root, output):
+    """Export an unapproved candidate only, with no database writes."""
+    package, manifest, lineage = read_review_source(store, review_id)
+    return prepare_bundle(package, manifest, lineage=lineage, artifact_root=artifact_root, output=output)
