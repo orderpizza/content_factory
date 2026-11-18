@@ -20,9 +20,16 @@ class Transport(Protocol):
 
 
 def _id(value: Any) -> str:
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,30}", value):
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,29}", value):
         raise DeliveryError("provider_response", "invalid provider identity", False, "instagram")
     return value
+
+
+def container_status(response, container):
+    status = response.get("status_code")
+    if response.get("id") == container and status in ("FINISHED", "IN_PROGRESS", "PUBLISHED", "ERROR", "EXPIRED"):
+        return status
+    return "UNAVAILABLE"
 
 
 class OfflineInstagramProtocol:
@@ -33,7 +40,7 @@ class OfflineInstagramProtocol:
                  monotonic: Callable[[], float] = time.monotonic):
         self.transport, self.relay = transport, relay
         self.account_id = _id(account_id)
-        if self.account_id == "0" or type(max_polls) is not int or not 1 <= max_polls <= 5:
+        if type(max_polls) is not int or not 1 <= max_polls <= 5:
             raise ValueError("invalid offline account or polling bound")
         self.max_polls, self.sleep, self.monotonic = max_polls, sleep, monotonic
 
@@ -61,10 +68,10 @@ class OfflineInstagramProtocol:
             started = self.monotonic()
             if started >= deadline or started < next_poll:
                 raise DeliveryError("container_timeout", "container polling deadline reached", False, "instagram")
-            response = self._request("GET", f"/{container}", {"fields": "status_code"})
+            response = self._request("GET", f"/{container}", {"fields": "id,status_code"})
             if self.monotonic() >= deadline:
                 raise DeliveryError("container_timeout", "container polling deadline reached", False, "instagram")
-            status = response.get("status_code")
+            status = container_status(response, container)
             if status == "FINISHED":
                 return
             if status != "IN_PROGRESS":
@@ -84,11 +91,14 @@ class OfflineInstagramProtocol:
         assets = context["assets"]
         package = context["package"]
         descriptions = package.get("image_alt_text")
-        if (not 4 <= len(assets) <= 6 or [a["ordinal"] for a in assets] != list(range(1, len(assets) + 1))
+        caption = package.get("caption")
+        if (package.get("is_ai_generated") is not True
+                or not 4 <= len(assets) <= 6 or [a["ordinal"] for a in assets] != list(range(1, len(assets) + 1))
                 or not isinstance(descriptions, list) or len(descriptions) != len(assets)
-                or any(not isinstance(x, str) or not x or len(x) > 1000 for x in descriptions)
+                or any(not isinstance(x, str) or not x.strip() or len(x) > 1000 for x in descriptions)
                 or any(a.get("alt_text") != alt for a, alt in zip(assets, descriptions))
-                or not isinstance(package.get("caption"), str) or len(package["caption"]) > 2200):
+                or not isinstance(caption, str) or len(caption) > 2200
+                or len(re.findall(r"#\w+", caption)) > 30 or len(re.findall(r"@[\w.]+", caption)) > 20):
             raise DeliveryError("validation", "invalid reviewed carousel inputs", False, "instagram")
         children = []
         for asset, alt in zip(assets, descriptions):
@@ -110,14 +120,19 @@ class OfflineInstagramProtocol:
             child = _id(self._request("POST", f"/{self.account_id}/media", {
                 "image_url": url, "is_carousel_item": True, "alt_text": alt,
             }).get("id"))
+            if child in children or child == self.account_id:
+                raise DeliveryError("provider_response", "ambiguous child identity", False, "instagram")
             record(resource_type="external_media", remote_id=child, asset_ordinal=asset["ordinal"],
                    safe_metadata={"kind": "child", "sha256": asset["sha256"]})
             self._ready(child)
             children.append(child)
         record(resource_type="instagram_create_intent", remote_id="parent", safe_metadata={"kind": "parent"})
         parent = _id(self._request("POST", f"/{self.account_id}/media", {
-            "media_type": "CAROUSEL", "children": ",".join(children), "caption": package["caption"],
+            "media_type": "CAROUSEL", "children": ",".join(children), "caption": caption,
+            "is_ai_generated": package["is_ai_generated"],
         }).get("id"))
+        if parent in children or parent == self.account_id:
+            raise DeliveryError("provider_response", "ambiguous parent identity", False, "instagram")
         record(resource_type="external_media", remote_id=parent, safe_metadata={"kind": "parent"})
         self._ready(parent)
         return {"parent": parent}

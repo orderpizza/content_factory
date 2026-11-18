@@ -30,7 +30,7 @@ class ProcessingHTTP(FakeHTTP):
             if method == 'GET':
                 container = path[1:]
                 self.polls[container].append(started)
-                response = {'status_code': 'FINISHED' if started - self.created[container] >= self.processing_seconds
+                response = {'id': path[1:], 'status_code': 'FINISHED' if started - self.created[container] >= self.processing_seconds
                             else 'IN_PROGRESS'}
             return response
         self.protocol.request = processing
@@ -286,3 +286,19 @@ def test_elapsed_clock_and_refresh_fences(source, monkeypatch, fault):
         else:
             # Only the first refresh GET was admitted, never its next permission/quota request.
             assert len(http.read_calls) == 4
+
+
+@pytest.mark.parametrize('fault', ['short_wait', 'capacity_changed'])
+def test_polling_refuses_early_wakeup_and_exhausted_refresh(source, monkeypatch, fault):
+    path, root, png = source
+    with WorkflowStore(path) as store:
+        _, post = authorized(store, root, png)
+        clock, http, factory, objects, _, _, agent = setup(store, post, root, monkeypatch)
+        if fault == 'short_wait':
+            factory.sleep = lambda seconds: clock.advance(seconds / 2)
+        else:
+            clock.on_sleep = lambda: http.carousel.update(containers_created=399)
+        assert agent.run_once() == post
+        assert store.connection.execute('SELECT status FROM post_records').fetchone()[0] == 'failed'
+        assert sum(path.endswith('media_publish') for _, path, _ in http.protocol.calls) == 0
+        assert len(http.dispatches) < 30 and objects.objects

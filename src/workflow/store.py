@@ -1936,10 +1936,13 @@ class WorkflowStore:
         destination = self.connection.execute(
             "SELECT config_json FROM social_destinations WHERE social_destination_id=?", (destination_id,)
         ).fetchone()
-        if destination and json.loads(destination[0]).get("adapter_version") == "instagram_login_v1" and status == "ready":
+        registered_instagram = destination and json.loads(destination[0]).get("adapter_version") == "instagram_login_v1"
+        if registered_instagram and status == "degraded" and facts.get("provenance") == "offline":
+            raise ValueError("eligible offline readiness requires an issued Instagram preflight")
+        if registered_instagram and status == "ready":
             from .instagram_composition import _destination, validate_proof
             registered, _ = _destination(self, destination_id)
-            validate_proof(preflight, registered)
+            validate_proof(preflight, registered, for_persistence=True)
             if canonical(facts) != canonical(preflight.facts()) or reasons:
                 raise ValueError("readiness facts must be the issued preflight result")
             valid_for = min(valid_for, parse_timestamp(preflight.valid_until) - parse_timestamp(now()))
@@ -2927,7 +2930,7 @@ class WorkflowStore:
         context["post_request_id"] = int(row["post_request_id"])
         return context
 
-    def _validate_delivery_artifacts(self, row: Any) -> dict[str, Any]:
+    def _validate_delivery_artifacts(self, row: Any, *, for_report: bool = False) -> dict[str, Any]:
         from .delivery_revision import overlay
         row = overlay(self, row)
         package = json.loads(row["package_json"])
@@ -3007,6 +3010,10 @@ class WorkflowStore:
         result["manifest"] = manifest
         result["assets"] = validated
         result["destination_config"] = json.loads(row["config_json"])
+        if (row.get("delivery_revision_id") is not None
+                and not for_report
+                and package.get("is_ai_generated") is not True):
+            raise ValueError("prepare a new JPEG review with the required AI disclosure")
         return result
 
     def _earliest_eligible_at(self, context: dict[str, Any], moment: str) -> str:

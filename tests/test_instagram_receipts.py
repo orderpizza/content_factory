@@ -40,6 +40,7 @@ def test_verified_receipt_has_account_attempt_and_review_binding(source):
         assert facts['media_id'] == summary['accepted_media_ids'][0]
         row = store.connection.execute('SELECT package_hash,manifest_hash,delivery_revision_id FROM review_requests WHERE review_request_id=?', (review,)).fetchone()
         assert all(facts[k] == row[k] for k in row.keys())
+        assert 'is_ai_generated' in facts['verified_fields'] and 'visible_ai_label' in facts['unverified_fields']
         assert facts['provenance'] == 'offline' and 'jpeg_bytes' in facts['unverified_fields']
         assert len(http.receipt_calls) == 1 and final_calls(http) == 1
         assert store.connection.execute('SELECT COUNT(*) FROM delivery_cleanup_tasks').fetchone()[0] == 0
@@ -50,7 +51,7 @@ def test_verified_receipt_has_account_attempt_and_review_binding(source):
         assert 'fixture-secret' not in '\n'.join(store.connection.iterdump())
 
 
-@pytest.mark.parametrize('fault', ['owner', 'id', 'caption', 'type', 'children', 'paging', 'missing', 'unavailable'])
+@pytest.mark.parametrize('fault', ['owner', 'id', 'caption', 'disclosure_missing', 'disclosure_false', 'type', 'children', 'paging', 'missing', 'unavailable'])
 def test_inconsistent_or_unavailable_readback_never_confirms(source, fault):
     path, root, png = source
     with WorkflowStore(path) as store:
@@ -64,6 +65,8 @@ def test_inconsistent_or_unavailable_readback_never_confirms(source, fault):
             if fault == 'owner': media['owner']['id'] = '999'
             elif fault == 'id': media['id'] = '999'
             elif fault == 'caption': media['caption'] = 'different content'
+            elif fault == 'disclosure_missing': media.pop('is_ai_generated', None)
+            elif fault == 'disclosure_false': media['is_ai_generated'] = False
             elif fault == 'type': media['media_type'] = 'IMAGE'
             elif fault == 'children': media['children']['data'] = []
             elif fault == 'paging': media['children']['paging'] = {'next': 'https://untrusted.invalid'}

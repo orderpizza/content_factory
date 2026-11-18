@@ -11,9 +11,10 @@ from datetime import timedelta
 from common.timestamps import parse_timestamp, serialize_timestamp
 from . import store as workflow_store
 from .store import canonical, digest
+from .instagram_protocol import container_status
 from .offline import require_offline, is_offline
 
-CONTRACT = 'instagram_source_independence_candidate_v1'
+CONTRACT = 'instagram_source_independence_candidate_v2'
 TERMINAL = {'failed', 'cancelled', 'expired', 'published', 'publication_unknown'}
 CORE = {'r2_object', 'r2_staged', 'instagram_create_intent', 'external_media', 'instagram_run',
         'instagram_publish_acceptance', 'instagram_verified_receipt'}
@@ -117,6 +118,8 @@ def _eligibility(inv, resource, *, fresh=True):
     if not check or check['facts'].get('provenance') != 'offline' or not is_offline():
         return 'retain', 'No trusted source-independence investigation for this exact attempt.'
     facts = check['facts']
+    if facts.get('contract') != CONTRACT:
+        return 'retain', 'Repeat investigation with identity-bound container status.'
     if fresh and not facts['observed_at'] <= now() < facts['valid_until']:
         return 'retain', 'Investigation evidence is stale; perform another read-only check.'
     known = [*inv['children'], *inv['parents']]
@@ -281,10 +284,8 @@ def investigate(composition, proof, attempt_id):
         for resource in known:
             guard()
             try:
-                result = client.request('GET', '/' + resource['remote_id'], {'fields': 'status_code'})
-                status = result.get('status_code')
-                if status not in {'FINISHED', 'PUBLISHED', 'EXPIRED', 'ERROR', 'IN_PROGRESS'}:
-                    status = 'UNAVAILABLE'
+                result = client.request('GET', '/' + resource['remote_id'], {'fields': 'id,status_code'})
+                status = container_status(result, resource['remote_id'])
             except Exception:
                 status = 'UNAVAILABLE'
             guard()

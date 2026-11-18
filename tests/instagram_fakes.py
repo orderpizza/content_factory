@@ -19,6 +19,8 @@ class FakeHTTP:
         self.validity = {'is_valid': True, 'account_id': '123456', 'app_id': '789',
             'login_mode': 'instagram_login', 'token_type': 'instagram_user', 'api_version': VERSION,
             'expires_at': serialize_timestamp(utc_datetime_now() + timedelta(days=1))}
+        self.carousel = {'account_id': '123456', 'api_version': VERSION, 'window_seconds': 86400,
+                         'containers_created': 0, 'parent_ai_disclosure': True, 'child_alt_text': True}
         self.version = VERSION
         self.status = 200
         self.read_calls = []
@@ -45,7 +47,8 @@ class FakeHTTP:
             self.read_calls.append(path)  # Never capture authorization headers.
             data = {'/me': self.identity, '/me/permissions': self.permissions,
                     '/123456/content_publishing_limit': self.quota}[path]
-        elif method == 'GET' and params.get('fields') == 'id,owner,media_type,caption,children{id}':
+        elif method == 'GET' and params.get('fields') in {
+                'id,owner,media_type,caption,children{id}', 'id,owner,media_type,caption,children{id},is_ai_generated'}:
             self.receipt_calls.append(path)
             data = self.receipt_response if self.receipt_response is not None else self.media.get(path[1:], {})
         else:
@@ -55,7 +58,7 @@ class FakeHTTP:
                               if method == 'POST' and body.get('media_type') == 'CAROUSEL')
                 count = len(parent['children'].split(','))
                 self.media[data['id']] = {'id': data['id'], 'owner': {'id': self.identity['user_id']},
-                    'media_type': 'CAROUSEL_ALBUM', 'caption': parent['caption'],
+                    'media_type': 'CAROUSEL_ALBUM', 'caption': parent['caption'], 'is_ai_generated': parent.get('is_ai_generated') == 'true',
                     'children': {'data': [{'id': str(9000 + i)} for i in range(count)]}}
         self.after()
         return HTTPReply(self.status, {'facebook-api-version': self.version, 'content-type': 'application/json'}, json.dumps(data).encode())
@@ -66,6 +69,7 @@ def composition(store, *, http=None, objects=None, credentials=None, clock=utc_d
     objects = objects or FakeObjects()
     destination_id = store.connection.execute('SELECT social_destination_id FROM social_destinations').fetchone()[0]
     factory = InstagramComposition(store, destination_id, wire=http, token_validity=http.token_validity,
+        offline_carousel_evidence=lambda config: {'observed_at': serialize_timestamp(clock()), **http.carousel},
         credentials=EnvironmentCredentials({'DELIVERY_TOKEN': 'fixture-secret'}) if credentials is None else credentials,
         objects=objects, media_transport=objects,
         relay_config={'r2_bucket_name': 'test', 'r2_account_id': 'test', 'r2_public_domain': 'https://example.invalid'},

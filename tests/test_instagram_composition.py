@@ -57,6 +57,14 @@ def test_fake_readiness_is_degraded_and_never_production_evidence(store):
         proof = factory.preflight()
         assert store.connection.execute('SELECT status FROM capability_readiness').fetchone()[0] == 'degraded'
         validate_persisted_readiness(store, proof.destination_id)
+        with pytest.raises(ValueError, match='issued'):
+            store.record_destination_readiness(proof.destination_id, status='degraded',
+                                              facts=proof.facts(), reasons=[])
+        store.record_destination_readiness(proof.destination_id, status='blocked', reasons=['revoked'], facts={})
+        with pytest.raises(DeliveryConfigurationError, match='new preflight'):
+            store.record_destination_readiness(proof.destination_id, status='ready', reasons=[],
+                                              facts=proof.facts(), preflight=proof)
+        assert store.connection.execute('SELECT status FROM capability_readiness').fetchone()[0] == 'blocked'
         # A caller cannot copy, construct or mutate observations into issued evidence.
         for forged in (None, replace(proof), replace(proof, provenance='authenticated')):
             with pytest.raises(DeliveryConfigurationError):
@@ -117,3 +125,20 @@ def test_preflight_failures_revoke_previous_evidence_without_secrets(store, faul
 def test_registration_is_closed_and_never_infers_verified_version(change):
     with pytest.raises(ValueError):
         validate_registration({**registration(app_id='789'), **change})
+
+
+@pytest.mark.parametrize('change', [
+    {'containers_created': None}, {'containers_created': True}, {'containers_created': -1},
+    {'containers_created': 400}, {'window_seconds': 3600}, {'account_id': '999'},
+    {'observed_at': '2000-01-01T00:00:00'}, {'api_version': 'v27.0'},
+    {'parent_ai_disclosure': False}, {'child_alt_text': None},
+])
+def test_creation_usage_and_parent_capability_are_independent_preflight_gates(store, change):
+    with offline_only():
+        factory, objects, http = composition(store)
+        factory.preflight()
+        http.carousel.update(change)
+        with pytest.raises(DeliveryConfigurationError, match='failed closed'):
+            factory.preflight()
+        assert store.connection.execute('SELECT status FROM capability_readiness').fetchone()[0] == 'blocked'
+        assert not objects.objects and not http.protocol.calls

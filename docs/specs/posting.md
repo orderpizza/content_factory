@@ -69,7 +69,8 @@ concrete alternatives were considered:
 Option 1 is implemented. No original content, source, recipe, render, manifest,
 asset or approval is rewritten. `delivery_revisions` is SQL-immutable; its package
 copies the exact original caption, aggregate alt text and all existing content,
-adding only technical preparation and explicit ordered `image_alt_text`. Each
+adding delivery preparation, ordered `image_alt_text` and the required
+`is_ai_generated=true` disclosure for generated images. Each
 manifest asset also freezes its individual alt text. No automatic splitting,
 rewriting or inference from the aggregate description occurs. Human-supplied
 per-image descriptions must preserve its complete meaning; the report shows both.
@@ -168,7 +169,7 @@ creates work. The fake object's HTTP-looking `.invalid` URL is never requested.
 
 Target contract; **no real Meta API request or public upload was made**. Checkpoint 1
 implements the transport and composition boundaries described below, with live use blocked.
-Official documentation was inspected on 2026-11-16/17. Documentation examples use
+Official documentation was checked again on 2026-11-18. Documentation examples use
 `v27.0`; that is evidence to validate in Phase 3B, not a configured working version.
 The future immutable capability snapshot must record explicit Graph API version,
 login mode, host, account ID, allowed scopes, media bounds, quota evidence and
@@ -182,7 +183,7 @@ expiry. No implicit `latest` version or guessed readiness is allowed.
 | Images | Publicly retrievable JPEG only, standard JPEG rather than MPO/JPS; media reference specifies 8 MB, width 320–1440, aspect 4:5–1.91:1, sRGB. Local profile stays at 1080×1350 and ≤8,000,000 bytes. Test resulting carousel crop; metadata geometry alone cannot prove its appearance on Instagram. |
 | Carousel | Current guide advertises up to 20 children, while older references commonly used 10. Pin tested capabilities to the chosen version; start with only 4–6 English images. Freeze ordered child mapping, exact parent caption and reviewed per-image alt text. Phase 3B1 preserves aggregate alt text and adds separately reviewed ordered per-image descriptions; the adapter must transmit those exact strings and validate version-specific limits. |
 | Lifetime and polling | Media reference says containers expire after 24 hours and describes a 400-container rolling-day creation bound. Version/preflight must validate those limits. Poll with bounded attempts/deadline; `FINISHED` is ready, `PUBLISHED` means published, `IN_PROGRESS` is pending, `ERROR`/`EXPIRED` stop. Reads may retry under bounded backoff; final publish cannot blindly retry. |
-| Quota | The publishing guide contains both 100 and 50 posts/day; the limit reference describes 50 and differs in request-field examples. Never hardcode one as truth. Confirm the selected version's fields, read account usage/config and quota window with a validity period, reserve locally for concurrent work, and honor provider rejection/backoff. Local cadence is an additional limit, not provider quota evidence. |
+| Quota | The publishing guide describes 100 posts/day and the limit reference describes 50 with differing request-field examples. Never hardcode one as truth. Confirm the selected version's fields, read account usage/config and quota window with a validity period, reserve locally for concurrent work, and honor provider rejection/backoff. Local cadence is an additional limit, not provider quota evidence. |
 
 ### Exact input to the future adapter
 
@@ -308,11 +309,12 @@ claim loss. Its reply cannot revive an expired lease or authorize a next request
 
 Preflight reads identity, permission grants and quota via the authenticated HTTP
 interface and consumes a separate `TokenValidityReader` for token/app/login/expiry
-verification. Only service-issued results can be persisted through the registered
+verification. Only the issuing preflight can persist its result through the registered
 readiness API; arbitrary `CapabilityObservation`, dicts and copied results are
 rejected. Evidence is allowlisted, bound to the immutable destination/configuration
 and current in-memory credential, and expires within five minutes or token expiry.
-A failed refresh revokes prior readiness. Evidence is rechecked before each R2
+A failed refresh revokes prior readiness. Replaying an issued proof or supplying
+caller-written offline readiness cannot reinstate it. Evidence is rechecked before each R2
 put/head/anonymous read and each Instagram request, as well as the final marker.
 The current invocation refreshes evidence when it has at most 90 seconds left,
 checking its claim, cancellation, exact assets, original token and fixed execution
@@ -345,14 +347,14 @@ observation/exchange helpers are offline-only and cannot establish readiness.
 Trust assumes the local OS/database owner; this is not a sandbox against arbitrary
 Python execution or an owner directly rewriting SQLite.
 
-Quota comes from a bounded fresh observation, never a universal 50/100 constant.
-Activation atomically reserves one post using append-only command receipts under
-the existing SQLite write transaction. All activations for that destination within
-the provider window count, including failed/unknown attempts and newer snapshots;
-there is no automatic release. This can conservatively double-count observed use,
-but cannot over-admit local concurrent runs. Cross-process/restart reservations
-persist. This is a publication reservation, not the later container/orphan quota
-and recovery policy.
+Activation reserves one publication and one container per slide plus one parent.
+The same SQLite write transaction checks both limits before recording the one-post
+activation. The account ID and number of slides come from each immutable delivery
+revision. All aliases and configuration releases for the same provider ID share a
+budget. Reservations survive failures, uncertain outcomes and restarts. They cover
+the rolling day plus the maximum delay between activation and dispatch (two minutes
+to start and 45 minutes to execute). Fresh observations plus existing reservations
+can conservatively count some usage twice. A guarded refresh rechecks both budgets.
 
 ### Authenticated HTTP and credentials
 
@@ -553,32 +555,25 @@ gates remain closed. No live request or deletion is authorized by this checkpoin
 The [operations guide](../operations.md#staging-investigation-and-release) owns the
 local offline report/release commands.
 
-### Preserved protocol and deferred checkpoints
+### Checkpoint 4 Instagram Login evidence
 
-The injected carousel protocol preserves exact reviewed bytes, order, child alt
-text and parent caption. A committed create intent blocks automatic retry after
-child/parent uncertainty, including worker death or lost persistence. Uncertain
-final sends remain `publication_unknown`; no second final request is automatic.
-The scoped adapter additionally refuses a second final call in the same run.
-Objects marked `manual_ingestion_safety` bypass generic automatic cleanup; only
-the independent Checkpoint 3 release policy below may authorize eligible objects.
-Legacy objects without exact identity remain retained.
+Official references reviewed 2026-11-18. The simulator uses the explicit v26.0
+candidate. The following distinctions govern any future live implementation.
 
-Container quota policy and detailed protocol fidelity (including the review-bound
-AI declaration) remain deferred. A fixture receipt is not verified real publication.
-No real send can be enabled until those gates are implemented and
-reviewed as well. English content/design refinement remains last.
+| Boundary | Public documentation | Evidence still required for this account |
+| --- | --- | --- |
+| Login and identity | Business Login for Instagram exchanges an authorization code for a short-lived Instagram User token, scoped user ID and grants. A long-lived token has a documented 60-day lifetime. The publishing guide specifies professional Business and Creator accounts, `graph.instagram.com`, `instagram_business_basic` and `instagram_business_content_publish`. [Business Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login) · [Publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing) | Verify app access, account type and ID, exact grants, revocation, data-access expiry and same-app token inspection. The generic Graph debug-token reference requires an associated app or developer credential. The selected Instagram Login introspection flow and response fields need their own verification. [Debug token](https://developers.facebook.com/docs/graph-api/reference/debug_token/) |
+| Version | Meta labels v27.0 latest. Its lifecycle table lists v21.0–v25.0 with future expiry dates and v26.0 with expiry TBD as of the review. [Versioning](https://developers.facebook.com/docs/graph-api/guides/versioning) · [Version table](https://developers.facebook.com/docs/graph-api/changelog/versions/) | Verify the pinned v26.0 endpoint shapes, returned version, app access and feature availability. Record any upgrade through a reviewed contract change. |
+| Images and order | The image profile and bounds appear above. Meta documents up to 20 children and crop based on the first image. The local contract uses 4–6 ordered 1080×1350 JPEGs. Each image gets its own public URL, carousel-item flag and exact alt text (up to 1,000 characters). The parent takes ordered child IDs and the caption (2,200 characters, 30 hashtags, 20 mentions). [Media creation](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media) | Verify anonymous retrieval, observed crop, displayed order, child accessibility and caption on the selected account. The aggregate accessibility description stays in review. |
+| AI disclosure | Meta describes an optional post-level boolean and excludes carousel children. The generated English package requires true. New revisions display and hash that declaration before approval. Pre-disclosure revisions remain inspectable and require fresh preparation and review before delivery. The candidate sends the field only on the parent and requires true on the parent media readback. [Media creation](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media) · [Media fields](https://developers.facebook.com/documentation/instagram-platform/reference/instagram-media) | Verify both fields on the pinned version, and the visible AI label. An absent or contradictory readback after the final request retains the returned media ID for investigation and leaves publication uncertain. |
+| Status and errors | POST `/{ig-user}/media` for each child and parent, GET `/{container}?fields=id,status_code`, then POST `/{ig-user}/media_publish` with the parent creation ID. Only a matching ID and `FINISHED` advance staging. `IN_PROGRESS` permits bounded polling. `PUBLISHED`, `ERROR`, `EXPIRED`, and unknown or mismatched results stop staging. Containers expire after 24 hours. [Publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing) · [Container reference](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-container) | Verify status responses, errors and the point at which Meta stops fetching bytes. A status or elapsed time alone cannot release a real object. A lost create response leaves a durable intent. A lost final response never authorizes another publish. |
+| Publication quota | The guide describes 100 posts per rolling day and counts a carousel once. The limit reference describes 50 and documents `quota_usage` and `config`; its example requests `rate_limit_settings`. The candidate requires one complete observation with a positive available dynamic limit and an 86,400-second window. [Publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing) · [Publishing limit](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/content_publishing_limit) | Establish the selected account's fields, limit and usage. A missing, paginated, ambiguous or exhausted response blocks preflight. |
+| Container quota | Meta documents 400 container creations per account per rolling day. A 4/5/6-slide attempt budgets 5/6/7 creates even if some replies are lost. Publication usage measures published posts. [Media limitations](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media) | No authoritative account-wide creation-usage reader was established. Only an isolated fixture supplies independent same-account/version/window usage and parent/child field capabilities. Live capacity remains unknown. |
 
-Prior review recorded these sources on 2026-11-17; they were not contacted during
-Checkpoint 1. The [Instagram publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing)
-selects Instagram Login, `graph.instagram.com`, Instagram User tokens,
-`instagram_business_basic` and `instagram_business_content_publish`. The older
-[Meta changelog](https://developers.facebook.com/docs/instagram/platform/instagram-api/changelog/)
-uses `instagram_business_content_publishing`; do not request a guessed union.
-The guide contains conflicting 50/100 quotas and recommends bounded status reads
-at most once per minute. The [media endpoint](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media)
-describes carousel-item alt text, container lifetime and creation limits. The
-[version table](https://developers.facebook.com/docs/graph-api/changelog/versions/)
-and v27 examples do not establish the candidate v26 contract. These are unresolved
-verification inputs, not production evidence. Assess R2 storage/egress pricing
-before any separately authorized live integration.
+The fixture receipt verifies the accepted parent media ID, owner, carousel type,
+caption, child count and the declared AI field for new revisions. JPEG bytes,
+ordinal-to-published-child mapping, alt text, displayed labels and object-source
+independence need separate evidence. Orphan investigation requires an ID-bound
+status response. Previously recorded status-only investigations require a fresh
+check before release. Conditional R2 operations and consistency remain unverified.
+All live registries stay empty.

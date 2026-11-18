@@ -6,6 +6,7 @@ never authenticated evidence. No live contract is verified in this checkpoint.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from hashlib import sha256
@@ -21,13 +22,16 @@ from weakref import WeakSet
 from common.timestamps import parse_timestamp, serialize_timestamp, utc_datetime_now
 from .delivery import CredentialedPostingAgent, DeliveryConfigurationError, DeliveryError, R2TransientRelay
 from .instagram_http import InstagramHTTPTransport
-from .instagram_protocol import OfflineInstagramProtocol
+from .instagram_protocol import OfflineInstagramProtocol, container_status
 from .instagram_readiness import InstagramLoginConfiguration, PERMISSIONS, ScopedToken, VERSION
 from .offline import require_offline, is_offline
 from .store import canonical, digest, now
 
 MAX_EXECUTION_SECONDS = 45 * 60
 HEARTBEAT_SECONDS = 30
+START_WINDOW_SECONDS = 120
+ROLLING_DAY = 86400
+CONTAINER_CEILING = 400
 
 ADAPTER_VERSION = "instagram_login_v1"
 CONTRACT_REF = "instagram_login_candidate_v1"
@@ -36,6 +40,7 @@ CONTRACT_REF = "instagram_login_candidate_v1"
 # introducing a live contract. Configuration JSON cannot add entries to this registry.
 VERIFIED_LIVE_CONTRACTS: frozenset[str] = frozenset()
 _PROOFS: WeakSet = WeakSet()
+_ISSUING = ContextVar('instagram_preflight_being_persisted', default=None)
 _ACTIVATIONS: WeakSet = WeakSet()
 _CREDENTIAL_KEY = secrets.token_bytes(32)
 
@@ -121,6 +126,7 @@ class PreflightResult:
     quota_used: int
     quota_total: int
     quota_window_seconds: int
+    container_usage: int
     credential_generation: int
     provenance: str
     evidence_id: str
@@ -129,12 +135,15 @@ class PreflightResult:
     def facts(self):
         value = asdict(self)
         del value['_token_binding']
+        value['carousel_contract'] = 'instagram_carousel_offline_v1'
         return value
 
 
-def validate_proof(proof, row, *, moment=None, allow_expired=False):
+def validate_proof(proof, row, *, moment=None, allow_expired=False, for_persistence=False):
     if type(proof) is not PreflightResult or proof not in _PROOFS:
         raise DeliveryConfigurationError("readiness requires an issued preflight result")
+    if for_persistence and _ISSUING.get() is not proof:
+        raise DeliveryConfigurationError('only a new preflight may replace stored readiness')
     if proof.provenance == 'offline':
         require_offline()
     else:
@@ -156,19 +165,20 @@ class InstagramComposition:
     agent which still requires its explicit run_once(). Live construction is blocked.
     """
     def __init__(self, store, destination_id: int, *, credentials=None, wire=None,
-                 token_validity: TokenValidityReader | None = None,
+                 token_validity: TokenValidityReader | None = None, offline_carousel_evidence=None,
                  objects=None, media_transport=None, relay_config=None, clock=utc_datetime_now,
                  monotonic=time.monotonic, sleep=time.sleep):
         self.store, self.destination_id, self.clock = store, destination_id, clock
         self.monotonic, self.sleep = monotonic, sleep
         row, self.config = _destination(store, destination_id)
-        self._offline = any(x is not None for x in (wire, token_validity, objects, media_transport))
+        self._offline = any(x is not None for x in (wire, token_validity, offline_carousel_evidence, objects, media_transport))
         if self._offline:
             require_offline()
-            if any(x is None for x in (wire, token_validity, objects, media_transport)):
+            if any(x is None for x in (wire, token_validity, offline_carousel_evidence, objects, media_transport)):
                 raise DeliveryConfigurationError("offline composition requires all HTTP/token/storage fakes")
         elif row['config']['contract_ref'] not in VERIFIED_LIVE_CONTRACTS:
             raise DeliveryConfigurationError("live Instagram contract/version/token preflight is unverified")
+        self._offline_carousel_evidence = offline_carousel_evidence
         self.credentials = credentials or EnvironmentCredentials()
         self._wire, self._token_validity = wire, token_validity
         self._objects, self._media_transport, self._relay_config = objects, media_transport, relay_config
@@ -202,6 +212,20 @@ class InstagramComposition:
             # Partial/paginated grants cannot establish completeness.
             if grants.get('paging'):
                 raise ValueError()
+            if quota.get('paging') or not isinstance(quota['data'], list):
+                raise ValueError()
+            # No documented account-wide creation-usage endpoint was established.
+            # Only the isolated simulator supplies this separate capability observation.
+            check()
+            require_offline()
+            capabilities = self._offline_carousel_evidence(config)
+            container_usage = capabilities['containers_created']
+            if (capabilities['account_id'] != config.account_id or capabilities['api_version'] != config.api_version
+                    or type(capabilities['window_seconds']) is not int or capabilities['window_seconds'] != ROLLING_DAY
+                    or not started.replace(microsecond=0) <= parse_timestamp(capabilities['observed_at']) <= self.clock()
+                    or capabilities['parent_ai_disclosure'] is not True or capabilities['child_alt_text'] is not True
+                    or type(container_usage) is not int or not 0 <= container_usage < CONTAINER_CEILING):
+                raise ValueError()
             quota_data, = quota['data']
             used, total, window = quota_data['quota_usage'], quota_data['config']['quota_total'], quota_data['config']['quota_duration']
             token_until = parse_timestamp(validity['expires_at'])
@@ -212,19 +236,23 @@ class InstagramComposition:
                     or identity['user_id'] != config.account_id or identity['account_type'] not in {'BUSINESS', 'CREATOR'}
                     or permissions != PERMISSIONS or token_until <= current
                     or any(type(x) is not int for x in (used, total, window))
-                    or used < 0 or total <= used or not 1 <= window <= 86400
+                    or used < 0 or total <= used or window != ROLLING_DAY
                     or not started <= current <= started + timedelta(seconds=60)):
                 raise ValueError()
             expires = min(started + timedelta(minutes=5), token_until)
             proof = PreflightResult(self.destination_id, digest(row), config.account_id, row['config']['app_id'],
                 config.login_mode, config.api_version, identity['account_type'], tuple(sorted(permissions)),
                 serialize_timestamp(started), serialize_timestamp(expires), serialize_timestamp(token_until),
-                used, total, window, row['config']['credential_generation'],
+                used, total, window, container_usage, row['config']['credential_generation'],
                 'offline' if self._offline else 'authenticated', secrets.token_hex(16), _token_binding(token))
             check()
             _PROOFS.add(proof)
-            self.store.record_destination_readiness(self.destination_id, status='ready', reasons=[],
-                facts=proof.facts(), valid_for=expires - utc_datetime_now(), preflight=proof)
+            issuing = _ISSUING.set(proof)
+            try:
+                self.store.record_destination_readiness(self.destination_id, status='ready', reasons=[],
+                    facts=proof.facts(), valid_for=expires - utc_datetime_now(), preflight=proof)
+            finally:
+                _ISSUING.reset(issuing)
             return proof
         except Exception:
             # A failed refresh revokes old readiness; never retain exception/provider text.
@@ -247,6 +275,24 @@ class InstagramComposition:
             raise DeliveryConfigurationError("preflight evidence was revoked or replaced")
         return row, config
 
+    def _check_capacity(self, proof, *, new_posts=0, new_containers=0):
+        # Every activation reserves all children and its parent, even on a lost
+        # create or crash. Keep reservations through the last possible dispatch
+        # plus the provider window. Count across releases/aliases of one IG ID.
+        horizon = timedelta(seconds=ROLLING_DAY + START_WINDOW_SECONDS + MAX_EXECUTION_SECONDS)
+        since = serialize_timestamp(self.clock() - horizon)
+        posts, containers = self.store.connection.execute(
+            "SELECT COUNT(*), COALESCE(SUM(1 + json_array_length(r.manifest_json, '$.assets')), 0) "
+            "FROM human_command_receipts h JOIN post_records p ON p.post_record_id=h.result_record_id "
+            "JOIN post_requests q USING(post_request_id) JOIN review_requests v USING(review_request_id) "
+            "JOIN delivery_revisions r USING(delivery_revision_id) "
+            "WHERE h.command_kind='instagram_run_activate' AND h.created_at>=? "
+            "AND json_extract(r.lineage_json, '$.provider_account_id')=?", (since, proof.account_id)).fetchone()
+        if proof.quota_used + posts + new_posts > proof.quota_total:
+            raise DeliveryConfigurationError("Instagram publishing quota is exhausted or reserved")
+        if proof.container_usage + containers + new_containers > CONTAINER_CEILING:
+            raise DeliveryConfigurationError("Instagram container quota is exhausted or reserved")
+
     def activate(self, proof, *, post_record_id: int, command_id: str, confirm: bool = False):
         """Reserve quota and authorize one exact pending post, never start it."""
         if confirm is not True or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', command_id):
@@ -257,20 +303,12 @@ class InstagramComposition:
             if (context['social_destination_id'] != self.destination_id or context['post_status'] != 'pending'
                     or context['delivery_revision_id'] is None):
                 raise DeliveryConfigurationError("run activation requires this destination's exact pending JPEG post")
-            # Reservations are conservative and survive crashes/restarts. No automatic
-            # release or reuse; count the whole provider window, including newer snapshots.
-            since = serialize_timestamp(self.clock() - timedelta(seconds=proof.quota_window_seconds))
-            reserved = self.store.connection.execute(
-                "SELECT COUNT(*) FROM human_command_receipts h JOIN post_records p ON p.post_record_id=h.result_record_id "
-                "JOIN post_requests q ON q.post_request_id=p.post_request_id WHERE h.command_kind='instagram_run_activate' "
-                "AND q.destination_key=? AND h.created_at>=?", (context['destination_key'], since)).fetchone()[0]
-            if proof.quota_used + reserved >= proof.quota_total:
-                raise DeliveryConfigurationError("Instagram quota is exhausted or reserved")
+            self._check_capacity(proof, new_posts=1, new_containers=len(context['assets']) + 1)
             if self.store.connection.execute(
                     "SELECT 1 FROM human_command_receipts WHERE command_kind='instagram_run_activate' AND result_record_id=?",
                     (post_record_id,)).fetchone():
                 raise DeliveryConfigurationError("post already has a run activation; automatic reactivation refused")
-            expiry = min(parse_timestamp(proof.valid_until), self.clock() + timedelta(minutes=2))
+            expiry = min(parse_timestamp(proof.valid_until), self.clock() + timedelta(seconds=START_WINDOW_SECONDS))
             binding = digest({'proof': proof.facts(), 'post': post_record_id,
                               'package': context['package_hash'], 'manifest': context['manifest_hash'],
                               'expires_at': serialize_timestamp(expiry)})
@@ -278,7 +316,7 @@ class InstagramComposition:
                 "INSERT INTO human_command_receipts(command_id,command_kind,actor_id,payload_hash,result_record_id,created_at) "
                 "VALUES (?,'instagram_run_activate','local_owner',?,?,?)", (command_id, binding, post_record_id, now()))
         activation = RunActivation(command_id, post_record_id, binding, serialize_timestamp(expiry),
-                                   self.monotonic() + 120, proof, self)
+                                   self.monotonic() + START_WINDOW_SECONDS, proof, self)
         _ACTIVATIONS.add(activation)
         return activation
 
@@ -378,6 +416,7 @@ class _ActivatedAdapter:
             if (proof.configuration_hash != self.activation.proof.configuration_hash
                     or not hmac.compare_digest(proof._token_binding, self.activation.proof._token_binding)):
                 raise DeliveryConfigurationError('readiness refresh changed the authorized identity')
+            c._check_capacity(proof)
             self._proof = proof
         c._check(self._proof)
         c.store.renew_post_execution(self._context)
@@ -439,9 +478,12 @@ class _ActivatedAdapter:
         while c.monotonic() < until:
             self._guard()
             before = c.monotonic()
-            c.sleep(min(HEARTBEAT_SECONDS, until - before))
-            if c.monotonic() <= before:
-                raise DeliveryConfigurationError('polling clock did not advance')
+            interval = min(HEARTBEAT_SECONDS, until - before)
+            if interval <= 0:
+                break
+            c.sleep(interval)
+            if c.monotonic() < before + interval:
+                raise DeliveryConfigurationError('polling wait ended early')
         self._guard()
 
     def request(self, method, path, body):
@@ -515,10 +557,8 @@ class _ReceiptReconciler:
             # Container IDs are NOT published-media IDs. Even PUBLISHED is not a
             # reliable mapping to a media ID; never synthesize one or list-match.
             for container in [expected['parent_id'], *expected['child_container_ids']]:
-                result = read(client, '/' + container, 'status_code')
-                status = result.get('status_code')
-                if status not in {'FINISHED', 'IN_PROGRESS', 'PUBLISHED', 'ERROR', 'EXPIRED'}:
-                    status = 'UNAVAILABLE'
+                result = read(client, '/' + container, 'id,status_code')
+                status = container_status(result, container)
                 observations.append({'container_id': container, 'status': status})
             return 'ambiguous', {'classification': 'outcome_uncertain', 'binding': expected['binding'],
                 'containers': observations, 'detail': 'No reliable published-media ID mapping; container status cannot prove media identity or absence.'}, None
@@ -542,7 +582,8 @@ def validate_persisted_readiness(store, destination_id):
     if row is None or json.loads(row['config_json']).get('adapter_version') != ADAPTER_VERSION:
         return  # Preserved unimplemented/isolated simulation paths cannot compose a live adapter.
     facts = json.loads(row['facts_json'])
-    if facts.get('provenance') == 'offline' and is_offline():
+    if (facts.get('provenance') == 'offline' and is_offline()
+            and facts.get('carousel_contract') == 'instagram_carousel_offline_v1'):
         return
     raise ValueError('trusted authenticated Instagram readiness is unavailable')
 

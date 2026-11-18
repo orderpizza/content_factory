@@ -139,6 +139,10 @@ class InstagramHTTPTransport:
                 k.casefold() in {"access_token", "input_token", "authorization", "appsecret_proof"} for k in body)
                 or any(type(v) not in {str, int, bool} for v in body.values())):
             raise DeliveryConfigurationError("invalid Instagram request parameters")
+        if "is_ai_generated" in body or body.get("media_type") == "CAROUSEL":
+            if (method != "POST" or not path.endswith("/media") or body.get("media_type") != "CAROUSEL"
+                    or "is_carousel_item" in body or body.get("is_ai_generated") is not True):
+                raise DeliveryConfigurationError("reviewed AI disclosure is required on the carousel parent only")
         if any(self._token.value in str(value) for pair in body.items() for value in pair):
             raise DeliveryConfigurationError("credential is forbidden in request parameters")
         encoded = urlencode({k: str(v).lower() if type(v) is bool else v for k, v in body.items()}).encode()

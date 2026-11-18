@@ -53,7 +53,7 @@ class FakeTransport:
         if self.fail_at == len(self.calls):
             raise TimeoutError("secret-token and https://secret.example")
         if method == "GET":
-            return {"status_code": self.status}
+            return {"id": path[1:], "status_code": self.status}
         self.next_id += 1
         return {"id": str(self.next_id)}
 
@@ -69,7 +69,7 @@ def fixture(tmp_path, count):
                        "sha256": sha256(data).hexdigest(), "alt_text": alt})
     context = {"platform": "instagram", "provider_account_id": "123", "delivery_revision_id": 1,
                "post_attempt_id": 1, "post_record_id": 2, "attempt_number": 1, "assets": assets,
-               "package": {"caption": "Exact caption", "image_alt_text": descriptions}}
+               "package": {"is_ai_generated": True, "caption": "Exact caption", "image_alt_text": descriptions}}
     objects, transport = FakeObjects(), FakeTransport()
     relay = R2TransientRelay({"r2_bucket_name": "test", "r2_account_id": "test",
                               "r2_public_domain": "https://example.invalid"},
@@ -92,7 +92,7 @@ def test_order_exact_bytes_alt_and_receipt(tmp_path, count):
     creates = [body for method, path, body in transport.calls if method == "POST" and path.endswith("/media")]
     assert [c["alt_text"] for c in creates[:-1]] == context["package"]["image_alt_text"]
     assert creates[-1] == {"media_type": "CAROUSEL", "children": ",".join(str(i) for i in range(101, 101 + count)),
-                           "caption": "Exact caption"}
+                           "caption": "Exact caption", "is_ai_generated": True}
     assert [objects.objects[c["image_url"].split("example.invalid/", 1)[1]][0] for c in creates[:-1]] == [
         Path(a["path"]).read_bytes() for a in context["assets"]]
     assert staged["parent"] == str(101 + count) and receipt == str(102 + count)
@@ -145,7 +145,7 @@ def test_readiness_admission_latency_cannot_compress_poll_intervals(tmp_path):
             clock.advance(30)  # Read-only readiness refresh before first dispatch.
         starts.append(clock.monotonic())
         clock.advance(3)
-        return {'status_code': 'FINISHED' if len(starts) == 2 else 'IN_PROGRESS'}
+        return {'id': path[1:], 'status_code': 'FINISHED' if len(starts) == 2 else 'IN_PROGRESS'}
     transport.request = request
     protocol.sleep, protocol.monotonic = clock.sleep, clock.monotonic
     protocol._ready('123')
@@ -180,3 +180,42 @@ def test_lost_publish_reply_makes_one_request_and_redacts(tmp_path):
         protocol.publish(context, staged)
     assert "secret" not in str(caught.value)
     assert sum(path.endswith("media_publish") for _, path, _ in transport.calls) == 1
+
+
+@pytest.mark.parametrize("value", [None, False, 1, "true"])
+def test_unreviewed_disclosure_stops_before_any_side_effect(tmp_path, value):
+    context, objects, transport, records, record, protocol = fixture(tmp_path, 4)
+    if value is None:
+        del context["package"]["is_ai_generated"]
+    else:
+        context["package"]["is_ai_generated"] = value
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert not records and not objects.objects and not transport.calls
+
+
+@pytest.mark.parametrize("duplicate_at", [2, 5])
+def test_duplicate_container_identity_holds_last_create_intent(tmp_path, duplicate_at):
+    context, _, transport, records, record, protocol = fixture(tmp_path, 4)
+    original = transport.request
+
+    def repeated_id(method, path, body):
+        result = original(method, path, body)
+        if method == "POST" and transport.next_id == 100 + duplicate_at:
+            return {"id": "101"}
+        return result
+
+    transport.request = repeated_id
+    with pytest.raises(DeliveryError, match="ambiguous"):
+        protocol.stage(context, record)
+    assert records[-1]["resource_type"] == "instagram_create_intent"
+    assert all(not path.endswith("/media_publish") for _, path, _ in transport.calls)
+
+
+@pytest.mark.parametrize("caption", ["x" * 2201, "#example " * 31, "@person " * 21])
+def test_overlimit_caption_refused_without_truncation(tmp_path, caption):
+    context, objects, transport, records, record, protocol = fixture(tmp_path, 4)
+    context["package"]["caption"] = caption
+    with pytest.raises(DeliveryError):
+        protocol.stage(context, record)
+    assert not records and not objects.objects and not transport.calls

@@ -74,6 +74,11 @@ def context(store, post_id, attempt_id=None):
     row.update(parent_id=media_id(parents[0]), child_container_ids=[media_id(x) for x in children],
                caption_hash=digest(package['caption']), slide_count=len(children),
                configuration_hash=digest(config), api_version=config['api_version'])
+    # Preserve historical acceptance bindings for revisions prepared before C4.
+    if 'is_ai_generated' in package:
+        if package['is_ai_generated'] is not True:
+            raise ValueError('invalid reviewed disclosure')
+        row['is_ai_generated'] = True
     row['binding'] = digest(row)
     return row
 
@@ -121,8 +126,12 @@ def verify(transport, expected, external_id, *, clock, before_request):
     """One bounded GET, exact ID/owner and observable metadata, no list inference."""
     require_offline()
     before_request()
-    response = transport.request('GET', '/' + media_id(external_id),
-                                 {'fields': 'id,owner,media_type,caption,children{id}'})
+    fields = 'id,owner,media_type,caption,children{id}'
+    verified = ['media_id', 'owner_id', 'media_type', 'caption', 'child_count']
+    if expected.get('is_ai_generated') is True:
+        fields += ',is_ai_generated'
+        verified.append('is_ai_generated')
+    response = transport.request('GET', '/' + media_id(external_id), {'fields': fields})
     before_request()
     try:
         children = response['children']
@@ -130,14 +139,15 @@ def verify(transport, expected, external_id, *, clock, before_request):
         if (response['id'] != external_id or response['owner']['id'] != expected['provider_account_id']
                 or response['media_type'] != 'CAROUSEL_ALBUM' or digest(response['caption']) != expected['caption_hash']
                 or children.get('paging') or len(ids) != expected['slide_count'] or len(set(ids)) != len(ids)
-                or external_id in ids):
+                or external_id in ids
+                or ('is_ai_generated' in expected and response.get('is_ai_generated') is not True)):
             raise ValueError()
     except (KeyError, TypeError, ValueError):
         raise DeliveryError('receipt_identity', 'published-media identity or reviewed metadata is inconsistent', False, 'instagram') from None
     facts = dict(expected, classification='identity_verified', media_id=external_id, child_media_ids=ids,
                  provenance='offline', contract=CONTRACT, observed_at=serialize_timestamp(clock()),
-                 verified_fields=['media_id', 'owner_id', 'media_type', 'caption', 'child_count'],
-                 unverified_fields=['jpeg_bytes', 'child_order_to_reviewed_assets', 'alt_text'])
+                 verified_fields=verified,
+                 unverified_fields=['jpeg_bytes', 'child_order_to_reviewed_assets', 'alt_text', 'visible_ai_label'])
     proof = VerifiedReceipt(canonical(facts))
     _ISSUED.add(proof)
     return proof

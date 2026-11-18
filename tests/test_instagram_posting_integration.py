@@ -86,6 +86,8 @@ def test_real_revision_state_machine_and_no_replay(source, failure):
             assert len(children) == len(manifest['assets'])
             assert [child['alt_text'] for child in children] == package['image_alt_text']
             assert all(child['is_carousel_item'] == 'true' for child in children)
+            assert package['is_ai_generated'] is True and parent['is_ai_generated'] == 'true'
+            assert all('is_ai_generated' not in child and 'caption' not in child for child in children)
             assert parent['caption'] == package['caption']
             assert parent['children'] == ','.join(str(101 + i) for i in range(len(children)))
             from pathlib import Path
@@ -275,7 +277,8 @@ def test_quota_reservation_survives_new_preflight_and_restart(source):
         assert not http.protocol.calls and not objects.objects
 
 
-def test_concurrent_posts_share_one_atomic_quota_reservation(source):
+@pytest.mark.parametrize('quota', ['publish', 'create'])
+def test_concurrent_posts_share_one_atomic_quota_reservation(source, quota):
     from concurrent.futures import ThreadPoolExecutor
     from contextvars import copy_context
     from threading import Barrier
@@ -292,7 +295,10 @@ def test_concurrent_posts_share_one_atomic_quota_reservation(source):
         accept(store, review, command_id='second-approve')
         second = store.authorize_post_now(review, command_id='second-post', **command(store, review))
         factory, _, http = composition(store)
-        http.quota['data'][0]['config']['quota_total'] = 1
+        if quota == 'publish':
+            http.quota['data'][0]['config']['quota_total'] = 1
+        else:
+            http.carousel['containers_created'] = 400 - len(manifest['assets']) - 1
         proof = factory.preflight()
     barrier = Barrier(2)
     def activate(post):

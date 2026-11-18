@@ -63,6 +63,9 @@ def test_response_bounds_versions_and_errors(config, reply, category):
 
 
 @pytest.mark.parametrize('method,path,body', [
+    ('POST', '/123456/media', {'is_carousel_item': True, 'is_ai_generated': True}),
+    ('POST', '/123456/media', {'media_type': 'CAROUSEL'}),
+    ('POST', '/123456/media_publish', {'creation_id': '123', 'is_ai_generated': True}),
     ('POST', '/999/media', {}), ('GET', '//evil.invalid', {}), ('GET', '/me?access_token=x', {}),
     ('GET', 'https://evil.invalid/me', {}), ('PUT', '/123456/media', {}), ('POST', '/me', {}),
     ('GET', '/123456/media', {}), ('GET', '/me', {'access_token': 'secret'}),

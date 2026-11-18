@@ -217,16 +217,20 @@ The owner handoff, for a later separately authorized integration, is:
    send. Existing/consumed activations cannot automatically resume.
 4. Only with separate permission, run read-only preflight. It must prove account,
    app, login mode, grants, valid token, selected version and available dynamic
-   quota. Failures revoke older evidence; no fake results may become real readiness.
-5. Verify the receipt/ownership and source-retention contracts, then complete protocol-fidelity work,
-   including alt/AI-label behavior. Obtain separate authorization for an eventual
+   publishing quota and independent account-wide creation capacity. Failures revoke older evidence; no fake results may become real readiness.
+5. Verify the receipt/ownership and source-retention contracts, displayed child alt text,
+   ordered crop and the AI label on the published carousel parent. Obtain separate authorization for an eventual
    controlled test publication: persistent enabled configuration, exact JPEG
    approval, Post now, one-post run approval, then explicit execution. Providing a
    credential or passing preflight grants none of those publishing approvals.
 
 No Meta, R2 or paid Gemini operation belongs to this checkpoint. Checkpoint 3 adds
 an offline-only source-retention/release policy; live semantics remain blocked.
-Do not deploy a delivery LaunchAgent or automatic poller.
+Each newly prepared JPEG review displays its required parent AI disclosure. An
+older revision missing the disclosure needs a new preparation command, a new output
+directory and fresh review. Existing authorizations still enforce duplicate
+protection. The [Checkpoint 4 evidence](specs/posting.md#checkpoint-4-instagram-login-evidence)
+records the external gates. Do not deploy a delivery LaunchAgent or automatic poller.
 
 ## Staging investigation and release
 

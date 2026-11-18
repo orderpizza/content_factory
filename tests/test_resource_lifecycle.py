@@ -404,3 +404,14 @@ def test_registered_cleanup_cannot_downgrade_or_complete_changed_evidence(source
             factory.cleanup_worker().run_once()
         assert not store.connection.execute("SELECT 1 FROM delivery_cleanup_tasks WHERE status='succeeded'").fetchone()
         assert not store.connection.execute("SELECT 1 FROM publication_resources WHERE resource_type='r2_object' AND status='cleaned'").fetchone()
+
+
+def test_expired_status_for_another_id_cannot_release_sources(source):
+    path, root, png = source
+    with WorkflowStore(path) as store:
+        _, attempt, factory, objects, http = setup(store, root, png, mode='prefinal')
+        http.protocol.request = lambda *args: {'id': '999', 'status_code': 'EXPIRED'}
+        report = investigate(factory, attempt, http)
+        assert all(item['status'] == 'UNAVAILABLE' for item in report['investigation']['containers'])
+        assert all(item['eligibility'] == 'retain' for item in report['objects'])
+        assert schedule_safe(store, attempt) == [] and objects.objects
