@@ -28,7 +28,9 @@ editorial capabilities, not evidence of market demand or three operating account
 ## MVP measures
 
 Before a pilot, agree a time window, baseline and numeric targets for one account.
-No production outcome has been established by the review-only pipeline.
+No production outcome has been established by the review and offline delivery pipeline.
+The [offline measurement foundation](specs/measurement.md) now reports evidence
+and internal costs, but authenticated audience observations remain pending.
 
 | Outcome | Measure and decision |
 | --- | --- |

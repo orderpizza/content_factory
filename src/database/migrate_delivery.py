@@ -6,13 +6,17 @@ import sqlite3
 
 from common.timestamps import utc_now
 from content_factory_resources import contract_path
-from .current import (CONTRACT_PATH, SCHEMA_NAME, V18_CHECKSUM, SchemaError,
-                      connect, contract_checksum, validate_database)
+from .current import SCHEMA_NAME, V18_CHECKSUM, V19_CHECKSUM, SchemaError, connect
+from .migrate_measurement import v19_sql, validate_v19 as validate_database
+
+
+def contract_checksum():
+    return V19_CHECKSUM
 
 
 def _legacy_sql():
     delta = contract_path("migration-18-19.sql").read_text()
-    current = CONTRACT_PATH.read_text()
+    current = v19_sql()
     if not current.endswith("\n" + delta):
         raise SchemaError("migration and fresh contract differ")
     legacy = current[:-len(delta)-1].replace("PRAGMA user_version = 19;", "PRAGMA user_version = 18;", 1)

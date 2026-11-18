@@ -131,7 +131,7 @@ class TransportReliabilityTests(unittest.TestCase):
                                      "GEMINI_API_VERSION": "v1", "GEMINI_TEXT_TIMEOUT_SECONDS": "180",
                                      "GOOGLE_CLOUD_PROJECT": "do-not-record"}, clear=True):
             value = runtime_fingerprint()
-        self.assertEqual(value["database_schema_version"], 19)
+        self.assertEqual(value["database_schema_version"], 20)
         self.assertEqual(value["text_model"], "gemini-3.7-flash")
         self.assertEqual(value["vertex_location"], "global")
         self.assertEqual(value["api_version"], "v1")

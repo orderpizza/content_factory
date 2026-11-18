@@ -12,8 +12,10 @@ no live publication, model quality, learner outcomes or revenue.
 | 2B0 — acceptance safety (done) | Per-attempt provider caps and truthful failure/cost accounting. | Offline safeguards retained; paid calibration remains deferred. |
 | 3A — offline Instagram readiness | Deterministic unapproved JPEG candidates; isolated explicit review/Post now rehearsal through existing posting, relay, cleanup and reconciliation contracts; read-only evidence. | Offline tests and docs pass, exact-asset approval is preserved, and PR receives ChatGPT architectural review. No production DB migration, live adapter, upload or public send. |
 | 3B1 — exact JPEG review and authorization | Append-only delivery revisions, independent human approval, separate Post now, explicit v18→v19 offline migration and local report/CLI. | Offline regression and migration/recovery checks pass; hold PR for ChatGPT architectural review. No provider calls or publication. |
-| 3B2 — provider foundation (in progress; live activation separately authorized) | One professional Instagram account, versioned capability/preflight, credentials and exact-byte R2 staging, container/publish/receipt adapter. | Consume the Phase 3B1 immutable delivery context and separate exact-JPEG approval; validate account/scopes/version, quota and reconciliation with a narrowly authorized pilot. Unknown sends never auto-retry. |
-| 4 — receipts, insights and operating feedback | Durable receipt attribution, platform insights provenance, model/operator/delivery costs and outcome reporting. | Agreed observation windows and missing-data semantics; real evidence reconciled without claiming engagement is revenue. |
+| 3B2 — offline provider foundation (merged, PR #12) | Disabled-by-default adapter, bounded preflight/run authorization, acceptance and verified offline receipt evidence, conservative reconciliation and safe resource management. | Offline foundation merged. Real account identity, permissions, media/owner/readback semantics and R2 behavior remain unverified. |
+| 3B live verification/activation — pending | Separately authorized account/login/version/quota and narrowly bounded delivery/resource tests. | Explicit owner approval, finite external-call/billing plan and independently verified provider contracts; no unattended publishing. |
+| 4A — offline measurement foundation (implemented; architectural review requested) | Immutable observations, synthetic/manual provenance, correction history, cost attribution and read-only operator report; explicit v19→v20 migration. | Full offline suite and documentation checks; ChatGPT architectural review before merge. No real insights or profitability claim. |
+| 4B — real read-only insights connector (pending) | Verified versioned metrics, authenticated account/media identity, read-only collector and agreed KPI windows. | Separate owner approval for external calls, tested permissions/expiry/version semantics, exact metric denominators and missing-data behavior. |
 | 5 — account-first expansion where justified | Account-specific identity, policy, credentials, history and budgets; other platforms only where useful. | Demonstrated one-account loop and isolated authorization/attribution tests before expansion. |
 | Final — English quality, visual refinement and paid calibration | Bounded Gemini samples and human teaching/design review; evidence-based prompt/layout corrections and economics calibration. | Separate authorization and finite budgets; unknown spend reconciled, quality and effort assessed by level/family, provisional targets agreed with owner. |
 
@@ -31,7 +33,7 @@ algorithms, archetypes and accepted baseline are preserved. Human approval of ea
 exact delivery artifact and caption/alt text remains mandatory even while design
 improvement is deferred. Synthetic review commands do not approve real content.
 
-Live validation requires separate authorization. Phase 3B2 must preserve the implemented separate delivery approval boundary and
+Live validation requires separate authorization. The pending integration must preserve the implemented separate delivery approval boundary and
 connect one selected
 login flow and one account under a finite test plan. Do not enable unattended
 publishing, schedule posts or expand providers as part of that connection.
@@ -70,7 +72,23 @@ Checkpoint 2 also received acceptance as an offline code-review checkpoint.
 Checkpoint 3 implements durable child/parent orphan investigation, conservative
 source-retention policy, separate exact-object release commands and bounded,
 conditional R2 cleanup. Its fake-provider restart/concurrency/failure coverage
-does not verify live ingestion or R2 semantics; architectural review is pending.
+does not verify live ingestion or R2 semantics. The offline foundation merged in PR #12.
 Container quota policy, detailed provider fidelity and AI-label behavior remain
-deferred. Do not merge or activate the broader Phase 3B2 work on offline evidence alone.
+deferred. The merge does not authorize live activation.
 English quality and design work remains last.
+
+## Phase 4A and remaining 4B gates
+
+The [measurement contract](specs/measurement.md) defines synthetic versus
+authenticated, human-estimated and uncollected evidence, immutable corrections,
+UTC windows, incomplete internal costs and retention. Operators can inspect JSON
+reports and source/receipt IDs without refreshing readiness or contacting providers.
+Missing metrics remain unknown and internal cost settlement is not an invoice.
+
+Phase 4B must verify the selected API/login version and each metric's availability,
+unit, scope, period, freshness, permission and suppression semantics; bind real
+media to authenticated receipt evidence; implement an issued read-only collector
+with safe pagination, rate limits, token expiry and idempotent corrections. Define
+agreed pilot baselines and same-window denominators before any audience claim.
+No metric can be promoted from synthetic by changing environment or configuration.
+English generation, visual refinement and paid calibration remain last.
