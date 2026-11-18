@@ -296,6 +296,20 @@ class InstagramComposition:
         self._check(proof)
         return PublicationReconciliationWorker(self.store, reconciler=_ReceiptReconciler(self, proof))
 
+    def investigate_orphans(self, proof, attempt_id):
+        from .resource_lifecycle import investigate
+        return investigate(self, proof, attempt_id)
+
+    def cleanup_worker(self):
+        from .delivery import R2CleanupWorker
+        def relay(config):
+            require_offline()
+            if (config['provider_account_id'] != self.config.account_id or config['destination_key'] != self.config.destination_key
+                    or any(config[k] != self._relay_config[k] for k in ('r2_bucket_name', 'r2_account_id', 'r2_public_domain'))):
+                raise DeliveryConfigurationError('cleanup composition differs from the released destination')
+            return R2TransientRelay(config, client=self._objects, transport=self._media_transport, monotonic=self.monotonic)
+        return R2CleanupWorker(self.store, relay_factory=relay)
+
 
 @dataclass(frozen=True, eq=False)
 class RunActivation:
@@ -408,7 +422,10 @@ class _ActivatedAdapter:
         if not hmac.compare_digest(_token_binding(token), a.proof._token_binding):
             raise DeliveryConfigurationError('credential changed during composition; fresh preflight required')
         self._client = InstagramHTTPTransport(config, token, verified_version=config.api_version, wire=c._wire)
-        relay = R2TransientRelay(c._relay_config, client=c._objects, transport=c._media_transport, before_io=self._guard)
+        relay = R2TransientRelay(c._relay_config, client=c._objects, transport=c._media_transport, before_io=self._guard,
+            monotonic=c.monotonic, io_timeout=lambda: min(20,
+                (parse_timestamp(self._deadline_at) - c.clock()).total_seconds(),
+                MAX_EXECUTION_SECONDS - (c.monotonic() - self._started_monotonic)))
         self._protocol = OfflineInstagramProtocol(self, relay, account_id=config.account_id,
                                                   sleep=self._wait, monotonic=c.monotonic)
         def guarded_record(**values):

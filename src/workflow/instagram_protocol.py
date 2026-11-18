@@ -93,14 +93,20 @@ class OfflineInstagramProtocol:
         children = []
         for asset, alt in zip(assets, descriptions):
             key = _r2_object_key(context, asset)
+            identity = self.relay.identity(context, asset, key) if context.get('destination_config', {}).get('adapter_version') == 'instagram_login_v1' else None
             resource = record(resource_type="r2_object", remote_id=key, asset_ordinal=asset["ordinal"],
-                              safe_metadata={"sha256": asset["sha256"], "retention": "manual_ingestion_safety"})
+                              safe_metadata={"sha256": asset["sha256"], "retention": "manual_ingestion_safety",
+                                             **({'identity': identity, 'lifecycle': 'r2_lifecycle_v1', 'provenance': 'offline'} if identity else {})})
             _, url = self.relay.stage(context, asset, key=key)
             record(resource_id=resource, status="ready")
+            if identity:
+                record(resource_type='r2_staged', remote_id=key, asset_ordinal=asset['ordinal'],
+                       safe_metadata={'identity': identity, 'completed_io': True})
             # This intent is evidence of a potentially accepted create, even if
             # the reply or subsequent persistence is lost. It is not a child ID.
             record(resource_type="instagram_create_intent", remote_id=f"child:{asset['ordinal']}",
-                   asset_ordinal=asset["ordinal"], safe_metadata={"sha256": asset["sha256"]})
+                   asset_ordinal=asset["ordinal"], safe_metadata={"sha256": asset["sha256"],
+                       **({'r2_resource_id': resource, 'object_key': key} if identity else {})})
             child = _id(self._request("POST", f"/{self.account_id}/media", {
                 "image_url": url, "is_carousel_item": True, "alt_text": alt,
             }).get("id"))

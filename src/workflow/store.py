@@ -2728,9 +2728,25 @@ class WorkflowStore:
             )
             return reconciliation_request_id
 
+    def check_cleanup_claim(self, task: Any) -> None:
+        row = self.connection.execute(
+            "SELECT 1 FROM delivery_cleanup_tasks WHERE delivery_cleanup_task_id=? AND status='claimed' "
+            "AND claim_owner=? AND claim_version=? AND lease_expires_at>? AND object_key=? AND publication_resource_id=?",
+            (task['delivery_cleanup_task_id'], task['claim_owner'], task['claim_version'], now(), task['object_key'], task['publication_resource_id'])).fetchone()
+        if row is None:
+            raise RuntimeError('cleanup claim is stale or identity changed')
+
     def complete_cleanup(self, task: Any) -> int:
         moment = now()
         with self.transaction():
+            self.check_cleanup_claim(task)
+            resource = self.connection.execute(
+                'SELECT safe_metadata_json FROM publication_resources WHERE publication_resource_id=?',
+                (task['publication_resource_id'],)).fetchone()
+            if resource and json.loads(resource[0]).get('lifecycle') == 'r2_lifecycle_v1':
+                from .resource_lifecycle import _cleanup_guard_locked
+                _cleanup_guard_locked(self, task)
+
             result = self.connection.execute(
                 "UPDATE delivery_cleanup_tasks SET status='succeeded',completed_at=? "
                 "WHERE delivery_cleanup_task_id=? AND status='claimed' AND claim_owner=? AND claim_version=?",
@@ -2747,6 +2763,7 @@ class WorkflowStore:
     def fail_cleanup(self, task: Any, detail: str, *, retryable: bool) -> int:
         moment = now()
         with self.transaction():
+            self.check_cleanup_claim(task)
             retry = retryable and int(task["attempt_count"]) < int(task["attempt_limit"])
             status = "retry_wait" if retry else "failed"
             next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(minutes=5)) if retry else None

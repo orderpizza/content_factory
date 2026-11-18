@@ -244,3 +244,16 @@ The full suite still owns legacy delivery/idempotency/migration/review safeguard
 Passing it does not prove a supported live API version, authenticated account
 capabilities, real receipt attribution or safe cleanup timing. Those gates remain
 explicitly blocked/deferred in the [posting contract](specs/posting.md).
+
+
+`test_resource_lifecycle.py` exercises 4–6-slide orphan/source lifecycles through
+the actual composition and fake HTTP/storage. It covers lost child/parent IDs,
+crashes during/after staging, pending/unavailable/expired ingestion, verified versus
+uncertain final outcomes, retained objects across restarts, exact independent
+operator commands, command replay/staleness, concurrent release and cleanup,
+replaced objects, failed deletion, stale claims and abandoned investigation leases.
+Read-only reports/CLI and fake-evidence rejection outside the offline boundary are
+covered. `test_r2_transport.py` checks SDK retry/timeouts, host/replay refusal,
+disabled live contracts and supervised hard deadlines for stalled fake operations.
+No test establishes real source independence, R2 conditional semantics or safe live
+retention timing. All external providers remain disabled.

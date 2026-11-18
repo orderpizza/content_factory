@@ -38,6 +38,10 @@ def report(store, review_id, output):
     from workflow.instagram_receipts import receipt_summary
     evidence['publication_evidence'] = [dict(post_record_id=p['post_record_id'], **receipt_summary(store, p['post_record_id']))
                                        for p in evidence['post_requests']]
+    from workflow.resource_lifecycle import resource_report
+    from workflow.instagram_receipts import registered
+    evidence['staging_evidence'] = [resource_report(store, a[0]) for p in evidence['post_requests'] if registered(store, p['post_record_id'])
+        for a in store.connection.execute('SELECT post_attempt_id FROM post_attempts WHERE post_record_id=?', (p['post_record_id'],))]
     summary = {key: evidence[key] for key in ("review_id", "status", "row_version", "fingerprint",
                "account", "destination", "provider_account_id", "expires_at")}
     html = ['<!doctype html><html lang="en"><meta charset="utf-8">',
@@ -50,6 +54,9 @@ def report(store, review_id, output):
     if evidence['publication_evidence']:
         html += ['<h2>Publication receipt and reconciliation</h2><pre>'
                  + escape(json.dumps(evidence['publication_evidence'], ensure_ascii=False, indent=2)) + '</pre>']
+    if evidence['staging_evidence']:
+        html += ['<h2>Staging retention and orphan investigation</h2><pre>'
+                 + escape(json.dumps(evidence['staging_evidence'], ensure_ascii=False, indent=2)) + '</pre>']
     for asset in images:
         data = Path(asset["path"]).read_bytes()
         if sha256(data).hexdigest() != asset["sha256"]:

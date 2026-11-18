@@ -66,8 +66,11 @@ Only issued positive media/account evidence can confirm automatically; missing
 IDs and unavailable/inconsistent readbacks stay unknown. All evidence is offline;
 the selected live ownership/readback contract remains an explicit external gate.
 
-Checkpoint 3 retains orphan investigation, ingestion-safe retention/release,
-container quota policy and bounded R2 exchange lifecycle. Detailed provider fidelity
-and AI-label behavior remain deferred. Do not merge or activate the broader Phase
-3B2 work on offline Checkpoint 1/2 evidence alone.
+Checkpoint 2 also received acceptance as an offline code-review checkpoint.
+Checkpoint 3 implements durable child/parent orphan investigation, conservative
+source-retention policy, separate exact-object release commands and bounded,
+conditional R2 cleanup. Its fake-provider restart/concurrency/failure coverage
+does not verify live ingestion or R2 semantics; architectural review is pending.
+Container quota policy, detailed provider fidelity and AI-label behavior remain
+deferred. Do not merge or activate the broader Phase 3B2 work on offline evidence alone.
 English quality and design work remains last.

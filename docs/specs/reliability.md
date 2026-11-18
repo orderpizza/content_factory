@@ -32,6 +32,11 @@ File existence alone is never proof of a completed render or reviewed asset.
 final-send markers and reconciliation. Once a public request might have been
 sent, the result is published or unknown, never automatically retryable.
 Staging cleanup is separately audited and cannot undo a confirmed publication.
+Registered Instagram objects require independent exact-object release evidence;
+uncertain uploads, unidentified creates and unresolved ingestion remain retained.
+Conditional deletion and fenced completion protect replacements and competing
+workers. Neither TTL nor publication uncertainty alone authorizes cleanup. See the
+[staging lifecycle](posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle).
 Generic reconciliation requires human resolution. The registered Instagram
 factory adds bounded read-only investigation with offline-only receipt proofs;
 accepted IDs, verified account/media identity and unknown outcomes stay distinct.

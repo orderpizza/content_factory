@@ -61,9 +61,9 @@ class FakeHTTP:
         return HTTPReply(self.status, {'facebook-api-version': self.version, 'content-type': 'application/json'}, json.dumps(data).encode())
 
 
-def composition(store, *, http=None, credentials=None, clock=utc_datetime_now, **timing):
+def composition(store, *, http=None, objects=None, credentials=None, clock=utc_datetime_now, **timing):
     http = http or FakeHTTP()
-    objects = FakeObjects()
+    objects = objects or FakeObjects()
     destination_id = store.connection.execute('SELECT social_destination_id FROM social_destinations').fetchone()[0]
     factory = InstagramComposition(store, destination_id, wire=http, token_validity=http.token_validity,
         credentials=EnvironmentCredentials({'DELIVERY_TOKEN': 'fixture-secret'}) if credentials is None else credentials,

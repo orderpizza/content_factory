@@ -57,7 +57,10 @@ with fake HTTP/storage through production configuration. No live contract is
 verified and no send command or automatic delivery worker is enabled.
 Checkpoint 2 adds separately retained publish acceptance, identity-bound receipt
 proofs and conservative read-only reconciliation through that factory, still with
-offline provenance and unverified live media/owner semantics. External
+offline provenance and unverified live media/owner semantics. Checkpoint 3 adds
+durable orphan investigation, exact-object release authorization and fenced,
+conditional R2 cleanup, with bounded SDK exchanges. Source-independence evidence
+and conditional-storage semantics remain unverified live contracts. External
 delivery and R2 staging remain offline-only. The read-only Phase 3A exporter remains available; the Phase 3B1
 preparation command explicitly appends a separately reviewed delivery revision.
 [Posting](specs/posting.md) owns both boundaries and the future adapter contract.

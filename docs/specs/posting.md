@@ -21,7 +21,7 @@ the [offline owner CLI and report](../operations.md#exact-jpeg-delivery-review).
 | Final send | A fenced transaction rechecks live lease, thread, cancellation, expiry and readiness, then commits the final-send marker before calling `publish`. The registered Instagram adapter retains acceptance separately and requires issued media/account verification before automatic `published`. Failed or uncertain readback remains `publication_unknown`, never automatic retry. |
 | Recovery | Expired claims before the final marker can retry within limits. Recovery after it is conservative, including a crash between marker and actual send. Pre-final cancellation wins. |
 | Reconciliation | The registered factory supplies bounded read-only investigation of known media/container IDs. Only positive, identity-bound receipt evidence can confirm automatically; generic/unavailable lookup still hands uncertainty to a human. Human decisions remain distinct from API verification. None reposts automatically. |
-| Cleanup | Attempt resources and cleanup tasks remain separately durable. Cleanup can remove staged objects after success, failure, cancellation or uncertainty; it never reverses a publication or resolves its outcome. |
+| Cleanup | Attempt resources and cleanup tasks remain separately durable. Cleanup requires independent safe-release evidence for registered Instagram objects; it never reverses a publication or resolves its outcome. |
 
 The production catalog remains closed `production_configuration_v2`. It accepts
 `adapter_version=unimplemented` or the versioned, disabled-by-default Instagram
@@ -229,9 +229,9 @@ Future adapter sequence:
    intervention. Never turn it into permission to resend. Preserve unresolved
    receipt attribution even when publication itself is confirmed.
 6. Retain minimal diagnostic IDs, statuses, timestamps and hashes, redact bearer
-   tokens/signed URLs/raw responses, and schedule R2 cleanup independently. Before
-   live use, define ingestion-safe cleanup timing; the current generic queue can
-   clean immediately and the simulation does not establish real retention timing.
+   tokens/signed URLs/raw responses, and schedule R2 cleanup independently under
+   the Checkpoint 3 release policy below. Its offline source-independence contract
+   does not establish real ingestion safety or permit live deletion.
 
 Later insights must link the confirmed account/media ID to measurement name,
 API version, period/window, fetched-at timestamp and raw-response provenance/hash.
@@ -465,6 +465,94 @@ establish for the exact Instagram Login API version and approved account/app:
   claim is made by the current proof. Registration requires reviewed code and
   separately authorized account verification, not a configuration flag or fake.
 
+### Checkpoint 3: orphan investigation and staging lifecycle
+
+`resource_lifecycle.py` is composed through `InstagramComposition.investigate_orphans()`
+and `cleanup_worker()`, using existing resource, command and cleanup records.
+The read-only JPEG report and staging report distinguish committed creates with
+unknown responses, known child/parent IDs, pending ingestion, verified receipts
+and unresolved final outcomes. Unknown IDs are never guessed from lists or caption
+matches. Investigation cannot create containers, publish, resolve publication by
+absence, or rearm a consumed activation.
+
+Investigation requires a terminal/recovered attempt, trusted preflight for its
+exact destination and an exclusive durable 180-second investigation lease. Each
+of at most seven known container IDs receives one bounded authenticated status
+GET, fenced before and after against claim, account/readiness and attempt snapshot.
+A competing live investigation or cleanup claim blocks admission. A crashed reader
+can be replaced after its lease expires; its late response cannot commit evidence.
+Only allowlisted statuses, IDs, timestamps, immutable binding hashes and offline
+provenance persist. Missing/failed reads become `UNAVAILABLE`, never safe absence.
+Evidence must be less than five minutes old when a new release is authorized.
+
+Every newly staged registered object records the exact R2 account/bucket/public
+origin/key, destination/provider account, post/attempt, package/manifest hashes,
+asset ordinal, SHA-256 and byte length. Conditional create uses `IfNoneMatch=*`.
+A separate `r2_staged` record proves upload, HEAD and exact public-byte probe
+completed. A crash before that record leaves write completion uncertain, even if
+an object is visible. Child intents bind the corresponding object resource/key.
+
+The following policy is implemented and tested **only with offline evidence**.
+All rows require terminal/recovered execution, complete immutable identity and a
+completed staging record. Neither elapsed TTL nor a human publication decision is
+source-independence evidence.
+
+| Object evidence | Release disposition |
+| --- | --- |
+| Completed staging never exposed to a create request, with no final-send marker | Eligible for explicit safe-policy scheduling. |
+| Verified publication plus positive source-independence statuses for every known child/parent | Eligible for safe-policy scheduling under the candidate offline contract. A receipt alone is insufficient. |
+| Every known container positively `EXPIRED`, with no final-send marker | Eligible for safe-policy scheduling under the candidate offline contract. Wall-clock age is insufficient. |
+| All known containers positively independent/expired, but cancelled or uncertain publication disposition | Separate exact-object operator release required. Publication remains unchanged. |
+| Unknown create IDs, incomplete graph/source binding, uncertain upload, pending/error/unavailable ingestion, active attempt, stale evidence or legacy identity | Retain. A confirmation flag cannot override this hold. |
+
+The fixture hypothesis treats `FINISHED`/`PUBLISHED` as source-independent and
+`EXPIRED` as no longer requiring source bytes. These meanings are **not verified
+live API capabilities**. Outside the offline boundary even unused fixture objects
+are ineligible. There is no live source-independence reader or enabled scheduler.
+
+Release is independent from JPEG approval, Post now, activation and human receipt
+reconciliation. Commands require exact object identity, destination, attempt,
+immutable hashes, current resource state, current report fingerprint and a unique
+command ID. A SQLite transaction checks all evidence, appends an actor/time/reason
+release record and queues one cleanup task. Identical command replay returns its
+existing result; altered/stale commands fail. No provider request occurs in a
+release command. Changed attempt/investigation evidence invalidates pending work.
+The durable release captures positive source independence; its original five-minute
+admission freshness need not remain live during queue delays, but any new or
+contradictory investigation invalidates it.
+
+Cleanup claims retain the existing ten-minute lease and five-attempt limit with
+five-minute retry delay. Before every request and completion, the worker checks
+live claim ownership, exact identity and release evidence. It HEADs the exact key,
+checks immutable metadata, JPEG length/type and ETag, then DELETEs with `IfMatch`
+and confirms absence. A replacement fails closed. Retry after a timeout/crash
+rechecks identity; already absent objects complete idempotently. Only bounded
+transient/uncertain deletion failures retry; exhausted or rejected tasks require a
+fresh independently authorized command. No upload/create/publish retry is added.
+Intent, returned deletion, confirmed absence and failures are durably auditable;
+stale workers cannot finalize another claim. Investigation and deletion leases
+exclude each other. An already admitted network request cannot be recalled after
+claim loss; no subsequent request or completion is permitted by that stale worker.
+
+The default R2 client pins TLS to the configured account host, uses SDK connect/read
+timeouts of 5/10 seconds, one total SDK attempt and a one-send hook that rejects
+redirect/replay. PUT, HEAD, DELETE and public-byte probes run in supervised child
+processes with at most a 20-second whole-exchange deadline, shortened by remaining
+publication execution time. Stalled blocking I/O is terminated; credentials remain
+in memory/IPC and raw SDK errors/logs do not escape. Terminating the local process
+cannot undo an accepted remote operation, so uncertain writes remain retained.
+Conditional cleanup may retry only under its original exact-object authorization.
+
+**Owner-dependent gates:** verify status fields and source-dependency semantics for
+the selected Instagram Login version/account, including expired/published children
+and parent behavior; establish reliable positive mapping for lost IDs or keep them
+held. Separately verify R2 conditional PUT/DELETE support, ETag/metadata identity,
+HEAD absence/consistency and pinned-endpoint behavior. `VERIFIED_R2_CONTRACTS` is
+empty; configuring credentials cannot enable it. Existing token/version/readback
+gates remain closed. No live request or deletion is authorized by this checkpoint.
+The [operations guide](../operations.md#staging-investigation-and-release) owns the
+local offline report/release commands.
+
 ### Preserved protocol and deferred checkpoints
 
 The injected carousel protocol preserves exact reviewed bytes, order, child alt
@@ -472,13 +560,12 @@ text and parent caption. A committed create intent blocks automatic retry after
 child/parent uncertainty, including worker death or lost persistence. Uncertain
 final sends remain `publication_unknown`; no second final request is automatic.
 The scoped adapter additionally refuses a second final call in the same run.
-Objects marked `manual_ingestion_safety` remain excluded from cleanup indefinitely.
-These conservative behaviors are retained, not a completed orphan/release policy.
+Objects marked `manual_ingestion_safety` bypass generic automatic cleanup; only
+the independent Checkpoint 3 release policy below may authorize eligible objects.
+Legacy objects without exact identity remain retained.
 
-Checkpoint 3 retains orphan investigation, ingestion-safe R2 retention/release,
-container quota policy and provider-exchange lifecycle, including bounded blocking
-R2 I/O. Detailed protocol fidelity (including the review-bound AI declaration)
-also remains deferred. A fixture receipt is not verified real publication.
+Container quota policy and detailed protocol fidelity (including the review-bound
+AI declaration) remain deferred. A fixture receipt is not verified real publication.
 No real send can be enabled until those gates are implemented and
 reviewed as well. English content/design refinement remains last.
 

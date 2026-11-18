@@ -16,6 +16,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import json
 import os
 import secrets
+import time
 
 from common.diagnostics import safe_diagnostic
 
@@ -79,32 +80,54 @@ class R2TransientRelay:
         client: Any | None = None,
         transport: ExactMediaTransport | None = None,
         before_io: Callable[[], None] | None = None,
+        io_timeout: Callable[[], float] | None = None,
+        monotonic=time.monotonic,
     ):
         self.config = dict(config)
         self.before_io = before_io or (lambda: None)
-        self.transport = transport or ExactMediaTransport()
+        self.io_timeout, self.monotonic = io_timeout or (lambda: 20), monotonic
+        from .r2_transport import BoundedMediaTransport, BoundedR2Client
+        self.transport = transport or BoundedMediaTransport()
         self.bucket = _required_setting(self.config, "r2_bucket_name")
         self.public_domain = _required_setting(self.config, "r2_public_domain").rstrip("/")
         account_id = _required_setting(self.config, "r2_account_id")
-        if urlsplit(self.public_domain).scheme != "https" or urlsplit(self.public_domain).path not in {"", "/"}:
+        origin = urlsplit(self.public_domain)
+        if (origin.scheme != "https" or origin.path not in {"", "/"} or not origin.hostname
+                or origin.username or origin.password or origin.query or origin.fragment or origin.port not in {None, 443}):
             raise DeliveryConfigurationError("R2 public domain must be an origin-only HTTPS URL")
         if client is None:
-            access = os.getenv("R2_ACCESS_KEY_ID")
-            secret = os.getenv("R2_SECRET_ACCESS_KEY")
-            if not access or not secret:
-                raise DeliveryConfigurationError("R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are required")
-            try:
-                import boto3
-            except ImportError as error:
-                raise DeliveryConfigurationError("boto3 is required for R2 delivery") from error
-            client = boto3.client(
-                "s3",
-                endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
-                aws_access_key_id=access,
-                aws_secret_access_key=secret,
-                region_name="auto",
-            )
+            client = BoundedR2Client(self.config)
         self.client = client
+
+    def _io(self, function, **values):
+        self.before_io()
+        budget = min(20, self.io_timeout())
+        if budget <= 0:
+            raise DeliveryError('r2_deadline', 'R2 execution budget exhausted', False, 'r2')
+        from .r2_transport import BoundedR2Client
+        if isinstance(self.client, BoundedR2Client):
+            self.client.timeout = budget
+        if 'timeout' in values:
+            values['timeout'] = budget
+        started = self.monotonic()
+        result = function(**values)
+        if not 0 <= self.monotonic() - started < budget:
+            raise DeliveryError('r2_deadline', 'R2 reply arrived outside its execution budget', False, 'r2')
+        self.before_io()
+        return result
+
+    def identity(self, context, asset, key):
+        return {**{k: context[k] for k in ('post_record_id', 'post_attempt_id', 'attempt_number',
+                    'package_hash', 'manifest_hash', 'destination_key', 'provider_account_id')},
+                'bucket': self.bucket, 'r2_account_id': self.config['r2_account_id'], 'public_domain': self.public_domain,
+                'object_key': key, 'sha256': asset['sha256'], 'bytes': asset['bytes'], 'ordinal': asset['ordinal']}
+
+    @staticmethod
+    def object_metadata(identity):
+        from .store import digest
+        return {'sha256': identity['sha256'], 'post-record-id': str(identity['post_record_id']),
+                'attempt-number': str(identity['attempt_number']), 'asset-ordinal': str(identity['ordinal']),
+                'identity-sha256': digest(identity)}
 
     def stage(
         self,
@@ -124,14 +147,16 @@ class R2TransientRelay:
             "attempt-number": str(context["attempt_number"]),
             "asset-ordinal": str(asset["ordinal"]),
         }
-        self.before_io()
+        owned = context.get('destination_config', {}).get('adapter_version') == 'instagram_login_v1'
+        if owned:
+            metadata = self.object_metadata(self.identity(context, asset, key))
         try:
-            self.client.put_object(
+            self._io(self.client.put_object,
                 Bucket=self.bucket, Key=key, Body=data, ContentType="image/jpeg",
                 CacheControl="no-store, max-age=0", Metadata=metadata,
+                **({'IfNoneMatch': '*'} if owned else {}),
             )
-            self.before_io()
-            head = self.client.head_object(Bucket=self.bucket, Key=key)
+            head = self._io(self.client.head_object, Bucket=self.bucket, Key=key)
         except (DeliveryError, DeliveryConfigurationError):
             raise
         except Exception as error:
@@ -141,22 +166,53 @@ class R2TransientRelay:
             int(head.get("ContentLength", -1)) != len(data)
             or str(head.get("ContentType", "")).casefold() != "image/jpeg"
             or returned_metadata.get("sha256") != asset["sha256"]
+            or (owned and any(returned_metadata.get(k) != v for k, v in metadata.items()))
         ):
             raise DeliveryError("r2_verification", "authenticated R2 HEAD mismatch", False, "r2_head")
         public_url = self.public_domain + "/" + quote(key, safe="/")
-        self.before_io()
-        fetched = self.transport.get_exact_bytes(
-            public_url, expected_bytes=len(data), timeout=20, stage="r2_public_probe"
+        fetched = self._io(self.transport.get_exact_bytes,
+            url=public_url, expected_bytes=len(data), timeout=20, stage="r2_public_probe"
         )
         if sha256(fetched).hexdigest() != asset["sha256"]:
             raise DeliveryError("r2_verification", "anonymous R2 bytes differ", False, "r2_public_probe")
         return key, public_url
 
+    def delete_owned(self, identity, *, record_event=lambda event: None):
+        """Exact identity HEAD, conditional DELETE, then confirmed absence."""
+        if (identity['bucket'] != self.bucket or identity['r2_account_id'] != self.config['r2_account_id']
+                or identity['public_domain'] != self.public_domain):
+            raise DeliveryConfigurationError('cleanup R2 destination mismatch')
+        values = {'Bucket': self.bucket, 'Key': identity['object_key']}
+        try:
+            head = self._io(self.client.head_object, **values)
+        except Exception as error:
+            if _object_absent(error):
+                self.before_io()
+                return
+            raise
+        metadata = {str(k).casefold(): str(v) for k, v in head.get('Metadata', {}).items()}
+        etag = head.get('ETag')
+        if (head.get('ContentLength') != identity['bytes'] or head.get('ContentType') != 'image/jpeg'
+                or any(metadata.get(k) != v for k, v in self.object_metadata(identity).items())
+                or not isinstance(etag, str) or not etag or len(etag) > 200):
+            raise DeliveryError('r2_identity', 'stored object identity differs; deletion refused', False, 'r2_delete')
+        record_event('delete_intent')
+        self._io(self.client.delete_object, **values, IfMatch=etag)
+        record_event('delete_returned')
+        try:
+            self._io(self.client.head_object, **values)
+        except Exception as error:
+            if _object_absent(error):
+                self.before_io()
+                return
+            raise
+        raise DeliveryError('r2_cleanup', 'object absence is not confirmed', True, 'r2_delete')
+
     def delete(self, key: str) -> None:
         try:
-            self.client.delete_object(Bucket=self.bucket, Key=key)
+            self._io(self.client.delete_object, Bucket=self.bucket, Key=key)
             try:
-                self.client.head_object(Bucket=self.bucket, Key=key)
+                self._io(self.client.head_object, Bucket=self.bucket, Key=key)
             except Exception as error:
                 response = getattr(error, "response", {})
                 code = str(response.get("Error", {}).get("Code", ""))
@@ -169,6 +225,12 @@ class R2TransientRelay:
         except Exception as error:
             raise DeliveryError("r2_cleanup", type(error).__name__, True, "r2_delete") from error
         raise DeliveryError("r2_cleanup", "R2 object remained after delete", True, "r2_delete")
+
+
+def _object_absent(error):
+    response = getattr(error, 'response', {})
+    return (str(response.get('Error', {}).get('Code', '')) in {'404', 'NoSuchKey', 'NotFound'}
+            or response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 404)
 
 
 class CredentialedPostingAgent:
@@ -309,7 +371,7 @@ class R2CleanupWorker:
         if task is None:
             return None
         row = self.store.connection.execute(
-            "SELECT d.config_json FROM delivery_cleanup_tasks t "
+            "SELECT d.config_json,r.safe_metadata_json,r.post_attempt_id FROM delivery_cleanup_tasks t "
             "JOIN publication_resources r ON r.publication_resource_id=t.publication_resource_id "
             "JOIN post_attempts a ON a.post_attempt_id=r.post_attempt_id "
             "JOIN post_records pr ON pr.post_record_id=a.post_record_id "
@@ -324,12 +386,48 @@ class R2CleanupWorker:
             self.store.fail_cleanup(task, "cleanup configuration is missing", retryable=False)
             return int(task["delivery_cleanup_task_id"])
         try:
-            self.relay_factory(json.loads(row["config_json"])).delete(task["object_key"])
+            config = json.loads(row['config_json'])
+            owned = (config.get('adapter_version') == 'instagram_login_v1'
+                     or json.loads(row['safe_metadata_json']).get('lifecycle') == 'r2_lifecycle_v1')
+            if owned:
+                from .resource_lifecycle import cleanup_guard
+                identity = cleanup_guard(self.store, task, event='cleanup_started')
+                relay_config = {'r2_bucket_name': identity['bucket'], 'r2_account_id': identity['r2_account_id'],
+                                'r2_public_domain': identity['public_domain'], 'provider_account_id': identity['provider_account_id'],
+                                'destination_key': identity['destination_key']}
+                relay = self.relay_factory(relay_config)
+                relay.before_io = lambda: cleanup_guard(self.store, task)
+                relay.delete_owned(identity, record_event=lambda event: cleanup_guard(self.store, task, event=event))
+                cleanup_guard(self.store, task, event='absence_confirmed')
+            else:
+                self.store.check_cleanup_claim(task)
+                relay = self.relay_factory(config)
+                relay.before_io = lambda: self.store.check_cleanup_claim(task)
+                relay.delete(task['object_key'])
             return self.store.complete_cleanup(task)
         except DeliveryError as error:
-            return self.store.fail_cleanup(task, error.detail, retryable=error.retryable)
+            retryable = error.retryable or (owned and error.category in {'r2_deadline', 'r2_unavailable'})
+            if owned:
+                try:
+                    cleanup_guard(self.store, task, event='cleanup_failed')
+                except (ValueError, RuntimeError):
+                    pass
+            try:
+                return self.store.fail_cleanup(task, error.detail, retryable=retryable)
+            except RuntimeError:
+                return int(task['delivery_cleanup_task_id'])
         except Exception as error:
-            return self.store.fail_cleanup(task, type(error).__name__, retryable=False)
+            if (json.loads(row['config_json']).get('adapter_version') == 'instagram_login_v1'
+                    or json.loads(row['safe_metadata_json']).get('lifecycle') == 'r2_lifecycle_v1'):
+                try:
+                    from .resource_lifecycle import cleanup_guard
+                    cleanup_guard(self.store, task, event='cleanup_failed')
+                except (ValueError, RuntimeError):
+                    pass
+            try:
+                return self.store.fail_cleanup(task, type(error).__name__, retryable=isinstance(error, (OSError, TimeoutError)))
+            except RuntimeError:
+                return int(task['delivery_cleanup_task_id'])
 
 
 class PublicationReconciliationWorker:

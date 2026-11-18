@@ -19,12 +19,23 @@ class FakeObjects:
     def __init__(self):
         self.objects = {}
 
-    def put_object(self, *, Bucket, Key, Body, ContentType, CacheControl, Metadata):
+    def put_object(self, *, Bucket, Key, Body, ContentType, CacheControl, Metadata, IfNoneMatch=None):
+        if IfNoneMatch == '*' and Key in self.objects:
+            raise ValueError('object already exists')
         self.objects[Key] = (Body, ContentType, Metadata)
 
     def head_object(self, *, Bucket, Key):
+        if Key not in self.objects:
+            from workflow.r2_transport import ObjectAbsent
+            raise ObjectAbsent()
         data, kind, metadata = self.objects[Key]
-        return {"ContentLength": len(data), "ContentType": kind, "Metadata": metadata}
+        return {"ContentLength": len(data), "ContentType": kind, "Metadata": metadata, 'ETag': sha256(data).hexdigest()}
+
+    def delete_object(self, *, Bucket, Key, IfMatch=None):
+        if Key in self.objects:
+            if IfMatch != sha256(self.objects[Key][0]).hexdigest():
+                raise ValueError('conditional delete mismatch')
+            del self.objects[Key]
 
     def get_exact_bytes(self, url, *, expected_bytes, timeout, stage):
         return self.objects[url.removeprefix("https://example.invalid/")][0]

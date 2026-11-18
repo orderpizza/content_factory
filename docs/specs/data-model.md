@@ -280,3 +280,26 @@ own table and remain distinct from provider identity verification, even when the
 post status becomes `published`. No status migration reclassifies old published
 records as verified. The [receipt contract](posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation)
 owns classifications and external verification blockers.
+
+
+## Instagram Checkpoint 3 resources (schema unchanged)
+
+Registered `r2_object` metadata now contains exact storage/review/account/attempt
+identity and offline provenance. `r2_staged` records complete upload/probe I/O;
+its absence conservatively retains the source. Child create intents reference
+the exact object resource/key/hash. Existing objects are not backfilled.
+
+`instagram_orphan_run` records a durable bounded investigation lease and snapshot;
+`instagram_orphan_check` appends allowlisted known-container statuses, unknown
+creates, freshness and provenance. `r2_release` captures independent actor/time,
+command, identity and evidence snapshot; `r2_cleanup_audit` appends claim-versioned
+intent/result/absence/failure events. No raw responses or credentials persist.
+
+`human_command_receipts` fences `release_r2_resource` commands. Existing cleanup
+tasks provide one task per resource, claim/version, bounded retries and audited
+completion. Atomic release changes the resource to `cleanup_pending`; only its
+live claimed worker can mark it `cleaned`. Failed tasks can be rearmed only by a
+fresh exact release, incrementing claim version. No schema or status migration is
+introduced. These records use the existing local-owner SQL trust model, not a
+new tamper-proof audit claim. [Posting](posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle)
+owns the safe-release classification and offline-only capability boundary.

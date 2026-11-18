@@ -218,15 +218,55 @@ The owner handoff, for a later separately authorized integration, is:
 4. Only with separate permission, run read-only preflight. It must prove account,
    app, login mode, grants, valid token, selected version and available dynamic
    quota. Failures revoke older evidence; no fake results may become real readiness.
-5. Verify the receipt/ownership contract, then complete orphan/retention and protocol-fidelity checkpoints,
+5. Verify the receipt/ownership and source-retention contracts, then complete protocol-fidelity work,
    including alt/AI-label behavior. Obtain separate authorization for an eventual
    controlled test publication: persistent enabled configuration, exact JPEG
    approval, Post now, one-post run approval, then explicit execution. Providing a
    credential or passing preflight grants none of those publishing approvals.
 
-No Meta, R2 or paid Gemini operation belongs to this checkpoint. Retained Instagram
-staging objects remain excluded from automatic cleanup; release and ingestion-safe
-timing are subsequent work. Do not deploy a delivery LaunchAgent or automatic poller.
+No Meta, R2 or paid Gemini operation belongs to this checkpoint. Checkpoint 3 adds
+an offline-only source-retention/release policy; live semantics remain blocked.
+Do not deploy a delivery LaunchAgent or automatic poller.
+
+## Staging investigation and release
+
+The exact policy and owner verification gates are in the
+[posting contract](specs/posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle).
+`review_delivery.py report` includes human-readable orphan/retention evidence.
+For an existing offline fixture database, inspect the attempt without provider I/O:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite report --attempt-id 1
+```
+
+A fresh read-only investigation is available through the offline composition's
+`investigate_orphans(proof, attempt_id)` interface; there is no live investigation
+CLI. Reports explain known/unknown IDs, ingestion status, release eligibility,
+release history and cleanup events. An uncertain or incomplete graph stays held.
+Legacy objects have no synthetic identity backfill and remain retained.
+
+Policy scheduling is a separate explicit action. It queues only eligible objects:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite schedule-safe --attempt-id 1 --confirm-safe-policy
+```
+
+For an object classified `operator`, save its exact `identity` JSON from the fresh
+report to a local file, then supply that report's fingerprint/state/resource ID
+and a new command ID. Review the whole identity, including destination, attempt,
+R2 origin/key and immutable hashes, before approving:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite release --resource-id 1 --identity /path/to/identity.json --fingerprint REPORT_FINGERPRINT --expected-state ready --command-id release-001 --confirm-source-independent
+```
+
+These commands only persist release/queue records; they never DELETE or resolve a
+publication. A `retain` classification cannot be overridden. Changed state/evidence
+requires a fresh report and command; exact command replay is idempotent. Cleanup
+uses the composition's independently claimed fake worker, not a publishing run.
+After the bounded retry limit, inspect failure/audit evidence and authorize a fresh
+exact release if still eligible. No command promotes offline evidence to live
+readiness or storage authorization; the default real R2 client remains disabled.
 
 ## Offline delivery rehearsal
 
@@ -388,6 +428,7 @@ not affect unrelated LaunchAgents.
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
 | `migrate_delivery_database.py` | Explicit v18→v19 dry run, verified backup and additive offline migration |
 | `review_delivery.py` | Production-source preparation, read-only local report, separate JPEG approval and Post now; never sends |
+| `review_staging.py` | Offline orphan/retention report and independent exact-object release scheduling; never contacts providers |
 | `prepare_delivery_artifacts.py` | Read-only PNG review export to a new, unapproved JPEG candidate |
 | `simulate_delivery.py` | Isolated synthetic review, explicit fake Post now, delivery/recovery and read-only report |
 | `run_tests.py` | Offline suite, including local browser and packaging checks |
