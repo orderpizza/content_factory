@@ -96,6 +96,9 @@ def prepare(store, review_id, *, account, destination, artifact_root, output, im
                 or any(not isinstance(a, str) or not a.strip() or len(a) > 1000 for a in image_alt_text)):
             raise ValueError("explicit nonempty per-image alt text is required in slide order (max 1000 characters)")
         bundle = prepare_review_bundle(store, review_id, artifact_root=root, output=output)
+        # These derivatives come from the AI-rendered English carousel pipeline.
+        # Freeze its required disclosure before computing either review hash.
+        bundle["package"]["is_ai_generated"] = True
         bundle["package"]["image_alt_text"] = list(image_alt_text)
         bundle["manifest"]["content_hash"] = digest(bundle["package"])
         for asset, alt in zip(bundle["manifest"]["assets"], image_alt_text, strict=True):
@@ -150,6 +153,10 @@ def overlay(store, row):
     expected = deepcopy(source_package)
     expected.update(delivery_ready=True, delivery_preparation=package.get("delivery_preparation"),
                     image_alt_text=package.get("image_alt_text"))
+    if "is_ai_generated" in package:
+        if package["is_ai_generated"] is not True:
+            raise ValueError("invalid AI disclosure on generated delivery revision")
+        expected["is_ai_generated"] = True
     source = package.get("delivery_preparation", {}).get("source", {})
     if (expected != package or manifest.get("source_assets") != source_manifest["assets"]
             or any(source.get(k) != lineage[k] for k in ("review_request_id", "content_package_id", "render_run_id", "package_hash", "manifest_hash", "destination_key"))
@@ -213,7 +220,7 @@ def approve(store, review_id, *, row_version, fingerprint, account, destination,
             raise ValueError("acknowledge every displayed JPEG hash in order")
         store.connection.execute(
             "UPDATE review_requests SET status='approved',actor_id='local_owner',decided_at=?,"
-            "decision_note='Exact JPEGs, caption, aggregate and per-image alt text, and destination approved',"
+            "decision_note='Exact JPEGs, caption, aggregate and per-image alt text, AI disclosure and destination approved',"
             "row_version=row_version+1 WHERE review_request_id=?", (now(), review_id),
         )
         store.connection.execute(

@@ -199,3 +199,61 @@ The prior delivery simulation, claim/fencing, uncertain-outcome, R2 and acceptan
 safety tests remain part of `scripts/run_tests.py`. No test authorizes or proves a
 real provider send; current configuration/readiness integration remains a Phase
 3B2 gate. English quality and visual refinement stay in the final phase.
+
+
+### Phase 3B2 offline integration (incomplete)
+
+`tests/test_instagram_posting_integration.py` exercises 4-, 5- and 6-slide genuine
+Phase 3B1 revisions through immutable production registration, preflight, JPEG
+approval, Post now, scoped activation and the actual adapter factory. There is no
+production-configuration monkeypatch. Fake HTTP and storage cover child/parent/final
+response loss, receipt persistence failure, freshness/rotation/activation expiry,
+restart, durable quota reservations and no duplicate send. Fresh and migrated
+schemas are exercised without migrating an operator DB.
+
+`test_instagram_composition.py` checks default-disabled registration, no side
+effects from configuration/preflight, trust provenance, caller-forged evidence,
+account/app/login/scopes/version/token/quota failures and secret-free persistence.
+Offline evidence stays degraded and is ineligible outside the network-refusal
+boundary. `test_instagram_http.py` covers TLS host pinning, bounded request/response
+sizes, redirects, response version, safe diagnostics, no POST retry and hard child
+process deadlines. All external dependencies are fake; no live endpoint is tested.
+The original protocol tests retain exact bytes/order/alt mapping and intent fences.
+
+`test_instagram_execution.py` uses fake wall/monotonic clocks and the same real
+factory/configuration path for 4–6 slides. Provider responses consume simulated
+time; containers process for one, two or four minutes each, with total attempts
+exceeding both two and five minutes. Assertions cover minute-spaced bounded polls,
+lease renewal, fresh readiness and single consumption/final send. Failure cases
+cover expired unused activation, execution deadlines, clock rollback, cancellation,
+claim loss (including during refresh and after the final marker), revoked readiness,
+credential/asset changes, late responses, and restart after crashes before upload or
+after create. No real sleeps or external operations are needed for these journeys.
+
+`test_instagram_receipts.py` exercises 4–6-slide publish acceptance, issued
+media/account verification and independent acceptance persistence through the
+actual factory. It covers delayed readback after restart, wrong account/media ID,
+caption/type/children conflicts, pagination, missing/unavailable endpoints, lost
+final response, acceptance/verification persistence failures, stale publishers and
+reconcilers, bounded GET investigation, conflicting accepted IDs and forged proof.
+Human decisions and the read-only owner report preserve the distinction between
+acceptance, offline identity verification and unresolved outcomes. Every journey
+asserts no second final publish; no receipt test establishes a live API capability.
+
+The full suite still owns legacy delivery/idempotency/migration/review safeguards.
+Passing it does not prove a supported live API version, authenticated account
+capabilities, real receipt attribution or safe cleanup timing. Those gates remain
+explicitly blocked/deferred in the [posting contract](specs/posting.md).
+
+
+`test_resource_lifecycle.py` exercises 4–6-slide orphan/source lifecycles through
+the actual composition and fake HTTP/storage. It covers lost child/parent IDs,
+crashes during/after staging, pending/unavailable/expired ingestion, verified versus
+uncertain final outcomes, retained objects across restarts, exact independent
+operator commands, command replay/staleness, concurrent release and cleanup,
+replaced objects, failed deletion, stale claims and abandoned investigation leases.
+Read-only reports/CLI and fake-evidence rejection outside the offline boundary are
+covered. `test_r2_transport.py` checks SDK retry/timeouts, host/replay refusal,
+disabled live contracts and supervised hard deadlines for stalled fake operations.
+No test establishes real source independence, R2 conditional semantics or safe live
+retention timing. All external providers remain disabled.

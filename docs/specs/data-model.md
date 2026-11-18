@@ -221,3 +221,85 @@ no parallel schema. Existing samples without growth metadata remain valid.
 
 No data-retention command removes these records as part of normal planning.
 Verified backups and restore checks use the current schema checksum.
+
+## Instagram Checkpoint 1 evidence (schema unchanged)
+
+The adapter reuses existing `social_destinations.config_json`,
+`capability_readiness` and `capability_readiness_checks`. Registration is immutable
+within a configuration release. Preflight facts contain only allowlisted nonsecret
+account/app/login/version/grant/quota/expiry/configuration/generation/provenance
+fields. Offline observations remain `degraded`, never production-ready. Historical
+checks append; failed refreshes block the current readiness row. No raw provider
+response, access token or credential fingerprint is stored.
+
+`human_command_receipts` appends `instagram_run_activate` and
+`instagram_run_consume` events. Payload hashes bind the post's package/manifest,
+configuration, proof and run expiry; result IDs reference the scoped PostRecord.
+Unique command IDs fence consumption under the SQLite write transaction. Activation
+receipts also reserve quota conservatively across the provider window and process
+restarts. No application path updates/deletes/reissues them automatically. Existing
+schema ownership assumes the local OS owner; these receipt tables do not add a
+new SQL tamper-proof audit guarantee. Tokens and issued proof/run handles remain
+in process memory; restart cannot revive a run.
+
+Consumption also atomically inserts one `publication_resources` row of type
+`instagram_run` for the attempt. Nonsecret metadata binds the activation receipt,
+claim owner/version, post, delivery revision, package/manifest, account/destination,
+configuration, initial evidence ID, start time and fixed execution deadline. The
+existing `post_records.lease_expires_at` is renewed only by that still-live claim,
+never beyond the grant deadline; heartbeats do not change the displayed row version.
+Guarded active readiness refreshes use the existing evidence tables and do not
+change the grant. Recovery treats a consumed grant as terminal before final send,
+even without a create intent; a final marker retains the existing unknown-outcome
+rule. No schema migration or automatic rearm path is introduced.
+See [posting](posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+## Instagram Checkpoint 2 receipts (schema unchanged)
+
+`publication_resources` appends `instagram_publish_acceptance` rows with the
+returned numeric media ID, `accepted_unverified` classification and historical
+attempt/review/account/configuration binding. This commits before any readback.
+`instagram_verified_receipt` rows contain only issued, allowlisted identity facts,
+their explicit scope/limitations and offline provenance; `remote_id` is the safe
+evidence hash. The actual media ID remains in the facts and, after verification,
+`post_records.external_post_id`. Verification facts and automatic published state
+commit together, so an aborted finalization cannot leave a false verified record.
+`published_at` remains the local confirmation time; no provider publication
+timestamp is claimed by this readback contract.
+
+The existing `publication_unknown` status covers both accepted-but-unverified and
+unknown-final-outcome cases; resource classification distinguishes them without a
+schema change. Receipt APIs cannot extend a run lease after expiry or reauthorize
+a send. Historical identity lookup reads immutable revision/package/manifest
+evidence without requiring expired approval to become current or reopening files.
+
+Automatic reconciliation uses the existing claim, `reconciliation_checks` safe
+JSON/hash and terminal state. Positive checks require issued receipt proof; a
+negative Instagram inference cannot confirm absence. Human decisions retain their
+own table and remain distinct from provider identity verification, even when the
+post status becomes `published`. No status migration reclassifies old published
+records as verified. The [receipt contract](posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation)
+owns classifications and external verification blockers.
+
+
+## Instagram Checkpoint 3 resources (schema unchanged)
+
+Registered `r2_object` metadata now contains exact storage/review/account/attempt
+identity and offline provenance. `r2_staged` records complete upload/probe I/O;
+its absence conservatively retains the source. Child create intents reference
+the exact object resource/key/hash. Existing objects are not backfilled.
+
+`instagram_orphan_run` records a durable bounded investigation lease and snapshot;
+`instagram_orphan_check` appends allowlisted known-container statuses, unknown
+creates, freshness and provenance. `r2_release` captures independent actor/time,
+command, identity and evidence snapshot; `r2_cleanup_audit` appends claim-versioned
+intent/result/absence/failure events. No raw responses or credentials persist.
+
+`human_command_receipts` fences `release_r2_resource` commands. Existing cleanup
+tasks provide one task per resource, claim/version, bounded retries and audited
+completion. Atomic release changes the resource to `cleanup_pending`; only its
+live claimed worker can mark it `cleaned`. Failed tasks can be rearmed only by a
+fresh exact release, incrementing claim version. No schema or status migration is
+introduced. These records use the existing local-owner SQL trust model, not a
+new tamper-proof audit claim. [Posting](posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle)
+owns the safe-release classification and offline-only capability boundary.

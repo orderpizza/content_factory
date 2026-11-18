@@ -51,9 +51,17 @@ Phase 3B1 adds an explicit offline path from a bound English PNG review to an
 immutable JPEG delivery revision, local exact-asset report, separate human JPEG
 approval, then separate Post now authorization. It reuses WorkflowStore publication
 records and retains original evidence. Schema 19 has an explicit backed-up v18
-migration; startup never upgrades data. No real adapter or send command exists.
-External delivery and R2 staging are composed only in the isolated synthetic
-rehearsal. The read-only Phase 3A exporter remains available; the Phase 3B1
+migration; startup never upgrades data. Checkpoint 1 adds a disabled-by-default registered
+Instagram factory, authenticated transport and preflight/run boundaries, tested
+with fake HTTP/storage through production configuration. No live contract is
+verified and no send command or automatic delivery worker is enabled.
+Checkpoint 2 adds separately retained publish acceptance, identity-bound receipt
+proofs and conservative read-only reconciliation through that factory, still with
+offline provenance and unverified live media/owner semantics. Checkpoint 3 adds
+durable orphan investigation, exact-object release authorization and fenced,
+conditional R2 cleanup, with bounded SDK exchanges. Source-independence evidence
+and conditional-storage semantics remain unverified live contracts. External
+delivery and R2 staging remain offline-only. The read-only Phase 3A exporter remains available; the Phase 3B1
 preparation command explicitly appends a separately reviewed delivery revision.
 [Posting](specs/posting.md) owns both boundaries and the future adapter contract.
 The dashboard reads evidence and persists review/planning commands; it invokes

@@ -40,26 +40,25 @@ def legacy_db(path):
 
 @pytest.fixture(params=[False, True], ids=["fresh", "migrated"])
 def source(tmp_path, request):
+    return make_source(tmp_path, migrated=request.param)
+
+
+def make_source(tmp_path, *, migrated=False, configuration=None, readiness=None, count=6):
     path = tmp_path / "operator.db"
     initialize_database(path)
     with DetectionStore(path) as detection:
         detection.apply_manifest(load_manifest(ROOT / "config/releases/detection.json"))
     artifacts = tmp_path / "artifacts"
     with WorkflowStore(path, catalog_kind="production") as store:
-        store.register_production_configuration(production_configuration())
-        for row in store.connection.execute("SELECT social_destination_id FROM social_destinations"):
-            store.record_destination_readiness(row[0], status="ready", reasons=[], facts={"offline_fixture": True},
-                                               valid_for=timedelta(days=1))
-        fixture = text_fixtures.GeminiWorkflowTests()
-        fixture.register_catalog = lambda store: None  # use the frozen production binding above
-        fixture.prepare_english_canonical(store)
-        assert GeminiAdaptationWorker(store, text_fixtures.FakeGeminiClient(
-            fixture.adaptation_response("instagram"))).run_once()
-        assert StoryboardPlanner(store).run_once()
-        worker = DispatchVisualRenderer(store, artifacts, image_client=image_fixtures.FakeImageClient())
-        review = worker.run_once()
-        assert review, getattr(worker, "last_operation", None)
-    if request.param:
+        store.register_production_configuration(configuration or production_configuration())
+        if readiness:
+            readiness(store)
+        else:
+            for row in store.connection.execute("SELECT social_destination_id FROM social_destinations"):
+                store.record_destination_readiness(row[0], status="ready", reasons=[], facts={"offline_fixture": True},
+                                                   valid_for=timedelta(days=1))
+        review = render_source(store, artifacts, count=count)
+    if migrated:
         # Preserve a real populated pre-revision database, not only an empty schema.
         legacy = tmp_path / "populated-v18.db"
         legacy_db(legacy)
@@ -86,6 +85,27 @@ def source(tmp_path, request):
         with WorkflowStore(path) as store:
             assert original_evidence(store, review) == before
     return path, artifacts, review
+
+
+def render_source(store, artifacts, *, count=6, command_id="production"):
+    fixture = text_fixtures.GeminiWorkflowTests()
+    fixture.register_catalog = lambda store: None  # use the frozen production binding above
+    if count != 6:
+        canonical = fixture.canonical_response("english")
+        canonical["domain_payload"]["usage_notes"] = canonical["domain_payload"]["usage_notes"][:1]
+        canonical["examples"] = canonical["examples"][:1] if count == 4 else canonical["examples"] * 2
+        # Fixture responses enter through real generation/adaptation workers.
+        fixture.canonical_response = lambda pipeline: canonical
+    fixture.prepare_english_canonical(store, command_id=command_id)
+    response = fixture.adaptation_response("instagram")
+    from workflow.content_contract import english_positions
+    response["visual_units"] = [response["visual_units"][i] for i in english_positions(count)]
+    assert GeminiAdaptationWorker(store, text_fixtures.FakeGeminiClient(response)).run_once()
+    assert StoryboardPlanner(store).run_once()
+    worker = DispatchVisualRenderer(store, artifacts, image_client=image_fixtures.FakeImageClient())
+    review = worker.run_once()
+    assert review, getattr(worker, "last_operation", None)
+    return review
 
 
 def prepared(store, root, source, **extra):
@@ -232,11 +252,13 @@ def test_report_is_read_only_self_contained_and_dashboard_cannot_approve(source,
     with WorkflowStore(path, read_only=True) as store:
         evidence = report(store, jpeg, tmp_path / "review.html")
         assert before == list(store.connection.iterdump())
+        assert evidence["is_ai_generated"] is True
         assert evidence["fingerprint"] == command_fingerprint(command_row(store, jpeg))
         from dashboard.workflow import _review_preview
         html = _review_preview(store.connection, jpeg, interactive=True, csrf_token="token")
         assert "<form" not in html and "JPEG delivery" in html
     html = (tmp_path / "review.html").read_text()
+    assert "Required on the carousel parent" in html
     assert html.count("data:image/jpeg;base64,") == 6 and "default-src 'none'" in html
 
 
@@ -363,3 +385,38 @@ def test_unimplemented_revision_never_reaches_an_injected_transport(source):
         assert store.connection.execute("SELECT failure_category FROM post_attempts").fetchone()[0] == "configuration"
         assert store.connection.execute("SELECT final_publication_request_sent_at FROM post_attempts").fetchone()[0] is None
         assert store.connection.execute("SELECT status FROM post_records").fetchone()[0] == "failed"
+
+
+def test_legacy_revision_is_reportable_and_requires_new_disclosure_review(source):
+    from scripts.review_delivery import report
+    from workflow.delivery_revision import revision_fingerprint
+    from workflow.store import digest
+
+    path, root, png = source
+    with WorkflowStore(path) as store:
+        current = prepared(store, root, png)
+        row = command_row(store, current)
+        package = json.loads(row['package_json'])
+        manifest = json.loads(row['manifest_json'])
+        del package['is_ai_generated']
+        manifest['content_hash'] = digest(package)
+        # Insert the historic immutable format as a separate review cycle.
+        fingerprint = revision_fingerprint(package, manifest, json.loads(row['lineage_json']), root)
+        with store.transaction():
+            legacy_revision = store.connection.execute(
+                "INSERT INTO delivery_revisions(source_review_request_id,package_json,package_hash,manifest_json,"
+                "manifest_hash,lineage_json,artifact_root,fingerprint,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (png, canonical(package), digest(package), canonical(manifest), digest(manifest),
+                 row['lineage_json'], str(root), fingerprint, now())).lastrowid
+            legacy = store.connection.execute(
+                "INSERT INTO review_requests(content_package_id,render_run_id,review_cycle_number,package_hash,"
+                "manifest_hash,status,expires_at,created_at,destination_key,delivery_revision_id) "
+                "VALUES (?,?,?,?,?,'awaiting_review',?,?,?,?)",
+                (row['content_package_id'], row['render_run_id'], row['review_cycle_number'] + 1,
+                 digest(package), digest(manifest), row['expires_at'], now(), row['destination_key'],
+                 legacy_revision)).lastrowid
+        assert report(store, legacy, root / 'legacy.html')['is_ai_generated'] is None
+        with pytest.raises(ValueError, match='new JPEG review'):
+            accept(store, legacy)
+        assert command_row(store, legacy)['status'] == 'awaiting_review'
+        assert fingerprint != row['fingerprint']

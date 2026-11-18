@@ -170,6 +170,108 @@ preparation may leave an unregistered directory that cannot become delivery work
 inspect it and choose a new directory for a new command rather than overwrite it.
 [Posting](specs/posting.md) owns the full state and future adapter contract.
 
+## Instagram integration status
+
+Checkpoint 1 implements the registered factory, bounded authenticated HTTP,
+credential resolution/rotation checks, read-only preflight interface and separate
+single-post run activation. Live operation remains blocked by the empty verified
+contract registry; neither the Mac mini worker nor dashboard is connected to it.
+No live send or preflight command is installed. See the [posting contract](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+Checkpoint 2 retains accepted media IDs before readback and requires issued
+account/media verification before automatic published status. Its bounded
+read-only reconciliation can confirm a known media ID, but container status alone
+cannot resolve a lost publish response. The existing JPEG `report` now shows
+acceptance, verification scope/provenance, reconciliation checks and human
+decisions. An accepted response is not verified publication, and a human decision
+does not become API evidence. Readback and reconciliation remain fake-only;
+the [receipt contract](specs/posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation)
+lists the exact owner/version/field verification needed before a live reader exists.
+
+The two-minute activation window only authorizes starting one attempt. A consumed
+run can continue under its original claim for at most 45 minutes, renewing its
+five-minute lease and refreshing read-only evidence while checking cancellation
+and the exact reviewed identity. Token/post/review expiries may shorten that bound.
+Polling uses minute intervals, at most five reads/five minutes per container.
+Crash, expired lease or lost ownership stops continuation; no worker restart can
+reuse the consumed run, even if it died before uploading. There is no human rearm
+command in this checkpoint. Expired unused authorizations remain held; consumed
+failures require investigation, and final-send uncertainty never permits retry.
+
+The owner handoff, for a later separately authorized integration, is:
+
+1. Select one professional Business/Creator account and Meta app with Instagram
+   Login, confirm app access/review requirements and the exact granted permissions.
+   Do not silently substitute Facebook Login credentials or require a Page for
+   Instagram Login.
+2. Verify the explicit API version, identity/permissions/quota response shapes and
+   token-introspection authentication flow against current official references.
+   Record dates, selected-login scope spelling, app/account binding and expiry.
+   The candidate v26 fixture profile does not establish any of these facts. A
+   reviewed live contract/token reader must then be registered in code.
+3. Provision `DELIVERY_TOKEN` through an OS secret manager/process environment under
+   the worker's local OS owner. Do not paste it into shell command arguments,
+   configuration JSON, `.env` files, Git, chat, logs or SQLite. Start a fresh worker
+   after OS-environment rotation; obtain fresh read-only preflight and new scoped
+   authorization. In-process resolver changes are detected before staging/final
+   send. Existing/consumed activations cannot automatically resume.
+4. Only with separate permission, run read-only preflight. It must prove account,
+   app, login mode, grants, valid token, selected version and available dynamic
+   publishing quota and independent account-wide creation capacity. Failures revoke older evidence; no fake results may become real readiness.
+5. Verify the receipt/ownership and source-retention contracts, displayed child alt text,
+   ordered crop and the AI label on the published carousel parent. Obtain separate authorization for an eventual
+   controlled test publication: persistent enabled configuration, exact JPEG
+   approval, Post now, one-post run approval, then explicit execution. Providing a
+   credential or passing preflight grants none of those publishing approvals.
+
+No Meta, R2 or paid Gemini operation belongs to this checkpoint. Checkpoint 3 adds
+an offline-only source-retention/release policy; live semantics remain blocked.
+Each newly prepared JPEG review displays its required parent AI disclosure. An
+older revision missing the disclosure needs a new preparation command, a new output
+directory and fresh review. Existing authorizations still enforce duplicate
+protection. The [Checkpoint 4 evidence](specs/posting.md#checkpoint-4-instagram-login-evidence)
+records the external gates. Do not deploy a delivery LaunchAgent or automatic poller.
+
+## Staging investigation and release
+
+The exact policy and owner verification gates are in the
+[posting contract](specs/posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle).
+`review_delivery.py report` includes human-readable orphan/retention evidence.
+For an existing offline fixture database, inspect the attempt without provider I/O:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite report --attempt-id 1
+```
+
+A fresh read-only investigation is available through the offline composition's
+`investigate_orphans(proof, attempt_id)` interface; there is no live investigation
+CLI. Reports explain known/unknown IDs, ingestion status, release eligibility,
+release history and cleanup events. An uncertain or incomplete graph stays held.
+Legacy objects have no synthetic identity backfill and remain retained.
+
+Policy scheduling is a separate explicit action. It queues only eligible objects:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite schedule-safe --attempt-id 1 --confirm-safe-policy
+```
+
+For an object classified `operator`, save its exact `identity` JSON from the fresh
+report to a local file, then supply that report's fingerprint/state/resource ID
+and a new command ID. Review the whole identity, including destination, attempt,
+R2 origin/key and immutable hashes, before approving:
+
+```bash
+.venv/bin/python scripts/review_staging.py --database /path/to/offline.sqlite release --resource-id 1 --identity /path/to/identity.json --fingerprint REPORT_FINGERPRINT --expected-state ready --command-id release-001 --confirm-source-independent
+```
+
+These commands only persist release/queue records; they never DELETE or resolve a
+publication. A `retain` classification cannot be overridden. Changed state/evidence
+requires a fresh report and command; exact command replay is idempotent. Cleanup
+uses the composition's independently claimed fake worker, not a publishing run.
+After the bounded retry limit, inspect failure/audit evidence and authorize a fresh
+exact release if still eligible. No command promotes offline evidence to live
+readiness or storage authorization; the default real R2 client remains disabled.
+
 ## Offline delivery rehearsal
 
 These commands use synthetic content and fake providers only. `init` creates a new
@@ -330,6 +432,7 @@ not affect unrelated LaunchAgents.
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
 | `migrate_delivery_database.py` | Explicit v18→v19 dry run, verified backup and additive offline migration |
 | `review_delivery.py` | Production-source preparation, read-only local report, separate JPEG approval and Post now; never sends |
+| `review_staging.py` | Offline orphan/retention report and independent exact-object release scheduling; never contacts providers |
 | `prepare_delivery_artifacts.py` | Read-only PNG review export to a new, unapproved JPEG candidate |
 | `simulate_delivery.py` | Isolated synthetic review, explicit fake Post now, delivery/recovery and read-only report |
 | `run_tests.py` | Offline suite, including local browser and packaging checks |

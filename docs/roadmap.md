@@ -12,7 +12,7 @@ no live publication, model quality, learner outcomes or revenue.
 | 2B0 — acceptance safety (done) | Per-attempt provider caps and truthful failure/cost accounting. | Offline safeguards retained; paid calibration remains deferred. |
 | 3A — offline Instagram readiness | Deterministic unapproved JPEG candidates; isolated explicit review/Post now rehearsal through existing posting, relay, cleanup and reconciliation contracts; read-only evidence. | Offline tests and docs pass, exact-asset approval is preserved, and PR receives ChatGPT architectural review. No production DB migration, live adapter, upload or public send. |
 | 3B1 — exact JPEG review and authorization | Append-only delivery revisions, independent human approval, separate Post now, explicit v18→v19 offline migration and local report/CLI. | Offline regression and migration/recovery checks pass; hold PR for ChatGPT architectural review. No provider calls or publication. |
-| 3B2 — real provider integration (later, explicitly authorized) | One professional Instagram account, versioned capability/preflight, credentials and exact-byte R2 staging, container/publish/receipt adapter. | Consume the Phase 3B1 immutable delivery context and separate exact-JPEG approval; validate account/scopes/version, quota and reconciliation with a narrowly authorized pilot. Unknown sends never auto-retry. |
+| 3B2 — provider foundation (in progress; live activation separately authorized) | One professional Instagram account, versioned capability/preflight, credentials and exact-byte R2 staging, container/publish/receipt adapter. | Consume the Phase 3B1 immutable delivery context and separate exact-JPEG approval; validate account/scopes/version, quota and reconciliation with a narrowly authorized pilot. Unknown sends never auto-retry. |
 | 4 — receipts, insights and operating feedback | Durable receipt attribution, platform insights provenance, model/operator/delivery costs and outcome reporting. | Agreed observation windows and missing-data semantics; real evidence reconciled without claiming engagement is revenue. |
 | 5 — account-first expansion where justified | Account-specific identity, policy, credentials, history and budgets; other platforms only where useful. | Demonstrated one-account loop and isolated authorization/attribution tests before expansion. |
 | Final — English quality, visual refinement and paid calibration | Bounded Gemini samples and human teaching/design review; evidence-based prompt/layout corrections and economics calibration. | Separate authorization and finite budgets; unknown spend reconciled, quality and effort assessed by level/family, provisional targets agreed with owner. |
@@ -21,7 +21,7 @@ no live publication, model quality, learner outcomes or revenue.
 
 The first audience remains [global English learners at A1–B1](product.md#english-learning-pilot-brief).
 The [posting contract](specs/posting.md) maps the existing infrastructure and the
-implemented immutable-package boundary and remaining real-adapter requirements. Its versioned Meta adapter specification
+implemented immutable-package boundary, fake-provider integration and remaining real-adapter requirements. Its versioned Meta adapter specification
 separates documentation evidence from tested behavior. Reuse the current
 domain-to-one-destination binding; no speculative account schema redesign.
 
@@ -44,3 +44,33 @@ current live fidelity. Retry/checkpoint recovery has offline coverage, but live
 behavior needs authorized observation. Psychology policy changes and hybrid text
 rendering remain separate product experiments. A simulated receipt is not an
 Instagram media ID, and the current rehearsal collects no real metrics.
+
+## Phase 3B2 checkpoints
+
+Checkpoint 1 implements disabled-by-default production registration/composition,
+bounded authenticated transport, credential resolution/rotation checks, trusted
+read-only preflight interfaces, expiring offline evidence and scoped run activation.
+4–6-slide journeys use the real configuration/factory and authorization gates.
+The short start window is separate from a bounded active execution grant, with
+renewable fenced leases, guarded evidence refresh and realistic minute-spaced
+polling. Fake clocks exercise long runs, cancellation, expiry and crash/restart;
+consumed attempts cannot automatically resume or retry.
+The live contract registry is empty: API version/token-introspection semantics and
+owner account/app/permissions/quota require external verification. No real services
+are enabled. See [posting](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+Checkpoint 1 received architectural approval as a completed checkpoint, without
+merge/activation approval for the whole PR. Checkpoint 2 implements distinct
+acceptance/verification/uncertainty evidence and bounded read-only reconciliation.
+Only issued positive media/account evidence can confirm automatically; missing
+IDs and unavailable/inconsistent readbacks stay unknown. All evidence is offline;
+the selected live ownership/readback contract remains an explicit external gate.
+
+Checkpoint 2 also received acceptance as an offline code-review checkpoint.
+Checkpoint 3 implements durable child/parent orphan investigation, conservative
+source-retention policy, separate exact-object release commands and bounded,
+conditional R2 cleanup. Its fake-provider restart/concurrency/failure coverage
+does not verify live ingestion or R2 semantics; architectural review is pending.
+Container quota policy, detailed provider fidelity and AI-label behavior remain
+deferred. Do not merge or activate the broader Phase 3B2 work on offline evidence alone.
+English quality and design work remains last.

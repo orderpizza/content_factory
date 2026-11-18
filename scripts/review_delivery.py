@@ -21,7 +21,7 @@ def report(store, review_id, output):
     context = dict(row)
     context.update(account=lineage["account"], platform="instagram", pipeline_id="english",
                    content_hash=row["package_hash"], config_json="{}")
-    context = store._validate_delivery_artifacts(context)
+    context = store._validate_delivery_artifacts(context, for_report=True)
     package = context["package"]
     images = context["assets"]
     evidence = {"review_id": review_id, "status": row["status"], "row_version": row["row_version"],
@@ -29,21 +29,38 @@ def report(store, review_id, output):
                 "destination": row["destination_key"], "provider_account_id": lineage["provider_account_id"],
                 "expires_at": row["expires_at"], "caption": package["caption"],
                 "alt_text": package["alt_text"], "image_alt_text": package["image_alt_text"],
+                "is_ai_generated": package.get("is_ai_generated"),
                 "reviewed_images": [a["sha256"] for a in images], "lineage": lineage,
                 "package_hash": row["package_hash"], "manifest_hash": row["manifest_hash"],
                 "post_requests": [dict(r) for r in store.connection.execute(
                     "SELECT q.post_request_id,q.publication_identity,q.status,p.post_record_id,p.status delivery_status "
                     "FROM post_requests q JOIN post_records p USING(post_request_id) WHERE q.review_request_id=?",
                     (review_id,))], "report_sends_content": False}
+    from workflow.instagram_receipts import receipt_summary
+    evidence['publication_evidence'] = [dict(post_record_id=p['post_record_id'], **receipt_summary(store, p['post_record_id']))
+                                       for p in evidence['post_requests']]
+    from workflow.resource_lifecycle import resource_report
+    from workflow.instagram_receipts import registered
+    evidence['staging_evidence'] = [resource_report(store, a[0]) for p in evidence['post_requests'] if registered(store, p['post_record_id'])
+        for a in store.connection.execute('SELECT post_attempt_id FROM post_attempts WHERE post_record_id=?', (p['post_record_id'],))]
     summary = {key: evidence[key] for key in ("review_id", "status", "row_version", "fingerprint",
                "account", "destination", "provider_account_id", "expires_at")}
+    disclosure = ("Required on the carousel parent" if package.get("is_ai_generated") is True
+                  else "Missing from this revision. Prepare and approve a new revision for Instagram.")
     html = ['<!doctype html><html lang="en"><meta charset="utf-8">',
             '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'">',
             '<title>Exact JPEG delivery review</title><style>body{max-width:960px;margin:2rem auto;font:18px sans-serif}img{max-width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>',
             '<h1>Exact JPEG delivery review</h1><p>Inspect every image in order, caption, aggregate and per-image alt text, account and destination. Approval creates no delivery request. Post now is separate; this CLI never sends.</p>',
             '<pre>' + escape(json.dumps(summary, ensure_ascii=False, indent=2)) + '</pre>',
+            '<h2>AI-generated disclosure</h2><p>' + disclosure + '</p>',
             '<h2>Exact caption</h2><pre>' + escape(package["caption"]) + '</pre>',
             '<h2>Aggregate alt text</h2><pre>' + escape(package["alt_text"]) + '</pre>']
+    if evidence['publication_evidence']:
+        html += ['<h2>Publication receipt and reconciliation</h2><pre>'
+                 + escape(json.dumps(evidence['publication_evidence'], ensure_ascii=False, indent=2)) + '</pre>']
+    if evidence['staging_evidence']:
+        html += ['<h2>Staging retention and orphan investigation</h2><pre>'
+                 + escape(json.dumps(evidence['staging_evidence'], ensure_ascii=False, indent=2)) + '</pre>']
     for asset in images:
         data = Path(asset["path"]).read_bytes()
         if sha256(data).hexdigest() != asset["sha256"]:
@@ -84,7 +101,7 @@ def main():
         cmd.add_argument("--fingerprint", required=True)
     approval.add_argument("--reviewed-images", nargs="+", required=True, help="all displayed SHA256 values in slide order")
     approval.add_argument("--confirm-reviewed-all", action="store_true",
-                          help="I inspected all JPEGs, caption, aggregate/per-image alt text and destination")
+                          help="I inspected all JPEGs, caption, aggregate/per-image alt text, AI disclosure and destination")
     args = parser.parse_args()
     if args.action == "approve" and not args.confirm_reviewed_all:
         parser.error("approval requires --confirm-reviewed-all")

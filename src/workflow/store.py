@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .offline import readiness_eligible
+
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from contextlib import contextmanager
@@ -361,7 +363,9 @@ class WorkflowStore:
                 )
         return capability_id
 
-    def claim(self, table: str, primary_key: str, worker: str, *, lease_seconds: int = 300) -> Any | None:
+    def claim(self, table: str, primary_key: str, worker: str, *, lease_seconds: int = 300, record_id: int | None = None) -> Any | None:
+        if record_id is not None and (table != "post_records" or type(record_id) is not int or record_id < 1):
+            raise ValueError("scoped claim requires a positive post record ID")
         if CLAIM_KEYS.get(table) != primary_key:
             raise ValueError("unsupported claim table")
         if type(lease_seconds) is not int or lease_seconds < 1 or not worker:
@@ -444,7 +448,10 @@ class WorkflowStore:
                 f"SELECT * FROM {table} WHERE status IN ('pending','retry_wait') AND attempt_count<attempt_limit "
                 "AND (next_attempt_at IS NULL OR next_attempt_at<=?) "
                 + ("AND eligible_at<=? " if table == "post_records" else "")
-                + f"ORDER BY created_at,{primary_key} LIMIT 1", (moment, moment) if table == "post_records" else (moment,)
+                + (f"AND {primary_key}=? " if record_id is not None else "")
+                + f"ORDER BY created_at,{primary_key} LIMIT 1",
+                ((moment, moment) if table == "post_records" else (moment,))
+                + ((record_id,) if record_id is not None else ())
             ).fetchone()
             if row is None:
                 return None
@@ -488,20 +495,36 @@ class WorkflowStore:
                     )
                     self._schedule_attempt_cleanup(int(record["post_attempt_id"]), moment)
             else:
-                status = "retry_wait" if record["attempt_count"] < record["attempt_limit"] else "failed"
+                # A create intent may mean an external container exists. A consumed
+                # run grant also forbids restart/replay even before any create intent;
+                # restarting cannot reuse the human's single-use authorization.
+                intent = self.connection.execute(
+                    "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type IN ('instagram_create_intent','instagram_run') LIMIT 1",
+                    (record["post_attempt_id"],),
+                ).fetchone()
+                run = self.connection.execute(
+                    "SELECT safe_metadata_json FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type='instagram_run'", (record['post_attempt_id'],)).fetchone()
+                expired_run = run is not None and json.loads(run[0])['deadline_at'] <= moment
+                detail = ("delivery execution deadline expired; investigation required" if expired_run else
+                          "consumed delivery run interrupted; investigation required" if run else
+                          "delivery lease expired before final request")
+                category = 'stage_expired' if expired_run else 'run_interrupted' if run else 'local_interruption'
+                status = "retry_wait" if not intent and record["attempt_count"] < record["attempt_limit"] else "failed"
                 self.connection.execute(
-                    "UPDATE post_records SET status=?,failure_reason='delivery lease expired before final request',"
+                    "UPDATE post_records SET status=?,failure_reason=?,"
                     "next_attempt_at=?,completed_at=?,claim_version=claim_version+1,row_version=row_version+1 "
                     "WHERE post_record_id=?",
-                    (status, moment if status == "retry_wait" else None,
+                    (status, detail, moment if status == "retry_wait" else None,
                      moment if status == "failed" else None, record["post_record_id"]),
                 )
                 if record["post_attempt_id"] is not None:
                     self.connection.execute(
-                        "UPDATE post_attempts SET status=?,failure_category='local_interruption',"
-                        "failure_detail='delivery lease expired before final request',completed_at=? "
+                        "UPDATE post_attempts SET status=?,failure_category=?,"
+                        "failure_detail=?,completed_at=? "
                         "WHERE post_attempt_id=? AND status IN ('created','staging','ready_to_publish')",
-                        ("retryable_failed" if status == "retry_wait" else "failed", moment,
+                        ("retryable_failed" if status == "retry_wait" else "failed", category, detail, moment,
                          record["post_attempt_id"]),
                     )
                     self.connection.execute(
@@ -588,7 +611,8 @@ class WorkflowStore:
                     raise ValueError("inactive delivery boundary requires a generic secret reference")
                 config = destination["config"]
                 if config != {"adapter_version": "unimplemented"}:
-                    raise ValueError("posting provider implementation is outside the current baseline")
+                    from .instagram_composition import validate_registration
+                    validate_registration(config)
                 policy = destination["posting_policy"]
                 if not isinstance(policy, dict) or set(policy) != {
                     "timezone", "max_posts_per_day", "min_post_interval_minutes",
@@ -1899,6 +1923,7 @@ class WorkflowStore:
         reasons: list[str],
         facts: dict[str, Any],
         valid_for: timedelta = timedelta(hours=6),
+        preflight: Any = None,
     ) -> int:
         """Persist one bounded provider/config readiness observation."""
         self._validate_schema()
@@ -1908,6 +1933,22 @@ class WorkflowStore:
             raise ValueError("readiness reasons must be non-empty strings")
         if not isinstance(facts, dict) or valid_for <= timedelta(0):
             raise ValueError("readiness facts or validity window is invalid")
+        destination = self.connection.execute(
+            "SELECT config_json FROM social_destinations WHERE social_destination_id=?", (destination_id,)
+        ).fetchone()
+        registered_instagram = destination and json.loads(destination[0]).get("adapter_version") == "instagram_login_v1"
+        if registered_instagram and status == "degraded" and facts.get("provenance") == "offline":
+            raise ValueError("eligible offline readiness requires an issued Instagram preflight")
+        if registered_instagram and status == "ready":
+            from .instagram_composition import _destination, validate_proof
+            registered, _ = _destination(self, destination_id)
+            validate_proof(preflight, registered, for_persistence=True)
+            if canonical(facts) != canonical(preflight.facts()) or reasons:
+                raise ValueError("readiness facts must be the issued preflight result")
+            valid_for = min(valid_for, parse_timestamp(preflight.valid_until) - parse_timestamp(now()))
+            if preflight.provenance == "offline":
+                status = "degraded"
+                reasons = ["offline evidence only; not production readiness"]
         moment = now()
         valid_until = serialize_timestamp(parse_timestamp(moment) + valid_for)
         evidence = {"status": status, "reasons": reasons, "facts": facts, "valid_until": valid_until}
@@ -2129,6 +2170,7 @@ class WorkflowStore:
         asset_ordinal: int | None = None,
         status: str = "created",
         safe_metadata: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> int:
         self._validate_schema()
         if status not in {"created", "ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
@@ -2137,6 +2179,8 @@ class WorkflowStore:
             raise ValueError("publication resource identity is invalid")
         moment = now()
         with self.transaction():
+            if context is not None:
+                self._check_post_resource_fence(context, attempt_id, moment)
             attempt = self.connection.execute(
                 "SELECT status FROM post_attempts WHERE post_attempt_id=?", (attempt_id,),
             ).fetchone()
@@ -2149,17 +2193,79 @@ class WorkflowStore:
                  canonical(safe_metadata or {}), moment, moment),
             ).lastrowid)
 
-    def update_publication_resource(self, resource_id: int, *, status: str) -> int:
+    def _check_post_resource_fence(self, context: dict[str, Any], attempt_id: int, moment: str) -> None:
+        row = self.connection.execute(
+            "SELECT 1 FROM post_records p JOIN post_attempts a ON a.post_record_id=p.post_record_id "
+            "WHERE p.post_record_id=? AND a.post_attempt_id=? AND p.status='publishing' "
+            "AND p.claim_owner=? AND p.claim_version=? AND p.lease_expires_at>? "
+            "AND a.status IN ('staging','ready_to_publish')",
+            (context["post_record_id"], attempt_id, context["claim_owner"], context["claim_version"], moment),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("delivery resource claim is stale or cancelled")
+
+    def renew_post_execution(self, context: dict[str, Any], *, require_fresh_readiness: bool = True) -> dict:
+        """Fence and renew the SAME durable Instagram attempt, never an expired lease.
+
+        This is request admission, not a lock held across external I/O. An already
+        admitted/in-flight request cannot be recalled. Every subsequent request
+        needs a new check; a late response cannot grant another lease.
+        """
+        moment = now()
+        with self.transaction():
+            resource = self.connection.execute(
+                "SELECT safe_metadata_json FROM publication_resources WHERE post_attempt_id=? "
+                "AND resource_type='instagram_run'", (context['post_attempt_id'],)).fetchone()
+            if resource is None:
+                raise RuntimeError("delivery execution grant is missing")
+            grant = json.loads(resource[0])
+            if moment >= grant['deadline_at']:
+                raise RuntimeError("delivery execution deadline expired")
+            row = self.connection.execute(
+                "SELECT p.status,p.claim_owner,p.claim_version,p.lease_expires_at,a.status attempt_status,t.status thread_status "
+                "FROM post_records p JOIN post_attempts a ON a.post_record_id=p.post_record_id "
+                "JOIN post_requests q ON q.post_request_id=p.post_request_id "
+                "JOIN content_packages cp ON cp.content_package_id=q.content_package_id "
+                "JOIN output_requests o ON o.output_request_id=cp.output_request_id "
+                "JOIN canonical_contents c ON c.canonical_content_id=o.canonical_content_id "
+                "JOIN content_jobs j ON j.content_job_id=c.content_job_id "
+                "JOIN brief_revisions b ON b.revision_id=j.brief_revision_id "
+                "JOIN content_threads t ON t.thread_id=b.thread_id "
+                "WHERE p.post_record_id=? AND a.post_attempt_id=?",
+                (context['post_record_id'], context['post_attempt_id'])).fetchone()
+            if (row is None or row['status'] != 'publishing' or row['thread_status'] != 'open'
+                    or row['attempt_status'] not in {'staging', 'ready_to_publish', 'final_request_sent'}
+                    or row['lease_expires_at'] <= moment or row['claim_owner'] != context['claim_owner']
+                    or row['claim_version'] != context['claim_version']):
+                raise RuntimeError("delivery execution claim is stale or cancelled")
+            current = self._post_delivery_context(context['post_record_id'], moment=moment,
+                                                 require_fresh_readiness=require_fresh_readiness)
+            for key in ('post_record_id', 'claim_owner', 'claim_version', 'package_hash', 'manifest_hash',
+                        'delivery_revision_id', 'provider_account_id', 'destination_key'):
+                if grant[key] != context[key] or current[key] != context[key]:
+                    raise RuntimeError("delivery execution identity changed")
+            lease = min(grant['deadline_at'], serialize_timestamp(parse_timestamp(moment) + timedelta(seconds=300)))
+            self.connection.execute(
+                "UPDATE post_records SET lease_expires_at=? WHERE post_record_id=? AND claim_owner=? AND claim_version=?",
+                (lease, context['post_record_id'], context['claim_owner'], context['claim_version']))
+            return grant
+
+    def update_publication_resource(self, resource_id: int, *, status: str,
+                                    context: dict[str, Any] | None = None) -> int:
         """Advance one provider-side resource without changing its identity."""
         self._validate_schema()
         if status not in {"ready", "published", "cleanup_pending", "cleaned", "retained", "failed"}:
             raise ValueError("invalid publication resource status")
         moment = now()
         with self.transaction():
+            if context is not None:
+                self._check_post_resource_fence(context, int(context["post_attempt_id"]), moment)
             result = self.connection.execute(
                 "UPDATE publication_resources SET status=?,updated_at=? "
-                "WHERE publication_resource_id=? AND status NOT IN ('cleaned','failed')",
-                (status, moment, resource_id),
+                "WHERE publication_resource_id=? AND status NOT IN ('cleaned','failed') "
+                + ("AND post_attempt_id=?" if context is not None else ""),
+                (status, moment, resource_id, int(context["post_attempt_id"])) if context is not None
+                else (status, moment, resource_id),
             )
             if result.rowcount != 1:
                 raise RuntimeError("publication resource is missing or terminal")
@@ -2188,7 +2294,7 @@ class WorkflowStore:
                 "q.status request_status,q.expires_at,"
                 "t.status thread_status,a.status attempt_status,a.final_publication_request_sent_at "
                 ",b.delivery_enabled,b.visual_configuration_approved,d.enabled destination_enabled,"
-                "cr.status readiness_status,cr.valid_until readiness_valid_until "
+                "cr.status readiness_status,cr.facts_json readiness_facts,cr.valid_until readiness_valid_until "
                 "FROM post_records p JOIN post_requests q ON q.post_request_id=p.post_request_id "
                 "JOIN review_requests v ON v.review_request_id=q.review_request_id "
                 "JOIN content_packages cp ON cp.content_package_id=v.content_package_id "
@@ -2222,7 +2328,7 @@ class WorkflowStore:
                 raise RuntimeError("delivery authorization was cancelled or claim is stale")
             if (
                 not row["delivery_enabled"] or not row["visual_configuration_approved"]
-                or not row["destination_enabled"] or row["readiness_status"] != "ready"
+                or not row["destination_enabled"] or not readiness_eligible(row["readiness_status"], row["readiness_facts"])
                 or row["readiness_valid_until"] <= moment
             ):
                 raise RuntimeError("production destination readiness expired during staging")
@@ -2235,11 +2341,23 @@ class WorkflowStore:
             if result.rowcount != 1:
                 raise RuntimeError("final publication marker was not committed")
 
-    def complete_publication(self, context: dict[str, Any], external_post_id: str) -> int:
+    def record_publish_acceptance(self, context: dict[str, Any], external_post_id: str) -> None:
+        from .instagram_receipts import persist_acceptance
+        persist_acceptance(self, context, external_post_id)
+
+    def complete_publication(self, context: dict[str, Any], external_post_id: str, *, receipt=None) -> int:
         if not external_post_id or len(external_post_id) > 300:
             raise ValueError("provider post ID is invalid")
+        from .instagram_receipts import registered, persist_verified
+        if registered(self, context['post_record_id']):
+            self.renew_post_execution(context)
         moment = now()
         with self.transaction():
+            if registered(self, context['post_record_id']):
+                # All publication transitions require issued, identity-bound evidence.
+                # Acceptance was committed separately before the readback operation.
+                self._post_delivery_context(context['post_record_id'], moment=moment)
+                persist_verified(self, context['post_record_id'], receipt, external_id=external_post_id)
             attempt = self.connection.execute(
                 "SELECT status FROM post_attempts WHERE post_attempt_id=? AND post_record_id=?",
                 (context["post_attempt_id"], context["post_record_id"]),
@@ -2253,9 +2371,9 @@ class WorkflowStore:
             result = self.connection.execute(
                 "UPDATE post_records SET status='published',external_post_id=?,published_at=?,"
                 "completed_at=?,failure_reason=NULL,row_version=row_version+1 "
-                "WHERE post_record_id=? AND status='publishing' AND claim_owner=? AND claim_version=?",
+                "WHERE post_record_id=? AND status='publishing' AND claim_owner=? AND claim_version=? AND lease_expires_at>?",
                 (external_post_id, moment, moment, context["post_record_id"],
-                 context["claim_owner"], context["claim_version"]),
+                 context["claim_owner"], context["claim_version"], moment),
             )
             if result.rowcount != 1:
                 raise RuntimeError("provider succeeded but local publication finalization is uncertain")
@@ -2329,8 +2447,10 @@ class WorkflowStore:
                 self._schedule_attempt_cleanup(int(context["post_attempt_id"]), moment)
             else:
                 if current["lease_expires_at"] <= moment:
-                    # Leave the record for the conservative stale-claim recovery
-                    # transaction. It owns retry classification and fencing.
+                    # Execution expiry is a known terminal stop. Use the same
+                    # fenced stale-recovery rules; never resurrect its lease.
+                    if category == 'stage_expired':
+                        self._recover_stale_post_claims(moment)
                     return int(context["post_record_id"])
                 attempt_count = int(self.connection.execute(
                     "SELECT attempt_count FROM post_records WHERE post_record_id=?",
@@ -2340,7 +2460,12 @@ class WorkflowStore:
                     "SELECT attempt_limit FROM post_records WHERE post_record_id=?",
                     (context["post_record_id"],),
                 ).fetchone()[0])
-                will_retry = retryable and attempt_count < attempt_limit
+                intent = self.connection.execute(
+                    "SELECT 1 FROM publication_resources WHERE post_attempt_id=? "
+                    "AND resource_type IN ('instagram_create_intent','instagram_run') LIMIT 1",
+                    (context["post_attempt_id"],),
+                ).fetchone()
+                will_retry = retryable and not intent and attempt_count < attempt_limit
                 status = "retry_wait" if will_retry else "failed"
                 self.connection.execute(
                     "UPDATE post_attempts SET status=?,failure_category=?,failure_detail=?,completed_at=? "
@@ -2465,6 +2590,7 @@ class WorkflowStore:
         outcome: str,
         query_version: str,
         evidence: dict[str, Any],
+        receipt=None,
     ) -> int:
         if outcome not in {"confirmed_published", "confirmed_not_published", "ambiguous", "provider_unavailable"}:
             raise ValueError("invalid reconciliation outcome")
@@ -2474,12 +2600,20 @@ class WorkflowStore:
                 "SELECT 1 FROM reconciliation_requests r JOIN post_records p USING(post_record_id) "
                 "WHERE r.reconciliation_request_id=? AND r.status='claimed' "
                 "AND r.claim_owner=? AND r.claim_version=? AND r.lease_expires_at>? "
-                "AND p.status='publication_unknown'",
+                "AND p.status='publication_unknown' AND r.post_record_id=?",
                 (request["reconciliation_request_id"], request["claim_owner"],
-                 request["claim_version"], moment),
+                 request["claim_version"], moment, request['post_record_id']),
             ).fetchone()
             if current is None:
                 raise RuntimeError("reconciliation claim is stale or publication is no longer unknown")
+            from .instagram_receipts import registered, persist_verified
+            verified = None
+            if registered(self, request['post_record_id']):
+                if outcome == 'confirmed_not_published':
+                    raise ValueError('Instagram absence is not proof of non-publication')
+                if outcome == 'confirmed_published':
+                    verified = persist_verified(self, request['post_record_id'], receipt)
+                    evidence = verified
             check_id = int(self.connection.execute(
                 "INSERT INTO reconciliation_checks(reconciliation_request_id,outcome,query_version,"
                 "evidence_json,evidence_hash,checked_at) VALUES (?,?,?,?,?,?)",
@@ -2487,6 +2621,11 @@ class WorkflowStore:
                  digest(evidence), moment),
             ).lastrowid)
             if outcome == "confirmed_published":
+                if verified is not None:
+                    self.connection.execute('UPDATE post_records SET external_post_id=? WHERE post_record_id=?',
+                                            (verified['media_id'], request['post_record_id']))
+                    self.connection.execute("UPDATE post_attempts SET status='succeeded',completed_at=? WHERE post_attempt_id=?",
+                                            (moment, verified['post_attempt_id']))
                 self.connection.execute(
                     "UPDATE reconciliation_requests SET status='resolved',completed_at=? "
                     "WHERE reconciliation_request_id=? AND claim_owner=? AND claim_version=?",
@@ -2592,9 +2731,25 @@ class WorkflowStore:
             )
             return reconciliation_request_id
 
+    def check_cleanup_claim(self, task: Any) -> None:
+        row = self.connection.execute(
+            "SELECT 1 FROM delivery_cleanup_tasks WHERE delivery_cleanup_task_id=? AND status='claimed' "
+            "AND claim_owner=? AND claim_version=? AND lease_expires_at>? AND object_key=? AND publication_resource_id=?",
+            (task['delivery_cleanup_task_id'], task['claim_owner'], task['claim_version'], now(), task['object_key'], task['publication_resource_id'])).fetchone()
+        if row is None:
+            raise RuntimeError('cleanup claim is stale or identity changed')
+
     def complete_cleanup(self, task: Any) -> int:
         moment = now()
         with self.transaction():
+            self.check_cleanup_claim(task)
+            resource = self.connection.execute(
+                'SELECT safe_metadata_json FROM publication_resources WHERE publication_resource_id=?',
+                (task['publication_resource_id'],)).fetchone()
+            if resource and json.loads(resource[0]).get('lifecycle') == 'r2_lifecycle_v1':
+                from .resource_lifecycle import _cleanup_guard_locked
+                _cleanup_guard_locked(self, task)
+
             result = self.connection.execute(
                 "UPDATE delivery_cleanup_tasks SET status='succeeded',completed_at=? "
                 "WHERE delivery_cleanup_task_id=? AND status='claimed' AND claim_owner=? AND claim_version=?",
@@ -2611,6 +2766,7 @@ class WorkflowStore:
     def fail_cleanup(self, task: Any, detail: str, *, retryable: bool) -> int:
         moment = now()
         with self.transaction():
+            self.check_cleanup_claim(task)
             retry = retryable and int(task["attempt_count"]) < int(task["attempt_limit"])
             status = "retry_wait" if retry else "failed"
             next_attempt = serialize_timestamp(parse_timestamp(moment) + timedelta(minutes=5)) if retry else None
@@ -2697,7 +2853,7 @@ class WorkflowStore:
             "p.content_hash,r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.destination_key,d.enabled destination_enabled,d.config_json,d.secret_ref,"
-            "d.provider_account_id,d.configuration_release_id,cr.status readiness_status,"
+            "d.provider_account_id,d.configuration_release_id,cr.facts_json readiness_facts,cr.status readiness_status,"
             "cr.valid_until readiness_valid_until,pp.policy_version,pp.timezone_name,"
             "pp.max_posts_per_day,pp.min_post_interval_minutes,pp.authorization_ttl_hours "
             "FROM review_requests v JOIN content_packages p ON p.content_package_id=v.content_package_id "
@@ -2720,13 +2876,15 @@ class WorkflowStore:
             raise ValueError("review is not current and awaiting authorization")
         if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
             raise ValueError("production destination is disabled or visual configuration is not approved")
-        if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
+        from .instagram_composition import validate_persisted_readiness
+        validate_persisted_readiness(self, row["social_destination_id"])
+        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or row["readiness_valid_until"] <= moment:
             raise ValueError("production destination readiness is not current")
         if row["review_destination_key"] != row["destination_key"]:
             raise ValueError("review destination differs from the bound destination")
         return self._validate_delivery_artifacts(row)
 
-    def _post_delivery_context(self, post_record_id: int, *, moment: str) -> dict[str, Any]:
+    def _post_delivery_context(self, post_record_id: int, *, moment: str, require_fresh_readiness: bool = True) -> dict[str, Any]:
         row = self.connection.execute(
             "SELECT pr.post_record_id,v.delivery_revision_id,v.status review_status,v.expires_at review_expires_at,pr.status post_status,pr.eligible_at,pr.claim_owner,pr.claim_version,"
             "pq.post_request_id,pq.publication_identity,pq.status request_status,pq.expires_at,pq.package_hash,pq.manifest_hash,"
@@ -2735,7 +2893,7 @@ class WorkflowStore:
             "r.manifest_json,o.output_request_id,o.platform,o.account,o.content_format,"
             "b.output_binding_id,b.delivery_enabled,b.visual_configuration_approved,d.social_destination_id,"
             "d.enabled destination_enabled,d.config_json,d.secret_ref,d.provider_account_id,"
-            "d.configuration_release_id,cr.status readiness_status,cr.valid_until readiness_valid_until,"
+            "d.configuration_release_id,cr.facts_json readiness_facts,cr.status readiness_status,cr.valid_until readiness_valid_until,"
             "pp.policy_version,pp.timezone_name,pp.max_posts_per_day,pp.min_post_interval_minutes,"
             "pp.authorization_ttl_hours "
             "FROM post_records pr JOIN post_requests pq ON pq.post_request_id=pr.post_request_id "
@@ -2759,7 +2917,9 @@ class WorkflowStore:
             raise ValueError("delivery is expired or not yet policy eligible")
         if not row["delivery_enabled"] or not row["visual_configuration_approved"] or not row["destination_enabled"]:
             raise ValueError("production destination is disabled or visual configuration is not approved")
-        if row["readiness_status"] != "ready" or row["readiness_valid_until"] <= moment:
+        from .instagram_composition import validate_persisted_readiness
+        validate_persisted_readiness(self, row["social_destination_id"])
+        if not readiness_eligible(row["readiness_status"], row["readiness_facts"]) or (require_fresh_readiness and row["readiness_valid_until"] <= moment):
             raise ValueError("production destination readiness is not current")
         if row["destination_key"] != row["actual_destination_key"]:
             raise ValueError("authorized destination differs from the bound destination")
@@ -2770,7 +2930,7 @@ class WorkflowStore:
         context["post_request_id"] = int(row["post_request_id"])
         return context
 
-    def _validate_delivery_artifacts(self, row: Any) -> dict[str, Any]:
+    def _validate_delivery_artifacts(self, row: Any, *, for_report: bool = False) -> dict[str, Any]:
         from .delivery_revision import overlay
         row = overlay(self, row)
         package = json.loads(row["package_json"])
@@ -2850,6 +3010,10 @@ class WorkflowStore:
         result["manifest"] = manifest
         result["assets"] = validated
         result["destination_config"] = json.loads(row["config_json"])
+        if (row.get("delivery_revision_id") is not None
+                and not for_report
+                and package.get("is_ai_generated") is not True):
+            raise ValueError("prepare a new JPEG review with the required AI disclosure")
         return result
 
     def _earliest_eligible_at(self, context: dict[str, Any], moment: str) -> str:
@@ -2902,7 +3066,8 @@ class WorkflowStore:
     def _schedule_attempt_cleanup(self, attempt_id: int, moment: str) -> None:
         resources = self.connection.execute(
             "SELECT publication_resource_id,remote_id FROM publication_resources "
-            "WHERE post_attempt_id=? AND resource_type='r2_object' AND status NOT IN ('cleaned','cleanup_pending')",
+            "WHERE post_attempt_id=? AND resource_type='r2_object' AND status NOT IN ('cleaned','cleanup_pending') "
+            "AND COALESCE(json_extract(safe_metadata_json,'$.retention'),'') != 'manual_ingestion_safety'",
             (attempt_id,),
         ).fetchall()
         for resource in resources:
