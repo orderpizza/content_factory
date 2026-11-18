@@ -75,7 +75,8 @@ Use the actual thread ID and version. Refinement creates immutable new work.
 
 ## Offline database migration for delivery revisions
 
-Schema 19 is required. Startup/bootstrap never migrates a database. For an existing
+This historical step produces schema 19; current code requires the separate
+v19→v20 measurement step below. Startup/bootstrap never migrates a database. For an existing
 schema-18 operator DB, first stop all writers (including the dashboard and review
 LaunchAgents) and record its exact path. Keep its artifact tree and independent
 verified backups. Use an unused backup filename outside the selected primary DB
@@ -107,7 +108,7 @@ resuming operation. No operator DB is migrated by a code checkout or test run.
 
 ## Exact JPEG delivery review
 
-Use an explicit schema-19 database and an existing English PNG review that already
+Use an explicit current-schema database and an existing English PNG review that already
 has its frozen account/destination binding. A default development fixture binding
 without a destination is ineligible; these commands never assign one retroactively.
 The source review must be awaiting or editorially approved, unexpired, with an open
@@ -334,7 +335,7 @@ The output parent must exist. This writes only a new local candidate directory;
 PNG approval is not copied. This export cannot be imported as authorization. Use
 the [separate revision workflow](#exact-jpeg-delivery-review) to prepare directly
 from trusted source evidence and persist a new JPEG review. Existing source records
-remain unchanged; schema 19 migration is always explicit.
+remain unchanged; schema migrations are always explicit.
 
 ## Verification and live acceptance
 
@@ -430,6 +431,8 @@ not affect unrelated LaunchAgents.
 | `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
 | `install_review_baseline.py` | Write/load/status the five review-only Mac Mini LaunchAgents |
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
+| `measure_offline.py` | Isolated synthetic measurement demo, explicit offline append and read-only JSON report |
+| `migrate_measurement_database.py` | Explicit v19→v20 dry run, verified backup and additive observation migration |
 | `migrate_delivery_database.py` | Explicit v18→v19 dry run, verified backup and additive offline migration |
 | `review_delivery.py` | Production-source preparation, read-only local report, separate JPEG approval and Post now; never sends |
 | `review_staging.py` | Offline orphan/retention report and independent exact-object release scheduling; never contacts providers |
@@ -479,3 +482,74 @@ These use fake providers and temporary databases; no paid inference or public
 posting occurs. Browser tests run locally.
 Tests protect the accepted English mechanics, not the aesthetic or factual
 quality of every model response. Live editorial results require human review.
+
+## Offline database migration for measurement
+
+Schema 20 is required for Phase 4A. No operator database is upgraded by startup or
+reporting. Existing v18 databases must first complete the separate delivery
+migration above. Stop all writers (workers, dashboard and operator commands).
+Use explicit absolute paths and an unused backup filename:
+
+```sh
+.venv/bin/python scripts/migrate_measurement_database.py --database /absolute/path/operator.db
+.venv/bin/python scripts/migrate_measurement_database.py --database /absolute/path/operator.db \
+  --apply --writers-stopped --backup /absolute/backups/pre-v20.db
+```
+
+The default is a read-only dry run against an in-memory copy. Apply verifies the
+exact v19 checksum/executable schema, integrity and foreign keys, creates a backup
+without overwriting files, compares backup rows under an exclusive transaction,
+and appends one table plus indexes/triggers and the v20 ledger. No source/content/
+approval rows are rewritten. An interrupted transaction rolls back; rerunning
+a completed migration reports `already_current`. Test restoring the verified v19
+backup to a new isolated filename with v19 code. Never overwrite an open database
+or mix WAL/SHM files. Preserve the v20 database: a v19 restore cannot retain newer
+observations, and no destructive downgrade is provided. Restart processes only
+after successful validation. No Mac mini database was migrated by this work.
+
+## Offline measurement commands
+
+The [measurement contract](specs/measurement.md) owns KPI definitions and limits.
+Create a synthetic demo in a new retained temporary directory by default; it
+creates an awaiting review and a synthetic account observation, without approval,
+Post now, publishing, credentials or network requests:
+
+```sh
+.venv/bin/python scripts/measure_offline.py synthetic-demo --slides 4
+```
+
+The output prints the isolated database path and destination ID. Its
+`synthetic-observations.json` is a typed example. Optional `--workspace` requires
+a new directory; `--slides` supports 4, 5 and 6. Read-only JSON reporting requires
+an explicit database, exact destination configuration ID and UTC half-open period:
+
+```sh
+.venv/bin/python scripts/measure_offline.py report --database /absolute/path/simulation.sqlite \
+  --destination-id 1 --start 2026-11-01T00:00:00Z --end 2026-12-01T00:00:00Z
+.venv/bin/python scripts/measure_offline.py ingest --database /absolute/path/simulation.sqlite \
+  --observations /absolute/path/synthetic-observations.json --append-offline-observations
+```
+
+Ingest is an explicitly acknowledged append, never implicit current-DB discovery.
+It validates the existing schema and appends only measurement rows. Files cannot
+register authenticated definitions, import raw responses or change approvals.
+For optional manual time/storage/delivery estimates, use `manual_operations_v1`
+with `provider=manual`, `api_version=not_applicable`, `login=none`, matching capability
+and `provenance=human_estimate`. Retain account or post attribution and explicit
+windows; omitted inputs are unknown. See the typed `Observation` in
+`src/workflow/measurement.py` for the closed fields. Evidence references must be
+nonsecret identifiers; source response SHA256 hashes identify locally retained
+evidence without copying it into the DB. Inspect immutable observation IDs and
+`supersedes_id` in SQLite to follow corrections; the report includes receipt IDs.
+
+`--as-of` limits metric fetched timestamps only; publication state and mutable
+model settlements are current at report generation. Full-window observations only
+are eligible. No metric snapshots are summed or divided by account/post values.
+The funnel uses delivery reviews (including legacy authorized reviews) created
+in the period, labels their review kind, and shows current
+review/approval/authorization outcomes and publication evidence classifications.
+It is a cohort count, not an event-time conversion rate. Costs use reservation
+creation or unreserved invocation start in the period, including failed attempts,
+with current settlement, per-stage/post attribution and unallocated overhead
+listed separately. A null aggregate means no known amounts, not zero. Partial
+known totals remain explicitly incomplete; no invoice/revenue total is inferred.

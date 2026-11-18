@@ -12,6 +12,7 @@ import test_gemini_workflow as text_fixtures
 import test_gemini_image_renderer as image_fixtures
 from database.current import initialize_database, connect, validate_database, SCHEMA_NAME, V18_CHECKSUM, SchemaError
 from database.migrate_delivery import migrate, _legacy_sql
+from database.migrate_measurement import migrate as migrate_measurement, validate_v19
 from detection.configuration import load_manifest
 from detection.store import DetectionStore
 from workflow import WorkflowStore, GeminiAdaptationWorker
@@ -81,6 +82,7 @@ def make_source(tmp_path, *, migrated=False, configuration=None, readiness=None,
             before = original_evidence(store, review)
         assert migrate(legacy) == "dry_run_ok"
         assert migrate(legacy, apply=True, backup=tmp_path / "v18-backup.db") == "migrated"
+        assert migrate_measurement(legacy, apply=True, backup=tmp_path / "v19-backup.db") == "migrated"
         path = legacy
         with WorkflowStore(path) as store:
             assert original_evidence(store, review) == before
@@ -284,10 +286,11 @@ def test_migration_retains_rows_backup_ledger_and_atomic_failure(tmp_path, monke
     assert migrate(path, apply=True, backup=backup) == "migrated"
     with sqlite3.connect(backup) as db: assert before == list(db.iterdump())
     with connect(path) as db:
-        validate_database(db)
+        validate_v19(db)
         assert db.execute("SELECT COUNT(*) FROM content_threads").fetchone()[0] == 1
         assert [r[0] for r in db.execute("SELECT version FROM schema_migrations ORDER BY version")] == [18,19]
     assert migrate(path, apply=True, backup=backup) == "already_current"
+    assert migrate_measurement(path, apply=True, backup=tmp_path / "v19-current-backup.db") == "migrated"
     assert initialize_database(path) is False
     # Restore means copy the verified pre-migration DB, then migrate that copy.
     restored = tmp_path / "restored.db"

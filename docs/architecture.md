@@ -68,6 +68,11 @@ The dashboard reads evidence and persists review/planning commands; it invokes
 neither providers nor workers. Planning through ContentJob creation ignores
 storage admission; monitoring remains advisory there.
 
+Phase 4A adds offline immutable observations and a read-only operator report in
+the same WorkflowStore database. Schema 20 uses an explicit backed-up v19 migration;
+no provider collector or authenticated metric registry is enabled. See
+[measurement](specs/measurement.md) for window, provenance and cost semantics.
+
 ## Document Router
 
 | Concern | Canonical reference |
@@ -83,6 +88,7 @@ storage admission; monitoring remains advisory there.
 | Polling, claims, retries and process operation | [Runtime](specs/runtime.md) |
 | Canonical generation, Instagram adaptation and package contract | [Content production](specs/content-production.md) |
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
+| Offline insights, provenance and operating costs | [Measurement](specs/measurement.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
 | Offline safeguards and opt-in live acceptance | [Testing](testing.md) |

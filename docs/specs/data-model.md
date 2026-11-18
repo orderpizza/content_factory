@@ -128,7 +128,7 @@ and artifact reconciliation provide operational evidence.
 ## Schema and record inventory
 
 [`application-schema.sql`](../contracts/application-schema.sql) is the
-authoritative schema, at version 19. All workers open and validate databases through
+authoritative schema, at version 20. All workers open and validate databases through
 `database.current`: foreign keys are enabled, and the schema version and ledger
 checksum must match the tracked contract. Initialization creates a fresh database
 in WAL mode or validates an already-current database; it never resets or migrates
@@ -163,6 +163,7 @@ selected database; restart it after creating a newer database to switch over.
 | Delivery configuration | social_destinations, production_configurations, posting_policies, capability_readiness, capability_readiness_checks |
 | Publication | delivery_revisions, post_requests, post_records, post_attempts, publication_resources, delivery_cleanup_tasks |
 | Reconciliation | reconciliation_requests, reconciliation_checks, human_reconciliation_decisions |
+| Measurements | measurement_observations |
 | Cost and operations | model_invocations, gemini_budget_reservations, worker_heartbeats, worker_runs, storage_samples, maintenance_runs, artifact_reconciliations |
 
 Use the DDL for exact columns, enums, indexes and immutable-trigger definitions,
@@ -208,7 +209,9 @@ Fresh setup never upgrades an existing database. The explicit offline v18→v19
 migration is documented in [operations](../operations.md#offline-database-migration-for-delivery-revisions).
 It verifies the exact historical checksum and executable schema, creates a
 validated backup, and appends the v19 ledger row atomically with additive DDL.
-Fresh DBs have one v19 ledger entry; migrated DBs retain v18 plus v19.
+The historical delivery migration stops at v19. The separate measurement migration
+requires exact v19 (with or without a retained v18 entry) and adds v20. Fresh DBs
+have one v20 ledger entry; migrated DBs retain their historical entries.
 Recovery after commit uses the verified v18 backup, never an in-place downgrade.
 
 ## Storage measurement evidence
@@ -303,3 +306,16 @@ fresh exact release, incrementing claim version. No schema or status migration i
 introduced. These records use the existing local-owner SQL trust model, not a
 new tamper-proof audit claim. [Posting](posting.md#checkpoint-3-orphan-investigation-and-staging-lifecycle)
 owns the safe-release classification and offline-only capability boundary.
+
+## Phase 4A observations
+
+`measurement_observations` holds immutable, destination-bound insight and optional
+manual-operation snapshots, explicit source provenance, missing-value statuses,
+response hashes, window/observation/fetch times and correction links. SQL prevents
+updates/deletion, duplicate source keys and correction forks; the typed offline
+writer additionally validates metric definitions and publication identity.
+It does not modify publication evidence or provide an authenticated issuer.
+[Measurement](measurement.md) owns semantics and reporting. The explicit
+[v19→v20 migration](../operations.md#offline-database-migration-for-measurement)
+validates the historical checksum and executable schema, backs up and compares
+all rows under a write lock, then applies additive DDL and the ledger atomically.

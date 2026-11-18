@@ -41,7 +41,7 @@ class PackagedContractTests(unittest.TestCase):
                 archive.extractall(installed)
             contracts = installed / "content_factory_resources" / "contracts"
             expected = sorted((ROOT / "docs/contracts").glob("*.sql"))
-            self.assertEqual(len(expected), 2)
+            self.assertEqual(len(expected), 3)
             for source in expected:
                 self.assertEqual(sha256(source.read_bytes()).hexdigest(), sha256((contracts / source.name).read_bytes()).hexdigest())
             code = """
@@ -58,7 +58,7 @@ with DetectionStore(path) as store:
 assert not initialize_database(path)
 connection = connect(path)
 validate_database(connection)
-assert connection.execute('PRAGMA user_version').fetchone()[0] == 19
+assert connection.execute('PRAGMA user_version').fetchone()[0] == 20
 connection.close()
 from database.migrate_delivery import _legacy_sql, migrate
 from database.current import SCHEMA_NAME, V18_CHECKSUM
@@ -70,6 +70,8 @@ with sqlite3.connect(legacy) as old:
     old.execute('INSERT INTO schema_migrations VALUES (1,18,?,?,?)', (SCHEMA_NAME,V18_CHECKSUM,utc_now()))
 assert migrate(legacy) == 'dry_run_ok'
 assert migrate(legacy, apply=True, backup=legacy+'.backup') == 'migrated'
+from database.migrate_measurement import migrate as migrate_measurement
+assert migrate_measurement(legacy, apply=True, backup=legacy+'.v19.backup') == 'migrated'
 with connect(legacy) as migrated:
     validate_database(migrated)
 """

@@ -201,7 +201,7 @@ real provider send; current configuration/readiness integration remains a Phase
 3B2 gate. English quality and visual refinement stay in the final phase.
 
 
-### Phase 3B2 offline integration (incomplete)
+### Phase 3B2 offline foundation (merged; live integration pending)
 
 `tests/test_instagram_posting_integration.py` exercises 4-, 5- and 6-slide genuine
 Phase 3B1 revisions through immutable production registration, preflight, JPEG
@@ -257,3 +257,17 @@ covered. `test_r2_transport.py` checks SDK retry/timeouts, host/replay refusal,
 disabled live contracts and supervised hard deadlines for stalled fake operations.
 No test establishes real source independence, R2 conditional semantics or safe live
 retention timing. All external providers remain disabled.
+
+## Phase 4A measurement coverage
+
+`tests/test_measurement.py` covers immutable observation history, exact replay,
+late arrivals, explicit corrections/fork refusal, missing/null values, rejected
+unknown metric definitions, account/media mismatches, synthetic versus authenticated
+provenance, failed atomic ingestion and restarts. It exercises 4/5/6-slide simulated
+publication and the registered adapter's offline verified receipts; human decisions
+remain separate. Cost tests retain partial/unknown ledgers, exclude shared overhead,
+avoid double counting and pick up late settlement. CLI subprocess tests verify
+explicit isolated writes and read-only reports. Migration tests cover v19 backup,
+rollback, tampering, repeat application and populated rows; prior delivery tests
+now exercise the explicit v18→v19→v20 sequence. Packaged contracts bootstrap v20
+and migrate outside the checkout. No test establishes real Instagram engagement.
