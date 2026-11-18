@@ -32,7 +32,10 @@ File existence alone is never proof of a completed render or reviewed asset.
 final-send markers and reconciliation. Once a public request might have been
 sent, the result is published or unknown, never automatically retryable.
 Staging cleanup is separately audited and cannot undo a confirmed publication.
-Preserved generic reconciliation requires human resolution; no provider lookup is active.
+Generic reconciliation requires human resolution. The registered Instagram
+factory adds bounded read-only investigation with offline-only receipt proofs;
+accepted IDs, verified account/media identity and unknown outcomes stay distinct.
+Absence never proves non-publication. See the [receipt contract](posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation).
 
 ## Gemini accounting
 

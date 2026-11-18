@@ -59,7 +59,15 @@ The live contract registry is empty: API version/token-introspection semantics a
 owner account/app/permissions/quota require external verification. No real services
 are enabled. See [posting](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
 
-Subsequent checkpoints retain receipt attribution/reconciliation, orphan
-investigation, ingestion-safe retention/release and detailed provider fidelity.
-Do not merge or activate the broader Phase 3B2 work on Checkpoint 1 evidence alone.
+Checkpoint 1 received architectural approval as a completed checkpoint, without
+merge/activation approval for the whole PR. Checkpoint 2 implements distinct
+acceptance/verification/uncertainty evidence and bounded read-only reconciliation.
+Only issued positive media/account evidence can confirm automatically; missing
+IDs and unavailable/inconsistent readbacks stay unknown. All evidence is offline;
+the selected live ownership/readback contract remains an explicit external gate.
+
+Checkpoint 3 retains orphan investigation, ingestion-safe retention/release,
+container quota policy and bounded R2 exchange lifecycle. Detailed provider fidelity
+and AI-label behavior remain deferred. Do not merge or activate the broader Phase
+3B2 work on offline Checkpoint 1/2 evidence alone.
 English quality and design work remains last.

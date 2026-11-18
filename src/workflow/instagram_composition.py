@@ -290,6 +290,12 @@ class InstagramComposition:
         return CredentialedPostingAgent(self.store, artifact_root=artifact_root, adapters={'instagram': gate},
                                         post_record_id=activation.post_record_id, start_guard=gate.check_start)
 
+    def reconciliation_worker(self, proof):
+        """Fresh read-only authority; cannot revive a consumed run or publish."""
+        from .delivery import PublicationReconciliationWorker
+        self._check(proof)
+        return PublicationReconciliationWorker(self.store, reconciler=_ReceiptReconciler(self, proof))
+
 
 @dataclass(frozen=True, eq=False)
 class RunActivation:
@@ -439,6 +445,75 @@ class _ActivatedAdapter:
             raise DeliveryConfigurationError('durable single final-send marker required')
         self._publish_started = True
         return self._protocol.publish(context, staged)
+
+    def verify_publication(self, claimed, external_id):
+        from .instagram_receipts import context, verify
+        expected = context(self.composition.store, claimed['post_record_id'], claimed['post_attempt_id'])
+        return verify(self._client, expected, external_id, clock=self.composition.clock, before_request=self._guard)
+
+
+class _ReceiptReconciler:
+    def __init__(self, composition, proof):
+        self.composition, self.proof = composition, proof
+
+    def investigate(self, request):
+        from .instagram_receipts import context, accepted_id, verify, check_reconciliation_claim
+        c = self.composition
+        started = last = c.monotonic()
+        checks = 0
+        expected = None
+        external_id = None
+
+        def guard():
+            nonlocal last
+            current = c.monotonic()
+            if current < last or current - started >= 180:
+                raise DeliveryConfigurationError('read-only investigation deadline exceeded')
+            last = current
+            check_reconciliation_claim(c.store, request)
+            c._check(self.proof)
+
+        def read(client, path, fields):
+            nonlocal checks
+            guard()
+            if checks >= 8:
+                raise DeliveryConfigurationError('read-only investigation request limit reached')
+            checks += 1
+            result = client.request('GET', path, {'fields': fields})
+            guard()
+            return result
+
+        observations = []
+        try:
+            guard()
+            expected = context(c.store, request['post_record_id'])
+            if expected['social_destination_id'] != c.destination_id or expected['provider_account_id'] != self.proof.account_id:
+                raise DeliveryConfigurationError('reconciliation destination mismatch')
+            row, config = c._check(self.proof)
+            client = InstagramHTTPTransport(config, c.credentials.resolve(config), verified_version=config.api_version, wire=c._wire)
+            external_id = accepted_id(c.store, expected)
+            if external_id is not None:
+                receipt = verify(client, expected, external_id, clock=c.clock, before_request=guard)
+                return 'confirmed_published', receipt.facts(), receipt
+            # Container IDs are NOT published-media IDs. Even PUBLISHED is not a
+            # reliable mapping to a media ID; never synthesize one or list-match.
+            for container in [expected['parent_id'], *expected['child_container_ids']]:
+                result = read(client, '/' + container, 'status_code')
+                status = result.get('status_code')
+                if status not in {'FINISHED', 'IN_PROGRESS', 'PUBLISHED', 'ERROR', 'EXPIRED'}:
+                    status = 'UNAVAILABLE'
+                observations.append({'container_id': container, 'status': status})
+            return 'ambiguous', {'classification': 'outcome_uncertain', 'binding': expected['binding'],
+                'containers': observations, 'detail': 'No reliable published-media ID mapping; container status cannot prove media identity or absence.'}, None
+        except Exception as error:
+            # A stale worker cannot even persist a negative check. All other
+            # failures remain unknown and preserve the independent acceptance ID.
+            check_reconciliation_claim(c.store, request)
+            category = error.category if isinstance(error, DeliveryError) else 'verification_unavailable'
+            return ('ambiguous' if category == 'receipt_identity' else 'provider_unavailable'), {
+                'classification': 'accepted_unverified' if external_id else 'outcome_uncertain',
+                'category': category, 'containers': observations,
+                'detail': 'Read-only verification did not establish publication identity. No inference of non-publication; human investigation required.'}, None
 
 
 def validate_persisted_readiness(store, destination_id):

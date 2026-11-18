@@ -178,6 +178,16 @@ single-post run activation. Live operation remains blocked by the empty verified
 contract registry; neither the Mac mini worker nor dashboard is connected to it.
 No live send or preflight command is installed. See the [posting contract](specs/posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
 
+Checkpoint 2 retains accepted media IDs before readback and requires issued
+account/media verification before automatic published status. Its bounded
+read-only reconciliation can confirm a known media ID, but container status alone
+cannot resolve a lost publish response. The existing JPEG `report` now shows
+acceptance, verification scope/provenance, reconciliation checks and human
+decisions. An accepted response is not verified publication, and a human decision
+does not become API evidence. Readback and reconciliation remain fake-only;
+the [receipt contract](specs/posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation)
+lists the exact owner/version/field verification needed before a live reader exists.
+
 The two-minute activation window only authorizes starting one attempt. A consumed
 run can continue under its original claim for at most 45 minutes, renewing its
 five-minute lease and refreshing read-only evidence while checking cancellation
@@ -208,7 +218,7 @@ The owner handoff, for a later separately authorized integration, is:
 4. Only with separate permission, run read-only preflight. It must prove account,
    app, login mode, grants, valid token, selected version and available dynamic
    quota. Failures revoke older evidence; no fake results may become real readiness.
-5. Complete the later receipt, orphan/retention and protocol-fidelity checkpoints,
+5. Verify the receipt/ownership contract, then complete orphan/retention and protocol-fidelity checkpoints,
    including alt/AI-label behavior. Obtain separate authorization for an eventual
    controlled test publication: persistent enabled configuration, exact JPEG
    approval, Post now, one-post run approval, then explicit execution. Providing a

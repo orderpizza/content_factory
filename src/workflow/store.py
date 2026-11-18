@@ -2338,11 +2338,23 @@ class WorkflowStore:
             if result.rowcount != 1:
                 raise RuntimeError("final publication marker was not committed")
 
-    def complete_publication(self, context: dict[str, Any], external_post_id: str) -> int:
+    def record_publish_acceptance(self, context: dict[str, Any], external_post_id: str) -> None:
+        from .instagram_receipts import persist_acceptance
+        persist_acceptance(self, context, external_post_id)
+
+    def complete_publication(self, context: dict[str, Any], external_post_id: str, *, receipt=None) -> int:
         if not external_post_id or len(external_post_id) > 300:
             raise ValueError("provider post ID is invalid")
+        from .instagram_receipts import registered, persist_verified
+        if registered(self, context['post_record_id']):
+            self.renew_post_execution(context)
         moment = now()
         with self.transaction():
+            if registered(self, context['post_record_id']):
+                # All publication transitions require issued, identity-bound evidence.
+                # Acceptance was committed separately before the readback operation.
+                self._post_delivery_context(context['post_record_id'], moment=moment)
+                persist_verified(self, context['post_record_id'], receipt, external_id=external_post_id)
             attempt = self.connection.execute(
                 "SELECT status FROM post_attempts WHERE post_attempt_id=? AND post_record_id=?",
                 (context["post_attempt_id"], context["post_record_id"]),
@@ -2356,9 +2368,9 @@ class WorkflowStore:
             result = self.connection.execute(
                 "UPDATE post_records SET status='published',external_post_id=?,published_at=?,"
                 "completed_at=?,failure_reason=NULL,row_version=row_version+1 "
-                "WHERE post_record_id=? AND status='publishing' AND claim_owner=? AND claim_version=?",
+                "WHERE post_record_id=? AND status='publishing' AND claim_owner=? AND claim_version=? AND lease_expires_at>?",
                 (external_post_id, moment, moment, context["post_record_id"],
-                 context["claim_owner"], context["claim_version"]),
+                 context["claim_owner"], context["claim_version"], moment),
             )
             if result.rowcount != 1:
                 raise RuntimeError("provider succeeded but local publication finalization is uncertain")
@@ -2575,6 +2587,7 @@ class WorkflowStore:
         outcome: str,
         query_version: str,
         evidence: dict[str, Any],
+        receipt=None,
     ) -> int:
         if outcome not in {"confirmed_published", "confirmed_not_published", "ambiguous", "provider_unavailable"}:
             raise ValueError("invalid reconciliation outcome")
@@ -2584,12 +2597,20 @@ class WorkflowStore:
                 "SELECT 1 FROM reconciliation_requests r JOIN post_records p USING(post_record_id) "
                 "WHERE r.reconciliation_request_id=? AND r.status='claimed' "
                 "AND r.claim_owner=? AND r.claim_version=? AND r.lease_expires_at>? "
-                "AND p.status='publication_unknown'",
+                "AND p.status='publication_unknown' AND r.post_record_id=?",
                 (request["reconciliation_request_id"], request["claim_owner"],
-                 request["claim_version"], moment),
+                 request["claim_version"], moment, request['post_record_id']),
             ).fetchone()
             if current is None:
                 raise RuntimeError("reconciliation claim is stale or publication is no longer unknown")
+            from .instagram_receipts import registered, persist_verified
+            verified = None
+            if registered(self, request['post_record_id']):
+                if outcome == 'confirmed_not_published':
+                    raise ValueError('Instagram absence is not proof of non-publication')
+                if outcome == 'confirmed_published':
+                    verified = persist_verified(self, request['post_record_id'], receipt)
+                    evidence = verified
             check_id = int(self.connection.execute(
                 "INSERT INTO reconciliation_checks(reconciliation_request_id,outcome,query_version,"
                 "evidence_json,evidence_hash,checked_at) VALUES (?,?,?,?,?,?)",
@@ -2597,6 +2618,11 @@ class WorkflowStore:
                  digest(evidence), moment),
             ).lastrowid)
             if outcome == "confirmed_published":
+                if verified is not None:
+                    self.connection.execute('UPDATE post_records SET external_post_id=? WHERE post_record_id=?',
+                                            (verified['media_id'], request['post_record_id']))
+                    self.connection.execute("UPDATE post_attempts SET status='succeeded',completed_at=? WHERE post_attempt_id=?",
+                                            (moment, verified['post_attempt_id']))
                 self.connection.execute(
                     "UPDATE reconciliation_requests SET status='resolved',completed_at=? "
                     "WHERE reconciliation_request_id=? AND claim_owner=? AND claim_version=?",

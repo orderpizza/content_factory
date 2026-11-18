@@ -18,9 +18,9 @@ the [offline owner CLI and report](../operations.md#exact-jpeg-delivery-review).
 | Deliverable review | Package and manifest hashes bind caption, alt text and ordered `delivery_jpeg` assets. Post now reopens and validates actual JPEGs against persisted size/hash/MIME/geometry, package count and destination. English supports 4–6 slides; other domains retain the 4–14 local content bound. These are local contracts, not claims of provider eligibility. |
 | Explicit Post now | `authorize_post_now` requires a separately approved delivery-revision review, then atomically creates a unique publication identity, PostRequest and PostRecord. Legacy direct-JPEG fixture reviews retain their original combined authorization behavior. It checks current configuration, visual approval, readiness, expiry and cadence. Replayed command IDs return the same record; changed input is rejected. |
 | Preparation/staging | `CredentialedPostingAgent` claims work, rechecks artifacts/authorization and records PostAttempt. `R2TransientRelay` uploads exact JPEG bytes, checks authenticated HEAD and anonymous exact-byte fetch. Staging never changes creative. |
-| Final send | A fenced transaction rechecks live lease, thread, cancellation, expiry and readiness, then commits the final-send marker before calling `publish`. Success stores a receipt ID; any potentially accepted final call becomes `publication_unknown`, never automatic retry. |
+| Final send | A fenced transaction rechecks live lease, thread, cancellation, expiry and readiness, then commits the final-send marker before calling `publish`. The registered Instagram adapter retains acceptance separately and requires issued media/account verification before automatic `published`. Failed or uncertain readback remains `publication_unknown`, never automatic retry. |
 | Recovery | Expired claims before the final marker can retry within limits. Recovery after it is conservative, including a crash between marker and actual send. Pre-final cancellation wins. |
-| Reconciliation | `PublicationReconciliationWorker` records unavailable lookup evidence and hands uncertainty to a human. Explicit decisions can confirm publication, cancel as not published, or leave unknown. None reposts automatically. |
+| Reconciliation | The registered factory supplies bounded read-only investigation of known media/container IDs. Only positive, identity-bound receipt evidence can confirm automatically; generic/unavailable lookup still hands uncertainty to a human. Human decisions remain distinct from API verification. None reposts automatically. |
 | Cleanup | Attempt resources and cleanup tasks remain separately durable. Cleanup can remove staged objects after success, failure, cancellation or uncertainty; it never reverses a publication or resolves its outcome. |
 
 The production catalog remains closed `production_configuration_v2`. It accepts
@@ -380,6 +380,91 @@ SQLite, Git, model traces or logs. There is no dotenv loading or command-line to
 argument in this composition. A process-local keyed fingerprint detects rotation
 without persisting any token-derived value. See the [operator handoff](../operations.md#instagram-integration-status).
 
+### Checkpoint 2: publication receipts and conservative reconciliation
+
+The existing schema is unchanged. Publication status and receipt classification
+are separate: `published` can also represent a legacy simulation or an explicit
+human decision, so it alone never establishes verified Instagram identity.
+
+| Evidence classification | Meaning and transition |
+| --- | --- |
+| `accepted_unverified` | A successful final response supplied a numeric media ID. `instagram_publish_acceptance` retains that ID and exact local attempt/review/destination binding in its own transaction before readback. The attempt remains in progress during verification; any failure becomes `publication_unknown`. Acceptance alone is not identity verification. |
+| `identity_verified` | An issued receipt matches the accepted media ID, owning account, carousel type, exact caption hash and complete unique child-media count. Safe receipt facts are persisted atomically with automatic `published`, the external media ID and succeeded attempt. In this checkpoint all such proofs have **offline provenance**, not real Instagram evidence. |
+| `outcome_uncertain` | No accepted media ID is durably available, or the evidence conflicts/is unavailable. Preserve `publication_unknown`, known parent/child container IDs and final marker. Never infer non-publication or replay a final POST. |
+
+`workflow.instagram_receipts` binds safe evidence to the PostRecord, PostAttempt,
+delivery revision, package/manifest hashes, destination ID/key, provider account,
+configuration/version and known parent/child container IDs. The local hashes prove
+which reviewed content was sent; they do **not** prove Meta's returned pixels.
+Verification explicitly lists JPEG bytes, child order relative to reviewed assets
+and alt text as unverified. Child media IDs are not container IDs. No conversion
+between those namespaces or parent-to-published-media mapping is invented.
+
+The candidate readback is one GET `/{accepted-media-id}` with fields
+`id,owner,media_type,caption,children{id}` through the same pinned, authenticated,
+single-attempt transport. It rejects absent/mismatched owner or media ID, different
+caption/type, incomplete/paginated children and inconsistent counts/IDs. Only
+allowlisted numeric IDs, hashes, timestamps, classification/provenance and explicit
+verification limits are persisted. Raw private responses, URLs, captions returned
+by the provider, tokens and diagnostics are not copied into receipt storage.
+Caller-created or copied receipt objects cannot authorize automatic confirmation.
+
+Acceptance retention does not grant execution authority: an already dispatched
+publish reply may be recorded after lease loss, but that worker cannot verify,
+confirm or send again. Final persistence still fences ownership, live lease,
+approval/readiness and the original execution deadline. If the first acceptance
+write itself cannot commit, the media ID cannot be durably retained; the existing
+final marker and container IDs preserve uncertainty. A later verification/status
+transaction failure cannot roll back the independently committed acceptance.
+
+`InstagramComposition.reconciliation_worker(fresh_proof)` supplies only read-only
+capabilities to `PublicationReconciliationWorker`. It consumes an existing explicit
+reconciliation request, not a run activation, and cannot stage or publish. It checks
+its own request owner/version/live lease, unresolved post and current account/token/
+configuration evidence before and after each GET. It has a 180-second monotonic
+budget checked around requests, at most eight GETs, and the existing per-request
+20-second bound. There is no pagination, list search or automatic request retry.
+Posting approval expiry does not prohibit investigation of historical evidence;
+fresh trusted account evidence is still required. The current preflight's quota
+gate may conservatively block investigation when quota evidence is exhausted.
+
+With a durably accepted media ID, positive readback can atomically append a receipt
+and reconciliation check, resolve the request, mark the original attempt succeeded
+and confirm the post. Without that ID, read only the known parent/child container
+statuses. Even `PUBLISHED` does not establish a published-media/account mapping.
+Missing media, 404/permission errors, inaccessible fields, conflicts and negative
+observations remain ambiguous/unavailable and move the request to `needs_human`.
+They never mean `confirmed_not_published`; the registered store rejects that
+automatic outcome. Lost claims cannot persist even a negative check. Restart may
+perform a newly claimed read-only investigation, never resume a consumed run.
+
+Existing human decisions remain `published`, `not_published_cancel` or
+`leave_unknown`, with the selected check, actor, note and command receipt. They do
+not manufacture provider verification or authorize retry. The existing JPEG review
+HTML report includes accepted IDs, verification scope/provenance, reconciliation
+checks and human decisions. Reading it never refreshes readiness or calls a provider.
+After an inconclusive check there is no automatic polling loop: the owner may leave
+the outcome unknown and explicitly request another investigation later.
+
+**Live receipt capability is blocked, not assumed.** The receipt contract
+`instagram_receipt_candidate_v1` and its empty live registry are offline-only.
+Alongside the Checkpoint 1 contract/token-reader verification, the owner must
+establish for the exact Instagram Login API version and approved account/app:
+
+- Whether media readback reliably exposes owning account identity (`owner.id` is
+  only the fixture hypothesis), which permissions/access level it needs, and that
+  its ID namespace matches the configured professional account.
+- Whether returned `id`, carousel type, caption and complete child-media listing
+  have the selected field/expansion semantics, including pagination and delayed
+  availability, and that this readback identifies published media rather than an
+  unpublished container. Exact caption comparison fails closed on normalization.
+- Whether any supported **positive** evidence links a known publishing container
+  to a published media ID after response loss. Until reviewed and implemented,
+  that case remains human-only; a negative list lookup is never sufficient.
+- Any reliable asset/order/alt correspondence the API actually provides. No such
+  claim is made by the current proof. Registration requires reviewed code and
+  separately authorized account verification, not a configuration flag or fake.
+
 ### Preserved protocol and deferred checkpoints
 
 The injected carousel protocol preserves exact reviewed bytes, order, child alt
@@ -390,10 +475,11 @@ The scoped adapter additionally refuses a second final call in the same run.
 Objects marked `manual_ingestion_safety` remain excluded from cleanup indefinitely.
 These conservative behaviors are retained, not a completed orphan/release policy.
 
-Receipt readback/reconciliation, orphan investigation, ingestion-safe R2 release,
-container quota policy and detailed protocol fidelity (including the review-bound
-AI declaration) remain subsequent assignments. A fixture receipt is not verified
-publication. No real send can be enabled until those gates are implemented and
+Checkpoint 3 retains orphan investigation, ingestion-safe R2 retention/release,
+container quota policy and provider-exchange lifecycle, including bounded blocking
+R2 I/O. Detailed protocol fidelity (including the review-bound AI declaration)
+also remains deferred. A fixture receipt is not verified real publication.
+No real send can be enabled until those gates are implemented and
 reviewed as well. English content/design refinement remains last.
 
 Prior review recorded these sources on 2026-11-17; they were not contacted during

@@ -35,6 +35,9 @@ def report(store, review_id, output):
                     "SELECT q.post_request_id,q.publication_identity,q.status,p.post_record_id,p.status delivery_status "
                     "FROM post_requests q JOIN post_records p USING(post_request_id) WHERE q.review_request_id=?",
                     (review_id,))], "report_sends_content": False}
+    from workflow.instagram_receipts import receipt_summary
+    evidence['publication_evidence'] = [dict(post_record_id=p['post_record_id'], **receipt_summary(store, p['post_record_id']))
+                                       for p in evidence['post_requests']]
     summary = {key: evidence[key] for key in ("review_id", "status", "row_version", "fingerprint",
                "account", "destination", "provider_account_id", "expires_at")}
     html = ['<!doctype html><html lang="en"><meta charset="utf-8">',
@@ -44,6 +47,9 @@ def report(store, review_id, output):
             '<pre>' + escape(json.dumps(summary, ensure_ascii=False, indent=2)) + '</pre>',
             '<h2>Exact caption</h2><pre>' + escape(package["caption"]) + '</pre>',
             '<h2>Aggregate alt text</h2><pre>' + escape(package["alt_text"]) + '</pre>']
+    if evidence['publication_evidence']:
+        html += ['<h2>Publication receipt and reconciliation</h2><pre>'
+                 + escape(json.dumps(evidence['publication_evidence'], ensure_ascii=False, indent=2)) + '</pre>']
     for asset in images:
         data = Path(asset["path"]).read_bytes()
         if sha256(data).hexdigest() != asset["sha256"]:

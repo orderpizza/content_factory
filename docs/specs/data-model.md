@@ -253,3 +253,30 @@ change the grant. Recovery treats a consumed grant as terminal before final send
 even without a create intent; a final marker retains the existing unknown-outcome
 rule. No schema migration or automatic rearm path is introduced.
 See [posting](posting.md#checkpoint-1-registered-composition-and-trusted-boundaries).
+
+## Instagram Checkpoint 2 receipts (schema unchanged)
+
+`publication_resources` appends `instagram_publish_acceptance` rows with the
+returned numeric media ID, `accepted_unverified` classification and historical
+attempt/review/account/configuration binding. This commits before any readback.
+`instagram_verified_receipt` rows contain only issued, allowlisted identity facts,
+their explicit scope/limitations and offline provenance; `remote_id` is the safe
+evidence hash. The actual media ID remains in the facts and, after verification,
+`post_records.external_post_id`. Verification facts and automatic published state
+commit together, so an aborted finalization cannot leave a false verified record.
+`published_at` remains the local confirmation time; no provider publication
+timestamp is claimed by this readback contract.
+
+The existing `publication_unknown` status covers both accepted-but-unverified and
+unknown-final-outcome cases; resource classification distinguishes them without a
+schema change. Receipt APIs cannot extend a run lease after expiry or reauthorize
+a send. Historical identity lookup reads immutable revision/package/manifest
+evidence without requiring expired approval to become current or reopening files.
+
+Automatic reconciliation uses the existing claim, `reconciliation_checks` safe
+JSON/hash and terminal state. Positive checks require issued receipt proof; a
+negative Instagram inference cannot confirm absence. Human decisions retain their
+own table and remain distinct from provider identity verification, even when the
+post status becomes `published`. No status migration reclassifies old published
+records as verified. The [receipt contract](posting.md#checkpoint-2-publication-receipts-and-conservative-reconciliation)
+owns classifications and external verification blockers.

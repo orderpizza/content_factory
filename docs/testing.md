@@ -230,6 +230,16 @@ claim loss (including during refresh and after the final marker), revoked readin
 credential/asset changes, late responses, and restart after crashes before upload or
 after create. No real sleeps or external operations are needed for these journeys.
 
+`test_instagram_receipts.py` exercises 4–6-slide publish acceptance, issued
+media/account verification and independent acceptance persistence through the
+actual factory. It covers delayed readback after restart, wrong account/media ID,
+caption/type/children conflicts, pagination, missing/unavailable endpoints, lost
+final response, acceptance/verification persistence failures, stale publishers and
+reconcilers, bounded GET investigation, conflicting accepted IDs and forged proof.
+Human decisions and the read-only owner report preserve the distinction between
+acceptance, offline identity verification and unresolved outcomes. Every journey
+asserts no second final publish; no receipt test establishes a live API capability.
+
 The full suite still owns legacy delivery/idempotency/migration/review safeguards.
 Passing it does not prove a supported live API version, authenticated account
 capabilities, real receipt attribution or safe cleanup timing. Those gates remain

@@ -274,6 +274,12 @@ class CredentialedPostingAgent:
             return int(record["post_record_id"])
         try:
             external_id = adapter.publish(context, staged)
+            if context['destination_config'].get('adapter_version') == 'instagram_login_v1':
+                # The response ID is useful even if readback, lease or final
+                # persistence subsequently fails. It is not verified publication.
+                self.store.record_publish_acceptance(context, external_id)
+                receipt = adapter.verify_publication(context, external_id)
+                return self.store.complete_publication(context, external_id, receipt=receipt)
             return self.store.complete_publication(context, external_id)
         except Exception as error:
             return self.store.fail_post_attempt(
@@ -327,11 +333,12 @@ class R2CleanupWorker:
 
 
 class PublicationReconciliationWorker:
-    """Record the absent provider lookup and hand uncertain outcomes to a human."""
+    """Read-only evidence investigation; never creates a new publishing attempt."""
 
-    def __init__(self, store: WorkflowStore, *, instance_id: str = "publication-reconciliation"):
+    def __init__(self, store: WorkflowStore, *, instance_id: str = "publication-reconciliation", reconciler=None):
         self.store = store
         self.instance_id = instance_id
+        self.reconciler = reconciler
 
     def run_once(self) -> int | None:
         request = self.store.claim(
@@ -340,6 +347,13 @@ class PublicationReconciliationWorker:
         )
         if request is None:
             return None
+        if self.reconciler is not None:
+            from .instagram_composition import _ReceiptReconciler
+            if type(self.reconciler) is not _ReceiptReconciler or self.reconciler.composition.store is not self.store:
+                raise DeliveryConfigurationError('registered read-only reconciliation composition required')
+            outcome, evidence, receipt = self.reconciler.investigate(request)
+            return self.store.record_reconciliation_check(
+                request, outcome=outcome, query_version='instagram_receipt_candidate_v1', evidence=evidence, receipt=receipt)
         return self.store.record_reconciliation_check(
             request, outcome="provider_unavailable", query_version="publication_reconciliation_v1",
             evidence={"category": "configuration", "detail": "posting provider reconciliation is not implemented"},

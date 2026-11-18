@@ -24,6 +24,9 @@ class FakeHTTP:
         self.read_calls = []
         self.after = lambda: None
         self.accepted_token = 'fixture-secret'
+        self.media = {}
+        self.receipt_calls = []
+        self.receipt_response = None
 
     def token_validity(self, token):
         if token.value != self.accepted_token:
@@ -42,8 +45,18 @@ class FakeHTTP:
             self.read_calls.append(path)  # Never capture authorization headers.
             data = {'/me': self.identity, '/me/permissions': self.permissions,
                     '/123456/content_publishing_limit': self.quota}[path]
+        elif method == 'GET' and params.get('fields') == 'id,owner,media_type,caption,children{id}':
+            self.receipt_calls.append(path)
+            data = self.receipt_response if self.receipt_response is not None else self.media.get(path[1:], {})
         else:
             data = self.protocol.request(method, path, params)
+            if method == 'POST' and path.endswith('/media_publish'):
+                parent = next(body for method, path, body in reversed(self.protocol.calls)
+                              if method == 'POST' and body.get('media_type') == 'CAROUSEL')
+                count = len(parent['children'].split(','))
+                self.media[data['id']] = {'id': data['id'], 'owner': {'id': self.identity['user_id']},
+                    'media_type': 'CAROUSEL_ALBUM', 'caption': parent['caption'],
+                    'children': {'data': [{'id': str(9000 + i)} for i in range(count)]}}
         self.after()
         return HTTPReply(self.status, {'facebook-api-version': self.version, 'content-type': 'application/json'}, json.dumps(data).encode())
 
