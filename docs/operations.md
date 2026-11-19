@@ -431,6 +431,7 @@ not affect unrelated LaunchAgents.
 | `run_maintenance.py` | Verified backup/checkpoint; explicit restore verification or backup pruning |
 | `install_review_baseline.py` | Write/load/status the five review-only Mac Mini LaunchAgents |
 | `check_smoke_readiness.py` | Read-only local planning/preview prerequisite checks |
+| `instagram_insights_preflight.py` | [Preview the owner-bound Instagram identity GET and review the future manual procedure](specs/instagram-insights-preflight.md) |
 | `measure_offline.py` | Isolated synthetic measurement demo, explicit offline append and read-only JSON report |
 | `migrate_measurement_database.py` | Explicit v19→v20 dry run, verified backup and additive observation migration |
 | `migrate_delivery_database.py` | Explicit v18→v19 dry run, verified backup and additive offline migration |

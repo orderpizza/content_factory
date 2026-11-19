@@ -28,7 +28,7 @@ Values are nonnegative integers; missing values are null with `unknown`,
 
 Provenance is `synthetic`, `authenticated_platform`, `human_estimate` or
 `not_collected`. The offline writer cannot accept authenticated observations.
-Synthetic evidence stays synthetic in any database and environment. Phase 4B1 must
+Synthetic evidence stays synthetic in any database and environment. Phase 4B2 must
 supply a separately reviewed authenticated issuer and metric registry; a label,
 media ID, expired token, human decision or offline receipt is insufficient.
 
@@ -138,6 +138,8 @@ its previous observation. Late captures retain their own observation and fetch
 times. The report shows each whole window and never adds lifetime snapshots.
 
 ### Separately authorized Phase 4B1
+
+The [4B1A operator guide](instagram-insights-preflight.md) covers the first identity-only read. Later evidence and issuer gates follow.
 
 1. The owner selects one professional account and app, grants the two Insights
    scopes at the applicable access level and approves a short-lived read-only
