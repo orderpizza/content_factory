@@ -284,3 +284,8 @@ authenticated issuer gate rejects copied evidence. The cost regression in
 `tests/test_measurement.py` covers conflicting jobs with identifiable
 destinations and genuinely global overhead. See the [rehearsal command](operations.md#rehearse-instagram-insights-reads)
 and [documented pilot definitions](specs/measurement.md#instagram-login-pilot-contract).
+
+The [4B1A operator preflight](specs/instagram-insights-preflight.md) is covered by
+`tests/test_instagram_insights_preflight.py`. It drives the reviewed-plan and terminal gates through
+the spawned HTTPS worker with a fake connection, exercises the HTTP parser with in-memory wire bytes,
+and verifies that the schema-v20 database stays byte-identical.

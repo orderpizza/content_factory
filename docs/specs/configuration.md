@@ -192,3 +192,7 @@ uncertain usage and the limits of input-token estimates.
 
 R2 bucket/account/public-origin inputs remain explicit relay configuration, with
 no active provider setup CLI. They are not unused environment placeholders.
+
+The standalone [Instagram identity preflight](instagram-insights-preflight.md) reads its dedicated
+`CONTENT_FACTORY_IG_PREFLIGHT_RECORD` only from the authorized process environment. Provision it
+for that invocation only. Keep it out of the development dotenv file and worker configuration.

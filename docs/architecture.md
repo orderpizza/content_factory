@@ -89,6 +89,7 @@ history. Authenticated ingestion requires a future issuer. See
 | Polling, claims, retries and process operation | [Runtime](specs/runtime.md) |
 | Canonical generation, Instagram adaptation and package contract | [Content production](specs/content-production.md) |
 | Visual planning, local asset rendering and registry | [Visual rendering](specs/visual-rendering.md) |
+| Owner-operated Instagram Login identity preflight | [Preflight boundary and owner setup](specs/instagram-insights-preflight.md) |
 | Offline insights, provenance and operating costs | [Measurement](specs/measurement.md) |
 | Publication and reconciliation | [Posting](specs/posting.md) |
 | Recovery, budgets and external safety | [Reliability](specs/reliability.md) |
