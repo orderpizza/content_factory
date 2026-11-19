@@ -368,3 +368,29 @@ def test_usage_without_pricing_does_not_turn_legacy_default_into_free_work(works
         assert result['entries'][0]['internal_cost_micro_usd'] is None
         assert result['destination']['known_internal_micro_usd'] is None
         assert result['destination']['ledger_complete'] is False
+
+
+def test_unallocated_cost_with_known_lineage_excludes_unrelated_destination(workspace):
+    from workflow.delivery_fixtures import seed_review
+    with simulation_store(workspace) as store:
+        seed_review(store, workspace, stop_at_adaptation=True)
+        db = store.connection
+        other = db.execute(
+            "INSERT INTO social_destinations(configuration_release_id,destination_key,platform,account_key,"
+            "provider_account_id,secret_ref,enabled,config_json,config_fingerprint,created_at) "
+            "SELECT configuration_release_id,'instagram:other','instagram','other','999','NO_SECRET',0,"
+            "config_json,config_fingerprint,created_at FROM social_destinations LIMIT 1").lastrowid
+        jobs = db.execute('SELECT generation_run_id,content_job_id FROM generation_runs ORDER BY generation_run_id').fetchall()
+        inv = db.execute(
+            "INSERT INTO model_invocations(phase,entity_type,entity_id,attempt_ordinal,request_version,prompt_version,"
+            "schema_version,request_hash,outcome,started_at) VALUES ('generation','generation_run',?,1,'v','v','v',?,"
+            "'succeeded','2026-11-01T00:00:00')", (jobs[0][0], 'a'*64)).lastrowid
+        for linked, job in [(inv, jobs[1][1]), (None, None)]:
+            db.execute("INSERT INTO gemini_budget_reservations(model_invocation_id,content_job_id,accounting_day,"
+                       "worst_case_micro_usd,status,created_at) VALUES (?,?,'2026-11-01',55,'uncertain',"
+                       "'2026-11-01T00:00:00')", (linked, job))
+        db.commit()
+        def excluded(dest):
+            return operator_report(store, dest, START, END)['costs']['shared_or_unattributed_excluded']
+        assert [r['attribution'] for r in excluded(other)] == ['shared_or_unattributed']
+        assert sorted(r['attribution'] for r in excluded(1)) == ['conflicting_job', 'shared_or_unattributed']

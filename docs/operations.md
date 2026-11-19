@@ -553,3 +553,19 @@ creation or unreserved invocation start in the period, including failed attempts
 with current settlement, per-stage/post attribution and unallocated overhead
 listed separately. A null aggregate means no known amounts, not zero. Partial
 known totals remain explicitly incomplete; no invoice/revenue total is inferred.
+
+## Rehearse Instagram Insights reads
+
+Run the 4/5/6-slide receipt-to-report demonstration against temporary databases.
+
+```sh
+PYTHONPATH=src:. .venv/bin/python -m pytest -q tests/test_instagram_insights.py -k receipt_to_report
+```
+
+For a scripted rehearsal, call `workflow.instagram_insights.collect_offline` inside
+`workflow.offline.offline_only()` with a schema v20 store, an exact destination ID
+and a `FixtureTransport` of URL-to-`HTTPReply` fixtures. The function returns the
+appended observation IDs. Use the existing report command with a period covering
+the complete measurement windows and a fetch cutoff after the capture. Phase 4A
+and 3B2 are complete offline only. The [measurement contract](specs/measurement.md#separately-authorized-phase-4b1)
+lists the owner decisions and live checks for a separately authorized preflight.

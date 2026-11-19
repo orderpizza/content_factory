@@ -70,7 +70,8 @@ storage admission; monitoring remains advisory there.
 
 Phase 4A adds offline immutable observations and a read-only operator report in
 the same WorkflowStore database. Schema 20 uses an explicit backed-up v19 migration;
-no provider collector or authenticated metric registry is enabled. See
+Phase 4B0 feeds bounded Instagram Login fixture GETs into the same synthetic
+history. Authenticated ingestion requires a future issuer. See
 [measurement](specs/measurement.md) for window, provenance and cost semantics.
 
 ## Document Router

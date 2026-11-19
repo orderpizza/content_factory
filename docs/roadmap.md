@@ -12,10 +12,11 @@ no live publication, model quality, learner outcomes or revenue.
 | 2B0 — acceptance safety (done) | Per-attempt provider caps and truthful failure/cost accounting. | Offline safeguards retained; paid calibration remains deferred. |
 | 3A — offline Instagram readiness | Deterministic unapproved JPEG candidates; isolated explicit review/Post now rehearsal through existing posting, relay, cleanup and reconciliation contracts; read-only evidence. | Offline tests and docs pass, exact-asset approval is preserved, and PR receives ChatGPT architectural review. No production DB migration, live adapter, upload or public send. |
 | 3B1 — exact JPEG review and authorization | Append-only delivery revisions, independent human approval, separate Post now, explicit v18→v19 offline migration and local report/CLI. | Offline regression and migration/recovery checks pass; hold PR for ChatGPT architectural review. No provider calls or publication. |
-| 3B2 — offline provider foundation (merged, PR #12) | Disabled-by-default adapter, bounded preflight/run authorization, acceptance and verified offline receipt evidence, conservative reconciliation and safe resource management. | Offline foundation merged. Real account identity, permissions, media/owner/readback semantics and R2 behavior remain unverified. |
+| 3B2 — provider foundation (complete offline only, PR #12) | Disabled-by-default adapter, bounded preflight/run authorization, acceptance and verified offline receipt evidence, conservative reconciliation and safe resource management. | Offline foundation merged. Real account identity, permissions, media/owner/readback semantics and R2 behavior remain unverified. |
 | 3B live verification/activation — pending | Separately authorized account/login/version/quota and narrowly bounded delivery/resource tests. | Explicit owner approval, finite external-call/billing plan and independently verified provider contracts; no unattended publishing. |
-| 4A — offline measurement foundation (implemented; architectural review requested) | Immutable observations, synthetic/manual provenance, correction history, cost attribution and read-only operator report; explicit v19→v20 migration. | Full offline suite and documentation checks; ChatGPT architectural review before merge. No real insights or profitability claim. |
-| 4B — real read-only insights connector (pending) | Verified versioned metrics, authenticated account/media identity, read-only collector and agreed KPI windows. | Separate owner approval for external calls, tested permissions/expiry/version semantics, exact metric denominators and missing-data behavior. |
+| 4A — measurement foundation (complete offline only, PR #14) | Immutable observations, correction history, cost attribution and one-destination reports on schema v20. | Merged. Authenticated platform evidence requires a separate issuer. |
+| 4B0 — offline Insights collection | Documented Instagram Login v27 account reach and carousel saves through bounded fixture GETs and schema v20. | Offline tests and documentation checks. ChatGPT architectural review requested. |
+| 4B1 — real read-only preflight (pending owner authorization) | One professional account, least-privilege token, independently verified version, identity, receipt and metric windows. | Approve a finite GET budget and verify live account behavior before enabling any authenticated writer. |
 | 5 — account-first expansion where justified | Account-specific identity, policy, credentials, history and budgets; other platforms only where useful. | Demonstrated one-account loop and isolated authorization/attribution tests before expansion. |
 | Final — English quality, visual refinement and paid calibration | Bounded Gemini samples and human teaching/design review; evidence-based prompt/layout corrections and economics calibration. | Separate authorization and finite budgets; unknown spend reconciled, quality and effort assessed by level/family, provisional targets agreed with owner. |
 
@@ -85,10 +86,7 @@ UTC windows, incomplete internal costs and retention. Operators can inspect JSON
 reports and source/receipt IDs without refreshing readiness or contacting providers.
 Missing metrics remain unknown and internal cost settlement is not an invoice.
 
-Phase 4B must verify the selected API/login version and each metric's availability,
-unit, scope, period, freshness, permission and suppression semantics; bind real
-media to authenticated receipt evidence; implement an issued read-only collector
-with safe pagination, rate limits, token expiry and idempotent corrections. Define
-agreed pilot baselines and same-window denominators before any audience claim.
-No metric can be promoted from synthetic by changing environment or configuration.
-English generation, visual refinement and paid calibration remain last.
+Phase 4B0 rehearses the [Instagram Login pilot contract](specs/measurement.md#instagram-login-pilot-contract).
+Phase 4B1 requires separate owner authorization and evidence from the selected
+account before any authenticated audience claim. English quality, visual
+refinement and paid calibration remain the final phase.

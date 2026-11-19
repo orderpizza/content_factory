@@ -72,9 +72,11 @@ def cost_report(store, destination_id, start, end, posts):
         inferred_job = _job(store, invocation) if invocation else None
         job_id = reservation['content_job_id'] if reservation and reservation['content_job_id'] else inferred_job
         conflict = inferred_job is not None and job_id != inferred_job
-        destinations = _destinations(store, job_id, invocation)
+        destinations = _destinations(store, inferred_job if conflict else job_id, invocation)
         if conflict:
-            destinations = set()
+            # Either lineage may own this entry. Keep it unallocated for both,
+            # and globally unknown if either side has no destination evidence.
+            destinations = (destinations or {None}) | (_destinations(store, job_id, None) or {None})
         if destinations and destination_id not in destinations and None not in destinations:
             continue
         usage = bool(invocation and invocation['input_tokens'] is not None and invocation['output_tokens'] is not None)

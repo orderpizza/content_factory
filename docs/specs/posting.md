@@ -234,10 +234,12 @@ Future adapter sequence:
    the Checkpoint 3 release policy below. Its offline source-independence contract
    does not establish real ingestion safety or permit live deletion.
 
-Later insights must link the confirmed account/media ID to measurement name,
-API version, period/window, fetched-at timestamp and raw-response provenance/hash.
-Missing/unavailable metrics remain unknown. Costs distinguish generation, relay,
-operator effort and reconciliation; no insight collector is implemented here.
+Phase 3B2 is complete offline only. Phase 4B0 consumes historical
+`instagram_verified_receipt` records through the [measurement contract](measurement.md#instagram-login-pilot-contract).
+Collection checks the recorded destination, receipt media ID and returned owner.
+Neither a human decision nor a simulated receipt establishes platform performance.
+The collector has no posting registration, readiness refresh, approval, Post now
+or resource-management entry point.
 
 Official references (documentation reads only):
 
