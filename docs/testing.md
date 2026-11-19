@@ -271,3 +271,16 @@ explicit isolated writes and read-only reports. Migration tests cover v19 backup
 rollback, tampering, repeat application and populated rows; prior delivery tests
 now exercise the explicit v18→v19→v20 sequence. Packaged contracts bootstrap v20
 and migrate outside the checkout. No test establishes real Instagram engagement.
+
+## Phase 4B0 Instagram Insights
+
+`tests/test_instagram_insights.py` exercises the versioned fixture GET interface,
+including two receipt-bound parents on one account and 4/5/6-slide publications.
+It checks day and lifetime units, nulls, explicit zero, delayed and corrected
+snapshots, identity, scope, expiry, rate limits, version drift, deadlines and
+pagination bounds. The end-to-end tests inspect SQLite and the operator report
+and compare publishing, approval and model records around collection. The
+authenticated issuer gate rejects copied evidence. The cost regression in
+`tests/test_measurement.py` covers conflicting jobs with identifiable
+destinations and genuinely global overhead. See the [rehearsal command](operations.md#rehearse-instagram-insights-reads)
+and [documented pilot definitions](specs/measurement.md#instagram-login-pilot-contract).

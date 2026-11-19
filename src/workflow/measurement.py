@@ -1,9 +1,10 @@
 """Non-live immutable measurement ingestion. No provider or credential interface."""
 from dataclasses import asdict, dataclass, replace
+from datetime import timedelta
 import json
 import re
 
-from common.timestamps import serialize_timestamp, utc_now
+from common.timestamps import parse_timestamp, serialize_timestamp, utc_now
 from .offline import require_offline
 from .store import canonical, digest
 
@@ -23,7 +24,26 @@ INSIGHTS = {
     for name, scopes in {'reach': ('post', 'account'), 'saves': ('post',),
                          'shares': ('post',), 'follows': ('post', 'account')}.items()
 }
+
+
+# Instagram Login pilot. A separate offline definition prevents fixture-v1
+# counts from acquiring the units or window semantics of the documented API.
+@dataclass(frozen=True)
+class InstagramInsightDefinition(MetricDefinition):
+    provider_metric: str
+    period: str
+
+
+INSIGHTS_CONTRACT = 'synthetic_instagram_insights_v1'
+INSIGHTS_API_VERSION = 'v27.0'
+INSTAGRAM_INSIGHTS = {
+    'reach': InstagramInsightDefinition('unique_accounts', ('account',), 'synthetic', INSIGHTS_API_VERSION,
+                                      'instagram_login', INSIGHTS_CONTRACT, 'reach', 'day'),
+    'saves': InstagramInsightDefinition('count', ('post',), 'synthetic', INSIGHTS_API_VERSION,
+                                      'instagram_login', INSIGHTS_CONTRACT, 'saved', 'lifetime'),
+}
 DEFINITIONS = {
+    INSIGHTS_CONTRACT: INSTAGRAM_INSIGHTS,
     'synthetic_insights_v1': INSIGHTS,
     'manual_insights_v1': {name: replace(d, provider='manual', api_version='not_applicable',
                                        login='none', capability='manual_insights_v1') for name, d in INSIGHTS.items()},
@@ -185,6 +205,25 @@ def _validated(store, observation):
         binding = 'synthetic_verified' if data['receipt_resource_id'] is not None else 'unverified'
     elif any(data[k] is not None for k in ('post_record_id', 'media_id', 'receipt_resource_id')):
         raise ValueError('account metric cannot carry post/media identity')
+    if data['definition_version'] == INSIGHTS_CONTRACT:
+        from .instagram_receipts import media_id
+        media_id(data['provider_account_id'])
+        if data['provenance'] != 'synthetic':
+            raise ValueError('the Instagram rehearsal requires synthetic provenance')
+        start, end, observed = map(parse_timestamp, (data['window_start'], data['window_end'], data['observed_at']))
+        if data['scope'] == 'account':
+            if (start.hour or start.minute or start.second or end - start != timedelta(days=1)
+                    or observed - start > timedelta(days=90)):
+                raise ValueError('expected one completed UTC day within account history')
+        else:
+            if (binding != 'synthetic_verified' or post['classification'] != 'synthetic_verified'
+                    or data['window_start'] != post['published_at'] or end != observed
+                    or end - start > timedelta(days=30)):
+                raise ValueError('lifetime snapshot requires matching publication time and synthetic receipt')
+            if store.connection.execute(
+                    'SELECT 1 FROM post_records WHERE external_post_id=? AND post_record_id!=? LIMIT 1',
+                    (data['media_id'], data['post_record_id'])).fetchone():
+                raise ValueError('ambiguous media attribution')
     # Identity/provenance/window form the stream. Missing proof may later be supplied
     # by an explicit correction, but never changes the observation's provenance.
     stream_fields = ('social_destination_id', 'post_record_id', 'definition_version', 'metric', 'unit',
@@ -194,7 +233,14 @@ def _validated(store, observation):
                        'api_version', 'login', 'capability', 'source_response_hash', 'evidence_ref')
     evidence = {k: data[k] for k in evidence_fields}
     evidence.update(destination_key=dest['destination_key'], publication_binding=binding, authenticated=False)
+    if data['definition_version'] == INSIGHTS_CONTRACT:
+        evidence.update(period=definition.period, provider_metric=definition.provider_metric)
     return data, stream_hash, evidence
+
+
+def ingest_authenticated(store, *, proof):
+    """Reserved issuer gate. Live token, destination, metric and receipt attestation require 4B1."""
+    raise ValueError('no authenticated Instagram Insights issuer is registered')
 
 
 def ingest_offline(store, observations: list[Observation]) -> list[int]:
